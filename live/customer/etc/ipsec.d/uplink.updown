@@ -1,0 +1,28 @@
+#!/bin/bash
+KEY=$(echo ${PLUTO_MARK_OUT}| cut -d'/' -f1)
+VTI=${PLUTO_CONNECTION}_VTI
+UPLINK_NR=$(echo ${PLUTO_CONNECTION}| cut -d'-' -f2)
+
+printf "\n\n${vti}\n\n"
+
+case "${PLUTO_VERB}" in
+    up-client)
+        printf "\n\ncreating interface and routing rules\n\n"
+        ip tunnel add ${VTI} local ${PLUTO_ME} remote ${PLUTO_PEER_ID} mode vti key ${KEY}
+        # bring interfaces up
+        ip link set up dev ${VTI}
+        # set ip adresses on interfaces
+        ip -6 addr add fd33::${UPLINK_NR}:1/127
+        # enable routing
+        sysctl -w net.ipv4.conf.all.forwarding=1
+        sysctl -w net.ipv6.conf.all.forwarding=1
+        ;;
+    down-client)
+        printf "\n\ncleaning up\n\n"
+        ip link del dev ${VTI}
+        ;;
+    up-client-v6)
+        ;;
+    down-client-v6)
+        ;;
+esac

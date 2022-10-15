@@ -1,0 +1,9 @@
+#!/bin/bash
+servicename=vpnc
+servicefile=/etc/systemd/system/ncubed-$servicename.service
+if [ -L $servicefile ]; then
+  rm $servicefile
+fi
+ln -s /opt/ncubed/$servicename.service/ncubed-$servicename.service $servicefile
+systemctl enable ncubed-$servicename
+systemctl restart ncubed-$servicename
