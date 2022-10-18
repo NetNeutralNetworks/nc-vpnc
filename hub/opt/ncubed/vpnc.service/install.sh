@@ -7,5 +7,6 @@ fi
 ln -s /opt/ncubed/$servicename.service/ncubed-$servicename.service $servicefile
 /usr/bin/systemctl disable ipsec.service
 /usr/bin/systemctl stop ipsec.service
+/usr/bin/systemctl daemon-reload
 /usr/bin/systemctl enable ncubed-$servicename
 /usr/bin/systemctl restart ncubed-$servicename

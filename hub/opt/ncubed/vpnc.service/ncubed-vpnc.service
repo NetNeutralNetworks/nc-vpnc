@@ -7,8 +7,8 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=-python3 /opt/ncubed/vpnc.service/main.py
-# ExecStopPre=ip netns exec UNTRUST ipsec stop
+ExecStart=-/opt/ncubed/vpnc.service/.venv/bin/python3 /opt/ncubed/vpnc.service/main.py start
+ExecStopPost=/opt/ncubed/vpnc.service/.venv/bin/python3 /opt/ncubed/vpnc.service/main.py stop
 Restart=on-failure
 RestartSec=15
 RemainAfterExit=true

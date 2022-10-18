@@ -1,13 +1,12 @@
 #! /bin/python3
-# import time
-import json
+import argparse
 import logging
 import os
 import re
 import subprocess
-import sys  # , glob
+import sys
 from logging.handlers import RotatingFileHandler
-from typing import Union
+from time import sleep
 
 import vici
 from watchdog.events import (
@@ -46,80 +45,90 @@ logger.addHandler(rothandler)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-def _load_ipsec_config():
+# Define what should happen when file is created, modified or deleted.
+class Handler(PatternMatchingEventHandler):
+    """
+    Handler for the event monitoring.
+    """
+
+    def on_created(self, event: FileCreatedEvent):
+        logger.info("File %s: %s", event.event_type, event.src_path)
+        # update_customer_netnamespaces()
+
+    def on_modified(self, event: FileModifiedEvent):
+        logger.info("File %s: %s", event.event_type, event.src_path)
+        update_customer_netnamespaces()
+
+    def on_deleted(self, event: FileDeletedEvent):
+        logger.info("File %s: %s", event.event_type, event.src_path)
+        update_customer_netnamespaces()
+
+
+observer = Observer()
+
+# Configure the event handler that watches directories. This doesn't start the handler.
+observer.schedule(
+    event_handler=Handler(
+        patterns=["*.conf"], ignore_patterns=[], ignore_directories=True
+    ),
+    path=CUST_CONN_PATH,
+    recursive=True,
+)
+# The handler will not be running as a thread.
+observer.daemon = False
+
+
+def _load_swanctl_config():
     """Load all swanctl strongswan configurations. Cannot find a way to do this with vici"""
     subprocess.run(
         "swanctl --load-all",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
-        # check=True,
+        check=True,
     )
 
 
-def _initiate_ipsec_connection(name: str):
+def _initiate_swanctl_connection(name: str):
     """Initiate an IKE/IPsec connection"""
     subprocess.run(
         f"swanctl --initiate --ike {name} --child {name}",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
-        # check=True,
+        check=False,
     )
 
 
-# def _get_ip_netns() -> list[dict[str, str]]:
-#     """Retrieves a list of all network namespaces."""
-#     run = subprocess.run(
-#         "ip -j netns",
-#         stdout=subprocess.PIPE,
-#         stderr=subprocess.STDOUT,
-#         shell=True,
-#         check=True,
-#     ).stdout.decode()
-
-#     return json.loads(run)
-
-
-def _get_ip_link(netns: str = None) -> list[dict[str, Union[str, list]]]:
-    """Retrieves a list interfaces (in a network namespace)."""
-    if netns:
-        cmd = f"ip -j -n {netns} link"
-    else:
-        cmd = "ip -j link"
-    run = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=True,
-        # check=True,
-    ).stdout.decode()
-
-    return json.loads(run)
-
-
 def update_customer_netnamespaces():
+    """
+    Adds customer namespaces and VPN configuration per customer.
+    """
     logger.info("Updating customer namespaces")
+    # Create a session to manage ipsec programmatically and load all connections.
+    v_client: vici.Session = vici.Session()
+    _load_swanctl_config()
     # Get all existing customer namespaces (not the three default namespaces)
     diff_netns = {ns for ns in os.listdir("/run/netns") if ns not in DEFAULT_NETNS_LIST}
-    # load all connections
-    _load_ipsec_config()
+
     # Retrieves all customer IDs in IPsec config files
     vpns = {
         x.decode()
-        for x in vc.get_conns()["conns"]
+        for x in v_client.get_conns()["conns"]
         if re.match(r"c\d{4}-\d{2}", x.decode())
     }
-    ref_netns = {x.split("-")[0] for x in vpns}
+    ref_netns = vpns
 
     for netns in ref_netns:  # .difference(diff_netns):
-        logger.info(f"Creating netns {netns}")
+        logger.info("Creating %s netns.", netns)
+        cust_id, tun_id = netns[1:].split('-')
         veth_i = f"{netns}_I"
         veth_e = f"{netns}_E"
         v6_segment_3 = netns[0]  # outputs c
-        v6_segment_4 = int(netns.strip("c"))  # outputs 1
+        v6_segment_4 = int(cust_id)  # outputs 1
+        v6_segment_5 = int(tun_id)  # outputs 1
         # outputs fdcc:0:c:1:0
-        v6_cust_space = f"fdcc:0:{v6_segment_3}:{v6_segment_4}:0"
+        v6_cust_space = f"fdcc:0:{v6_segment_3}:{v6_segment_4}:{v6_segment_5}"
         subprocess.run(
             f"""
             ip netns add {netns}
@@ -142,77 +151,48 @@ def update_customer_netnamespaces():
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             shell=True,
-            # check=True,
+            check=False,
         )
+
+        xfrm = f"xfrm-{netns}"
+        xfrm_id = int(cust_id) * 100 + int(tun_id)
+
+        logger.info("Creating %s interface in %s netns.", xfrm, netns)
+        # links = {x["ifname"] for x in _get_ip_link(netns) if x["ifname"] != "lo"}
+        # if not xfrm in links:
+        subprocess.run(
+            f"""
+            ip -n {UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {UNTRUSTED_IF_NAME} if_id {xfrm_id}
+            ip -n {UNTRUSTED_NETNS} link set {xfrm} netns {netns}
+            ip -n {netns} link set dev {xfrm} up
+            ip -n {netns} address add {CUST_TUNNEL_PREFIX}.{int(tun_id)}.1/24 dev {xfrm}
+            """,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=True,
+            check=False,
+        )  # .stdout.decode().lower()
+
+        _initiate_swanctl_connection(netns)
 
     # Remove any configured namespace that isn't in the IPsec configuration.
     for netns in set(diff_netns).difference(ref_netns):
-        logger.info(f"Removing netns {netns}")
+        logger.info("Removing %s netns.", netns)
         subprocess.run(
             f"ip netns del {netns}",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             shell=True,
-            # check=True,
+            check=True,
         )
 
-    for vpn in vpns:
-        netns, vpn_id = vpn.split("-")
-        xfrm = f"xfrm-{vpn}"
-        xfrm_id = int(netns.strip("c")) * 100 + int(vpn_id)
 
-        links = {x["ifname"] for x in _get_ip_link(netns) if x["ifname"] != "lo"}
-        if not xfrm in links:
-            subprocess.run(
-                f"""
-                ip -n {UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {UNTRUSTED_IF_NAME} if_id {xfrm_id}
-                ip -n {UNTRUSTED_NETNS} link set {xfrm} netns {netns}
-                ip -n {netns} link set dev {xfrm} up
-                ip -n {netns} address add {CUST_TUNNEL_PREFIX}.{int(vpn_id)}.1/24 dev {xfrm}
-                """,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                shell=True,
-                # check=True,
-            )  # .stdout.decode().lower()
-
-        _initiate_ipsec_connection(vpn)
-
-
-observer = Observer()
-
-
-# Define what should happen when file is created, modified or deleted.
-class Handler(PatternMatchingEventHandler):
-    def on_created(self, event: FileCreatedEvent):
-        logger.info(f"File {event.event_type}: {event.src_path}")
-        # update_customer_netnamespaces()
-
-    def on_modified(self, event: FileModifiedEvent):
-        logger.info(f"File {event.event_type}: {event.src_path}")
-        update_customer_netnamespaces()
-
-    def on_deleted(self, event: FileDeletedEvent):
-        logger.info(f"File {event.event_type}: {event.src_path}")
-        update_customer_netnamespaces()
-
-
-# Configure the event handler that watches directories. This doesn't start the handler.
-observer.schedule(
-    event_handler=Handler(
-        patterns=["*.conf"], ignore_patterns=[], ignore_directories=True
-    ),
-    path=CUST_CONN_PATH,
-    recursive=True,
-)
-# The handler will not be running as a thread.
-observer.daemon = False
-
-
-def main():
+def main_start():
     """
     Creates the trusted and untrusted namespaces and aliases the default namespace to ROOT.
     """
+    logger.info("#" * 100)
+    logger.info("Starting ncubed VPNC strongSwan daemon.")
 
     # Mounts the default network namespace with the alias ROOT. This makes for consistent operation
     # between all namespaces
@@ -225,14 +205,14 @@ def main():
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
-        # check=True,
+        check=False,
     )  # .stdout.decode().lower()
 
     # The trusted namespace has no internet connectivity.
     # IPv6 routing is enabled on the namespace.
     # There is a link between the ROOT namespace and the trusted namespace.
     # The management prefix is reachable from this namespace.
-    logger.info(f"Setting up {TRUSTED_NETNS} netns")
+    logger.info("Setting up %s netns.", TRUSTED_NETNS)
     subprocess.run(
         f"""
         ip netns add {TRUSTED_NETNS}
@@ -252,14 +232,14 @@ def main():
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
-        # check=True,
+        check=False,
     ).stdout.decode().lower()
 
     # The untrusted namespace has internet connectivity.
     # After creating this namespace, ipsec is restarted in this namespace.
     # No IPv6 routing is enabled on this namespace.
     # There is no connectivity to other namespaces.
-    logger.info(f"Setting up {UNTRUSTED_NETNS} netns")
+    logger.info("Setting up %s netns", UNTRUSTED_NETNS)
     subprocess.run(
         f"""
         ip netns add {UNTRUSTED_NETNS}
@@ -273,26 +253,47 @@ def main():
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
-        # check=True,
+        check=False,
     ).stdout.decode().lower()
 
-    _load_ipsec_config()
-
-    # # Test for the customer prefixes.
-    # logger.warning(f"Added route for testing from localhost, disable in production!!!")
-    # subprocess.run(f'''
-    #     ip -6 route add {CUSTOMER_PREFIX} via {TRUSTED_TRANSIT}::1
-    # ''', stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True).stdout.decode().lower()
-
-
-if __name__ == "__main__":
-    logger.info("#" * 100)
-    logger.info("Started VPNC Strongswan daemon")
-
-    main()
-    vc: vici.Session = vici.Session()
     update_customer_netnamespaces()
 
     # Start the event handler.
-    logger.info("Monitoring config changes")
+    logger.info("Monitoring config changes.")
     observer.start()
+
+
+def main_stop():
+    """
+    Cleans up part of the default configuration.
+    """
+    logger.info("#" * 100)
+    logger.info("Stopping ncubed VPNC strongSwan daemon.")
+
+    logger.info("Stopping the monitoring config changes.")
+    observer.stop()
+
+    # Removing the route to management as it will be unreachable. Also set the veth interfaces down.
+    logger.info("Cleaning up %s netns.", TRUSTED_NETNS)
+    subprocess.run(
+        f"""
+        ip -6 route del {MGMT_PREFIX} via {TRUSTED_TRANSIT}::1
+        ip link set dev {TRUSTED_NETNS}_I down
+        ip -n {TRUSTED_NETNS} link set dev {TRUSTED_NETNS}_E down
+    """,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=True,
+    ).stdout.decode().lower()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Control the VPNC Strongswan daemon")
+    subparser = parser.add_subparsers(help="Sub command help")
+    parser_start = subparser.add_parser("start", help="Starts the VPN service")
+    parser_start.set_defaults(func=main_start)
+    parser_stop = subparser.add_parser("stop", help="Stops the VPN service")
+    parser_stop.set_defaults(func=main_stop)
+    args = parser.parse_args()
+    args.func()
