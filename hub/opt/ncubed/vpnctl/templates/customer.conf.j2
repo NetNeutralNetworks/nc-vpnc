@@ -1,0 +1,53 @@
+      connections {
+          # Section for an IKE connection named <conn>.
+          {{ customer_id }} {
+              # IKE major version to use for connection.
+              version = {{ ike_version }}
+              # Local address(es) to use for IKE communication, comma separated.
+              local_addrs = %any
+              # Remote address(es) to use for IKE communication, comma separated.
+              remote_addrs = {{ peeraddress }}
+              aggressive = no
+              dpd_delay = 30s
+              # Default inbound XFRM interface ID for children.
+              if_id_in = {{ customer_id }}
+              # Default outbound XFRM interface ID for children.
+              if_id_out = {{ customer_id }}
+              # Section for a local authentication round.
+              local {
+                  auth = psk
+                  id = {{ customer_id }}
+              }
+              # Section for a remote authentication round.
+              remote {
+                  auth = psk
+                  id = {{ customer_id }}
+              }
+              proposals = {{ ike_proposal }} #aes128gcm16-sha256-ecp384
+              rekey_time = {{ ike_lifetime }}
+
+              children {
+                  # CHILD_SA configuration sub-section.
+                  {% if traffic_selectors is not defined %}
+                  {{ customer_id }} {
+                      # Local traffic selectors to include in CHILD_SA.
+                      local_ts = 0.0.0.0/0
+                      # Remote selectors to include in CHILD_SA.
+                      remote_ts = 0.0.0.0/0
+                      life_time = {{ ipsec_lifetime }}
+                      rekey_bytes = {{ ipsec_bytes }}
+                      esp_proposals = {{ ipsec_proposal }} #aes128gcm16-aes128gmac-ecp384
+                      start_action = start
+                  }
+                  {% elif traffic_selectors is defined and ike_version == 2 %}
+                  {% elif traffic_selectors is defined and ike_version == 1 %}
+                  {% endif %}
+              }
+          }
+
+      secrets {
+         ike-{{ customer_id }} {
+            id = {{ customer_id }}
+            secret = "{{ psk }}"
+         }
+      }

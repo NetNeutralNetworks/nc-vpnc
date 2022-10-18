@@ -1,0 +1,17 @@
+[Unit]
+Description=ncubed VPNC strongSwan IPsec init
+StartLimitInterval=200
+StartLimitBurst=5
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=-python3 /opt/ncubed/vpnc.service/main.py
+# ExecStopPre=ip netns exec UNTRUST ipsec stop
+Restart=on-failure
+RestartSec=15
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
