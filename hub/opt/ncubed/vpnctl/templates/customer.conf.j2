@@ -1,53 +1,44 @@
-      connections {
-          # Section for an IKE connection named <conn>.
-          {{ customer_id }} {
-              # IKE major version to use for connection.
-              version = {{ ike_version }}
-              # Local address(es) to use for IKE communication, comma separated.
-              local_addrs = %any
-              # Remote address(es) to use for IKE communication, comma separated.
-              remote_addrs = {{ peeraddress }}
-              aggressive = no
-              dpd_delay = 30s
-              # Default inbound XFRM interface ID for children.
-              if_id_in = {{ customer_id }}
-              # Default outbound XFRM interface ID for children.
-              if_id_out = {{ customer_id }}
-              # Section for a local authentication round.
-              local {
-                  auth = psk
-                  id = {{ customer_id }}
-              }
-              # Section for a remote authentication round.
-              remote {
-                  auth = psk
-                  id = {{ customer_id }}
-              }
-              proposals = {{ ike_proposal }} #aes128gcm16-sha256-ecp384
-              rekey_time = {{ ike_lifetime }}
+connections {
+{% for conn in connections %}
+    {# t_id is tunnel_id for customer #}
+    {{ conn.cust_id }}-{{ conn.t_id }} : {{ conn.ike_proposal }} {
+        # Remote address(es) to use for IKE communication, comma separated.
+        remote_addrs = {{ conn.vpn_peer_ip }}
+        # Default inbound XFRM interface ID for children.
+        if_id_in = {{ conn.xfrm_id }}
+        # Default outbound XFRM interface ID for children.
+        if_id_out = {{ conn.xfrm_id }}
+        # Section for a local authentication round.
+        local {
+            id = {{ conn.local_id }}
+        }
+        # Section for a remote authentication round.
+        remote {
+            id = {{ conn.remote_id }}
+        }
 
-              children {
-                  # CHILD_SA configuration sub-section.
-                  {% if traffic_selectors is not defined %}
-                  {{ customer_id }} {
-                      # Local traffic selectors to include in CHILD_SA.
-                      local_ts = 0.0.0.0/0
-                      # Remote selectors to include in CHILD_SA.
-                      remote_ts = 0.0.0.0/0
-                      life_time = {{ ipsec_lifetime }}
-                      rekey_bytes = {{ ipsec_bytes }}
-                      esp_proposals = {{ ipsec_proposal }} #aes128gcm16-aes128gmac-ecp384
-                      start_action = start
-                  }
-                  {% elif traffic_selectors is defined and ike_version == 2 %}
-                  {% elif traffic_selectors is defined and ike_version == 1 %}
-                  {% endif %}
-              }
-          }
+        children {
+            # CHILD_SA configuration sub-section.
+    {# ts are traffic selectors #}
+    {% if ts is not defined or not ts %}
+            {{ conn.cust_id }}-{{ conn.t_id }} : {{ conn.ipsec_proposal }} {}
+    {% elif ts is defined and ts %}
+            {{ conn.cust_id }}-{{ conn.t_id }} : {{ conn.ipsec_proposal }} {
+                # Local traffic selectors to include in CHILD_SA.
+                local_ts = {{ conn.ts.local }}
+                # Remote selectors to include in CHILD_SA.
+                remote_ts = {{ conn.ts.remote }}
+            }
+        }
+    {% endif %}
+    }
+{% endfor %}
+}
 
-      secrets {
-         ike-{{ customer_id }} {
-            id = {{ customer_id }}
-            secret = "{{ psk }}"
-         }
-      }
+secrets {
+{% for connection in connections %}
+    {{ conn.cust_id }}-{{ conn.t_id }} {
+        secret = "{{ conn.psk }}"
+    }
+{% endfor %}
+}

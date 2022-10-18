@@ -1,23 +1,25 @@
 connections {
     # Section for an IKE connection named <conn>.
-    uplink1 : uplink-defaults {
-        # Local address(es) to use for IKE communication, comma separated.
-        local_addrs = %any
+{% for conn in connections %}
+    {{ conn.name }} : uplink-defaults {
         # Remote address(es) to use for IKE communication, comma separated.
-        remote_addrs = {{ uplink_remote_addr_1 }}
+        remote_addrs = {{ conn.vpn_peer_ip }}
+        # Section for a local authentication round.
+        local {
+            id = {{ conn.local_id }}
+        }
+        # Section for a remote authentication round.
+        remote {
+            id = {{ conn.remote_id }}
+        }
     }
-
-    uplink2 : uplink-defaults{
-        # Local address(es) to use for IKE communication, comma separated.
-        local_addrs = %any
-        # Remote address(es) to use for IKE communication, comma separated.
-        remote_addrs = {{ uplink_remote_addr_2 }}
-    }
+{% endfor %}
 }
 
 secrets {
-    ike-1 {
-        id = uplink.ncubed.io
-        secret = "{{ psk }}"
+{% for connection in connections %}
+    ike-{{ conn.name }} {
+        secret = "{{ conn.psk }}"
     }
+{% endfor %}
 }

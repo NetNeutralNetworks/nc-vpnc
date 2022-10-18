@@ -1,12 +1,13 @@
 #! /bin/python3
 import argparse
+import json
 import logging
 import os
+import pathlib
 import re
 import subprocess
 import sys
 from logging.handlers import RotatingFileHandler
-from time import sleep
 
 import vici
 from watchdog.events import (
@@ -16,19 +17,6 @@ from watchdog.events import (
     PatternMatchingEventHandler,
 )
 from watchdog.observers import Observer
-
-TRUSTED_NETNS = "TRUST"
-UNTRUSTED_NETNS = "UNTRUST"
-UNTRUSTED_IF_NAME = "eth4"  # ens4
-UNTRUSTED_IF_IP = "192.168.0.150/20"
-UNTRUSTED_IF_GW = "192.168.0.1"
-TRUSTED_TRANSIT = "fd33:2:f"
-MGMT_PREFIX = "fd33::/16"
-CUST_TUNNEL_PREFIX = "100.99"
-CUST_PREFIX = "fdcc::/16"
-CUST_CONN_PATH = "/etc/swanctl/conf.d"
-DEFAULT_NETNS_LIST = ["ROOT", TRUSTED_NETNS, UNTRUSTED_NETNS]
-
 
 # LOGGER
 logger = logging.getLogger("ncubed vpnc daemon")
@@ -44,8 +32,30 @@ rothandler.setFormatter(formatter)
 logger.addHandler(rothandler)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
+# Load the configuration
+_config_path = pathlib.Path(__file__).parent.joinpath("config.json")
+logger.info("Loading configuration from '%s'.", _config_path)
+with open(_config_path, encoding="utf-8") as h:
+    _config = json.load(h)
 
-# Define what should happen when file is created, modified or deleted.
+TRUSTED_NETNS = "TRUST"  # name of trusted network namespace
+UNTRUSTED_NETNS = "UNTRUST"  # name of outside/untrusted network namespace
+UNTRUSTED_IF_NAME = _config["untrusted_if_name"]  # name of outside interface
+UNTRUSTED_IF_IP = _config["untrusted_if_ip"]  # IP address of outside interface
+UNTRUSTED_IF_GW = _config["untrusted_if_gw"]  # default gateway of outside interface
+TRUSTED_TRANSIT = _config[
+    "trusted_transit"
+]  # IPv6 transit network between management/ROOT and trusted ns
+MGMT_PREFIX = _config["mgmt_prefix"]  # IPv6 prefix for client traffic from Palo Alto
+CUST_TUNNEL_PREFIX = _config[
+    "customer_tunnel_prefix"
+]  # IP prefix for tunnel interface to customers
+CUST_PREFIX = _config["customer_prefix"]  # IPv6 prefix for NAT64 to customer networks
+VPN_CONFIG_PATH = "/etc/swanctl/conf.d"
+DEFAULT_NETNS_LIST = ["ROOT", TRUSTED_NETNS, UNTRUSTED_NETNS]
+
+
+# Define what should happen when files are created, modified or deleted.
 class Handler(PatternMatchingEventHandler):
     """
     Handler for the event monitoring.
@@ -71,7 +81,7 @@ observer.schedule(
     event_handler=Handler(
         patterns=["*.conf"], ignore_patterns=[], ignore_directories=True
     ),
-    path=CUST_CONN_PATH,
+    path=VPN_CONFIG_PATH,
     recursive=True,
 )
 # The handler will not be running as a thread.
@@ -111,7 +121,7 @@ def update_customer_netnamespaces():
     # Get all existing customer namespaces (not the three default namespaces)
     diff_netns = {ns for ns in os.listdir("/run/netns") if ns not in DEFAULT_NETNS_LIST}
 
-    # Retrieves all customer IDs in IPsec config files
+    # Retrieves all customer VPN connections in IPsec config files
     vpns = {
         x.decode()
         for x in v_client.get_conns()["conns"]
@@ -121,7 +131,7 @@ def update_customer_netnamespaces():
 
     for netns in ref_netns:  # .difference(diff_netns):
         logger.info("Creating %s netns.", netns)
-        cust_id, tun_id = netns[1:].split('-')
+        cust_id, tun_id = netns[1:].split("-")
         veth_i = f"{netns}_I"
         veth_e = f"{netns}_E"
         v6_segment_3 = netns[0]  # outputs c
@@ -158,8 +168,6 @@ def update_customer_netnamespaces():
         xfrm_id = int(cust_id) * 100 + int(tun_id)
 
         logger.info("Creating %s interface in %s netns.", xfrm, netns)
-        # links = {x["ifname"] for x in _get_ip_link(netns) if x["ifname"] != "lo"}
-        # if not xfrm in links:
         subprocess.run(
             f"""
             ip -n {UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {UNTRUSTED_IF_NAME} if_id {xfrm_id}

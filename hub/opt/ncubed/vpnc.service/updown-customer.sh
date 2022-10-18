@@ -28,8 +28,11 @@ up-client)
     ;;
 down-client)
     printf "Cleaning up interfaces\n\n"
+    # remove NAT64
     ip netns exec ${NETNS} jool instance remove default
+    # remove default route over VPN
     ip -n ${NETNS} route del 0.0.0.0/0 dev ${XFRM}
+    # remmove IPv6 route to VPN tunnel
     ip -n ${TRUSTED_NETNS} -6 route del ${V6_CUST_TUNNEL_SPACE}::/96
     ;;
 up-client-v6) ;;

@@ -1,0 +1,10 @@
+{
+    "untrusted_if_name": "eth4",
+    "untrusted_if_ip": "192.168.0.150/20",
+    "untrusted_if_gw": "192.168.0.1",
+    "trusted_transit": "fd33:2:f",
+    "mgmt_prefix": "fd33::/16",
+    "customer_tunnel_prefix": "100.99",
+    "customer_prefix": "fdcc::/16",
+    "ike_local_id": "192.168.0.150"
+}
