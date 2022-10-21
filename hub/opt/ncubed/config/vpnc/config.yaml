@@ -1,0 +1,15 @@
+---
+untrusted_if_name: "eth4"
+untrusted_if_ip: "192.168.0.150/20"
+untrusted_if_gw: "192.168.0.1"
+# Prefix of the management network
+mgmt_prefix: "fd33::/16"
+# Prefix for NAT64 to customer networks
+customer_prefix: "fdcc::/16"
+# Tunnel prefix must be a /16
+customer_tunnel_prefix: "100.99.0.0/16"
+# Transit prefix must be a /127
+trusted_transit_prefix: "fd33:2:f::/127"
+# IKE local identifier for VPNs
+local_id: "192.168.0.150"
+...

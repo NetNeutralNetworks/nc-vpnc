@@ -1,0 +1,19 @@
+---
+customer_id: {{ cust_id }}
+customer_name: {{ cust_name }}
+tunnels:
+  {{ t_id }}:
+{% if ike_version is defined %}
+    ike_version: {{ ike_version }}
+{% endif %}
+    remote_peer_ip: {{ remote_peer_ip }}
+    psk: {{ psk }}
+    ike_proposal: {{ ike_proposal }}
+    ipsec_proposal: {{ ipsec_proposal }}
+    traffic_selectors:
+      local:
+        - 10.20.0.0/16
+        - 10.21.0.0/16
+      remote:
+        - 172.30.0.0/16
+        - 172.31.0.0/16

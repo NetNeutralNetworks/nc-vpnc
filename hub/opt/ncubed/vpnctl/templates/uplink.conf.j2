@@ -3,8 +3,12 @@ connections {
 {% for conn in connections %}
     {{ conn.name }} : uplink-defaults {
         # Remote address(es) to use for IKE communication, comma separated.
-        remote_addrs = {{ conn.vpn_peer_ip }}
+        remote_addrs = {{ conn.remote_peer_ip }}
         # Section for a local authentication round.
+        # Default inbound XFRM interface ID for children.
+        if_id_in = 0x{{ conn.xfrm_id }}
+        # Default outbound XFRM interface ID for children.
+        if_id_out = 0x{{ conn.xfrm_id }}
         local {
             id = {{ conn.local_id }}
         }
