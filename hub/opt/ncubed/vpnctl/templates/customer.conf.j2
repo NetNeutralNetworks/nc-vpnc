@@ -1,7 +1,8 @@
 connections {
 {%- for conn in connections %}
     {#- t_id is tunnel_id for customer #}
-    {{ conn.cust_id }}-{{ conn.t_id }} : {{ conn.ike_proposal }} {
+    # Section for an IKE connection named <conn>.
+    {{ conn.remote }}-{{ conn.t_id }} : {{ conn.ike_proposal }} {
     {%- if conn.ike_version %}
         # IKE major version to use for connection.
         version = {{ conn.ike_version }}
@@ -25,9 +26,9 @@ connections {
             # CHILD_SA configuration sub-section.
     {#- ts are traffic selectors #}
     {%- if conn.ts is not defined or not conn.ts %}
-            {{ conn.cust_id }}-{{ conn.t_id }} : {{ conn.ipsec_proposal }} {}
+            {{ conn.remote }}-{{ conn.t_id }} : {{ conn.ipsec_proposal }} {}
     {%- elif conn.ts is defined and conn.ts %}
-            {{ conn.cust_id }}-{{ conn.t_id }} : {{ conn.ipsec_proposal }} {
+            {{ conn.remote }}-{{ conn.t_id }} : {{ conn.ipsec_proposal }} {
                 # Local traffic selectors to include in CHILD_SA.
                 local_ts = {{ conn.ts.local }}
                 # Remote selectors to include in CHILD_SA.
@@ -41,7 +42,7 @@ connections {
 
 secrets {
 {%- for conn in connections %}
-    {{ conn.cust_id }}-{{ conn.t_id }} {
+    ike-{{ conn.remote }}-{{ conn.t_id }} {
         secret = "{{ conn.psk }}"
     }
 {%- endfor %}

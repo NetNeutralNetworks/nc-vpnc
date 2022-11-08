@@ -1,29 +1,21 @@
 connections {
     # Section for an IKE connection named <conn>.
-{% for conn in connections %}
-    {{ conn.name }} : uplink-defaults {
+{%- for conn in connections %}
+    {{ conn.remote }}-{{ conn.t_id }} : uplink-defaults {
         # Remote address(es) to use for IKE communication, comma separated.
         remote_addrs = {{ conn.remote_peer_ip }}
-        # Section for a local authentication round.
         # Default inbound XFRM interface ID for children.
         if_id_in = 0x{{ conn.xfrm_id }}
         # Default outbound XFRM interface ID for children.
         if_id_out = 0x{{ conn.xfrm_id }}
-        local {
-            id = {{ conn.local_id }}
-        }
-        # Section for a remote authentication round.
-        remote {
-            id = {{ conn.remote_id }}
-        }
     }
-{% endfor %}
+{%- endfor %}
 }
 
 secrets {
-{% for connection in connections %}
-    ike-{{ conn.name }} {
+{%- for conn in connections %}
+    ike-{{ conn.remote }}-{{ conn.t_id }} {
         secret = "{{ conn.psk }}"
     }
-{% endfor %}
+{%- endfor %}
 }

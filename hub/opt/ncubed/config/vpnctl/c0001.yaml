@@ -3,9 +3,9 @@ customer_name: SomeCustomer Co.
 tunnels:
   0:
     remote_peer_ip: 192.168.0.152
-    # remote_id: 192.168.0.152
+    remote_id: 192.168.0.152
     psk: DitIsEENV4ilugP0sSwerd!
-    # ike_version: 2
+    ike_version: 2
     ike_proposal: ike-aes128gcm16-sha256-ecp384-prfsha384
     ipsec_proposal: ipsec-aes128gcm16-aes128gmac-ecp384
     # traffic_selectors:

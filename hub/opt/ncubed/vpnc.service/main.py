@@ -229,7 +229,8 @@ def update_customer_connection():
     # Get all existing customer namespaces (not the three default namespaces)
     diff_netns = {ns for ns in os.listdir("/run/netns") if ns not in DEFAULT_NETNS_LIST}
 
-    # Retrieves all customer VPN connections in IPsec config files
+    # Retrieves all customer VPN connections in IPsec config files. decode is used as the strings
+    # in x are binary, not UTF-8
     connections = {
         x.decode() for x in vcs.get_conns()["conns"] if CUST_RE.match(x.decode())
     }
