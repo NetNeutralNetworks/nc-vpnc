@@ -85,12 +85,12 @@ class Handler(PatternMatchingEventHandler):
     def on_created(self, event: FileCreatedEvent):
         logger.info("File %s: %s", event.event_type, event.src_path)
         conn = pathlib.Path(event.src_path).stem
-        configure_customer_connection(conn)
+        add_customer_connection(conn)
 
     def on_modified(self, event: FileModifiedEvent):
         logger.info("File %s: %s", event.event_type, event.src_path)
         conn = pathlib.Path(event.src_path).stem
-        configure_customer_connection(conn)
+        add_customer_connection(conn)
 
     def on_deleted(self, event: FileDeletedEvent):
         logger.info("File %s: %s", event.event_type, event.src_path)
@@ -140,7 +140,7 @@ def _terminate_swanctl_connection(connection: str):
     logger.debug(output)
 
 
-def configure_customer_connection(connection):
+def add_customer_connection(connection):
     """Configures one customer connection, which includes a namespace and VPN connection."""
     # Check first if it's a customer connection
     if not CUST_RE.match(connection):
@@ -302,7 +302,7 @@ def update_customer_connection():
             continue
 
         # Configure the connection
-        configure_customer_connection(connection)
+        add_customer_connection(connection)
 
     # Remove any configured namespace that isn't in the IPsec configuration.
     for connection in set(diff_netns).difference(connections):
