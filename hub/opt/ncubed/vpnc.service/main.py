@@ -9,8 +9,9 @@ import subprocess
 import sys
 from logging.handlers import RotatingFileHandler
 
-import yaml
+import jinja2
 import vici
+import yaml
 from watchdog.events import (
     FileCreatedEvent,
     FileDeletedEvent,
@@ -40,24 +41,31 @@ if not CONFIG_PATH.exists():
     logger.critical("Configuration not found at '%s'.", CONFIG_PATH)
     sys.exit(1)
 with open(CONFIG_PATH, encoding="utf-8") as h:
-    _config = yaml.safe_load(h)
+    try:
+        CONFIG = yaml.safe_load(h)
+    except yaml.YAMLError:
+        logger.critical("Configuration is not valid '%s'.", CONFIG_PATH, exc_info=True)
+        sys.exit(1)
+
+# Load the Jinja templates
+VPNC_TEMPLATE_DIR = pathlib.Path(__file__).parent.joinpath("templates")
+VPNC_J2_ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(VPNC_TEMPLATE_DIR))
 
 # Match only customer connections
 CUST_RE = re.compile(r"c\d{4}-\d{3}")
 
 TRUSTED_NETNS = "TRUST"  # name of trusted network namespace
 UNTRUSTED_NETNS = "UNTRUST"  # name of outside/untrusted network namespace
-UNTRUSTED_IF_NAME = _config["untrusted_if_name"]  # name of outside interface
-UNTRUSTED_IF_IP = _config["untrusted_if_ip"]  # IP address of outside interface
-UNTRUSTED_IF_GW = _config["untrusted_if_gw"]  # default gateway of outside interface
-TRUSTED_TRANSIT_PREFIX = ipaddress.IPv6Network(
-    _config["trusted_transit_prefix"]
-)  # IPv6 transit network between management/ROOT and trusted ns
-MGMT_PREFIX = _config["mgmt_prefix"]  # IPv6 prefix for client traffic from Palo Alto
-CUST_TUNNEL_PREFIX = ipaddress.IPv4Network(
-    _config["customer_tunnel_prefix"]
-)  # IP prefix for tunnel interface to customers
-CUST_PREFIX = _config["customer_prefix"]  # IPv6 prefix for NAT64 to customer networks
+UNTRUSTED_IF_NAME = CONFIG["untrusted_if_name"]  # name of outside interface
+UNTRUSTED_IF_IP = CONFIG["untrusted_if_ip"]  # IP address of outside interface
+UNTRUSTED_IF_GW = CONFIG["untrusted_if_gw"]  # default gateway of outside interface
+# IPv6 transit network between management/ROOT and trusted net namespace
+TRUSTED_TRANSIT_PREFIX = ipaddress.IPv6Network(CONFIG["trusted_transit_prefix"])
+MGMT_PREFIX = CONFIG["mgmt_prefix"]  # IPv6 prefix for client traffic from Palo Alto
+# IP prefix for tunnel interfaces to customers
+CUST_TUNNEL_PREFIX = ipaddress.IPv4Network(CONFIG["customer_tunnel_prefix"])
+CUST_PREFIX = "fdcc:0:c::/48"  # IPv6 prefix for NAT64 to customer networks
+CUST_PREFIX_START = "fdcc:0:c"  # IPv6 prefix start for NAT64 to customer networks
 VPN_CONFIG_PATH = pathlib.Path("/etc/swanctl/conf.d")
 DEFAULT_NETNS_LIST = ["ROOT", TRUSTED_NETNS, UNTRUSTED_NETNS]
 
@@ -90,6 +98,7 @@ class Handler(PatternMatchingEventHandler):
         delete_customer_connection(conn)
 
 
+# Create the observer object. This doesn't start the handler.
 observer = Observer()
 
 # Configure the event handler that watches directories. This doesn't start the handler.
@@ -147,11 +156,10 @@ def configure_customer_connection(connection):
     xfrm = f"xfrm-{connection}"
     xfrm_id = int(cust_id) * 1000 + int(tun_id)
 
-    v6_segment_3 = connection[0]  # outputs c
     v6_segment_4 = int(cust_id)  # outputs 1
     v6_segment_5 = int(tun_id)  # outputs 1
     # outputs fdcc:0:c:1:0
-    v6_cust_space = f"fdcc:0:{v6_segment_3}:{v6_segment_4}:{v6_segment_5}"
+    v6_cust_space = f"{CUST_PREFIX_START}:{v6_segment_4}:{v6_segment_5}"
 
     v4_cust_tunnel_offset = ipaddress.IPv4Address(f"0.0.{int(tun_id)}.1")
     v4_cust_tunnel_ip = ipaddress.IPv4Address(
@@ -172,8 +180,8 @@ def configure_customer_connection(connection):
         # assign IP addresses to veth interfaces
         ip -n {TRUSTED_NETNS} -6 address add {v6_cust_space}:1:0:0/127 dev {veth_i}
         ip -n {netns} -6 address add {v6_cust_space}:1:0:1/127 dev {veth_e}
-        # add route from CUSTOMER to TRUSTED network namespace
-        ip -n {netns} -6 route add fd33::/16 via {v6_cust_space}:1:0:0
+        # add route from CUSTOMER to MGMT network via TRUSTED namespace
+        ip -n {netns} -6 route add {MGMT_PREFIX} via {v6_cust_space}:1:0:0
         # configure XFRM interfaces
         ip -n {UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {UNTRUSTED_IF_NAME} if_id 0x{xfrm_id}
         ip -n {UNTRUSTED_NETNS} link set {xfrm} netns {netns}
@@ -216,6 +224,55 @@ def delete_customer_connection(connection):
         shell=True,
         check=True,
     )
+
+
+def update_uplink_connection():
+    """
+    Configures uplinks.
+    """
+
+    uplink_template = VPNC_J2_ENV.get_template("uplink.conf.j2")
+    uplink_configs = []
+    for tun_id, tun_config in CONFIG["uplink_vpns"].items():
+        uplink_configs.append(
+            {
+                "remote": "uplink",
+                "t_id": f"{tun_id:03}",
+                "remote_peer_ip": tun_config["remote_peer_ip"],
+                "xfrm_id": f"9999{tun_id:03}",
+                "psk": tun_config["psk"],
+            }
+        )
+
+    uplink_render = uplink_template.render(connections=uplink_configs)
+    uplink_path = VPN_CONFIG_PATH.joinpath("uplink.conf")
+    with open(uplink_path, "w+", encoding="utf-8") as f:
+        f.write(uplink_render)
+
+    _load_swanctl_all_config()
+
+    bgp_template = VPNC_J2_ENV.get_template("frr-bgp.conf.j2")
+    bgp_configs = {
+        "trusted_netns": TRUSTED_NETNS,
+        "router_id": CONFIG["router_id"],
+        "asn": CONFIG["asn"],
+        "uplinks": [f"xfrm-uplink{x:03}" for x in CONFIG["uplink_vpns"].keys()],
+        "management_prefix": MGMT_PREFIX,
+        "customer_prefix": CUST_PREFIX,
+    }
+    bgp_render = bgp_template.render(**bgp_configs)
+    print(bgp_render)
+    with open("/etc/frr/frr.conf", "w+", encoding="utf-8") as f:
+        f.write(bgp_render)
+
+    # Load the commands in case FRR was already running
+    subprocess.run(
+        "vtysh -f /etc/frr/frr.conf",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=True,
+    )  # .stdout.decode().lower()
 
 
 def update_customer_connection():
@@ -273,6 +330,27 @@ def main_start():
         check=False,
     )  # .stdout.decode().lower()
 
+    # The untrusted namespace has internet connectivity.
+    # After creating this namespace, ipsec is restarted in this namespace.
+    # No IPv6 routing is enabled on this namespace.
+    # There is no connectivity to other namespaces.
+    logger.info("Setting up %s netns", UNTRUSTED_NETNS)
+    subprocess.run(
+        f"""
+        ip netns add {UNTRUSTED_NETNS}
+        ip link set {UNTRUSTED_IF_NAME} netns {UNTRUSTED_NETNS}
+        ip -n {UNTRUSTED_NETNS} address add {UNTRUSTED_IF_IP} dev {UNTRUSTED_IF_NAME}
+        ip -n {UNTRUSTED_NETNS} link set dev {UNTRUSTED_IF_NAME} up
+        ip -n {UNTRUSTED_NETNS} route add default via {UNTRUSTED_IF_GW}
+        ip netns exec {UNTRUSTED_NETNS} ipsec start
+        sleep 5
+        """,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=False,
+    ).stdout.decode().lower()
+
     # The trusted namespace has no internet connectivity.
     # IPv6 routing is enabled on the namespace.
     # There is a link between the ROOT namespace and the trusted namespace.
@@ -287,10 +365,10 @@ def main_start():
         ip link add {TRUSTED_NETNS}_I type veth peer name {TRUSTED_NETNS}_E netns {TRUSTED_NETNS}
 
         ip -n {TRUSTED_NETNS} link set dev {TRUSTED_NETNS}_E up
-        ip -n {TRUSTED_NETNS} addr add {TRUSTED_TRANSIT_PREFIX[1]}/127 dev {TRUSTED_NETNS}_E
+        ip -n {TRUSTED_NETNS} address add {TRUSTED_TRANSIT_PREFIX[1]}/127 dev {TRUSTED_NETNS}_E
 
         ip link set dev {TRUSTED_NETNS}_I up
-        ip addr add {TRUSTED_TRANSIT_PREFIX[0]}/127 dev {TRUSTED_NETNS}_I
+        ip address add {TRUSTED_TRANSIT_PREFIX[0]}/127 dev {TRUSTED_NETNS}_I
 
         ip -6 route add {MGMT_PREFIX} via {TRUSTED_TRANSIT_PREFIX[1]}
         """,
@@ -300,26 +378,43 @@ def main_start():
         check=False,
     ).stdout.decode().lower()
 
-    # The untrusted namespace has internet connectivity.
-    # After creating this namespace, ipsec is restarted in this namespace.
-    # No IPv6 routing is enabled on this namespace.
-    # There is no connectivity to other namespaces.
-    logger.info("Setting up %s netns", UNTRUSTED_NETNS)
+    # The trusted blocks all traffic originating from the customer namespaces,
+    # but does accept traffic originating from the default and management zones.
+    iptables_template = VPNC_J2_ENV.get_template("iptables.conf.j2")
+    iptables_configs = {
+        "trusted_netns": TRUSTED_NETNS,
+        "uplinks": [f"xfrm-uplink{x:03}" for x in CONFIG["uplink_vpns"].keys()],
+    }
+    iptables_render = iptables_template.render(**iptables_configs)
+    print(iptables_render)
     subprocess.run(
-        f"""
-        ip netns add {UNTRUSTED_NETNS}
-        ip link set {UNTRUSTED_IF_NAME} netns {UNTRUSTED_NETNS}
-        ip -n {UNTRUSTED_NETNS} addr add {UNTRUSTED_IF_IP} dev {UNTRUSTED_IF_NAME}
-        ip -n {UNTRUSTED_NETNS} link set dev {UNTRUSTED_IF_NAME} up
-        ip -n {UNTRUSTED_NETNS} route add default via {UNTRUSTED_IF_GW}
-        ip netns exec {UNTRUSTED_NETNS} ipsec start
-        sleep 5
-        """,
+        iptables_render,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=True,
+    )  # .stdout.decode().lower()
+
+    # Configure XFRM interfaces for uplinks
+    logger.info("Setting up uplink xfrm interfaces for %s netns.", TRUSTED_NETNS)
+    uplink_xfrm = ""
+    for tun_id, _ in CONFIG["uplink_vpns"].items():
+        uplink_xfrm += f"""
+        # configure XFRM interfaces
+        ip -n {UNTRUSTED_NETNS} link add xfrm-uplink{tun_id:03} type xfrm dev {UNTRUSTED_IF_NAME} if_id 0x9999{tun_id:03}
+        ip -n {UNTRUSTED_NETNS} link set xfrm-uplink{tun_id:03} netns {TRUSTED_NETNS}
+        ip -n {TRUSTED_NETNS} link set dev xfrm-uplink{tun_id:03} up
+        """
+    # run the comands
+    subprocess.run(
+        uplink_xfrm,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
         check=False,
     ).stdout.decode().lower()
+
+    update_uplink_connection()
 
     update_customer_connection()
 
@@ -344,6 +439,7 @@ def main_stop():
         f"""
         ip -6 route del {MGMT_PREFIX} via {TRUSTED_TRANSIT_PREFIX[1]}
         ip link set dev {TRUSTED_NETNS}_I down
+        ip netns exec {TRUSTED_NETNS} ipsec down
         ip -n {TRUSTED_NETNS} link set dev {TRUSTED_NETNS}_E down
         """,
         stdout=subprocess.PIPE,

@@ -22,19 +22,24 @@ if not VPNC_CONFIG_PATH.exists():
     logger.critical("Configuration not found at '%s'.", VPNC_CONFIG_PATH)
     sys.exit(1)
 with open(VPNC_CONFIG_PATH, encoding="utf-8") as h:
-    _vpnc_config = yaml.safe_load(h)
+    try:
+        VPNC_CONFIG = yaml.safe_load(h)
+    except yaml.YAMLError:
+        logger.critical(
+            "Configuration is not valid '%s'.", VPNC_CONFIG_PATH, exc_info=True
+        )
+        sys.exit(1)
 VPNCTL_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnctl")
 VPNCTL_TEMPLATE_DIR = pathlib.Path(__file__).parent.joinpath("templates")
 
-J2_ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(VPNCTL_TEMPLATE_DIR))
+VPNCTL_J2_ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(VPNCTL_TEMPLATE_DIR))
 
 
 def new_vpn(data):
     """
     Outputs an example configuration file.
     """
-    vpn_type = data.type
-    template = VPNCTL_TEMPLATE_DIR.joinpath(f"vpnctl_{vpn_type}.yaml.j2")
+    template = VPNCTL_TEMPLATE_DIR.joinpath("vpnctl_customer.yaml.j2")
     with open(template, "r", encoding="utf-8") as f:
         print(f.read())
 
@@ -49,19 +54,13 @@ def render_vpn(data):
     diff: bool = data.diff
     # Read the configuration files for vpnctl (not swanctl) to check if there is any configuration.
     # It renders all configurations for a customer or all configured configurations.
-    if remote == "uplink":
-        template = J2_ENV.get_template("uplink.conf.j2")
-    else:
-        template = J2_ENV.get_template("customer.conf.j2")
+    template = VPNCTL_J2_ENV.get_template("customer.conf.j2")
 
     config_file = VPNCTL_CONFIG_DIR.joinpath(f"{remote}.yaml")
 
     if not config_file.exists():
         logger.warning("Config '%s' not found", remote)
         return
-    # if not config_file and config_all:
-    #     logger.warning("No configurations found")
-    #     return
 
     with open(config_file, "r", encoding="utf-8") as handle:
         vpnctl_config = yaml.safe_load(handle)
@@ -133,30 +132,27 @@ def calculate_vpn(remote, tun_id, config):
         "remote_peer_ip": config["remote_peer_ip"],
     }
 
-    if remote == "uplink":
-        tunnel_config["xfrm_id"] = f"9999{tun_id:03}"
+    tunnel_config["xfrm_id"] = f"{int(remote[1:]) * 1000 + int(tun_id)}"
+    tunnel_config["ike_proposal"] = config["ike_proposal"]
+    tunnel_config["ipsec_proposal"] = config["ipsec_proposal"]
+
+    # tunnel_config["xfrm_id"] = f"{int(remote[1:]) * 1000 + int(tun_id)}"
+    if config.get("local_id"):
+        tunnel_config["local_id"] = config["local_id"]
     else:
-        tunnel_config["xfrm_id"] = f"{int(remote[1:]) * 1000 + int(tun_id)}"
-        tunnel_config["ike_proposal"] = config["ike_proposal"]
-        tunnel_config["ipsec_proposal"] = config["ipsec_proposal"]
+        tunnel_config["local_id"] = VPNC_CONFIG["local_id"]
+    if config.get("remote_id"):
+        tunnel_config["remote_id"] = config["remote_id"]
+    else:
+        tunnel_config["remote_id"] = config["remote_peer_ip"]
 
-        # tunnel_config["xfrm_id"] = f"{int(remote[1:]) * 1000 + int(tun_id)}"
-        if config.get("local_id"):
-            tunnel_config["local_id"] = config["local_id"]
-        else:
-            tunnel_config["local_id"] = _vpnc_config["local_id"]
-        if config.get("remote_id"):
-            tunnel_config["remote_id"] = config["remote_id"]
-        else:
-            tunnel_config["remote_id"] = config["remote_peer_ip"]
-
-        # stuff the variables into a dict to pass to jinja
-        if config.get("ike_version") and config.get("ike_version") != 2:
-            tunnel_config["ike_version"] = config["ike_version"]
-        if config.get("traffic_selectors"):
-            ts_local = ",".join(config["traffic_selectors"]["local"])
-            ts_remote = ",".join(config["traffic_selectors"]["remote"])
-            tunnel_config["ts"] = {"local": ts_local, "remote": ts_remote}
+    # stuff the variables into a dict to pass to jinja
+    if config.get("ike_version") and config.get("ike_version") != 2:
+        tunnel_config["ike_version"] = config["ike_version"]
+    if config.get("traffic_selectors"):
+        ts_local = ",".join(config["traffic_selectors"]["local"])
+        ts_remote = ",".join(config["traffic_selectors"]["remote"])
+        tunnel_config["ts"] = {"local": ts_local, "remote": ts_remote}
 
     return tunnel_config
 
@@ -192,15 +188,6 @@ if __name__ == "__main__":
         "new", help="Outputs an example vpnctl yaml configuration file."
     )
     parser_render.set_defaults(func=new_vpn)
-    parser_render.add_argument(
-        "type",
-        action="store",
-        choices=["uplink", "customer"],
-        help="Type of configuration file to display.",
-    )
 
-    # parser_stop = subparser.add_parser("stop", help="Stops the VPN service")
-    # parser_stop.set_defaults(func=main_stop)
-    # args = parser.parse_args(["render", "c0001", "--diff"])
     args = parser.parse_args()
     args.func(args)

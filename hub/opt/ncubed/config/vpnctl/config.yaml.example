@@ -1,3 +1,4 @@
+---
 customer_id: c0001
 customer_name: SomeCustomer Co.
 tunnels:
@@ -17,7 +18,7 @@ tunnels:
     #     - 172.31.0.0/16
   1:
     remote_peer_ip: 192.168.0.153
-    # remote_id: test.example.com
+    # remote_id: 192.168.0.153
     psk: DitIsEENV4ilugP0sSwerd!
     # ike_version: 2
     ike_proposal: ike-aes128gcm16-sha256-ecp384-prfsha384
@@ -29,3 +30,4 @@ tunnels:
     #   remote:
     #     - 172.30.0.0/16
     #     - 172.31.0.0/16
+...

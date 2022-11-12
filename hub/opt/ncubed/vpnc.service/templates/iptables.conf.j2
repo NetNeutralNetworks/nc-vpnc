@@ -1,0 +1,23 @@
+ip netns exec {{ trusted_netns }} iptables -F
+ip netns exec {{ trusted_netns }} iptables -P INPUT DROP
+ip netns exec {{ trusted_netns }} iptables -P FORWARD DROP
+ip netns exec {{ trusted_netns }} iptables -P OUTPUT DROP
+
+ip netns exec {{ trusted_netns }} ip6tables -F
+ip netns exec {{ trusted_netns }} ip6tables -P INPUT DROP
+ip netns exec {{ trusted_netns }} ip6tables -P FORWARD DROP
+ip netns exec {{ trusted_netns }} ip6tables -P OUTPUT ACCEPT
+
+{%- for uplink in uplinks %}
+ip netns exec {{ trusted_netns }} ip6tables -A INPUT -i {{ uplink }} -j ACCEPT
+{%- endfor %}
+ip netns exec {{ trusted_netns }} ip6tables -A INPUT -i {{ trusted_netns }}_E -j ACCEPT
+ip netns exec {{ trusted_netns }} ip6tables -A INPUT -p ipv6-icmp -j ACCEPT
+ip netns exec {{ trusted_netns }} ip6tables -A INPUT -j DROP
+
+{%- for uplink in uplinks %}
+ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -i {{ uplink }} -j ACCEPT
+{%- endfor %}
+ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -i {{ trusted_netns }}_E -j ACCEPT
+ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -j DROP

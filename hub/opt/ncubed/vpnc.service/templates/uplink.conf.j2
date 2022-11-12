@@ -1,7 +1,7 @@
 connections {
     # Section for an IKE connection named <conn>.
 {%- for conn in connections %}
-    {{ conn.remote }}-{{ conn.t_id }} : uplink-defaults {
+    {{ conn.remote }}-{{ conn.t_id }} : default-uplinks {
         # Remote address(es) to use for IKE communication, comma separated.
         remote_addrs = {{ conn.remote_peer_ip }}
         # Default inbound XFRM interface ID for children.

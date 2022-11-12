@@ -1,0 +1,33 @@
+---
+# UNTRUSTED INTERFACE CONFIG
+# Untrusted interface to configure VPNs on
+untrusted_if_name: "eth4"
+# Untrusted interface IP address
+untrusted_if_ip: "192.168.0.150/20"
+# Gateway of untrusted interface
+untrusted_if_gw: "192.168.0.1"
+
+# VPN CONFIG
+# IKE local identifier for VPNs
+local_id: "192.168.0.150"
+# Uplink VPNs
+uplink_vpns:
+  0:
+    remote_peer_ip: 192.168.0.252
+    psk: secretpassword
+  1:
+    remote_peer_ip: 192.168.0.253
+    psk: secretpassword
+
+# OVERLAY CONFIG
+# Prefix of the management network
+mgmt_prefix: "fd33::/16"
+# Tunnel transit prefix for link between trusted namespace and root namespace must be a /127.
+trusted_transit_prefix: "fd33:2:f::/127"
+# Tunnel interface prefix must be a /16, will be subnetted to /24 for each tunnel to a customer.
+customer_tunnel_prefix: "100.99.0.0/16"
+
+## BGP config
+asn: 4255786768
+router_id: "0.0.0.1"
+...

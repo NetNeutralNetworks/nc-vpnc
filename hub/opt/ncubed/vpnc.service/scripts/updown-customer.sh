@@ -8,11 +8,11 @@ XFRM="xfrm-${PLUTO_CONNECTION}"        # outputs xfrm-c0001-009
 TRUSTED_NETNS="TRUST"                  #
 CUST_ID=$((${PLUTO_CONNECTION:1:4}))   # outputs 1
 CUST_VPN_ID=$((${PLUTO_CONNECTION:6})) # outputs 9
-V6_SEGMENT_3=${PLUTO_CONNECTION:0:1}   # outputs c
-V6_SEGMENT_4=${CUST_ID}                # outputs 1
-V6_SEGMENT_5=${CUST_VPN_ID}            # outputs 9
+# V6_SEGMENT_3=${PLUTO_CONNECTION:0:1}   # outputs c
+V6_SEGMENT_4=${CUST_ID}     # outputs 1
+V6_SEGMENT_5=${CUST_VPN_ID} # outputs 9
 # outputs fdcc:0:c:1:9
-V6_CUST_TUNNEL_SPACE="fdcc:0:${V6_SEGMENT_3}:${V6_SEGMENT_4}:${V6_SEGMENT_5}"
+V6_CUST_TUNNEL_SPACE="fdcc:0:c:${V6_SEGMENT_4}:${V6_SEGMENT_5}"
 
 printf "${V6_CUST_SPACE}\n\n"
 printf "${XFRM}\n\n"
