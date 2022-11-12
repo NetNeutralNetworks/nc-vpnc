@@ -21,7 +21,7 @@ logger.info("Loading configuration from '%s'.", VPNC_CONFIG_PATH)
 if not VPNC_CONFIG_PATH.exists():
     logger.critical("Configuration not found at '%s'.", VPNC_CONFIG_PATH)
     sys.exit(1)
-with open(VPNC_CONFIG_PATH, encoding="utf-8") as h:
+with open(VPNC_CONFIG_PATH, "r", encoding="utf-8") as h:
     try:
         VPNC_CONFIG = yaml.safe_load(h)
     except yaml.YAMLError:
@@ -39,6 +39,7 @@ def new_vpn(data):
     """
     Outputs an example configuration file.
     """
+    _ = data
     template = VPNCTL_TEMPLATE_DIR.joinpath("vpnctl_customer.yaml.j2")
     with open(template, "r", encoding="utf-8") as f:
         print(f.read())
