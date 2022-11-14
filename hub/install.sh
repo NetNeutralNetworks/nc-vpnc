@@ -11,6 +11,7 @@ FRRVER="frr-8"
 echo deb https://deb.frrouting.org/frr $(lsb_release -s -c) $FRRVER | sudo tee /etc/apt/sources.list.d/frr.list
 
 # update and install FRR/strongSwan
+apt update
 apt install -y python3-venv python3-pip strongswan strongswan-swanctl jool-tools frr frr-pythontools frr-snmp
 
 cp -rf $SCRIPTDIR/etc/* /etc/
