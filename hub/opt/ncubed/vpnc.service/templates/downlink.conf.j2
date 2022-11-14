@@ -1,0 +1,49 @@
+connections {
+{%- for conn in connections %}
+    {#- t_id is tunnel_id for customer #}
+    # Section for an IKE connection named <conn>.
+    {{ conn.remote }}-{{ conn.t_id }} : {{ conn.ike_proposal }} {
+    {%- if conn.ike_version %}
+        # IKE major version to use for connection.
+        version = {{ conn.ike_version }}
+    {%- endif %}
+        # Remote address(es) to use for IKE communication, comma separated.
+        remote_addrs = {{ conn.remote_peer_ip }}
+        # Default inbound XFRM interface ID for children.
+        if_id_in = 0x{{ conn.xfrm_id }}
+        # Default outbound XFRM interface ID for children.
+        if_id_out = 0x{{ conn.xfrm_id }}
+        # Section for a local authentication round.
+        local {
+            id = {{ conn.local_id }}
+        }
+        # Section for a remote authentication round.
+        remote {
+            id = {{ conn.remote_id }}
+        }
+
+        children {
+            # CHILD_SA configuration sub-section.
+    {#- ts are traffic selectors #}
+    {%- if conn.ts is not defined or not conn.ts %}
+            {{ conn.remote }}-{{ conn.t_id }} : {{ conn.ipsec_proposal }} {}
+    {%- elif conn.ts is defined and conn.ts %}
+            {{ conn.remote }}-{{ conn.t_id }} : {{ conn.ipsec_proposal }} {
+                # Local traffic selectors to include in CHILD_SA.
+                local_ts = {{ conn.ts.local }}
+                # Remote selectors to include in CHILD_SA.
+                remote_ts = {{ conn.ts.remote }}
+            }
+    {%- endif %}
+        }
+    }
+{%- endfor %}
+}
+
+secrets {
+{%- for conn in connections %}
+    ike-{{ conn.remote }}-{{ conn.t_id }} {
+        secret = "{{ conn.psk }}"
+    }
+{%- endfor %}
+}
