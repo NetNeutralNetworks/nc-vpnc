@@ -17,7 +17,9 @@ sed -i -E 's/^agentaddress(.*)/#agentaddress\1/' /etc/snmp/snmpd.conf
 /usr/bin/systemctl daemon-reload
 /usr/bin/systemctl disable ipsec.service
 /usr/bin/systemctl stop ipsec.service
-/usr/bin/systemctl enable ncubed-$servicename
-/usr/bin/systemctl start ncubed-$servicename
+/usr/bin/systemctl enable snmpd.service
+/usr/bin/systemctl restart snmpd.service
 /usr/bin/systemctl enable frr.service
-/usr/bin/systemctl start frr.service
+/usr/bin/systemctl restart frr.service
+/usr/bin/systemctl enable ncubed-$servicename
+/usr/bin/systemctl restart ncubed-$servicename
