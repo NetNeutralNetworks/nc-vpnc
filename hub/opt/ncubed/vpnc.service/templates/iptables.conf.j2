@@ -11,7 +11,6 @@ ip netns exec {{ trusted_netns }} ip6tables -P OUTPUT ACCEPT
 {%- for uplink in uplinks %}
 ip netns exec {{ trusted_netns }} ip6tables -A INPUT -i {{ uplink }} -j ACCEPT
 {%- endfor %}
-ip netns exec {{ trusted_netns }} ip6tables -A INPUT -i {{ trusted_netns }}_E -j ACCEPT
 ip netns exec {{ trusted_netns }} ip6tables -A INPUT -p ipv6-icmp -j ACCEPT
 ip netns exec {{ trusted_netns }} ip6tables -A INPUT -j DROP
 

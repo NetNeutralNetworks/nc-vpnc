@@ -266,6 +266,41 @@ def delete_customer_connection(connection):
     )
 
 
+def update_customer_connection():
+    """
+    Configures and cleans up customer namespaces and VPN connections.
+    """
+    logger.info("Updating customer namespaces")
+    # Create a session to manage ipsec programmatically and load all connections.
+    vcs: vici.Session = vici.Session()
+    _load_swanctl_all_config()
+    # Get all existing customer namespaces (not the three default namespaces)
+    diff_netns = {ns for ns in os.listdir("/run/netns") if ns not in DEFAULT_NETNS_LIST}
+
+    # Retrieves all customer VPN connections in IPsec config files. decode is used as the strings
+    # in x are binary, not UTF-8
+    connections = {
+        x.decode() for x in vcs.get_conns()["conns"] if CUST_RE.match(x.decode())
+    }
+
+    for connection in connections:  # .difference(diff_netns):
+        tun_id = connection[1:].split("-")[1]
+        # A customer can have a maximum of 255 interfaces
+        if int(tun_id) > 255:
+            logger.warning(
+                "Skipping VPN connection '%s'. Tunnel index is more than 255.", tun_id
+            )
+            continue
+
+        # Configure the connection
+        add_customer_connection(connection)
+
+    # Remove any configured namespace that isn't in the IPsec configuration.
+    for connection in set(diff_netns).difference(connections):
+        delete_customer_connection(connection)
+
+
+
 def update_uplink_connection():
     """
     Configures uplinks.
@@ -372,41 +407,7 @@ def update_uplink_connection():
     )
 
 
-def update_customer_connection():
-    """
-    Configures and cleans up customer namespaces and VPN connections.
-    """
-    logger.info("Updating customer namespaces")
-    # Create a session to manage ipsec programmatically and load all connections.
-    vcs: vici.Session = vici.Session()
-    _load_swanctl_all_config()
-    # Get all existing customer namespaces (not the three default namespaces)
-    diff_netns = {ns for ns in os.listdir("/run/netns") if ns not in DEFAULT_NETNS_LIST}
-
-    # Retrieves all customer VPN connections in IPsec config files. decode is used as the strings
-    # in x are binary, not UTF-8
-    connections = {
-        x.decode() for x in vcs.get_conns()["conns"] if CUST_RE.match(x.decode())
-    }
-
-    for connection in connections:  # .difference(diff_netns):
-        tun_id = connection[1:].split("-")[1]
-        # A customer can have a maximum of 255 interfaces
-        if int(tun_id) > 255:
-            logger.warning(
-                "Skipping VPN connection '%s'. Tunnel index is more than 255.", tun_id
-            )
-            continue
-
-        # Configure the connection
-        add_customer_connection(connection)
-
-    # Remove any configured namespace that isn't in the IPsec configuration.
-    for connection in set(diff_netns).difference(connections):
-        delete_customer_connection(connection)
-
-
-def main_start():
+def main_hub():
     """
     Creates the trusted and untrusted namespaces and aliases the default namespace to ROOT.
     """
@@ -490,38 +491,38 @@ def main_start():
     customer_observer.start()
 
 
-def main_stop():
-    """
-    Cleans up part of the default configuration.
-    """
-    logger.info("#" * 100)
-    logger.info("Stopping ncubed VPNC strongSwan daemon.")
+# def main_stop():
+#     """
+#     Cleans up part of the default configuration.
+#     """
+#     logger.info("#" * 100)
+#     logger.info("Stopping ncubed VPNC strongSwan daemon.")
 
-    # logger.info("Stopping the monitoring config changes.")
-    # observer.stop()
+#     # logger.info("Stopping the monitoring config changes.")
+#     # observer.stop()
 
-    # Removing the route to management as it will be unreachable. Also set the veth interfaces down.
-    logger.info("Cleaning up %s netns.", TRUSTED_NETNS)
-    subprocess.run(
-        f"""
-        ip -6 route del {MGMT_PREFIX} via {TRUSTED_TRANSIT_PREFIX[1]}
-        ip link set dev {TRUSTED_NETNS}_I down
-        ip netns exec {TRUSTED_NETNS} ipsec down
-        ip -n {TRUSTED_NETNS} link set dev {TRUSTED_NETNS}_E down
-        """,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=True,
-        check=True,
-    ).stdout.decode().lower()
+#     # Removing the route to management as it will be unreachable. Also set the veth interfaces down.
+#     logger.info("Cleaning up %s netns.", TRUSTED_NETNS)
+#     subprocess.run(
+#         f"""
+#         ip -6 route del {MGMT_PREFIX} via {TRUSTED_TRANSIT_PREFIX[1]}
+#         ip link set dev {TRUSTED_NETNS}_I down
+#         ip netns exec {TRUSTED_NETNS} ipsec down
+#         ip -n {TRUSTED_NETNS} link set dev {TRUSTED_NETNS}_E down
+#         """,
+#         stdout=subprocess.PIPE,
+#         stderr=subprocess.STDOUT,
+#         shell=True,
+#         check=True,
+#     ).stdout.decode().lower()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Control the VPNC Strongswan daemon")
     subparser = parser.add_subparsers(help="Sub command help")
-    parser_start = subparser.add_parser("start", help="Starts the VPN service")
-    parser_start.set_defaults(func=main_start)
-    parser_stop = subparser.add_parser("stop", help="Stops the VPN service")
-    parser_stop.set_defaults(func=main_stop)
-    args = parser.parse_args(["start"])
+    parser_start = subparser.add_parser("hub", help="Starts the VPN service in hub mode")
+    parser_start.set_defaults(func=main_hub)
+    # parser_stop = subparser.add_parser("stop", help="Stops the VPN service")
+    # parser_stop.set_defaults(func=main_stop)
+    args = parser.parse_args(["hub"])
     args.func()

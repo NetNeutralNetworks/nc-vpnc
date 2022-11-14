@@ -17,6 +17,6 @@ apt install -y python3-venv python3-pip strongswan strongswan-swanctl jool-tools
 cp -rf $SCRIPTDIR/etc/* /etc/
 cp -rf $SCRIPTDIR/opt/* /opt/
 python3 -m venv $VENVDIR
-$VENVDIR/bin/python3 -m pip install jinja2 pyyaml vici watchdog
+$VENVDIR/bin/python3 -m pip install -r $SCRIPTDIR/requirements.txt
 
 /opt/ncubed/vpnc.service/scripts/install.sh
