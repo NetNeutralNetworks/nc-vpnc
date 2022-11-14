@@ -11,6 +11,9 @@ sed -i 's/^bgpd=no$/bgpd=yes/' /etc/frr/daemons
 sed -i 's/^zebra_options="  -A 127.0.0.1 -s 90000000.*"$/zebra_options="  -A 127.0.0.1 -s 90000000 -n -M snmp"/' /etc/frr/daemons
 sed -i 's/^bgpd_options="   -A 127.0.0.1.*"$/bgpd_options="   -A 127.0.0.1 -M snmp"/' /etc/frr/daemons
 
+# comment SNMP agentaddress in snmpd
+sed -i -E 's/^agentaddress(.*)/#agentaddress\1/' /etc/snmp/snmpd.conf
+
 /usr/bin/systemctl daemon-reload
 /usr/bin/systemctl disable ipsec.service
 /usr/bin/systemctl stop ipsec.service

@@ -36,25 +36,28 @@ rothandler.setFormatter(formatter)
 logger.addHandler(rothandler)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
+# Configuration file paths/directories
+VPN_CONFIG_DIR = pathlib.Path("/etc/swanctl/conf.d")
+VPNC_HUB_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc-hub/config.yaml")
+VPNC_VPN_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-hub")
 # Load the configuration
-CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/config.yaml")
-logger.info("Loading configuration from '%s'.", CONFIG_PATH)
-if not CONFIG_PATH.exists():
-    logger.critical("Configuration not found at '%s'.", CONFIG_PATH)
+logger.info("Loading configuration from '%s'.", VPNC_HUB_CONFIG_PATH)
+if not VPNC_HUB_CONFIG_PATH.exists():
+    logger.critical("Configuration not found at '%s'.", VPNC_HUB_CONFIG_PATH)
     sys.exit(1)
 
 # Global variable containing the configuration items. Should probably be a class.
-CONFIG: dict = {}
+VPNC_HUB_CONFIG: dict = {}
 
 # Function to load the configuration file
 def _load_config():
-    global CONFIG
-    with open(CONFIG_PATH, encoding="utf-8") as f:
+    global VPNC_HUB_CONFIG
+    with open(VPNC_HUB_CONFIG_PATH, encoding="utf-8") as f:
         try:
-            CONFIG = yaml.safe_load(f)
+            VPNC_HUB_CONFIG = yaml.safe_load(f)
         except yaml.YAMLError:
             logger.critical(
-                "Configuration is not valid '%s'.", CONFIG_PATH, exc_info=True
+                "Configuration is not valid '%s'.", VPNC_HUB_CONFIG_PATH, exc_info=True
             )
             sys.exit(1)
 
@@ -64,24 +67,24 @@ _load_config()
 
 # Load the Jinja templates
 VPNC_TEMPLATE_DIR = pathlib.Path(__file__).parent.joinpath("templates")
-VPNC_J2_ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(VPNC_TEMPLATE_DIR))
+VPNC_TEMPLATE_ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(VPNC_TEMPLATE_DIR))
 
 # Match only customer connections
 CUST_RE = re.compile(r"c\d{4}-\d{3}")
 
 TRUSTED_NETNS = "TRUST"  # name of trusted network namespace
 UNTRUSTED_NETNS = "UNTRUST"  # name of outside/untrusted network namespace
-UNTRUSTED_IF_NAME = CONFIG["untrusted_if_name"]  # name of outside interface
-UNTRUSTED_IF_IP = CONFIG["untrusted_if_ip"]  # IP address of outside interface
-UNTRUSTED_IF_GW = CONFIG["untrusted_if_gw"]  # default gateway of outside interface
+UNTRUSTED_IF_NAME = VPNC_HUB_CONFIG["untrusted_if_name"]  # name of outside interface
+UNTRUSTED_IF_IP = VPNC_HUB_CONFIG["untrusted_if_ip"]  # IP address of outside interface
+UNTRUSTED_IF_GW = VPNC_HUB_CONFIG["untrusted_if_gw"]  # default gateway of outside interface
 # IPv6 transit network between management/ROOT and trusted net namespace
-TRUSTED_TRANSIT_PREFIX = ipaddress.IPv6Network(CONFIG["trusted_transit_prefix"])
-MGMT_PREFIX = CONFIG["mgmt_prefix"]  # IPv6 prefix for client traffic from Palo Alto
+TRUSTED_TRANSIT_PREFIX = ipaddress.IPv6Network(VPNC_HUB_CONFIG["trusted_transit_prefix"])
+MGMT_PREFIX = VPNC_HUB_CONFIG["mgmt_prefix"]  # IPv6 prefix for client traffic from Palo Alto
 # IP prefix for tunnel interfaces to customers
-CUST_TUNNEL_PREFIX = ipaddress.IPv4Network(CONFIG["customer_tunnel_prefix"])
+CUST_TUNNEL_PREFIX = ipaddress.IPv4Network(VPNC_HUB_CONFIG["customer_tunnel_prefix"])
 CUST_PREFIX = "fdcc:0:c::/48"  # IPv6 prefix for NAT64 to customer networks
 CUST_PREFIX_START = "fdcc:0:c"  # IPv6 prefix start for NAT64 to customer networks
-VPN_CONFIG_PATH = pathlib.Path("/etc/swanctl/conf.d")
+
 DEFAULT_NETNS_LIST = ["ROOT", TRUSTED_NETNS, UNTRUSTED_NETNS]
 
 if TRUSTED_TRANSIT_PREFIX.prefixlen != 127:
@@ -122,7 +125,7 @@ def _customer_observer() -> Observer:
         event_handler=CustomerHandler(
             patterns=["*.conf"], ignore_patterns=[], ignore_directories=True
         ),
-        path=VPN_CONFIG_PATH,
+        path=VPN_CONFIG_DIR,
         recursive=True,
     )
     # The handler will not be running as a thread.
@@ -146,7 +149,9 @@ def _uplink_observer() -> Observer:
     # Create the observer object. This doesn't start the handler.
     observer = Observer()
     # Configure the event handler that watches directories. This doesn't start the handler.
-    observer.schedule(event_handler=UplinkHandler(), path=CONFIG_PATH, recursive=False)
+    observer.schedule(
+        event_handler=UplinkHandler(), path=VPNC_HUB_CONFIG_PATH, recursive=False
+    )
     # The handler will not be running as a thread.
     observer.daemon = False
 
@@ -300,7 +305,6 @@ def update_customer_connection():
         delete_customer_connection(connection)
 
 
-
 def update_uplink_connection():
     """
     Configures uplinks.
@@ -319,13 +323,13 @@ def update_uplink_connection():
     uplinks_diff = {
         x["ifname"] for x in xfrm_ns if x["ifname"].startswith("xfrm-uplink")
     }
-    uplinks_ref = {f"xfrm-uplink{x:03}" for x in CONFIG["uplink_vpns"].keys()}
+    uplinks_ref = {f"xfrm-uplink{x:03}" for x in VPNC_HUB_CONFIG["uplink_vpns"].keys()}
     uplinks_remove = uplinks_diff.difference(uplinks_ref)
 
     # Configure XFRM interfaces for uplinks
     logger.info("Setting up uplink xfrm interfaces for %s netns.", TRUSTED_NETNS)
     uplink_xfrm = ""
-    for tun_id in CONFIG["uplink_vpns"].keys():
+    for tun_id in VPNC_HUB_CONFIG["uplink_vpns"].keys():
         uplink_xfrm += f"""
         # configure XFRM interfaces
         ip -n {UNTRUSTED_NETNS} link add xfrm-uplink{tun_id:03} type xfrm dev {UNTRUSTED_IF_NAME} if_id 0x9999{tun_id:03}
@@ -347,7 +351,7 @@ def update_uplink_connection():
     # IP(6)TABLES RULES
     # The trusted netns blocks all traffic originating from the customer namespaces,
     # but does accept traffic originating from the default and management zones.
-    iptables_template = VPNC_J2_ENV.get_template("iptables.conf.j2")
+    iptables_template = VPNC_TEMPLATE_ENV.get_template("iptables.conf.j2")
     iptables_configs = {"trusted_netns": TRUSTED_NETNS, "uplinks": uplinks_ref}
     iptables_render = iptables_template.render(**iptables_configs)
     print(iptables_render)
@@ -360,9 +364,9 @@ def update_uplink_connection():
     )  # .stdout.decode().lower()
 
     # VPN UPLINKS
-    uplink_template = VPNC_J2_ENV.get_template("uplink.conf.j2")
+    uplink_template = VPNC_TEMPLATE_ENV.get_template("uplink.conf.j2")
     uplink_configs = []
-    for tun_id, tun_config in CONFIG["uplink_vpns"].items():
+    for tun_id, tun_config in VPNC_HUB_CONFIG["uplink_vpns"].items():
         uplink_configs.append(
             {
                 "remote": "uplink",
@@ -374,7 +378,7 @@ def update_uplink_connection():
         )
 
     uplink_render = uplink_template.render(connections=uplink_configs)
-    uplink_path = VPN_CONFIG_PATH.joinpath("uplink.conf")
+    uplink_path = VPN_CONFIG_DIR.joinpath("uplink.conf")
     print(uplink_path)
     with open(uplink_path, "w", encoding="utf-8") as f:
         f.write(uplink_render)
@@ -382,11 +386,11 @@ def update_uplink_connection():
     _load_swanctl_all_config()
 
     # FRR/BGP CONFIG
-    bgp_template = VPNC_J2_ENV.get_template("frr-bgp.conf.j2")
+    bgp_template = VPNC_TEMPLATE_ENV.get_template("frr-bgp.conf.j2")
     bgp_configs = {
         "trusted_netns": TRUSTED_NETNS,
-        "router_id": CONFIG["router_id"],
-        "asn": CONFIG["asn"],
+        "router_id": VPNC_HUB_CONFIG["router_id"],
+        "asn": VPNC_HUB_CONFIG["asn"],
         "uplinks": uplinks_ref,
         "remove_uplinks": uplinks_remove,
         "management_prefix": MGMT_PREFIX,
@@ -520,9 +524,11 @@ def main_hub():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Control the VPNC Strongswan daemon")
     subparser = parser.add_subparsers(help="Sub command help")
-    parser_start = subparser.add_parser("hub", help="Starts the VPN service in hub mode")
+    parser_start = subparser.add_parser(
+        "hub", help="Starts the VPN service in hub mode"
+    )
     parser_start.set_defaults(func=main_hub)
     # parser_stop = subparser.add_parser("stop", help="Stops the VPN service")
     # parser_stop.set_defaults(func=main_stop)
-    args = parser.parse_args(["hub"])
+    args = parser.parse_args()
     args.func()

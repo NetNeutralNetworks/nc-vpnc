@@ -1,6 +1,7 @@
 ---
-customer_id: c0001
-customer_name: SomeCustomer Co.
+id: c0001
+metadata:
+  name: SomeCustomer Co.
 tunnels:
   0:
     remote_peer_ip: 192.168.0.152
