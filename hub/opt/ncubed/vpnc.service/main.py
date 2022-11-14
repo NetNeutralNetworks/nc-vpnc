@@ -1,6 +1,7 @@
 #! /bin/python3
 import argparse
 import ipaddress
+import json
 import logging
 import os
 import pathlib
@@ -16,6 +17,7 @@ from watchdog.events import (
     FileCreatedEvent,
     FileDeletedEvent,
     FileModifiedEvent,
+    FileSystemEventHandler,
     PatternMatchingEventHandler,
 )
 from watchdog.observers import Observer
@@ -40,12 +42,25 @@ logger.info("Loading configuration from '%s'.", CONFIG_PATH)
 if not CONFIG_PATH.exists():
     logger.critical("Configuration not found at '%s'.", CONFIG_PATH)
     sys.exit(1)
-with open(CONFIG_PATH, encoding="utf-8") as h:
-    try:
-        CONFIG = yaml.safe_load(h)
-    except yaml.YAMLError:
-        logger.critical("Configuration is not valid '%s'.", CONFIG_PATH, exc_info=True)
-        sys.exit(1)
+
+# Global variable containing the configuration items. Should probably be a class.
+CONFIG: dict = {}
+
+# Function to load the configuration file
+def _load_config():
+    global CONFIG
+    with open(CONFIG_PATH, encoding="utf-8") as f:
+        try:
+            CONFIG = yaml.safe_load(f)
+        except yaml.YAMLError:
+            logger.critical(
+                "Configuration is not valid '%s'.", CONFIG_PATH, exc_info=True
+            )
+            sys.exit(1)
+
+
+_load_config()
+
 
 # Load the Jinja templates
 VPNC_TEMPLATE_DIR = pathlib.Path(__file__).parent.joinpath("templates")
@@ -76,41 +91,66 @@ if CUST_TUNNEL_PREFIX.prefixlen != 16:
     logger.critical("Prefix length for customer tunnels must be '/16'.")
     sys.exit(1)
 
-# Define what should happen when files are created, modified or deleted.
-class Handler(PatternMatchingEventHandler):
-    """
-    Handler for the event monitoring.
-    """
 
-    def on_created(self, event: FileCreatedEvent):
-        logger.info("File %s: %s", event.event_type, event.src_path)
-        conn = pathlib.Path(event.src_path).stem
-        add_customer_connection(conn)
+def _customer_observer() -> Observer:
+    # Define what should happen when customer files are created, modified or deleted.
+    class CustomerHandler(PatternMatchingEventHandler):
+        """
+        Handler for the event monitoring.
+        """
 
-    def on_modified(self, event: FileModifiedEvent):
-        logger.info("File %s: %s", event.event_type, event.src_path)
-        conn = pathlib.Path(event.src_path).stem
-        add_customer_connection(conn)
+        def on_created(self, event: FileCreatedEvent):
+            logger.info("File %s: %s", event.event_type, event.src_path)
+            conn = pathlib.Path(event.src_path).stem
+            add_customer_connection(conn)
 
-    def on_deleted(self, event: FileDeletedEvent):
-        logger.info("File %s: %s", event.event_type, event.src_path)
-        conn = pathlib.Path(event.src_path).stem
-        delete_customer_connection(conn)
+        def on_modified(self, event: FileModifiedEvent):
+            logger.info("File %s: %s", event.event_type, event.src_path)
+            conn = pathlib.Path(event.src_path).stem
+            add_customer_connection(conn)
+
+        def on_deleted(self, event: FileDeletedEvent):
+            logger.info("File %s: %s", event.event_type, event.src_path)
+            conn = pathlib.Path(event.src_path).stem
+            delete_customer_connection(conn)
+
+    # Create the observer object. This doesn't start the handler.
+    observer = Observer()
+
+    # Configure the event handler that watches directories. This doesn't start the handler.
+    observer.schedule(
+        event_handler=CustomerHandler(
+            patterns=["*.conf"], ignore_patterns=[], ignore_directories=True
+        ),
+        path=VPN_CONFIG_PATH,
+        recursive=True,
+    )
+    # The handler will not be running as a thread.
+    observer.daemon = False
+
+    return observer
 
 
-# Create the observer object. This doesn't start the handler.
-observer = Observer()
+def _uplink_observer() -> Observer:
+    # Define what should happen when the config file with uplink data is modified.
+    class UplinkHandler(FileSystemEventHandler):
+        """
+        Handler for the event monitoring.
+        """
 
-# Configure the event handler that watches directories. This doesn't start the handler.
-observer.schedule(
-    event_handler=Handler(
-        patterns=["*.conf"], ignore_patterns=[], ignore_directories=True
-    ),
-    path=VPN_CONFIG_PATH,
-    recursive=True,
-)
-# The handler will not be running as a thread.
-observer.daemon = False
+        def on_modified(self, event: FileModifiedEvent):
+            logger.info("File %s: %s", event.event_type, event.src_path)
+            _load_config()
+            update_uplink_connection()
+
+    # Create the observer object. This doesn't start the handler.
+    observer = Observer()
+    # Configure the event handler that watches directories. This doesn't start the handler.
+    observer.schedule(event_handler=UplinkHandler(), path=CONFIG_PATH, recursive=False)
+    # The handler will not be running as a thread.
+    observer.daemon = False
+
+    return observer
 
 
 def _load_swanctl_all_config():
@@ -231,6 +271,60 @@ def update_uplink_connection():
     Configures uplinks.
     """
 
+    # XFRM INTERFACES
+    xfrm_ns_str = subprocess.run(
+        f"ip -j -n {TRUSTED_NETNS} link",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=True,
+    ).stdout.decode()
+    xfrm_ns = json.loads(xfrm_ns_str)
+
+    uplinks_diff = {
+        x["ifname"] for x in xfrm_ns if x["ifname"].startswith("xfrm-uplink")
+    }
+    uplinks_ref = {f"xfrm-uplink{x:03}" for x in CONFIG["uplink_vpns"].keys()}
+    uplinks_remove = uplinks_diff.difference(uplinks_ref)
+
+    # Configure XFRM interfaces for uplinks
+    logger.info("Setting up uplink xfrm interfaces for %s netns.", TRUSTED_NETNS)
+    uplink_xfrm = ""
+    for tun_id in CONFIG["uplink_vpns"].keys():
+        uplink_xfrm += f"""
+        # configure XFRM interfaces
+        ip -n {UNTRUSTED_NETNS} link add xfrm-uplink{tun_id:03} type xfrm dev {UNTRUSTED_IF_NAME} if_id 0x9999{tun_id:03}
+        ip -n {UNTRUSTED_NETNS} link set xfrm-uplink{tun_id:03} netns {TRUSTED_NETNS}
+        ip -n {TRUSTED_NETNS} link set dev xfrm-uplink{tun_id:03} up
+        """
+    for remove_uplink in uplinks_remove:
+        uplink_xfrm += f"ip -n {TRUSTED_NETNS} link del dev {remove_uplink}"
+
+    # run the comands
+    subprocess.run(
+        uplink_xfrm,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=False,
+    ).stdout.decode().lower()
+
+    # IP(6)TABLES RULES
+    # The trusted netns blocks all traffic originating from the customer namespaces,
+    # but does accept traffic originating from the default and management zones.
+    iptables_template = VPNC_J2_ENV.get_template("iptables.conf.j2")
+    iptables_configs = {"trusted_netns": TRUSTED_NETNS, "uplinks": uplinks_ref}
+    iptables_render = iptables_template.render(**iptables_configs)
+    print(iptables_render)
+    subprocess.run(
+        iptables_render,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=True,
+    )  # .stdout.decode().lower()
+
+    # VPN UPLINKS
     uplink_template = VPNC_J2_ENV.get_template("uplink.conf.j2")
     uplink_configs = []
     for tun_id, tun_config in CONFIG["uplink_vpns"].items():
@@ -246,17 +340,20 @@ def update_uplink_connection():
 
     uplink_render = uplink_template.render(connections=uplink_configs)
     uplink_path = VPN_CONFIG_PATH.joinpath("uplink.conf")
-    with open(uplink_path, "w+", encoding="utf-8") as f:
+    print(uplink_path)
+    with open(uplink_path, "w", encoding="utf-8") as f:
         f.write(uplink_render)
 
     _load_swanctl_all_config()
 
+    # FRR/BGP CONFIG
     bgp_template = VPNC_J2_ENV.get_template("frr-bgp.conf.j2")
     bgp_configs = {
         "trusted_netns": TRUSTED_NETNS,
         "router_id": CONFIG["router_id"],
         "asn": CONFIG["asn"],
-        "uplinks": [f"xfrm-uplink{x:03}" for x in CONFIG["uplink_vpns"].keys()],
+        "uplinks": uplinks_ref,
+        "remove_uplinks": uplinks_remove,
         "management_prefix": MGMT_PREFIX,
         "customer_prefix": CUST_PREFIX,
     }
@@ -272,7 +369,7 @@ def update_uplink_connection():
         stderr=subprocess.STDOUT,
         shell=True,
         check=True,
-    )  # .stdout.decode().lower()
+    )
 
 
 def update_customer_connection():
@@ -378,49 +475,19 @@ def main_start():
         check=False,
     ).stdout.decode().lower()
 
-    # The trusted blocks all traffic originating from the customer namespaces,
-    # but does accept traffic originating from the default and management zones.
-    iptables_template = VPNC_J2_ENV.get_template("iptables.conf.j2")
-    iptables_configs = {
-        "trusted_netns": TRUSTED_NETNS,
-        "uplinks": [f"xfrm-uplink{x:03}" for x in CONFIG["uplink_vpns"].keys()],
-    }
-    iptables_render = iptables_template.render(**iptables_configs)
-    print(iptables_render)
-    subprocess.run(
-        iptables_render,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=True,
-        check=True,
-    )  # .stdout.decode().lower()
-
-    # Configure XFRM interfaces for uplinks
-    logger.info("Setting up uplink xfrm interfaces for %s netns.", TRUSTED_NETNS)
-    uplink_xfrm = ""
-    for tun_id, _ in CONFIG["uplink_vpns"].items():
-        uplink_xfrm += f"""
-        # configure XFRM interfaces
-        ip -n {UNTRUSTED_NETNS} link add xfrm-uplink{tun_id:03} type xfrm dev {UNTRUSTED_IF_NAME} if_id 0x9999{tun_id:03}
-        ip -n {UNTRUSTED_NETNS} link set xfrm-uplink{tun_id:03} netns {TRUSTED_NETNS}
-        ip -n {TRUSTED_NETNS} link set dev xfrm-uplink{tun_id:03} up
-        """
-    # run the comands
-    subprocess.run(
-        uplink_xfrm,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=True,
-        check=False,
-    ).stdout.decode().lower()
-
     update_uplink_connection()
+
+    # Start the event handler.
+    logger.info("Monitoring uplink config changes.")
+    uplink_observer = _uplink_observer()
+    uplink_observer.start()
 
     update_customer_connection()
 
     # Start the event handler.
-    logger.info("Monitoring config changes.")
-    observer.start()
+    logger.info("Monitoring customer config changes.")
+    customer_observer = _customer_observer()
+    customer_observer.start()
 
 
 def main_stop():
@@ -430,8 +497,8 @@ def main_stop():
     logger.info("#" * 100)
     logger.info("Stopping ncubed VPNC strongSwan daemon.")
 
-    logger.info("Stopping the monitoring config changes.")
-    observer.stop()
+    # logger.info("Stopping the monitoring config changes.")
+    # observer.stop()
 
     # Removing the route to management as it will be unreachable. Also set the veth interfaces down.
     logger.info("Cleaning up %s netns.", TRUSTED_NETNS)
@@ -456,5 +523,5 @@ if __name__ == "__main__":
     parser_start.set_defaults(func=main_start)
     parser_stop = subparser.add_parser("stop", help="Stops the VPN service")
     parser_stop.set_defaults(func=main_stop)
-    args = parser.parse_args()
+    args = parser.parse_args(["start"])
     args.func()
