@@ -17,7 +17,7 @@ from watchdog.events import (
     FileDeletedEvent,
     FileModifiedEvent,
     FileSystemEventHandler,
-    PatternMatchingEventHandler
+    PatternMatchingEventHandler,
 )
 from watchdog.observers import Observer
 
@@ -75,25 +75,23 @@ CUST_RE = re.compile(r"c\d{4}-\d{3}")
 
 TRUSTED_NETNS = "TRUST"  # name of trusted network namespace
 UNTRUSTED_NETNS = "UNTRUST"  # name of outside/untrusted network namespace
-UNTRUSTED_IF_NAME = VPNC_HUB_CONFIG["untrusted_if_name"]  # name of outside interface
-UNTRUSTED_IF_IP = VPNC_HUB_CONFIG["untrusted_if_ip"]  # IP address of outside interface
-UNTRUSTED_IF_GW = VPNC_HUB_CONFIG[
-    "untrusted_if_gw"
-]  # default gateway of outside interface
-# IPv6 transit network between management/ROOT and trusted net namespace
+# IPv6 prefix for client initiating administration traffic.
+MGMT_PREFIX = ipaddress.IPv6Network(VPNC_HUB_CONFIG.get("mgmt_prefix", "::/16"))
+# Tunnel transit IPv6 prefix for link between trusted namespace and root namespace, must be a /127.
 TRUSTED_TRANSIT_PREFIX = ipaddress.IPv6Network(
-    VPNC_HUB_CONFIG["trusted_transit_prefix"]
+    VPNC_HUB_CONFIG.get("trusted_transit_prefix", "::/127")
 )
-MGMT_PREFIX = VPNC_HUB_CONFIG[
-    "mgmt_prefix"
-]  # IPv6 prefix for client traffic from Palo Alto
-# IP prefix for tunnel interfaces to customers
-CUST_TUNNEL_PREFIX = ipaddress.IPv4Network(VPNC_HUB_CONFIG["customer_tunnel_prefix"])
+# IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s
+CUST_TUNNEL_PREFIX = ipaddress.IPv4Network(
+    VPNC_HUB_CONFIG.get("customer_tunnel_prefix", "::/16")
+)
 CUST_PREFIX = "fdcc:0:c::/48"  # IPv6 prefix for NAT64 to customer networks
 CUST_PREFIX_START = "fdcc:0:c"  # IPv6 prefix start for NAT64 to customer networks
 
-DEFAULT_NETNS_LIST = ["ROOT", TRUSTED_NETNS, UNTRUSTED_NETNS]
 
+if MGMT_PREFIX.prefixlen != 16:
+    logger.critical("Prefix length for management prefix must be '/16'.")
+    sys.exit(1)
 if TRUSTED_TRANSIT_PREFIX.prefixlen != 127:
     logger.critical("Prefix length for trusted transit must be '/127'.")
     sys.exit(1)
@@ -123,6 +121,43 @@ def _downlink_observer() -> Observer:
             logger.info("File %s: %s", event.event_type, event.src_path)
             cust_config = pathlib.Path(event.src_path).stem
             delete_downlink_connection(cust_config)
+
+    # Create the observer object. This doesn't start the handler.
+    observer = Observer()
+
+    # Configure the event handler that watches directories. This doesn't start the handler.
+    observer.schedule(
+        event_handler=DownlinkHandler(patterns=["c*.yaml"], ignore_directories=True),
+        path=VPNC_VPN_CONFIG_DIR,
+        recursive=False,
+    )
+    # The handler will not be running as a thread.
+    observer.daemon = False
+
+    return observer
+
+
+def _downlink_endpoint_observer() -> Observer:
+    # Define what should happen when downlink files are created, modified or deleted.
+    class DownlinkHandler(PatternMatchingEventHandler):
+        """
+        Handler for the event monitoring.
+        """
+
+        def on_created(self, event: FileCreatedEvent):
+            logger.info("File %s: %s", event.event_type, event.src_path)
+            cust_config = pathlib.Path(event.src_path)
+            add_endpoint_downlink_connection(cust_config)
+
+        def on_modified(self, event: FileModifiedEvent):
+            logger.info("File %s: %s", event.event_type, event.src_path)
+            cust_config = pathlib.Path(event.src_path)
+            add_endpoint_downlink_connection(cust_config)
+
+        def on_deleted(self, event: FileDeletedEvent):
+            logger.info("File %s: %s", event.event_type, event.src_path)
+            cust_config = pathlib.Path(event.src_path).stem
+            delete_endpoint_downlink_connection(cust_config)
 
     # Create the observer object. This doesn't start the handler.
     observer = Observer()
@@ -198,8 +233,8 @@ def add_downlink_connection(path: pathlib.Path):
     with open(path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
-    cust_id = config["id"]
-    cust_id_int = int(cust_id[1:])
+    vpn_id = config["id"]
+    vpn_id_int = int(vpn_id[1:])
 
     # NETWORK NAMESPACES AND XFRM INTERFACES
     ip_netns_str = subprocess.run(
@@ -211,22 +246,22 @@ def add_downlink_connection(path: pathlib.Path):
     ).stdout.decode()
     ip_netns = json.loads(ip_netns_str)
 
-    netns_diff = {x["name"] for x in ip_netns if x["name"].startswith(cust_id)}
-    netns_ref = {f"{cust_id}-{x:03}" for x in config["tunnels"].keys()}
+    netns_diff = {x["name"] for x in ip_netns if x["name"].startswith(vpn_id)}
+    netns_ref = {f"{vpn_id}-{x:03}" for x in config["tunnels"].keys()}
     netns_remove = netns_diff.difference(netns_ref)
 
     # Configure XFRM interfaces for downlinks
     logger.info("Setting up uplink xfrm interfaces for %s netns.", TRUSTED_NETNS)
     for tun_id, tunnel_config in config["tunnels"].items():
-        netns = f"{cust_id}-{tun_id:03}"
+        netns = f"{vpn_id}-{tun_id:03}"
 
         veth_i = f"{netns}_I"
         veth_e = f"{netns}_E"
 
         xfrm = f"xfrm-{netns}"
-        xfrm_id = int(cust_id_int) * 1000 + int(tun_id)
+        xfrm_id = int(vpn_id_int) * 1000 + int(tun_id)
 
-        v6_segment_4 = int(cust_id_int)  # outputs 1
+        v6_segment_4 = int(vpn_id_int)  # outputs 1
         v6_segment_5 = int(tun_id)  # outputs 0
         # outputs fdcc:0:c:1:0
         v6_cust_space = f"{CUST_PREFIX_START}:{v6_segment_4}:{v6_segment_5}"
@@ -257,7 +292,7 @@ def add_downlink_connection(path: pathlib.Path):
             # add route from CUSTOMER to MGMT network via TRUSTED namespace
             ip -n {netns} -6 route add {MGMT_PREFIX} via {v6_cust_space}:1:0:0
             # configure XFRM interfaces
-            ip -n {UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {UNTRUSTED_IF_NAME} if_id 0x{xfrm_id}
+            ip -n {UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {VPNC_HUB_CONFIG["untrusted_if_name"]} if_id 0x{xfrm_id}
             ip -n {UNTRUSTED_NETNS} link set {xfrm} netns {netns}
             ip -n {netns} link set dev {xfrm} up
             ip -n {netns} address add {v4_cust_tunnel_ip} dev {xfrm}
@@ -283,10 +318,10 @@ def add_downlink_connection(path: pathlib.Path):
     downlink_configs = []
     for tun_id, tun_config in config["tunnels"].items():
         tunnel_config = {
-            "remote": cust_id,
+            "remote": vpn_id,
             "t_id": f"{tun_id:03}",
             "remote_peer_ip": tun_config["remote_peer_ip"],
-            "xfrm_id": int(cust_id_int) * 1000 + int(tun_id),
+            "xfrm_id": int(vpn_id_int) * 1000 + int(tun_id),
             "psk": tun_config["psk"],
         }
 
@@ -309,7 +344,7 @@ def add_downlink_connection(path: pathlib.Path):
         downlink_configs.append(tunnel_config)
 
     downlink_render = downlink_template.render(connections=downlink_configs)
-    downlink_path = VPN_CONFIG_DIR.joinpath(f"{cust_id}.conf")
+    downlink_path = VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
     print(downlink_path)
     with open(downlink_path, "w", encoding="utf-8") as f:
         f.write(downlink_render)
@@ -317,7 +352,111 @@ def add_downlink_connection(path: pathlib.Path):
     _load_swanctl_all_config()
 
 
-def delete_downlink_connection(cust_id: str):
+def add_endpoint_downlink_connection(path: pathlib.Path):
+    """
+    Configures downlink VPN connections.
+    """
+
+    with open(path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    vpn_id = config["id"]
+    vpn_id_int = int(vpn_id[1:])
+
+    # NETWORK NAMESPACES AND XFRM INTERFACES
+    ip_xfrm_str = subprocess.run(
+        "ip -j link",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=True,
+    ).stdout.decode()
+    ip_xfrm = json.loads(ip_xfrm_str)
+
+    xfrm_diff = {
+        x["ifname"] for x in ip_xfrm if x["ifname"].startswith(f"xfrm-{vpn_id}")
+    }
+    xfrm_ref = {f"xfrm-{vpn_id}-{x:03}" for x in config["tunnels"].keys()}
+    xfrm_remove = xfrm_diff.difference(xfrm_ref)
+
+    # Configure XFRM interfaces for downlinks
+    logger.info("Setting up uplink xfrm interfaces.")
+    for tun_id, tunnel_config in config["tunnels"].items():
+        xfrm = f"xfrm-{vpn_id}-{tun_id:03}"
+        xfrm_id = int(vpn_id_int) * 1000 + int(tun_id)
+
+        cmd = f"""
+        # configure XFRM interfaces
+        ip -n {UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {VPNC_HUB_CONFIG["untrusted_if_name"]} if_id 0x{xfrm_id}
+        ip -n {UNTRUSTED_NETNS} link set {xfrm} netns 1
+        ip link set dev {xfrm} up
+        ip address add {tunnel_config["tunnel_ip"]} dev {xfrm}
+        """
+        if tunnel_config.get("traffic_selectors"):
+            for i in tunnel_config["traffic_selectors"]["remote"]:
+                cmd += f"\nip route add {i} dev xfrm"
+        elif tunnel_config["routes"]:
+            for i in tunnel_config["routes"]:
+                cmd += f"\nip route add {i} dev xfrm"
+
+        subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=True,
+            check=False,
+        )
+
+    for xfrm in xfrm_remove:
+        # run the netns remove commands
+        subprocess.run(
+            f"ip link del {xfrm}",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=True,
+            check=False,
+        )
+
+    # VPN DOWNLINKS
+    downlink_template = VPNC_TEMPLATE_ENV.get_template("downlink.conf.j2")
+    downlink_configs = []
+    for tun_id, tun_config in config["tunnels"].items():
+        tunnel_config = {
+            "remote": vpn_id,
+            "t_id": f"{tun_id:03}",
+            "remote_peer_ip": tun_config["remote_peer_ip"],
+            "xfrm_id": int(vpn_id_int) * 1000 + int(tun_id),
+            "psk": tun_config["psk"],
+        }
+
+        if tun_config.get("ike_version") and config.get("ike_version") != 2:
+            tunnel_config["ike_version"] = tun_config["ike_version"]
+        tunnel_config["ike_proposal"] = tun_config["ike_proposal"]
+        tunnel_config["ipsec_proposal"] = tun_config["ipsec_proposal"]
+
+        tunnel_config["local_id"] = VPNC_HUB_CONFIG["local_id"]
+        if tun_config.get("remote_id"):
+            tunnel_config["remote_id"] = tun_config["remote_id"]
+        else:
+            tunnel_config["remote_id"] = tun_config["remote_peer_ip"]
+
+        if tun_config.get("traffic_selectors"):
+            ts_local = ",".join(tun_config["traffic_selectors"]["local"])
+            ts_remote = ",".join(tun_config["traffic_selectors"]["remote"])
+            tunnel_config["ts"] = {"local": ts_local, "remote": ts_remote}
+
+        downlink_configs.append(tunnel_config)
+
+    downlink_render = downlink_template.render(connections=downlink_configs)
+    downlink_path = VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
+    print(downlink_path)
+    with open(downlink_path, "w", encoding="utf-8") as f:
+        f.write(downlink_render)
+
+    _load_swanctl_all_config()
+
+
+def delete_downlink_connection(vpn_id: str):
     """
     Removes downlink VPN connections.
     """
@@ -332,7 +471,7 @@ def delete_downlink_connection(cust_id: str):
     ).stdout.decode()
     ip_netns = json.loads(ip_netns_str)
 
-    netns_remove = {x["name"] for x in ip_netns if x["name"].startswith(cust_id)}
+    netns_remove = {x["name"] for x in ip_netns if x["name"].startswith(vpn_id)}
     for netns in netns_remove:
         # run the netns remove commands
         subprocess.run(
@@ -343,7 +482,42 @@ def delete_downlink_connection(cust_id: str):
             check=False,
         )
 
-    downlink_path = VPN_CONFIG_DIR.joinpath(f"{cust_id}.conf")
+    downlink_path = VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
+    downlink_path.unlink(missing_ok=True)
+
+    _load_swanctl_all_config()
+
+
+def delete_endpoint_downlink_connection(vpn_id: str):
+    """
+    Removes downlink VPN connections.
+    """
+
+    # NETWORK NAMESPACES
+    ip_xfrm_str = subprocess.run(
+        "ip -j link",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=True,
+    ).stdout.decode()
+    ip_xfrm = json.loads(ip_xfrm_str)
+
+    xfrm_remove = {
+        x["ifname"] for x in ip_xfrm if x["ifname"].startswith(f"xfrm-{vpn_id}")
+    }
+
+    for xfrm in xfrm_remove:
+        # run the link remove commands
+        subprocess.run(
+            f"ip link del {xfrm}",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=True,
+            check=False,
+        )
+
+    downlink_path = VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
     downlink_path.unlink(missing_ok=True)
 
     _load_swanctl_all_config()
@@ -361,8 +535,24 @@ def update_downlink_connection():
     for file_path in config_files:
         add_downlink_connection(file_path)
 
-    for cust_id in vpn_config_set.difference(config_set):
-        delete_downlink_connection(cust_id)
+    for vpn_id in vpn_config_set.difference(config_set):
+        delete_downlink_connection(vpn_id)
+
+
+def update_endpoint_downlink_connection():
+    """
+    Configures downlinks.
+    """
+    config_files = list(VPNC_VPN_CONFIG_DIR.glob(pattern="*.yaml"))
+    config_set = {x.stem for x in config_files}
+    vpn_config_files = list(VPN_CONFIG_DIR.glob(pattern="c*.conf"))
+    vpn_config_set = {x.stem for x in vpn_config_files}
+
+    for file_path in config_files:
+        add_endpoint_downlink_connection(file_path)
+
+    for vpn_id in vpn_config_set.difference(config_set):
+        delete_endpoint_downlink_connection(vpn_id)
 
 
 def update_uplink_connection():
@@ -392,7 +582,7 @@ def update_uplink_connection():
     for tun_id in VPNC_HUB_CONFIG["uplink_vpns"].keys():
         uplink_xfrm_cmd = f"""
         # configure XFRM interfaces
-        ip -n {UNTRUSTED_NETNS} link add xfrm-uplink{tun_id:03} type xfrm dev {UNTRUSTED_IF_NAME} if_id 0x9999{tun_id:03}
+        ip -n {UNTRUSTED_NETNS} link add xfrm-uplink{tun_id:03} type xfrm dev {VPNC_HUB_CONFIG["untrusted_if_name"]} if_id 0x9999{tun_id:03}
         ip -n {UNTRUSTED_NETNS} link set xfrm-uplink{tun_id:03} netns {TRUSTED_NETNS}
         ip -n {TRUSTED_NETNS} link set dev xfrm-uplink{tun_id:03} up
         """
@@ -413,7 +603,6 @@ def update_uplink_connection():
             shell=True,
             check=False,
         )  # .stdout.decode().lower()
-
 
     # IP(6)TABLES RULES
     # The trusted netns blocks all traffic originating from the customer namespaces,
@@ -507,10 +696,10 @@ def main_hub():
     subprocess.run(
         f"""
         ip netns add {UNTRUSTED_NETNS}
-        ip link set {UNTRUSTED_IF_NAME} netns {UNTRUSTED_NETNS}
-        ip -n {UNTRUSTED_NETNS} address add {UNTRUSTED_IF_IP} dev {UNTRUSTED_IF_NAME}
-        ip -n {UNTRUSTED_NETNS} link set dev {UNTRUSTED_IF_NAME} up
-        ip -n {UNTRUSTED_NETNS} route add default via {UNTRUSTED_IF_GW}
+        ip link set {VPNC_HUB_CONFIG["untrusted_if_name"]} netns {UNTRUSTED_NETNS}
+        ip -n {UNTRUSTED_NETNS} address add {VPNC_HUB_CONFIG["untrusted_if_ip"]} dev {VPNC_HUB_CONFIG["untrusted_if_name"]}
+        ip -n {UNTRUSTED_NETNS} link set dev {VPNC_HUB_CONFIG["untrusted_if_name"]} up
+        ip -n {UNTRUSTED_NETNS} route add default via {VPNC_HUB_CONFIG["untrusted_if_gw"]}
         ip netns exec {UNTRUSTED_NETNS} ipsec start
         # start NAT64
         modprobe jool
@@ -564,6 +753,68 @@ def main_hub():
     downlink_observer.start()
 
 
+def main_endpoint():
+    """
+    Creates the trusted and untrusted namespaces and aliases the default namespace to ROOT.
+    """
+    logger.info("#" * 100)
+    logger.info("Starting ncubed VPNC strongSwan daemon.")
+
+    # Mounts the default network namespace with the alias ROOT. This makes for consistent operation
+    # between all namespaces
+    logger.info("Mounting default namespace as ROOT")
+    subprocess.run(
+        """
+        touch /var/run/netns/ROOT
+        mount --bind /proc/1/ns/net /var/run/netns/ROOT
+        """,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=False,
+    )  # .stdout.decode().lower()
+
+    # The untrusted namespace has internet connectivity.
+    # After creating this namespace, ipsec is restarted in this namespace.
+    # No IPv6 routing is enabled on this namespace.
+    # There is no connectivity to other namespaces.
+    logger.info("Setting up %s netns", UNTRUSTED_NETNS)
+    subprocess.run(
+        f"""
+        ip netns add {UNTRUSTED_NETNS}
+        ip link set {VPNC_HUB_CONFIG["untrusted_if_name"]} netns {UNTRUSTED_NETNS}
+        ip -n {UNTRUSTED_NETNS} address add {VPNC_HUB_CONFIG["untrusted_if_ip"]} dev {VPNC_HUB_CONFIG["untrusted_if_name"]}
+        ip -n {UNTRUSTED_NETNS} link set dev {VPNC_HUB_CONFIG["untrusted_if_name"]} up
+        ip -n {UNTRUSTED_NETNS} route add default via {VPNC_HUB_CONFIG["untrusted_if_gw"]}
+        ip netns exec {UNTRUSTED_NETNS} ipsec start
+        """,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=False,
+    )
+
+    # Enable IPv6 and IPv4 on the default namespace.
+    logger.info("Setting up %s netns.", TRUSTED_NETNS)
+    subprocess.run(
+        """
+        sysctl -w net.ipv6.conf.all.forwarding=1
+        sysctl -w net.ipv4.conf.all.forwarding=1
+        """,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=False,
+    )  # .stdout.decode().lower()
+
+    update_endpoint_downlink_connection()
+
+    # Start the event handler.
+    logger.info("Monitoring customer config changes.")
+    downlink_observer = _downlink_endpoint_observer()
+    downlink_observer.start()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Control the VPNC Strongswan daemon")
     subparser = parser.add_subparsers(help="Sub command help")
@@ -571,6 +822,10 @@ if __name__ == "__main__":
         "hub", help="Starts the VPN service in hub mode"
     )
     parser_start.set_defaults(func=main_hub)
+    parser_start = subparser.add_parser(
+        "endpoint", help="Starts the VPN service in endpoint mode"
+    )
+    parser_start.set_defaults(func=main_endpoint)
 
     args = parser.parse_args(["hub"])
     # args = parser.parse_args()

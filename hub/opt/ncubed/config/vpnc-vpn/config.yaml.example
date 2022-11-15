@@ -11,13 +11,18 @@ tunnels:
     ike_version: 2
     ike_proposal: ike-aes128gcm16-sha256-ecp384-prfsha384
     ipsec_proposal: ipsec-aes128gcm16-aes128gmac-ecp384
-    # traffic_selectors:
+    # mutually exclusive with traffic selectors
+    # does not work in hub mode
+    # routes:
+    # - 172.30.0.0/16
+    # - 172.31.0.0/16
+    # traffic_selectors:  # mutually exclusive with routes.
     #   local:
-    #     - 10.20.0.0/16
-    #     - 10.21.0.0/16
+    #   - 10.20.0.0/16
+    #   - 10.21.0.0/16
     #   remote:
-    #     - 172.30.0.0/16
-    #     - 172.31.0.0/16
+    #   - 172.30.0.0/16
+    #   - 172.31.0.0/16
   1:
     remote_peer_ip: 192.168.0.153
     # remote_id: 192.168.0.153
@@ -26,11 +31,16 @@ tunnels:
     # ike_version: 2
     ike_proposal: ike-aes128gcm16-sha256-ecp384-prfsha384
     ipsec_proposal: ipsec-aes128gcm16-aes128gmac-ecp384
-    # traffic_selectors:
+    # mutually exclusive with traffic selectors
+    # does not work in hub mode
+    # routes:
+    # - 172.30.0.0/16
+    # - 172.31.0.0/16
+    # traffic_selectors:  # mutually exclusive with routes.
     #   local:
-    #     - 10.20.0.0/16
-    #     - 10.21.0.0/16
+    #   - 10.20.0.0/16
+    #   - 10.21.0.0/16
     #   remote:
-    #     - 172.30.0.0/16
-    #     - 172.31.0.0/16
+    #   - 172.30.0.0/16
+    #   - 172.31.0.0/16
 ...
