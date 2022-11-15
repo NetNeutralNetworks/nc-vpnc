@@ -17,6 +17,7 @@ from watchdog.events import (
     FileDeletedEvent,
     FileModifiedEvent,
     FileSystemEventHandler,
+    PatternMatchingEventHandler
 )
 from watchdog.observers import Observer
 
@@ -103,7 +104,7 @@ if CUST_TUNNEL_PREFIX.prefixlen != 16:
 
 def _downlink_observer() -> Observer:
     # Define what should happen when downlink files are created, modified or deleted.
-    class DownlinkHandler(FileSystemEventHandler):
+    class DownlinkHandler(PatternMatchingEventHandler):
         """
         Handler for the event monitoring.
         """
@@ -128,7 +129,7 @@ def _downlink_observer() -> Observer:
 
     # Configure the event handler that watches directories. This doesn't start the handler.
     observer.schedule(
-        event_handler=DownlinkHandler(),
+        event_handler=DownlinkHandler(patterns=["c*.yaml"], ignore_directories=True),
         path=VPNC_VPN_CONFIG_DIR,
         recursive=False,
     )
@@ -267,18 +268,15 @@ def add_downlink_connection(path: pathlib.Path):
             check=False,
         )
 
-    netns_remove_list = ""
     for netns in netns_remove:
-        netns_remove_list += f"ip netns del {netns}"
-
-    # run the netns remove commands
-    subprocess.run(
-        netns_remove_list,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=True,
-        check=False,
-    )
+        # run the netns remove commands
+        subprocess.run(
+            f"ip netns del {netns}",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=True,
+            check=False,
+        )
 
     # VPN DOWNLINKS
     downlink_template = VPNC_TEMPLATE_ENV.get_template("downlink.conf.j2")
@@ -335,21 +333,18 @@ def delete_downlink_connection(cust_id: str):
     ip_netns = json.loads(ip_netns_str)
 
     netns_remove = {x["name"] for x in ip_netns if x["name"].startswith(cust_id)}
-    netns_remove_list = ""
     for netns in netns_remove:
-        netns_remove_list += f"ip netns del {netns}"
-
-    # run the netns remove commands
-    subprocess.run(
-        netns_remove_list,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=True,
-        check=False,
-    )
+        # run the netns remove commands
+        subprocess.run(
+            f"ip netns del {netns}",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=True,
+            check=False,
+        )
 
     downlink_path = VPN_CONFIG_DIR.joinpath(f"{cust_id}.conf")
-    downlink_path.unlink()
+    downlink_path.unlink(missing_ok=True)
 
     _load_swanctl_all_config()
 
@@ -393,25 +388,32 @@ def update_uplink_connection():
 
     # Configure XFRM interfaces for uplinks
     logger.info("Setting up uplink xfrm interfaces for %s netns.", TRUSTED_NETNS)
-    uplink_xfrm = ""
+
     for tun_id in VPNC_HUB_CONFIG["uplink_vpns"].keys():
-        uplink_xfrm += f"""
+        uplink_xfrm_cmd = f"""
         # configure XFRM interfaces
         ip -n {UNTRUSTED_NETNS} link add xfrm-uplink{tun_id:03} type xfrm dev {UNTRUSTED_IF_NAME} if_id 0x9999{tun_id:03}
         ip -n {UNTRUSTED_NETNS} link set xfrm-uplink{tun_id:03} netns {TRUSTED_NETNS}
         ip -n {TRUSTED_NETNS} link set dev xfrm-uplink{tun_id:03} up
         """
+        # run the commands
+        subprocess.run(
+            uplink_xfrm_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=True,
+            check=False,
+        )  # .stdout.decode().lower()
     for remove_uplink in uplinks_remove:
-        uplink_xfrm += f"ip -n {TRUSTED_NETNS} link del dev {remove_uplink}"
+        # run the commands
+        subprocess.run(
+            f"ip -n {TRUSTED_NETNS} link del dev {remove_uplink}",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=True,
+            check=False,
+        )  # .stdout.decode().lower()
 
-    # run the commands
-    subprocess.run(
-        uplink_xfrm,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=True,
-        check=False,
-    )  # .stdout.decode().lower()
 
     # IP(6)TABLES RULES
     # The trusted netns blocks all traffic originating from the customer namespaces,
