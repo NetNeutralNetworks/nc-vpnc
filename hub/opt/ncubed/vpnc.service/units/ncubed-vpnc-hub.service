@@ -1,5 +1,5 @@
 [Unit]
-Description=ncubed VPNC strongSwan IPsec init
+Description=ncubed VPNC hub strongSwan IPsec init
 StartLimitInterval=200
 StartLimitBurst=5
 Wants=network-online.target
