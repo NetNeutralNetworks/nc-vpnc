@@ -83,7 +83,7 @@ TRUSTED_TRANSIT_PREFIX = ipaddress.IPv6Network(
 )
 # IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s
 CUST_TUNNEL_PREFIX = ipaddress.IPv4Network(
-    VPNC_HUB_CONFIG.get("customer_tunnel_prefix", "::/16")
+    VPNC_HUB_CONFIG.get("customer_tunnel_prefix", "0.0.0.0/16")
 )
 CUST_PREFIX = "fdcc:0:c::/48"  # IPv6 prefix for NAT64 to customer networks
 CUST_PREFIX_START = "fdcc:0:c"  # IPv6 prefix start for NAT64 to customer networks
