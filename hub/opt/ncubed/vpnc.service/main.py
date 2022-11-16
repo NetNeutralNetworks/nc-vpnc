@@ -395,7 +395,7 @@ def add_endpoint_downlink_connection(path: pathlib.Path):
         if tunnel_config.get("traffic_selectors"):
             for i in tunnel_config["traffic_selectors"]["remote"]:
                 cmd += f"\nip route add {i} dev xfrm"
-        elif tunnel_config["routes"]:
+        elif tunnel_config.get("routes"):
             for i in tunnel_config["routes"]:
                 cmd += f"\nip route add {i} dev xfrm"
 
