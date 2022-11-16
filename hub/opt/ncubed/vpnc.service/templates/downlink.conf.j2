@@ -25,16 +25,17 @@ connections {
         children {
             # CHILD_SA configuration sub-section.
     {#- ts are traffic selectors #}
-    {%- if conn.ts is not defined or not conn.ts %}
-            {{ conn.remote }}-{{ conn.t_id }} : {{ conn.ipsec_proposal }} {}
-    {%- elif conn.ts is defined and conn.ts %}
             {{ conn.remote }}-{{ conn.t_id }} : {{ conn.ipsec_proposal }} {
+    {%- if conn.ts is defined and conn.ts %}
                 # Local traffic selectors to include in CHILD_SA.
                 local_ts = {{ conn.ts.local }}
                 # Remote selectors to include in CHILD_SA.
                 remote_ts = {{ conn.ts.remote }}
-            }
     {%- endif %}
+    {%- if updown is defined and updown is True %}
+                updown=/opt/ncubed/vpnc.service/scripts/updown-customer.sh
+    {%- endif %}
+            }
         }
     }
 {%- endfor %}

@@ -346,7 +346,7 @@ def add_downlink_connection(path: pathlib.Path):
 
         downlink_configs.append(tunnel_config)
 
-    downlink_render = downlink_template.render(connections=downlink_configs)
+    downlink_render = downlink_template.render(connections=downlink_configs, updown=True)
     downlink_path = VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
     print(downlink_path)
     with open(downlink_path, "w", encoding="utf-8") as f:
