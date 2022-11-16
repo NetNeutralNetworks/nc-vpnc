@@ -32,7 +32,7 @@ connections {
                 # Remote selectors to include in CHILD_SA.
                 remote_ts = {{ conn.ts.remote }}
     {%- endif %}
-    {%- if updown is defined and updown is True %}
+    {%- if updown is defined and updown is sameas true %}
                 updown=/opt/ncubed/vpnc.service/scripts/updown-customer.sh
     {%- endif %}
             }
