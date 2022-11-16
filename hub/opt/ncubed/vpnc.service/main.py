@@ -7,6 +7,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 
 import jinja2
@@ -115,6 +116,7 @@ def _downlink_observer() -> Observer:
         def on_modified(self, event: FileModifiedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             cust_config = pathlib.Path(event.src_path)
+            time.sleep(1)
             add_downlink_connection(cust_config)
 
         def on_deleted(self, event: FileDeletedEvent):
@@ -152,6 +154,7 @@ def _downlink_endpoint_observer() -> Observer:
         def on_modified(self, event: FileModifiedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             cust_config = pathlib.Path(event.src_path)
+            time.sleep(1)
             add_endpoint_downlink_connection(cust_config)
 
         def on_deleted(self, event: FileDeletedEvent):
