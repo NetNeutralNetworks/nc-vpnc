@@ -38,7 +38,7 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 
 # Configuration file paths/directories
 VPN_CONFIG_DIR = pathlib.Path("/etc/swanctl/conf.d")
-VPNC_HUB_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc-hub/config.yaml")
+VPNC_HUB_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/config.yaml")
 VPNC_VPN_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-vpn")
 # Load the configuration
 logger.info("Loading configuration from '%s'.", VPNC_HUB_CONFIG_PATH)

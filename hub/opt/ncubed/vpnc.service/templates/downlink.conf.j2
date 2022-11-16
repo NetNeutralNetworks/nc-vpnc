@@ -33,7 +33,7 @@ connections {
                 remote_ts = {{ conn.ts.remote }}
     {%- endif %}
     {%- if updown is defined and updown is sameas true %}
-                updown=/opt/ncubed/vpnc.service/scripts/updown-customer.sh
+                updown=/opt/ncubed/vpnc.service/scripts/updown-downlink.sh
     {%- endif %}
             }
         }
