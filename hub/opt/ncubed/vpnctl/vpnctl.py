@@ -1,12 +1,25 @@
 #! /bin/python3
 
+# import difflib
 import argparse
-import difflib
 import glob
+import json
 import logging
 import pathlib
 import sys
-from typing import Union, Any
+from dataclasses import asdict, dataclass
+from ipaddress import (
+    IPv4Address,
+    IPv4Interface,
+    IPv4Network,
+    IPv6Address,
+    IPv6Interface,
+    IPv6Network,
+    ip_address,
+    ip_interface,
+    ip_network,
+)
+from typing import Any
 
 import jinja2
 import yaml
@@ -14,25 +27,14 @@ import yaml
 logging.basicConfig()
 logger = logging.getLogger()
 
-VPN_CONFIG_PATH = pathlib.Path("/etc/swanctl/conf.d")
-# Load the configuration
-VPNC_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/config.yaml")
-logger.info("Loading configuration from '%s'.", VPNC_CONFIG_PATH)
-if not VPNC_CONFIG_PATH.exists():
-    logger.critical("Configuration not found at '%s'.", VPNC_CONFIG_PATH)
-    sys.exit(1)
-with open(VPNC_CONFIG_PATH, "r", encoding="utf-8") as h:
-    try:
-        VPNC_CONFIG = yaml.safe_load(h)
-    except yaml.YAMLError:
-        logger.critical(
-            "Configuration is not valid '%s'.", VPNC_CONFIG_PATH, exc_info=True
-        )
-        sys.exit(1)
+# The configuration
+VPNC_VPN_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-vpn")
 VPNCTL_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnctl")
 VPNCTL_TEMPLATE_DIR = pathlib.Path(__file__).parent.joinpath("templates")
 
-VPNCTL_J2_ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(VPNCTL_TEMPLATE_DIR))
+VPNCTL_TEMPLATE_ENV = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(VPNCTL_TEMPLATE_DIR)
+)
 
 
 def new_vpn(data):
@@ -53,9 +55,6 @@ def render_vpn(data):
     commit: bool = data.commit
     purge: bool = data.purge
     diff: bool = data.diff
-    # Read the configuration files for vpnctl (not swanctl) to check if there is any configuration.
-    # It renders all configurations for a customer or all configured configurations.
-    template = VPNCTL_J2_ENV.get_template("customer.conf.j2")
 
     config_file = VPNCTL_CONFIG_DIR.joinpath(f"{remote}.yaml")
 
@@ -66,30 +65,24 @@ def render_vpn(data):
     with open(config_file, "r", encoding="utf-8") as handle:
         vpnctl_config = yaml.safe_load(handle)
 
-    for tun_id, config in vpnctl_config["tunnels"].items():
-        tunnel_config = calculate_vpn(remote, tun_id, config)
-        tunnel_render = template.render(connections=[tunnel_config])
-
-        # Save the output to file or print it (or display a diff)
-        out_path = VPN_CONFIG_PATH.joinpath(f"{remote}-{tun_id:03}.conf")
-        if diff:
-            with open(out_path, "r", encoding="utf-8") as file:
-                diff_file = file.read()
-            for i in difflib.unified_diff(
-                diff_file.splitlines(), tunnel_render.splitlines()
-            ):
-                print(i)
-        else:
-            print(tunnel_render)
-        if commit:
-            with open(out_path, "w+", encoding="utf-8") as file:
-                file.write(tunnel_render)
+    # if diff:
+    #         with open(out_path, "r", encoding="utf-8") as file:
+    #             diff_file = file.read()
+    #         for i in difflib.unified_diff(
+    #             diff_file.splitlines(), tunnel_render.splitlines()
+    #         ):
+    #             print(i)
+    #     else:
+    #         print(tunnel_render)
+    #     if commit:
+    #         with open(out_path, "w+", encoding="utf-8") as file:
+    #             file.write(tunnel_render)
 
     if purge:
         delete_vpn_renders(vpnctl_config)
 
 
-def delete_vpn_renders(vpn_config: dict[str, Union[str, dict[str, Any]]]):
+def delete_vpn_renders(vpn_config: dict[str, str | dict[str, Any]]):
     """Deletes rendered swanctl config if not in vpnctl config."""
 
     remote = str(vpn_config["remote"])
@@ -124,71 +117,533 @@ def delete_vpn_renders(vpn_config: dict[str, Union[str, dict[str, Any]]]):
     print("Connections succesfully deleted.")
 
 
-def calculate_vpn(remote, tun_id, config):
-    """Calculate variables to render for a tunnel."""
-    tunnel_config = {
-        "remote": remote,
-        "t_id": f"{tun_id:03}",
-        "psk": config["psk"],
-        "remote_peer_ip": config["remote_peer_ip"],
-    }
+@dataclass
+class TrafficSelectors:
+    """
+    Defines a traffic selector data structure
+    """
 
-    tunnel_config["xfrm_id"] = f"{int(remote[1:]) * 1000 + int(tun_id)}"
-    tunnel_config["ike_proposal"] = config["ike_proposal"]
-    tunnel_config["ipsec_proposal"] = config["ipsec_proposal"]
+    local: list[IPv4Network | IPv6Network]
+    remote: list[IPv4Network | IPv6Network]
 
-    # tunnel_config["xfrm_id"] = f"{int(remote[1:]) * 1000 + int(tun_id)}"
-    if config.get("local_id"):
-        tunnel_config["local_id"] = config["local_id"]
+    def __post_init__(self):
+        self.local = [str(x) for x in self.local]
+        self.remote = [str(x) for x in self.remote]
+
+
+@dataclass
+class Tunnel:
+    """
+    Defines a tunnel data structure
+    """
+
+    ike_proposal: str
+    ipsec_proposal: str
+    psk: str
+    remote_peer_ip: IPv4Address | IPv6Address
+    remote_id: str | None = None
+    metadata: dict | None = None
+    tunnel_ip: IPv4Interface | IPv6Interface | None = None
+    ike_version: int = 2
+    # Mutually exclusive with traffic selectors
+    routes: list[IPv4Network | IPv6Network] | None = None
+    # Mutually exclusive with routes
+    traffic_selectors: TrafficSelectors | None = None
+
+    def __post_init__(self):
+        if self.routes and self.traffic_selectors:
+            raise ValueError("Cannot specify both routes and traffic selectors.")
+        if not self.remote_id:
+            self.remote_id = str(self.remote_peer_ip)
+        if self.traffic_selectors:
+            self.traffic_selectors = TrafficSelectors(**self.traffic_selectors)
+        if self.routes:
+            self.routes = [str(x) for x in self.routes]
+        self.remote_peer_ip = str(self.remote_peer_ip)
+        if self.tunnel_ip:
+            self.tunnel_ip = str(self.tunnel_ip)
+
+
+@dataclass
+class Remote:
+    """
+    Defines a remote side data structure
+    """
+
+    id: str
+    name: str
+    metadata: dict
+    tunnels: dict[int, Tunnel]
+
+    def __post_init__(self):
+        if self.tunnels:
+            self.tunnels = {k: Tunnel(**v) for (k, v) in self.tunnels.items()}
+        else:
+            self.tunnels = {}
+
+
+def remote_list(args: argparse.Namespace):
+    """
+    List all remotes
+    """
+    _ = args
+
+    for i in VPNCTL_CONFIG_DIR.glob("*.yaml"):
+        file_name = i.stem
+        with open(i, "r", encoding="utf-8") as f:
+            remote = Remote(**yaml.safe_load(f))
+        if file_name != remote.id:
+            print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
+        elif file_name == remote.id:
+            print(file_name)
+
+
+def remote_show(args: argparse.Namespace):
+    """
+    Show a remote
+    """
+    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        remote = Remote(**yaml.safe_load(f))
+    if args.id != remote.id:
+        print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
+        return
+
+    output = asdict(remote)
+    output["tunnels"] = len(output["tunnels"]) if output.get("tunnels") else 0
+    print(yaml.dump(output))
+
+
+def remote_add(args: argparse.Namespace):
+    """
+    Add a remote
+    """
+    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    if path.exists():
+        print(f"Remote '{args.id}' already exists.")
+        return
+
+    remote = Remote(args.id, args.name, args.metadata, {})
+
+    output = yaml.dump(asdict(remote))
+    with open(path, "w+", encoding="utf-8") as f:
+        f.write(output)
+    remote_show(args)
+
+
+def remote_set(args: argparse.Namespace):
+    """
+    Set a remote
+    """
+    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        remote = Remote(**yaml.safe_load(f))
+    if args.id != remote.id:
+        print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
+        return
+
+    if args.name:
+        remote.name = args.name
+    if args.metadata:
+        remote.metadata = args.metadata
+
+    output = yaml.dump(asdict(remote))
+    with open(path, "w+", encoding="utf-8") as f:
+        f.write(output)
+    remote_show(args)
+
+
+def remote_delete(args: argparse.Namespace):
+    """
+    Delete a remote side
+    """
+    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    if not path.exists():
+        print(f"Remote '{args.id}' doesn't exist.")
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        remote = Remote(**yaml.safe_load(f))
+    if args.id != remote.id:
+        print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
+        return
+
+    output = asdict(remote)
+    if args.dry_run:
+        print(f"(Simulated) Deleted remote '{args.id}'")
+        print(yaml.dump(output))
     else:
-        tunnel_config["local_id"] = VPNC_CONFIG["local_id"]
-    if config.get("remote_id"):
-        tunnel_config["remote_id"] = config["remote_id"]
+        path.unlink()
+        print(f"Deleted remote '{args.id}'")
+        print(yaml.dump(output))
+
+
+def connection_list(args: argparse.Namespace):
+    """
+    List all tunnels for a remote
+    """
+    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        remote = Remote(**yaml.safe_load(f))
+    if args.id != remote.id:
+        print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
+        return
+
+    output = {k: asdict(v) for (k, v) in remote.tunnels.items()}
+    print(yaml.dump(output))
+
+
+def connection_show(args: argparse.Namespace):
+    """
+    Show a specific tunnel for a remote
+    """
+    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        remote = Remote(**yaml.safe_load(f))
+    if args.id != remote.id:
+        print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
+        return
+
+    tunnel = remote.tunnels.get(int(args.tunnel_id))
+    if not tunnel:
+        return
+    output = {int(args.tunnel_id): asdict(tunnel)}
+    print(yaml.dump(output))
+
+
+def connection_add(args: argparse.Namespace):
+    """
+    Add a tunnel to a remote
+    """
+    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        remote = Remote(**yaml.safe_load(f))
+    if args.id != remote.id:
+        print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
+        return
+
+    if remote.tunnels.get(int(args.tunnel_id)):
+        print(f"Connection '{args.tunnel_id}' already exists'.")
+        return
+
+    data = vars(args).copy()
+    data.pop("func")
+    data.pop("id")
+    data.pop("tunnel_id")
+    if data.get("traffic_selectors_local") or data.get("traffic_selectors_remote"):
+        data["traffic_selectors"] = {}
+        data["traffic_selectors"]["local"] = data.pop("traffic_selectors_local")
+        data["traffic_selectors"]["remote"] = data.pop("traffic_selectors_remote")
     else:
-        tunnel_config["remote_id"] = config["remote_peer_ip"]
+        data.pop("traffic_selectors_local")
+        data.pop("traffic_selectors_remote")
+    tunnel = Tunnel(**data)
+    remote.tunnels[int(args.tunnel_id)] = tunnel
 
-    # stuff the variables into a dict to pass to jinja
-    if config.get("ike_version") and config.get("ike_version") != 2:
-        tunnel_config["ike_version"] = config["ike_version"]
-    if config.get("traffic_selectors"):
-        ts_local = ",".join(config["traffic_selectors"]["local"])
-        ts_remote = ",".join(config["traffic_selectors"]["remote"])
-        tunnel_config["ts"] = {"local": ts_local, "remote": ts_remote}
-
-    return tunnel_config
+    output = yaml.dump(asdict(remote))
+    with open(path, "w+", encoding="utf-8") as f:
+        f.write(output)
+    connection_show(args)
 
 
-if __name__ == "__main__":
+def connection_set(args: argparse.Namespace):
+    """
+    Set tunnel properties for a remote
+    """
+    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        remote = Remote(**yaml.safe_load(f))
+    if args.id != remote.id:
+        print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
+        return
+
+    if not remote.tunnels.get(int(args.tunnel_id)):
+        print(f"Connection '{args.tunnel_id}' doesn't exists'.")
+        return
+
+    tunnel = remote.tunnels[int(args.tunnel_id)]
+
+    data = vars(args).copy()
+    data.pop("func")
+    data.pop("id")
+    data.pop("tunnel_id")
+    for k, v in data.items():
+        if not v:
+            continue
+        if k == "routes":
+            tunnel.routes = [str(x) for x in v]
+        elif k == "traffic_selectors_local":
+            tunnel.traffic_selectors.local = [str(x) for x in v]
+        elif k == "traffic_selectors_remote":
+            tunnel.traffic_selectors.remote = [str(x) for x in v]
+        elif k == "remote_peer_ip":
+            tunnel.remote_peer_ip = str(v)
+        elif k == "tunnel_ip":
+            tunnel.tunnel_ip = str(v)
+        else:
+            setattr(tunnel, k, v)
+
+    if tunnel.routes and tunnel.traffic_selectors:
+        raise ValueError("Cannot specify both routes and traffic selectors.")
+
+    output = yaml.dump(asdict(remote))
+    with open(path, "w+", encoding="utf-8") as f:
+        f.write(output)
+    connection_show(args)
+
+
+def connection_delete(args: argparse.Namespace):
+    """
+    Delete a specific tunnel from a remote
+    """
+    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        remote = Remote(**yaml.safe_load(f))
+    if args.id != remote.id:
+        print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
+        return
+
+    tunnel = remote.tunnels.get(int(args.tunnel_id))
+    if not tunnel:
+        print(f"Tunnel with id '{args.tunnel_id}' doesn't exist.")
+        return
+    remote.tunnels.pop(int(args.tunnel_id))
+
+    output = yaml.dump(asdict(remote))
+    if args.dry_run:
+        print(f"(Simulated) Deleted tunnel '{args.tunnel_id}'")
+    else:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(output)
+        print(f"Deleted tunnel '{args.tunnel_id}'")
+    print(output)
+
+
+def main():
     parser = argparse.ArgumentParser(description="Manage VPNC configuration")
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument("id", type=str, action="store", help="Resource identifier")
+    rem_add = argparse.ArgumentParser(add_help=False)
+    rem_add.add_argument(
+        "--name",
+        "-n",
+        type=str,
+        action="store",
+        default="",
+        help="Name of the resource.",
+    )
+    rem_add.add_argument(
+        "--metadata",
+        "-m",
+        type=json.loads,
+        action="store",
+        default={},
+        help="Metadata for the resource, can contain any random key/value pair except the key 'name'",
+    )
+    delete = argparse.ArgumentParser(add_help=False)
+    # delete.add_argument("--diff", action="store_true", help="Shows a diff")
+    delete.add_argument(
+        "--dry-run", action="store_true", help="Does not apply the change"
+    )
+
     subparser = parser.add_subparsers(help="Sub command help")
 
-    parser_render = subparser.add_parser(
-        "render", help="Render the configuration for vpnctl"
+    parser_remote = subparser.add_parser(
+        "remote", help="Create a new base configuration."
     )
-    parser_render.set_defaults(func=render_vpn)
-    parser_render.add_argument(
-        "remote", action="store", help="Name of the remote side."
+    parser_remote.set_defaults(func=remote_list)
+    parser_remote_sub = parser_remote.add_subparsers()
+    parser_remote_list = parser_remote_sub.add_parser("list")
+    parser_remote_list.set_defaults(func=remote_list)
+    parser_remote_show = parser_remote_sub.add_parser("show", parents=[shared])
+    parser_remote_show.set_defaults(func=remote_show)
+    parser_remote_add = parser_remote_sub.add_parser("add", parents=[shared, rem_add])
+    parser_remote_add.set_defaults(func=remote_add)
+    parser_remote_set = parser_remote_sub.add_parser("set", parents=[shared, rem_add])
+    parser_remote_set.set_defaults(func=remote_set)
+    parser_remote_delete = parser_remote_sub.add_parser(
+        "delete", parents=[shared, delete]
     )
-    parser_render.add_argument(
-        "--commit",
-        action="store_true",
-        help="Writes the configuration to vpnc.",
+    parser_remote_delete.set_defaults(func=remote_delete)
+
+    con_shared = argparse.ArgumentParser(add_help=False)
+    con_shared.add_argument(
+        "--tunnel_id",
+        "-t",
+        type=str,
+        action="store",
+        required=True,
+        help="Name of the resource.",
     )
-    parser_render.add_argument(
-        "--purge",
-        action="store_true",
-        help="Removes VPN connections from vpnc not defined in vpnctl configuration.",
+    con_add = argparse.ArgumentParser(add_help=False)
+    con_add.add_argument(
+        "--ike-proposal",
+        "-ikep",
+        type=str,
+        action="store",
+        required=True,
+        help="IKE proposal.",
     )
-    parser_render.add_argument(
-        "--diff",
-        action="store_true",
-        help="Displays the difference between the current and desired vpnc configurations.",
+    con_add.add_argument(
+        "--ipsec-proposal",
+        "-ipsp",
+        type=str,
+        action="store",
+        required=True,
+        help="IPSec proposal.",
+    )
+    con_add.add_argument(
+        "--pre-shared-key",
+        "-psk",
+        dest="psk",
+        type=str,
+        action="store",
+        required=True,
+        help="Pre-shared key.",
+    )
+    con_add.add_argument(
+        "--remote-peer-ip",
+        "-rpi",
+        type=ip_address,
+        action="store",
+        required=True,
+        help="Remote peer IP address.",
+    )
+    con_set = argparse.ArgumentParser(add_help=False)
+    con_set.add_argument(
+        "--ike-proposal",
+        "-ikep",
+        type=str,
+        action="store",
+        help="IKE proposal.",
+    )
+    con_set.add_argument(
+        "--ipsec-proposal",
+        "-ipsp",
+        type=str,
+        action="store",
+        help="IPSec proposal.",
+    )
+    con_set.add_argument(
+        "--pre-shared-key",
+        "-psk",
+        dest="psk",
+        type=str,
+        action="store",
+        help="Pre-shared key.",
+    )
+    con_set.add_argument(
+        "--remote-peer-ip",
+        "-rpi",
+        type=ip_address,
+        action="store",
+        help="Remote peer IP address.",
     )
 
-    parser_render = subparser.add_parser(
-        "new", help="Outputs an example vpnctl yaml configuration file."
+    con_mod = argparse.ArgumentParser(add_help=False)
+    con_mod.add_argument(
+        "--metadata",
+        "-m",
+        type=json.loads,
+        action="store",
+        default={},
+        help="Metadata for the resource, can contain any random key/value pair except the key 'name'",
     )
-    parser_render.set_defaults(func=new_vpn)
+    con_mod.add_argument(
+        "--ike-version",
+        "-ikev",
+        type=int,
+        choices=[1, 2],
+        action="store",
+        default=2,
+        help="IKE version.",
+    )
+    con_mod.add_argument(
+        "--remote-id",
+        "-rid",
+        type=str,
+        action="store",
+        help="Remote IKE identifier.",
+    )
+    con_mod.add_argument(
+        "--tunnel-ip",
+        "-tip",
+        type=ip_interface,
+        action="store",
+        help="Tunnel interface IP.",
+    )
+    con_mod.add_argument(
+        "--routes",
+        "-rt",
+        type=ip_network,
+        nargs="+",
+        action="store",
+        help="Tunnel interface IP.",
+    )
+    con_mod.add_argument(
+        "--traffic-selectors-local",
+        "-tsl",
+        type=ip_network,
+        nargs="+",
+        action="store",
+        help="Traffic selectors local.",
+    )
+    con_mod.add_argument(
+        "--traffic-selectors-remote",
+        "-tsr",
+        type=ip_network,
+        nargs="+",
+        action="store",
+        help="Traffic selectors remote.",
+    )
+
+    parser_connection = subparser.add_parser(
+        "connection", help="Create a new base configuration."
+    )
+    parser_connection_sub = parser_connection.add_subparsers()
+    parser_connection_list = parser_connection_sub.add_parser("list", parents=[shared])
+    parser_connection_list.set_defaults(func=connection_list)
+    parser_connection_show = parser_connection_sub.add_parser(
+        "show", parents=[shared, con_shared]
+    )
+    parser_connection_show.set_defaults(func=connection_show)
+    parser_connection_add = parser_connection_sub.add_parser(
+        "add", parents=[shared, con_shared, con_add, con_mod]
+    )
+    parser_connection_add.set_defaults(func=connection_add)
+    parser_connection_set = parser_connection_sub.add_parser(
+        "set", parents=[shared, con_shared, con_set, con_mod]
+    )
+    parser_connection_set.set_defaults(func=connection_set)
+    parser_connection_delete = parser_connection_sub.add_parser(
+        "delete", parents=[shared, delete, con_shared]
+    )
+    parser_connection_delete.set_defaults(func=connection_delete)
+    # parser_remote.set_defaults(func=remote)
 
     args = parser.parse_args()
     args.func(args)
+
+
+if __name__ == "__main__":
+    main()
