@@ -24,6 +24,7 @@ logging.basicConfig()
 logger = logging.getLogger()
 
 # The configuration
+VPNC_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/config.yaml")
 VPNC_VPN_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-vpn")
 VPNCTL_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnctl")
 

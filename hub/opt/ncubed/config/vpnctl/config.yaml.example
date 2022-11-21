@@ -1,9 +1,14 @@
 ---
 id: c0001
+name: SomeCustomer Co.
 metadata:
-  name: SomeCustomer Co.
+  location: Lab
+  environment: test
 tunnels:
   0:
+    description: ams-dc-01
+    metadata:
+      primary: true
     remote_peer_ip: 192.168.0.152
     remote_id: 192.168.0.152
     tunnel_ip: 172.16.31.1/24
@@ -24,6 +29,9 @@ tunnels:
     #   - 172.30.0.0/16
     #   - 172.31.0.0/16
   1:
+    description: ams-dc-02
+    metadata:
+      primary: false
     remote_peer_ip: 192.168.0.153
     # remote_id: 192.168.0.153
     # tunnel_ip: 172.16.31.1/24
