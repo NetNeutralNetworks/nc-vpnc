@@ -256,16 +256,17 @@ def remote_commit(args: argparse.Namespace):
             )
             return
 
-    if args.diff:
-        for i in difflib.unified_diff(
-            remote_diff_yaml.splitlines(), remote_yaml.splitlines()
-        ):
-            print(i)
     if remote_yaml == remote_diff_yaml:
         print("No changes.")
         return
 
     if args.revert:
+        
+        if args.diff:
+            for i in difflib.unified_diff(
+                remote_yaml.splitlines(), remote_diff_yaml.splitlines()
+            ):
+                print(i)
         if args.dry_run:
             print("(Simulated) Revert succeeded.")
             return
@@ -278,6 +279,12 @@ def remote_commit(args: argparse.Namespace):
             f.write(remote_diff_yaml)
         print("Revert succeeded.")
         return
+
+    if args.diff:
+        for i in difflib.unified_diff(
+            remote_diff_yaml.splitlines(), remote_yaml.splitlines()
+        ):
+            print(i)
 
     if args.dry_run:
         print("(Simulated) Commit succeeded.")
