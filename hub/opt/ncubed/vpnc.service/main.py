@@ -38,12 +38,12 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 
 # Configuration file paths/directories
 VPN_CONFIG_DIR = pathlib.Path("/etc/swanctl/conf.d")
-VPNC_HUB_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/config.yaml")
-VPNC_VPN_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-vpn")
+VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc-service/config.yaml")
+VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-remote")
 # Load the configuration
-logger.info("Loading configuration from '%s'.", VPNC_HUB_CONFIG_PATH)
-if not VPNC_HUB_CONFIG_PATH.exists():
-    logger.critical("Configuration not found at '%s'.", VPNC_HUB_CONFIG_PATH)
+logger.info("Loading configuration from '%s'.", VPNC_SERVICE_CONFIG_PATH)
+if not VPNC_SERVICE_CONFIG_PATH.exists():
+    logger.critical("Configuration not found at '%s'.", VPNC_SERVICE_CONFIG_PATH)
     sys.exit(1)
 
 # Global variable containing the configuration items. Should probably be a class.
@@ -52,12 +52,14 @@ VPNC_HUB_CONFIG: dict = {}
 # Function to load the configuration file
 def _load_config():
     global VPNC_HUB_CONFIG
-    with open(VPNC_HUB_CONFIG_PATH, encoding="utf-8") as f:
+    with open(VPNC_SERVICE_CONFIG_PATH, encoding="utf-8") as f:
         try:
             VPNC_HUB_CONFIG = yaml.safe_load(f)
         except yaml.YAMLError:
             logger.critical(
-                "Configuration is not valid '%s'.", VPNC_HUB_CONFIG_PATH, exc_info=True
+                "Configuration is not valid '%s'.",
+                VPNC_SERVICE_CONFIG_PATH,
+                exc_info=True,
             )
             sys.exit(1)
 
@@ -130,7 +132,7 @@ def _downlink_observer() -> Observer:
     # Configure the event handler that watches directories. This doesn't start the handler.
     observer.schedule(
         event_handler=DownlinkHandler(patterns=["c*.yaml"], ignore_directories=True),
-        path=VPNC_VPN_CONFIG_DIR,
+        path=VPNC_REMOTE_CONFIG_DIR,
         recursive=False,
     )
     # The handler will not be running as a thread.
@@ -168,7 +170,7 @@ def _downlink_endpoint_observer() -> Observer:
     # Configure the event handler that watches directories. This doesn't start the handler.
     observer.schedule(
         event_handler=DownlinkHandler(patterns=["c*.yaml"], ignore_directories=True),
-        path=VPNC_VPN_CONFIG_DIR,
+        path=VPNC_REMOTE_CONFIG_DIR,
         recursive=False,
     )
     # The handler will not be running as a thread.
@@ -193,7 +195,7 @@ def _uplink_observer() -> Observer:
     observer = Observer()
     # Configure the event handler that watches directories. This doesn't start the handler.
     observer.schedule(
-        event_handler=UplinkHandler(), path=VPNC_HUB_CONFIG_PATH, recursive=False
+        event_handler=UplinkHandler(), path=VPNC_SERVICE_CONFIG_PATH, recursive=False
     )
     # The handler will not be running as a thread.
     observer.daemon = False
@@ -346,7 +348,9 @@ def add_downlink_connection(path: pathlib.Path):
 
         downlink_configs.append(tunnel_config)
 
-    downlink_render = downlink_template.render(connections=downlink_configs, updown=True)
+    downlink_render = downlink_template.render(
+        connections=downlink_configs, updown=True
+    )
     downlink_path = VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
     print(downlink_path)
     with open(downlink_path, "w", encoding="utf-8") as f:
@@ -530,7 +534,7 @@ def update_downlink_connection():
     """
     Configures downlinks.
     """
-    config_files = list(VPNC_VPN_CONFIG_DIR.glob(pattern="*.yaml"))
+    config_files = list(VPNC_REMOTE_CONFIG_DIR.glob(pattern="*.yaml"))
     config_set = {x.stem for x in config_files}
     vpn_config_files = list(VPN_CONFIG_DIR.glob(pattern="c*.conf"))
     vpn_config_set = {x.stem for x in vpn_config_files}
@@ -546,7 +550,7 @@ def update_endpoint_downlink_connection():
     """
     Configures downlinks.
     """
-    config_files = list(VPNC_VPN_CONFIG_DIR.glob(pattern="*.yaml"))
+    config_files = list(VPNC_REMOTE_CONFIG_DIR.glob(pattern="*.yaml"))
     config_set = {x.stem for x in config_files}
     vpn_config_files = list(VPN_CONFIG_DIR.glob(pattern="c*.conf"))
     vpn_config_set = {x.stem for x in vpn_config_files}

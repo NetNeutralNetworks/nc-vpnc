@@ -24,9 +24,10 @@ logging.basicConfig()
 logger = logging.getLogger()
 
 # The configuration
-VPNC_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/config.yaml")
-VPNC_VPN_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-vpn")
-VPNCTL_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnctl")
+VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-remote")
+VPNC_SERVICE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-service")
+VPNCTL_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnctl/remote")
+VPNCTL_SERVICE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnctl/service")
 
 
 @dataclass
@@ -102,7 +103,7 @@ def remote_list(args: argparse.Namespace):
     _ = args
 
     print("remote name\n" "------ ----")
-    for i in VPNCTL_CONFIG_DIR.glob("*.yaml"):
+    for i in VPNCTL_REMOTE_CONFIG_DIR.glob("*.yaml"):
         file_name = i.stem
         with open(i, "r", encoding="utf-8") as f:
             remote = Remote(**yaml.safe_load(f))
@@ -116,7 +117,7 @@ def remote_show(args: argparse.Namespace):
     """
     Show a remote
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
 
     if not path.exists():
         return
@@ -140,7 +141,7 @@ def remote_add(args: argparse.Namespace):
     """
     Add a remote
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
     if path.exists():
         print(f"Remote '{args.id}' already exists.")
         return
@@ -157,7 +158,7 @@ def remote_set(args: argparse.Namespace):
     """
     Set a remote
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
 
     if not path.exists():
         return
@@ -182,7 +183,7 @@ def remote_unset(args: argparse.Namespace):
     """
     Unset a remote
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
 
     if not path.exists():
         return
@@ -207,7 +208,7 @@ def remote_delete(args: argparse.Namespace):
     """
     Delete a remote side
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
     if not path.exists():
         print(f"Remote '{args.id}' doesn't exist.")
         return
@@ -231,8 +232,8 @@ def remote_commit(args: argparse.Namespace):
     """
     Commit configuration
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
-    path_diff = VPNC_VPN_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path_diff = VPNC_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
     if not path.exists():
         remote_yaml = ""
     else:
@@ -295,7 +296,7 @@ def connection_list(args: argparse.Namespace):
     """
     List all tunnels for a remote
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
 
     if not path.exists():
         return
@@ -314,7 +315,7 @@ def connection_show(args: argparse.Namespace):
     """
     Show a specific tunnel for a remote
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
 
     if not path.exists():
         return
@@ -335,7 +336,7 @@ def connection_add(args: argparse.Namespace):
     """
     Add a tunnel to a remote
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
 
     if not path.exists():
         return
@@ -373,7 +374,7 @@ def connection_set(args: argparse.Namespace):
     """
     Set tunnel properties for a remote
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
 
     if not path.exists():
         return
@@ -422,7 +423,7 @@ def connection_unset(args: argparse.Namespace):
     """
     Unset tunnel properties for a remote
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
 
     if not path.exists():
         return
@@ -454,7 +455,7 @@ def connection_delete(args: argparse.Namespace):
     """
     Delete a specific tunnel from a remote
     """
-    path = VPNCTL_CONFIG_DIR.joinpath(f"{args.id}.yaml")
+    path = VPNCTL_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
 
     if not path.exists():
         return
