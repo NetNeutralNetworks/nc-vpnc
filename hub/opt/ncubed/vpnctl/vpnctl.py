@@ -1,11 +1,11 @@
 #! /bin/python3
 
 import argparse
-import difflib
+# import difflib
 import json
 import logging
 import pathlib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
@@ -18,6 +18,7 @@ from ipaddress import (
     ip_network,
 )
 
+from deepdiff import DeepDiff
 import yaml
 
 logging.basicConfig()
@@ -33,7 +34,7 @@ VPNCTL_SERVICE_CONFIG_PATH = pathlib.Path(
 )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TrafficSelectors:
     """
     Defines a traffic selector data structure
@@ -135,7 +136,7 @@ class Service:
     local_id: str
 
 
-@dataclass(kw_only=True, order=True,)
+@dataclass(kw_only=True)
 class ServiceHub(Service):
     """
     Defines a hub data structure
@@ -143,23 +144,29 @@ class ServiceHub(Service):
 
     # VPN CONFIG
     # Uplink VPNs
-    uplinks: dict[int, Uplink]
+    uplinks: dict[int, Uplink] = field(default_factory={})
 
     # OVERLAY CONFIG
     # IPv6 prefix for client initiating administration traffic.
-    mgmt_prefix: IPv6Network
+    mgmt_prefix: IPv6Network = IPv6Network("fd33::/16")
     # Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.
-    trusted_transit_prefix: IPv6Network
+    trusted_transit_prefix: IPv6Network = IPv6Network("fd33:2:f::/127")
     # IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s
-    customer_tunnel_prefix: IPv4Network
+    customer_tunnel_prefix: IPv4Network = IPv4Network("100.99.0.0/16")
 
     ## BGP config
     # bgp_asn must be between 4.200.000.000 and 4.294.967.294 inclusive.
-    bgp_asn: int
-    bgp_router_id: IPv4Address
+    bgp_asn: int = 4200000000
+    bgp_router_id: IPv4Address = IPv4Address("0.0.0.1")
 
     def __post_init__(self):
-        self.uplinks = {k: Uplink(**v) for (k, v) in self.uplinks.items()}
+        if self.uplinks:
+            for k, v in self.uplinks.items():
+                if isinstance(v, Uplink):
+                    self.uplinks[k] = v
+                elif isinstance(v, dict):
+                    self.uplinks[k] = Uplink(**v)
+            # self.uplinks = {k: Uplink(**v) for (k, v) in self.uplinks.items() if not isinstance(v, Uplink) else k: v}
 
 
 def service_show(args: argparse.Namespace):
@@ -168,7 +175,7 @@ def service_show(args: argparse.Namespace):
     """
     _ = args
 
-    path = VPNC_SERVICE_CONFIG_PATH
+    path = VPNCTL_SERVICE_CONFIG_PATH
     with open(VPNC_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
@@ -179,7 +186,264 @@ def service_show(args: argparse.Namespace):
         service = svc(**yaml.safe_load(f))
 
     output = asdict(service)
-    print(yaml.dump(output))
+    print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
+
+
+def service_connection_show(args: argparse.Namespace):
+    """
+    Show a specific tunnel for an uplink
+    """
+    path = VPNCTL_SERVICE_CONFIG_PATH
+    with open(VPNC_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+        mode = yaml.safe_load(f)["mode"]
+
+    if mode != "hub":
+        print("Service is not running in hub mode")
+        return
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        service = ServiceHub(**yaml.safe_load(f))
+
+    tunnel = service.uplinks.get(int(args.tunnel_id))
+    if not tunnel:
+        return
+    output = {int(args.tunnel_id): asdict(tunnel)}
+    print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
+
+
+def service_connection_add(args: argparse.Namespace):
+    """
+    Add tunnels to an uplink
+    """
+    path = VPNCTL_SERVICE_CONFIG_PATH
+    with open(VPNC_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+        mode = yaml.safe_load(f)["mode"]
+
+    if mode != "hub":
+        print("Service is not running in hub mode")
+        return
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        service = ServiceHub(**yaml.safe_load(f))
+    # if args.id != remote.id:
+    #     print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
+    #     return
+
+    if service.uplinks.get(int(args.tunnel_id)):
+        print(f"Connection '{args.tunnel_id}' already exists'.")
+        return
+
+    data = {
+        "psk": args.psk,
+        "remote_peer_ip": str(args.remote_peer_ip),
+        "remote_id": str(args.remote_id) if args.remote_id else None,
+    }
+    tunnel = Uplink(**data)
+
+    service.uplinks[int(args.tunnel_id)] = tunnel
+
+    output = yaml.safe_dump(asdict(service), explicit_start=True, explicit_end=True)
+    with open(path, "w+", encoding="utf-8") as f:
+        f.write(output)
+    service_connection_show(args)
+
+
+def service_set(args: argparse.Namespace):
+    """
+    Set service properties
+    """
+    path = VPNCTL_SERVICE_CONFIG_PATH
+    with open(VPNC_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+        mode = yaml.safe_load(f)["mode"]
+
+    svc = Service if mode == "endpoint" else ServiceHub
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        service = svc(**yaml.safe_load(f))
+
+    if args.untrusted_if_name:
+        service.untrusted_if_name = args.untrusted_if_name
+    if args.untrusted_if_ip:
+        service.untrusted_if_ip = str(args.untrusted_if_ip)
+    if args.untrusted_if_gw:
+        service.untrusted_if_gw = str(args.untrusted_if_gw)
+    if args.local_id:
+        service.local_id = args.local_id
+    if mode == "hub":
+        if args.mgmt_prefix:
+            service.mgmt_prefix = str(args.mgmt_prefix)
+        if args.trusted_transit_prefix:
+            service.trusted_transit_prefix = str(args.trusted_transit_prefix)
+        if args.customer_tunnel_prefix:
+            service.customer_tunnel_prefix = str(args.customer_tunnel_prefix)
+        if args.bgp_asn:
+            service.bgp_asn = int(args.bgp_asn)
+        if args.bgp_router_id:
+            service.bgp_router_id = str(args.bgp_router_id)
+
+    # performs the class post_init construction.
+    service.__post_init__()
+    output = yaml.safe_dump(asdict(service), explicit_start=True, explicit_end=True)
+    with open(path, "w+", encoding="utf-8") as f:
+        f.write(output)
+    service_show(args)
+
+
+def service_connection_set(args: argparse.Namespace):
+    """
+    Set tunnel properties for an uplink
+    """
+    path = VPNCTL_SERVICE_CONFIG_PATH
+    with open(VPNC_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+        mode = yaml.safe_load(f)["mode"]
+
+    if mode != "hub":
+        print("Service is not running in hub mode")
+        return
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        service = ServiceHub(**yaml.safe_load(f))
+
+    if not service.uplinks.get(int(args.tunnel_id)):
+        print(f"Connection '{args.tunnel_id}' doesn't exists'.")
+        return
+
+    tunnel = service.uplinks[int(args.tunnel_id)]
+
+    if args.remote_peer_ip:
+        tunnel.remote_peer_ip = args.remote_peer_ip
+    if args.remote_id:
+        tunnel.remote_id = args.remote_id
+    if args.psk:
+        tunnel.psk = args.psk
+
+    output = yaml.safe_dump(asdict(service), explicit_start=True, explicit_end=True)
+    with open(path, "w+", encoding="utf-8") as f:
+        f.write(output)
+    service_connection_show(args)
+
+
+def service_connection_delete(args: argparse.Namespace):
+    """
+    Delete a specific tunnel from an uplink
+    """
+    path = VPNCTL_SERVICE_CONFIG_PATH
+    with open(VPNC_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+        mode = yaml.safe_load(f)["mode"]
+
+    if mode != "hub":
+        print("Service is not running in hub mode")
+        return
+
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        service = ServiceHub(**yaml.safe_load(f))
+
+    if not service.uplinks.get(int(args.tunnel_id)):
+        print(f"Connection '{args.tunnel_id}' doesn't exists'.")
+        return
+
+    tunnel = service.uplinks.get(int(args.tunnel_id))
+    if not tunnel:
+        print(f"Tunnel with id '{args.tunnel_id}' doesn't exist.")
+        return
+    service.uplinks.pop(int(args.tunnel_id))
+
+    output = yaml.safe_dump(asdict(service), explicit_start=True, explicit_end=True)
+    print(output)
+    if not args.execute:
+        print(f"(Simulated) Deleted tunnel '{args.tunnel_id}'")
+    else:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(output)
+        print(f"Deleted tunnel '{args.tunnel_id}'")
+
+def service_commit(args: argparse.Namespace):
+    """
+    Commit configuration
+    """
+    path = VPNCTL_SERVICE_CONFIG_PATH
+    path_diff = VPNC_SERVICE_CONFIG_PATH
+
+    with open(VPNC_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+        mode = yaml.safe_load(f)["mode"]
+
+    svc = Service if mode == "endpoint" else ServiceHub
+
+    if not path.exists():
+        service_yaml = ""
+        service = {}
+    else:
+        with open(path, "r", encoding="utf-8") as f:
+            service_yaml = f.read()
+            service = svc(**yaml.safe_load(service_yaml))
+        # if args.id != service.id:
+        #     print(f"Mismatch between file name '{args.id}' and id '{service.id}'.")
+        #     return
+
+    if not path_diff.exists():
+        service_diff_yaml = ""
+        service_diff = {}
+    else:
+        with open(path_diff, "r", encoding="utf-8") as f:
+            service_diff_yaml = f.read()
+            service_diff = svc(**yaml.safe_load(service_diff_yaml))
+        # if args.id != service_diff.id:
+        #     print(
+        #         f"Mismatch between diff file name '{args.id}' and id '{service_diff.id}'."
+        #     )
+        #     return
+
+    if service_yaml == service_diff_yaml:
+        print("No changes.")
+        return
+
+    if args.revert:
+
+        if args.diff:
+            diff = DeepDiff(
+                asdict(service), asdict(service_diff), verbose_level=2
+            ).to_dict()
+            print(yaml.safe_dump(diff, explicit_start=True, explicit_end=True))
+        if not args.execute:
+            print("(Simulated) Revert succeeded.")
+            return
+        if not path_diff.exists():
+            path.unlink(missing_ok=True)
+            print("Revert succeeded.")
+            return
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(service_diff_yaml)
+        print("Revert succeeded.")
+        return
+
+    if args.diff:
+        diff = DeepDiff(
+            asdict(service_diff), asdict(service), verbose_level=2
+        ).to_dict()
+        print(yaml.safe_dump(diff, explicit_start=True, explicit_end=True))
+
+    if not args.execute:
+        print("(Simulated) Commit succeeded.")
+        return
+    if not path.exists():
+        path_diff.unlink(missing_ok=True)
+        print("Commit succeeded.")
+        return
+
+    with open(path_diff, "w", encoding="utf-8") as f:
+        f.write(service_yaml)
+    print("Commit succeeded.")
 
 
 def remote_list(args: argparse.Namespace):
@@ -215,12 +479,12 @@ def remote_show(args: argparse.Namespace):
 
     output = asdict(remote)
     if getattr(args, "full", False) and args.full:
-        print(yaml.dump(output))
+        print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
     else:
         output["tunnel_count"] = (
             len(output.pop("tunnels")) if output.get("tunnels") else 0
         )
-        print(yaml.dump(output))
+        print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
 
 
 def remote_add(args: argparse.Namespace):
@@ -235,7 +499,7 @@ def remote_add(args: argparse.Namespace):
     data = {"id": args.id, "name": args.name, "metadata": args.metadata, "tunnels": {}}
     remote = Remote(**data)
 
-    output = yaml.dump(asdict(remote))
+    output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
     remote_show(args)
@@ -260,7 +524,7 @@ def remote_set(args: argparse.Namespace):
     if args.metadata:
         remote.metadata = args.metadata
 
-    output = yaml.dump(asdict(remote))
+    output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
     remote_show(args)
@@ -285,7 +549,7 @@ def remote_unset(args: argparse.Namespace):
     for i in args.r_unset:
         setattr(remote, i, None)
 
-    output = yaml.dump(asdict(remote))
+    output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
     remote_show(args)
@@ -306,13 +570,13 @@ def remote_delete(args: argparse.Namespace):
         return
 
     output = asdict(remote)
-    if args.dry_run:
+    if not args.execute:
         print(f"(Simulated) Deleted remote '{args.id}'")
-        print(yaml.dump(output))
+        print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
     else:
         path.unlink()
         print(f"Deleted remote '{args.id}'")
-        print(yaml.dump(output))
+        print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
 
 
 def remote_commit(args: argparse.Namespace):
@@ -323,6 +587,7 @@ def remote_commit(args: argparse.Namespace):
     path_diff = VPNC_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
     if not path.exists():
         remote_yaml = ""
+        remote = {}
     else:
         with open(path, "r", encoding="utf-8") as f:
             remote_yaml = f.read()
@@ -333,6 +598,7 @@ def remote_commit(args: argparse.Namespace):
 
     if not path_diff.exists():
         remote_diff_yaml = ""
+        remote_diff = {}
     else:
         with open(path_diff, "r", encoding="utf-8") as f:
             remote_diff_yaml = f.read()
@@ -350,11 +616,11 @@ def remote_commit(args: argparse.Namespace):
     if args.revert:
 
         if args.diff:
-            for i in difflib.unified_diff(
-                remote_yaml.splitlines(), remote_diff_yaml.splitlines()
-            ):
-                print(i)
-        if args.dry_run:
+            diff = DeepDiff(
+                asdict(remote), asdict(remote_diff), verbose_level=2
+            ).to_dict()
+            print(yaml.safe_dump(diff, explicit_start=True, explicit_end=True))
+        if not args.execute:
             print("(Simulated) Revert succeeded.")
             return
         if not path_diff.exists():
@@ -368,12 +634,10 @@ def remote_commit(args: argparse.Namespace):
         return
 
     if args.diff:
-        for i in difflib.unified_diff(
-            remote_diff_yaml.splitlines(), remote_yaml.splitlines()
-        ):
-            print(i)
+        diff = DeepDiff(asdict(remote_diff), asdict(remote), verbose_level=2).to_dict()
+        print(yaml.safe_dump(diff, explicit_start=True, explicit_end=True))
 
-    if args.dry_run:
+    if not args.execute:
         print("(Simulated) Commit succeeded.")
         return
     if not path.exists():
@@ -423,7 +687,7 @@ def connection_show(args: argparse.Namespace):
     if not tunnel:
         return
     output = {int(args.tunnel_id): asdict(tunnel)}
-    print(yaml.dump(output))
+    print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
 
 
 def connection_add(args: argparse.Namespace):
@@ -458,7 +722,7 @@ def connection_add(args: argparse.Namespace):
     tunnel = Tunnel(**data)
     remote.tunnels[int(args.tunnel_id)] = tunnel
 
-    output = yaml.dump(asdict(remote))
+    output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
     connection_show(args)
@@ -507,7 +771,7 @@ def connection_set(args: argparse.Namespace):
     if tunnel.routes and tunnel.traffic_selectors:
         raise ValueError("Cannot specify both routes and traffic selectors.")
 
-    output = yaml.dump(asdict(remote))
+    output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
     connection_show(args)
@@ -539,7 +803,7 @@ def connection_unset(args: argparse.Namespace):
     if tunnel.routes and tunnel.traffic_selectors:
         raise ValueError("Cannot specify both routes and traffic selectors.")
 
-    output = yaml.dump(asdict(remote))
+    output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
     connection_show(args)
@@ -565,8 +829,8 @@ def connection_delete(args: argparse.Namespace):
         return
     remote.tunnels.pop(int(args.tunnel_id))
 
-    output = yaml.dump(asdict(remote))
-    if args.dry_run:
+    output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
+    if not args.execute:
         print(f"(Simulated) Deleted tunnel '{args.tunnel_id}'")
     else:
         with open(path, "w", encoding="utf-8") as f:
@@ -588,7 +852,66 @@ def main():
     delete = argparse.ArgumentParser(add_help=False)
     delete.add_argument("--diff", action="store_true", help="Show a diff.")
     delete.add_argument(
-        "--dry-run", action="store_true", help="Don't apply the change."
+        "--execute",
+        action="store_true",
+        help="Apply the changes. Otherwise a dry-run is executed.",
+    )
+
+    # shared parsers for connection
+    srv_set = argparse.ArgumentParser(add_help=False)
+    srv_set.add_argument(
+        "--untrusted-if-name",
+        type=str,
+        action="store",
+        help="Untrusted/outside interface.",
+    )
+    srv_set.add_argument(
+        "--untrusted-if-ip",
+        type=ip_interface,
+        action="store",
+        help="IP address of untrusted/outside interface.",
+    )
+    srv_set.add_argument(
+        "--untrusted-if-gw",
+        type=ip_address,
+        action="store",
+        help="Default gateway of untrusted/outside interface.",
+    )
+    srv_set.add_argument(
+        "--local-id",
+        type=str,
+        action="store",
+        help="IKE local identifier for VPNs.",
+    )
+    srv_set.add_argument(
+        "--mgmt-prefix",
+        type=IPv6Network,
+        action="store",
+        help="IPv6 prefix for client initiating administration traffic.",
+    )
+    srv_set.add_argument(
+        "--trusted-transit-prefix",
+        type=IPv6Network,
+        action="store",
+        help="Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.",
+    )
+    srv_set.add_argument(
+        "--customer-tunnel-prefix",
+        type=IPv4Network,
+        action="store",
+        help="IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s.",
+    )
+    srv_set.add_argument(
+        "--bgp-asn",
+        type=lambda x: int(x) if IPv4Address(int(x)) else None,
+        action="store",
+        help="ASN must preferably be between 4.200.000.000 and 4.294.967.294 inclusive.",
+    )
+    srv_set.add_argument(
+        "--bgp-router-id",
+        type=IPv4Address,
+        action="store",
+        help="BGP router identifier.",
     )
 
     # shared parsers for connection
@@ -746,6 +1069,126 @@ def main():
         "show", help="Show operations on service configuration."
     )
     sp_conf_srv_show.set_defaults(func=service_show)
+    # vtysh configure service show connection <tid>
+    sp_conf_srv_show_sp = sp_conf_srv_show.add_subparsers()
+    sp_conf_srv_show_con = sp_conf_srv_show_sp.add_parser(
+        "connection",
+        help="Set operations on tunnels.",
+    )
+    sp_conf_srv_show_con.add_argument(
+        "tunnel_id",
+        type=str,
+        action="store",
+        help="Tunnel resource identifier.",
+    )
+    sp_conf_srv_show_con.set_defaults(func=service_connection_show)
+    # vtysh configure service add
+    sp_conf_srv_add = sp_conf_srv_sp.add_parser(
+        "add", help="Add operations on service configuration."
+    )
+    # sp_conf_srv_add.set_defaults(func=service_add)
+    # vtysh configure service add connection <tid>
+    sp_conf_srv_add_sp = sp_conf_srv_add.add_subparsers()
+    sp_conf_srv_add_con = sp_conf_srv_add_sp.add_parser(
+        "connection",
+        help="Set operations on tunnels.",
+    )
+    sp_conf_srv_add_con.add_argument(
+        "tunnel_id",
+        type=str,
+        action="store",
+        help="Tunnel resource identifier.",
+    )
+    sp_conf_srv_add_con.add_argument(
+        "--remote-peer-ip",
+        type=ip_address,
+        action="store",
+        required=True,
+    )
+    sp_conf_srv_add_con.add_argument(
+        "--pre-shared-key",
+        "-psk",
+        dest="psk",
+        type=str,
+        action="store",
+        required=True,
+        help="Pre-shared key.",
+    )
+    sp_conf_srv_add_con.add_argument(
+        "--remote-id",
+        "-rid",
+        type=str,
+        action="store",
+        help="Remote IKE identifier.",
+    )
+    sp_conf_srv_add_con.set_defaults(func=service_connection_add)
+    # vtysh configure service set
+    sp_conf_srv_set = sp_conf_srv_sp.add_parser(
+        "set", parents=[srv_set], help="Show operations on service configuration."
+    )
+    sp_conf_srv_set.set_defaults(func=service_set)
+    # vtysh configure remote set connection <tid>
+    sp_conf_srv_set_sp = sp_conf_srv_set.add_subparsers()
+    sp_conf_srv_set_con = sp_conf_srv_set_sp.add_parser(
+        "connection",
+        help="Set operations on tunnels.",
+    )
+    sp_conf_srv_set_con.add_argument(
+        "tunnel_id",
+        type=str,
+        action="store",
+        help="Tunnel resource identifier.",
+    )
+    sp_conf_srv_set_con.add_argument(
+        "--remote-peer-ip",
+        type=ip_address,
+        action="store",
+        # required=True,
+    )
+    sp_conf_srv_set_con.add_argument(
+        "--pre-shared-key",
+        "-psk",
+        dest="psk",
+        type=str,
+        action="store",
+        # required=True,
+        help="Pre-shared key.",
+    )
+    sp_conf_srv_set_con.add_argument(
+        "--remote-id",
+        "-rid",
+        type=str,
+        action="store",
+        help="Remote IKE identifier.",
+    )
+    sp_conf_srv_set_con.set_defaults(func=service_connection_set)
+    # vtysh configure service delete
+    sp_conf_srv_delete = sp_conf_srv_sp.add_parser(
+        "delete", help="Delete operations on service configuration."
+    )
+    # sp_conf_srv_delete.set_defaults(func=service_delete)
+    # vtysh configure service add connection <tid>
+    sp_conf_srv_delete_sp = sp_conf_srv_delete.add_subparsers()
+    sp_conf_srv_delete_con = sp_conf_srv_delete_sp.add_parser(
+        "connection",
+        parents=[delete],
+        help="Delete operations on tunnels.",
+    )
+    sp_conf_srv_delete_con.add_argument(
+        "tunnel_id",
+        type=str,
+        action="store",
+        help="Tunnel resource identifier.",
+    )
+    sp_conf_srv_delete_con.set_defaults(func=service_connection_delete)
+    # vtysh configure service commit
+    sp_conf_srv_commit = sp_conf_srv_sp.add_parser(
+        "commit", parents=[delete], help="Commit operations on service configuration."
+    )
+    sp_conf_srv_commit.add_argument(
+        "--revert", action="store_true", help="Reverts a configuration"
+    )
+    sp_conf_srv_commit.set_defaults(func=service_commit)
 
     # vtysh configure remote
     sp_conf_rem = sp_conf_sp.add_parser(
