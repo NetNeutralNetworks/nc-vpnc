@@ -16,6 +16,9 @@ hub)
     # comment SNMP agentaddress in snmpd
     sed -i -E 's/^agentaddress(.*)/#agentaddress\1/' /etc/snmp/snmpd.conf
 
+    cp -n /opt/ncubed/config/vpnctl/service/config-hub.yaml.example /opt/ncubed/config/vpnctl/service/config.yaml
+    cp -n /opt/ncubed/config/vpnctl/service/config-hub.yaml.example /opt/ncubed/config/vpnc-service/config.yaml
+
     /usr/bin/systemctl daemon-reload
     /usr/bin/systemctl disable ipsec.service
     /usr/bin/systemctl stop ipsec.service
@@ -27,6 +30,9 @@ hub)
     /usr/bin/systemctl restart ncubed-$servicename-hub
     ;;
 endpoint)
+    cp -n /opt/ncubed/config/vpnctl/service/config-endpoint.yaml.example /opt/ncubed/config/vpnctl/service/config.yaml
+    cp -n /opt/ncubed/config/vpnctl/service/config-endpoint.yaml.example /opt/ncubed/config/vpnc-service/config.yaml
+
     # It's important to have the link have the same name as the desired service, otherwise the symlink won't work.
     /usr/bin/systemctl stop ncubed-$servicename-hub.service
     /usr/bin/systemctl disable ncubed-$servicename-hub.service
