@@ -3,9 +3,9 @@ ipv6 forwarding
 agentx
 !
 vrf TRUST
-  router-id {{ router_id }}
+  router-id {{ bgp_router_id }}
 !
-router bgp {{ asn }} vrf {{ trusted_netns }}
+router bgp {{ bgp_asn }} vrf {{ trusted_netns }}
   neighbor MGMT-TRANSIT peer-group
   neighbor MGMT-TRANSIT advertisement-interval 0
   neighbor MGMT-TRANSIT timers 10 30

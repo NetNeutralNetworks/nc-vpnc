@@ -44,8 +44,8 @@ connections {
 secrets {
 {%- for conn in connections %}
     ike-{{ conn.remote }}-{{ conn.t_id }} {
-        id-{{ conn.t_id | int + 1 }}a = {{ conn.local_id }}
-        id-{{ conn.t_id | int + 1 }}b = {{ conn.remote_id }}
+        id-{{ conn.remote }}-{{ conn.t_id }}a = {{ conn.local_id }}
+        id-{{ conn.remote }}-{{ conn.t_id }}b = {{ conn.remote_id }}
         secret = "{{ conn.psk }}"
     }
 {%- endfor %}

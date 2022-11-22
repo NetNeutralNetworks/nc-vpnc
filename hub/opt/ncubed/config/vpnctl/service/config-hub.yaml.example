@@ -11,7 +11,7 @@ untrusted_if_gw: "192.168.0.1"
 # IKE local identifier for VPNs
 local_id: "192.168.0.150"
 # Uplink VPNs
-uplink_vpns:
+uplinks:
   0:
     remote_peer_ip: 192.168.0.252
     psk: secretpassword
@@ -29,6 +29,6 @@ customer_tunnel_prefix: "100.99.0.0/16"
 
 ## BGP config
 # ASN must be between 4.200.000.000 and 4.294.967.294 inclusive.
-asn: 4255786768
-router_id: "0.0.0.1"
+bgp_asn: 4255786768
+bgp_router_id: "0.0.0.1"
 ...

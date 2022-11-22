@@ -8,6 +8,14 @@ connections {
         if_id_in = 0x{{ conn.xfrm_id }}
         # Default outbound XFRM interface ID for children.
         if_id_out = 0x{{ conn.xfrm_id }}
+        # Section for a local authentication round.
+        local {
+            id = {{ conn.local_id }}
+        }
+        # Section for a remote authentication round.
+        remote {
+            id = {{ conn.remote_id }}
+        }
     }
 {%- endfor %}
 }
@@ -15,6 +23,8 @@ connections {
 secrets {
 {%- for conn in connections %}
     ike-{{ conn.remote }}-{{ conn.t_id }} {
+        id-{{ conn.remote }}-{{ conn.t_id }}a = {{ conn.local_id }}
+        id-{{ conn.remote }}-{{ conn.t_id }}b = {{ conn.remote_id }}
         secret = "{{ conn.psk }}"
     }
 {%- endfor %}

@@ -1,7 +1,7 @@
 #! /bin/python3
 
-import difflib
 import argparse
+import difflib
 import json
 import logging
 import pathlib
@@ -25,9 +25,12 @@ logger = logging.getLogger()
 
 # The configuration
 VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-remote")
-VPNC_SERVICE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-service")
+VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc-service/config.yaml")
+VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc-service/mode.yaml")
 VPNCTL_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnctl/remote")
-VPNCTL_SERVICE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnctl/service")
+VPNCTL_SERVICE_CONFIG_PATH = pathlib.Path(
+    "/opt/ncubed/config/vpnctl/service/config.yaml"
+)
 
 
 @dataclass
@@ -44,21 +47,21 @@ class TrafficSelectors:
         self.remote = [str(x) for x in self.remote]
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Tunnel:
     """
     Defines a tunnel data structure
     """
 
+    description: str | None = None
+    metadata: dict | None = None
+    remote_peer_ip: IPv4Address | IPv6Address
+    remote_id: str | None = None
+    ike_version: int = 2
     ike_proposal: str
     ipsec_proposal: str
     psk: str
-    remote_peer_ip: IPv4Address | IPv6Address
-    remote_id: str | None = None
-    description: str | None = None
-    metadata: dict | None = None
     tunnel_ip: IPv4Interface | IPv6Interface | None = None
-    ike_version: int = 2
     # Mutually exclusive with traffic selectors
     routes: list[IPv4Network | IPv6Network] | None = None
     # Mutually exclusive with routes
@@ -78,7 +81,7 @@ class Tunnel:
             self.tunnel_ip = str(self.tunnel_ip)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Remote:
     """
     Defines a remote side data structure
@@ -86,14 +89,97 @@ class Remote:
 
     id: str
     name: str
-    tunnels: dict[int, Tunnel]
     metadata: dict | None = None
+    tunnels: dict[int, Tunnel]
 
     def __post_init__(self):
         if self.tunnels:
             self.tunnels = {k: Tunnel(**v) for (k, v) in self.tunnels.items()}
         else:
             self.tunnels = {}
+
+
+@dataclass(kw_only=True)
+class Uplink:
+    """
+    Defines an uplink data structure
+    """
+
+    # VPN CONFIG
+    # Uplink VPNs
+    remote_peer_ip: IPv4Address | IPv6Address
+    remote_id: str | None = None
+    psk: str
+
+    def __post_init__(self):
+        if not self.remote_id:
+            self.remote_id = str(self.remote_peer_ip)
+
+
+@dataclass(kw_only=True)
+class Service:
+    """
+    Defines a service data structure
+    """
+
+    # UNTRUSTED INTERFACE CONFIG
+    # Untrusted/outside interface
+    untrusted_if_name: str
+    # IP address of untrusted/outside interface
+    untrusted_if_ip: IPv4Interface | IPv6Interface
+    # Default gateway of untrusted/outside interface
+    untrusted_if_gw: IPv4Address | IPv6Address
+
+    # VPN CONFIG
+    # IKE local identifier for VPNs
+    local_id: str
+
+
+@dataclass(kw_only=True, order=True,)
+class ServiceHub(Service):
+    """
+    Defines a hub data structure
+    """
+
+    # VPN CONFIG
+    # Uplink VPNs
+    uplinks: dict[int, Uplink]
+
+    # OVERLAY CONFIG
+    # IPv6 prefix for client initiating administration traffic.
+    mgmt_prefix: IPv6Network
+    # Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.
+    trusted_transit_prefix: IPv6Network
+    # IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s
+    customer_tunnel_prefix: IPv4Network
+
+    ## BGP config
+    # bgp_asn must be between 4.200.000.000 and 4.294.967.294 inclusive.
+    bgp_asn: int
+    bgp_router_id: IPv4Address
+
+    def __post_init__(self):
+        self.uplinks = {k: Uplink(**v) for (k, v) in self.uplinks.items()}
+
+
+def service_show(args: argparse.Namespace):
+    """
+    Show the service configuration
+    """
+    _ = args
+
+    path = VPNC_SERVICE_CONFIG_PATH
+    with open(VPNC_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+        mode = yaml.safe_load(f)["mode"]
+
+    svc = Service if mode == "endpoint" else ServiceHub
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        service = svc(**yaml.safe_load(f))
+
+    output = asdict(service)
+    print(yaml.dump(output))
 
 
 def remote_list(args: argparse.Namespace):
@@ -146,7 +232,8 @@ def remote_add(args: argparse.Namespace):
         print(f"Remote '{args.id}' already exists.")
         return
 
-    remote = Remote(args.id, args.name, args.metadata, {})
+    data = {"id": args.id, "name": args.name, "metadata": args.metadata, "tunnels": {}}
+    remote = Remote(**data)
 
     output = yaml.dump(asdict(remote))
     with open(path, "w+", encoding="utf-8") as f:
@@ -261,7 +348,7 @@ def remote_commit(args: argparse.Namespace):
         return
 
     if args.revert:
-        
+
         if args.diff:
             for i in difflib.unified_diff(
                 remote_yaml.splitlines(), remote_diff_yaml.splitlines()
@@ -648,6 +735,17 @@ def main():
     # vtysh configure
     sp_conf = sp.add_parser("configure", help="Configure mode.")
     sp_conf_sp = sp_conf.add_subparsers()
+
+    # vtysh configure service
+    sp_conf_srv = sp_conf_sp.add_parser(
+        "service", help="CRUD operations on service configuration."
+    )
+    sp_conf_srv_sp = sp_conf_srv.add_subparsers()
+    # vtysh configure service show
+    sp_conf_srv_show = sp_conf_srv_sp.add_parser(
+        "show", help="Show operations on service configuration."
+    )
+    sp_conf_srv_show.set_defaults(func=service_show)
 
     # vtysh configure remote
     sp_conf_rem = sp_conf_sp.add_parser(

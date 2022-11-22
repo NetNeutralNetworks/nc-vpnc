@@ -39,6 +39,7 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 # Configuration file paths/directories
 VPN_CONFIG_DIR = pathlib.Path("/etc/swanctl/conf.d")
 VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc-service/config.yaml")
+VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc-service/mode.yaml")
 VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-remote")
 # Load the configuration
 logger.info("Loading configuration from '%s'.", VPNC_SERVICE_CONFIG_PATH)
@@ -580,13 +581,13 @@ def update_uplink_connection():
     uplinks_diff = {
         x["ifname"] for x in xfrm_ns if x["ifname"].startswith("xfrm-uplink")
     }
-    uplinks_ref = {f"xfrm-uplink{x:03}" for x in VPNC_HUB_CONFIG["uplink_vpns"].keys()}
+    uplinks_ref = {f"xfrm-uplink{x:03}" for x in VPNC_HUB_CONFIG["uplinks"].keys()}
     uplinks_remove = uplinks_diff.difference(uplinks_ref)
 
     # Configure XFRM interfaces for uplinks
     logger.info("Setting up uplink xfrm interfaces for %s netns.", TRUSTED_NETNS)
 
-    for tun_id in VPNC_HUB_CONFIG["uplink_vpns"].keys():
+    for tun_id in VPNC_HUB_CONFIG["uplinks"].keys():
         uplink_xfrm_cmd = f"""
         # configure XFRM interfaces
         ip -n {UNTRUSTED_NETNS} link add xfrm-uplink{tun_id:03} type xfrm dev {VPNC_HUB_CONFIG["untrusted_if_name"]} if_id 0x9999{tun_id:03}
@@ -629,7 +630,7 @@ def update_uplink_connection():
     # VPN UPLINKS
     uplink_template = VPNC_TEMPLATE_ENV.get_template("uplink.conf.j2")
     uplink_configs = []
-    for tun_id, tun_config in VPNC_HUB_CONFIG["uplink_vpns"].items():
+    for tun_id, tun_config in VPNC_HUB_CONFIG["uplinks"].items():
         uplink_configs.append(
             {
                 "remote": "uplink",
@@ -637,6 +638,8 @@ def update_uplink_connection():
                 "remote_peer_ip": tun_config["remote_peer_ip"],
                 "xfrm_id": f"9999{tun_id:03}",
                 "psk": tun_config["psk"],
+                "local_id": VPNC_HUB_CONFIG["local_id"],
+                "remote_id": tun_config["remote_peer_ip"],
             }
         )
 
@@ -652,8 +655,8 @@ def update_uplink_connection():
     bgp_template = VPNC_TEMPLATE_ENV.get_template("frr-bgp.conf.j2")
     bgp_configs = {
         "trusted_netns": TRUSTED_NETNS,
-        "router_id": VPNC_HUB_CONFIG["router_id"],
-        "asn": VPNC_HUB_CONFIG["asn"],
+        "bgp_router_id": VPNC_HUB_CONFIG["bgp_router_id"],
+        "bgp_asn": VPNC_HUB_CONFIG["bgp_asn"],
         "uplinks": uplinks_ref,
         "remove_uplinks": uplinks_remove,
         "management_prefix": MGMT_PREFIX,
@@ -679,7 +682,11 @@ def main_hub():
     Creates the trusted and untrusted namespaces and aliases the default namespace to ROOT.
     """
     logger.info("#" * 100)
-    logger.info("Starting ncubed VPNC strongSwan daemon.")
+    logger.info("Starting ncubed VPNC strongSwan daemon in hub mode.")
+
+    # write a flag that specifies the run mode.
+    with open(VPNC_SERVICE_MODE_PATH, "w", encoding="utf-8") as f:
+        f.write("---\nmode: hub\n...\n")
 
     # Mounts the default network namespace with the alias ROOT. This makes for consistent operation
     # between all namespaces
@@ -765,7 +772,11 @@ def main_endpoint():
     Creates the trusted and untrusted namespaces and aliases the default namespace to ROOT.
     """
     logger.info("#" * 100)
-    logger.info("Starting ncubed VPNC strongSwan daemon.")
+    logger.info("Starting ncubed VPNC strongSwan daemon in endpoint mode.")
+
+    # write a flag that specifies the run mode.
+    with open(VPNC_SERVICE_MODE_PATH, "w", encoding="utf-8") as f:
+        f.write("---\nmode: endpoint\n...\n")
 
     # Mounts the default network namespace with the alias ROOT. This makes for consistent operation
     # between all namespaces
