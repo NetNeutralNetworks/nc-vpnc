@@ -288,7 +288,6 @@ def service_set(args: argparse.Namespace):
             service.bgp_router_id = str(args.bgp_router_id)
 
     # performs the class post_init construction.
-    service.__post_init__()
     output = yaml.safe_dump(asdict(service), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
