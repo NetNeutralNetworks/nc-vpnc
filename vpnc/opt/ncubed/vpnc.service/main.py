@@ -38,9 +38,9 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 
 # Configuration file paths/directories
 VPN_CONFIG_DIR = pathlib.Path("/etc/swanctl/conf.d")
-VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc-service/config.yaml")
-VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc-service/mode.yaml")
-VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-remote")
+VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc/remote")
+VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/service/config.yaml")
+VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc/service/mode.yaml")
 # Load the configuration
 logger.info("Loading configuration from '%s'.", VPNC_SERVICE_CONFIG_PATH)
 if not VPNC_SERVICE_CONFIG_PATH.exists():
@@ -655,8 +655,8 @@ def update_uplink_connection():
     bgp_template = VPNC_TEMPLATE_ENV.get_template("frr-bgp.conf.j2")
     bgp_configs = {
         "trusted_netns": TRUSTED_NETNS,
-        "bgp_router_id": VPNC_HUB_CONFIG["bgp_router_id"],
-        "bgp_asn": VPNC_HUB_CONFIG["bgp_asn"],
+        "bgp_router_id": VPNC_HUB_CONFIG["bgp"]["router_id"],
+        "bgp_asn": VPNC_HUB_CONFIG["bgp"]["asn"],
         "uplinks": uplinks_ref,
         "remove_uplinks": uplinks_remove,
         "management_prefix": MGMT_PREFIX,

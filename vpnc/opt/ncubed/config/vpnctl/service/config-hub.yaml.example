@@ -14,9 +14,11 @@ local_id: "192.168.0.150"
 uplinks:
   0:
     remote_peer_ip: 192.168.0.252
+    # remote_id: 192.168.0.252
     psk: secretpassword
   1:
     remote_peer_ip: 192.168.0.253
+    # remote_id: 192.168.0.253
     psk: secretpassword
 
 # OVERLAY CONFIG
@@ -29,6 +31,7 @@ customer_tunnel_prefix: "100.99.0.0/16"
 
 ## BGP config
 # ASN must be between 4.200.000.000 and 4.294.967.294 inclusive.
-bgp_asn: 4255786768
-bgp_router_id: "0.0.0.1"
+bgp:
+  asn: 4255786768
+  router_id: "0.0.0.1"
 ...

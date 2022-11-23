@@ -25,9 +25,9 @@ logging.basicConfig()
 logger = logging.getLogger()
 
 # The configuration
-VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc-remote")
-VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc-service/config.yaml")
-VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc-service/mode.yaml")
+VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc/remote")
+VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/service/config.yaml")
+VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc/service/mode.yaml")
 VPNCTL_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnctl/remote")
 VPNCTL_SERVICE_CONFIG_PATH = pathlib.Path(
     "/opt/ncubed/config/vpnctl/service/config.yaml"
@@ -88,16 +88,26 @@ class Remote:
     Defines a remote side data structure
     """
 
-    id: str
-    name: str
-    metadata: dict | None = None
-    tunnels: dict[int, Tunnel]
+    id: str = ""
+    name: str = ""
+    metadata: dict = field(default_factory=dict)
+    tunnels: dict[int, Tunnel] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.tunnels:
             self.tunnels = {k: Tunnel(**v) for (k, v) in self.tunnels.items()}
         else:
             self.tunnels = {}
+
+
+@dataclass(kw_only=True)
+class BGP:
+    """
+    Defines an BGP data structure
+    """
+
+    asn: int = 4200000000
+    str: IPv4Address = "0.0.0.1"
 
 
 @dataclass(kw_only=True)
@@ -125,15 +135,15 @@ class Service:
 
     # UNTRUSTED INTERFACE CONFIG
     # Untrusted/outside interface
-    untrusted_if_name: str
+    untrusted_if_name: str = ""
     # IP address of untrusted/outside interface
-    untrusted_if_ip: IPv4Interface | IPv6Interface
+    untrusted_if_ip: IPv4Interface | IPv6Interface | None = None
     # Default gateway of untrusted/outside interface
-    untrusted_if_gw: IPv4Address | IPv6Address
+    untrusted_if_gw: IPv4Address | IPv6Address | None = None
 
     # VPN CONFIG
     # IKE local identifier for VPNs
-    local_id: str
+    local_id: str = ""
 
 
 @dataclass(kw_only=True)
@@ -156,8 +166,7 @@ class ServiceHub(Service):
 
     ## BGP config
     # bgp_asn must be between 4.200.000.000 and 4.294.967.294 inclusive.
-    bgp_asn: int = 4200000000
-    bgp_router_id: IPv4Address = IPv4Address("0.0.0.1")
+    bgp: BGP
 
     def __post_init__(self):
         if self.uplinks:
@@ -282,9 +291,9 @@ def service_set(args: argparse.Namespace):
         if args.customer_tunnel_prefix:
             service.customer_tunnel_prefix = str(args.customer_tunnel_prefix)
         if args.bgp_asn:
-            service.bgp_asn = int(args.bgp_asn)
-        if args.bgp_router_id:
-            service.bgp_router_id = str(args.bgp_router_id)
+            service.bgp.asn = int(args.bgp_asn)
+        if args.bgp.router_id:
+            service.bgp.router_id = str(args.bgp_router_id)
 
     # performs the class post_init construction.
     output = yaml.safe_dump(asdict(service), explicit_start=True, explicit_end=True)
@@ -380,7 +389,7 @@ def service_commit(args: argparse.Namespace):
 
     if not path.exists():
         service_yaml = ""
-        service = {}
+        service = svc()
     else:
         with open(path, "r", encoding="utf-8") as f:
             service_yaml = f.read()
@@ -391,7 +400,7 @@ def service_commit(args: argparse.Namespace):
 
     if not path_diff.exists():
         service_diff_yaml = ""
-        service_diff = {}
+        service_diff = svc()
     else:
         with open(path_diff, "r", encoding="utf-8") as f:
             service_diff_yaml = f.read()
@@ -586,7 +595,7 @@ def remote_commit(args: argparse.Namespace):
     path_diff = VPNC_REMOTE_CONFIG_DIR.joinpath(f"{args.id}.yaml")
     if not path.exists():
         remote_yaml = ""
-        remote = {}
+        remote = Remote()
     else:
         with open(path, "r", encoding="utf-8") as f:
             remote_yaml = f.read()
@@ -597,7 +606,7 @@ def remote_commit(args: argparse.Namespace):
 
     if not path_diff.exists():
         remote_diff_yaml = ""
-        remote_diff = {}
+        remote_diff = Remote()
     else:
         with open(path_diff, "r", encoding="utf-8") as f:
             remote_diff_yaml = f.read()
@@ -635,6 +644,7 @@ def remote_commit(args: argparse.Namespace):
     if args.diff:
         diff = DeepDiff(asdict(remote_diff), asdict(remote), verbose_level=2).to_dict()
         print(yaml.safe_dump(diff, explicit_start=True, explicit_end=True))
+        # print(diff)
 
     if not args.execute:
         print("(Simulated) Commit succeeded.")
