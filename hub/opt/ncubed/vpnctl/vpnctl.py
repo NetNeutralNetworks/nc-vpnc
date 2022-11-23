@@ -1,7 +1,7 @@
 #! /bin/python3
 
-import argparse
 # import difflib
+import argparse
 import json
 import logging
 import pathlib
@@ -166,7 +166,6 @@ class ServiceHub(Service):
                     self.uplinks[k] = v
                 elif isinstance(v, dict):
                     self.uplinks[k] = Uplink(**v)
-            # self.uplinks = {k: Uplink(**v) for (k, v) in self.uplinks.items() if not isinstance(v, Uplink) else k: v}
 
 
 def service_show(args: argparse.Namespace):
@@ -365,6 +364,7 @@ def service_connection_delete(args: argparse.Namespace):
         with open(path, "w", encoding="utf-8") as f:
             f.write(output)
         print(f"Deleted tunnel '{args.tunnel_id}'")
+
 
 def service_commit(args: argparse.Namespace):
     """
@@ -663,7 +663,7 @@ def connection_list(args: argparse.Namespace):
         print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
         return
 
-    print("tunnel description\n" "------ -----------")
+    print("tunnel description\n------ -----------")
     for k, v in remote.tunnels.items():
         print(f"{k:<6} {v.description}")
 

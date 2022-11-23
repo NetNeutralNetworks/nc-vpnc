@@ -846,5 +846,4 @@ if __name__ == "__main__":
     parser_start.set_defaults(func=main_endpoint)
 
     args = parser.parse_args()
-    # args = parser.parse_args()
     args.func()
