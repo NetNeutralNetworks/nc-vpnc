@@ -25,12 +25,12 @@ logging.basicConfig()
 logger = logging.getLogger()
 
 # The configuration
-VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc/remote")
-VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/service/config.yaml")
-VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc/service/mode.yaml")
-VPNCTL_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnctl/remote")
+VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc/active/remote")
+VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/active/service/config.yaml")
+VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc/active/service/mode.yaml")
+VPNCTL_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc/candidate/remote")
 VPNCTL_SERVICE_CONFIG_PATH = pathlib.Path(
-    "/opt/ncubed/config/vpnctl/service/config.yaml"
+    "/opt/ncubed/config/vpnc/candidate/service/config.yaml"
 )
 
 

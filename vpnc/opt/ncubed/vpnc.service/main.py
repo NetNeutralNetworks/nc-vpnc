@@ -38,9 +38,9 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 
 # Configuration file paths/directories
 VPN_CONFIG_DIR = pathlib.Path("/etc/swanctl/conf.d")
-VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc/remote")
-VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/service/config.yaml")
-VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc/service/mode.yaml")
+VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc/active/remote")
+VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/active/service/config.yaml")
+VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc/active/service/mode.yaml")
 # Load the configuration
 logger.info("Loading configuration from '%s'.", VPNC_SERVICE_CONFIG_PATH)
 if not VPNC_SERVICE_CONFIG_PATH.exists():

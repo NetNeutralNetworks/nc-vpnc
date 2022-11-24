@@ -3,3 +3,4 @@ pyyaml
 vici
 watchdog
 deepdiff
+typer[all]
