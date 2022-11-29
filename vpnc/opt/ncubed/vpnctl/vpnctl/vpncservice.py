@@ -116,9 +116,9 @@ def set_(
     untrusted_if_ip: str = typer.Option(None, callback=_validate_ip_network),
     untrusted_if_gw: str = typer.Option(None, callback=_validate_ip_address),
     local_id: str = typer.Option(None),
-    mgmt_prefix: str = typer.Option(None, callback=_validate_ip_network),
-    trusted_transit_prefix: str = typer.Option(None, callback=_validate_ip_network),
-    customer_tunnel_prefix: str = typer.Option(None, callback=_validate_ip_network),
+    prefix_uplink: str = typer.Option(None, callback=_validate_ip_network),
+    prefix_root_tunnel: str = typer.Option(None, callback=_validate_ip_network),
+    prefix_customer: str = typer.Option(None, callback=_validate_ip_network),
     bgp_asn: str = typer.Option(None, callback=_validate_ip_address),
     bgp_router_id: str = typer.Option(None, callback=_validate_ip_address),
 ):
@@ -145,12 +145,12 @@ def set_(
     if local_id:
         service.local_id = local_id
     if mode == "hub":
-        if mgmt_prefix:
-            service.mgmt_prefix = str(mgmt_prefix)
-        if trusted_transit_prefix:
-            service.trusted_transit_prefix = str(trusted_transit_prefix)
-        if customer_tunnel_prefix:
-            service.customer_tunnel_prefix = str(customer_tunnel_prefix)
+        if prefix_uplink:
+            service.prefix_uplink = str(prefix_uplink)
+        if prefix_root_tunnel:
+            service.prefix_root_tunnel = str(prefix_root_tunnel)
+        if prefix_customer:
+            service.prefix_customer = str(prefix_customer)
         if bgp_asn:
             service.bgp["asn"] = int(bgp_asn)
         if bgp_router_id:

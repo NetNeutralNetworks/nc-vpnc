@@ -86,7 +86,7 @@ class BGP:
     """
 
     asn: int = 4200000000
-    str: IPv4Address = "0.0.0.1"
+    router_id: IPv4Address = "0.0.0.1"
 
 
 @dataclass(kw_only=True)
@@ -137,15 +137,15 @@ class ServiceHub(Service):
 
     # OVERLAY CONFIG
     # IPv6 prefix for client initiating administration traffic.
-    mgmt_prefix: IPv6Network = IPv6Network("fd33::/16")
+    prefix_uplink: IPv6Network = IPv6Network("fd33::/16")
     # Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.
-    trusted_transit_prefix: IPv6Network = IPv6Network("fd33:2:f::/127")
+    prefix_root_tunnel: IPv6Network = IPv6Network("fd33:2:f::/127")
     # IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s
-    customer_tunnel_prefix: IPv4Network = IPv4Network("100.99.0.0/16")
+    prefix_customer: IPv4Network = IPv4Network("100.99.0.0/16")
 
     ## BGP config
-    # bgp_asn must be between 4.200.000.000 and 4.294.967.294 inclusive.
-    bgp: BGP
+    # bgp_asn private range is between 4.200.000.000 and 4.294.967.294 inclusive.
+    bgp: BGP = BGP(asn=0, router_id="0.0.0.0")
 
     def __post_init__(self):
         if self.uplinks:

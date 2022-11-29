@@ -26,8 +26,12 @@ logger = logging.getLogger()
 
 # The configuration
 VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc/active/remote")
-VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/active/service/config.yaml")
-VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc/active/service/mode.yaml")
+VPNC_SERVICE_CONFIG_PATH = pathlib.Path(
+    "/opt/ncubed/config/vpnc/active/service/config.yaml"
+)
+VPNC_SERVICE_MODE_PATH = pathlib.Path(
+    "/opt/ncubed/config/vpnc/active/service/mode.yaml"
+)
 VPNCTL_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc/candidate/remote")
 VPNCTL_SERVICE_CONFIG_PATH = pathlib.Path(
     "/opt/ncubed/config/vpnc/candidate/service/config.yaml"
@@ -158,11 +162,11 @@ class ServiceHub(Service):
 
     # OVERLAY CONFIG
     # IPv6 prefix for client initiating administration traffic.
-    mgmt_prefix: IPv6Network = IPv6Network("fd33::/16")
+    prefix_uplink: IPv6Network = IPv6Network("fd33::/16")
     # Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.
-    trusted_transit_prefix: IPv6Network = IPv6Network("fd33:2:f::/127")
+    prefix_root_tunnel: IPv6Network = IPv6Network("fd33:2:f::/127")
     # IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s
-    customer_tunnel_prefix: IPv4Network = IPv4Network("100.99.0.0/16")
+    prefix_customer: IPv4Network = IPv4Network("100.99.0.0/16")
 
     ## BGP config
     # bgp_asn must be between 4.200.000.000 and 4.294.967.294 inclusive.
@@ -284,12 +288,12 @@ def service_set(args: argparse.Namespace):
     if args.local_id:
         service.local_id = args.local_id
     if mode == "hub":
-        if args.mgmt_prefix:
-            service.mgmt_prefix = str(args.mgmt_prefix)
-        if args.trusted_transit_prefix:
-            service.trusted_transit_prefix = str(args.trusted_transit_prefix)
-        if args.customer_tunnel_prefix:
-            service.customer_tunnel_prefix = str(args.customer_tunnel_prefix)
+        if args.prefix_uplink:
+            service.prefix_uplink = str(args.prefix_uplink)
+        if args.prefix_root_tunnel:
+            service.prefix_root_tunnel = str(args.prefix_root_tunnel)
+        if args.prefix_customer:
+            service.prefix_customer = str(args.prefix_customer)
         if args.bgp_asn:
             service.bgp.asn = int(args.bgp_asn)
         if args.bgp.router_id:
@@ -893,19 +897,19 @@ def main():
         help="IKE local identifier for VPNs.",
     )
     srv_set.add_argument(
-        "--mgmt-prefix",
+        "--prefix-uplink",
         type=IPv6Network,
         action="store",
         help="IPv6 prefix for client initiating administration traffic.",
     )
     srv_set.add_argument(
-        "--trusted-transit-prefix",
+        "--prefix-root-tunnel",
         type=IPv6Network,
         action="store",
         help="Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.",
     )
     srv_set.add_argument(
-        "--customer-tunnel-prefix",
+        "--prefix-customer",
         type=IPv4Network,
         action="store",
         help="IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s.",

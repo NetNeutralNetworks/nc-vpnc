@@ -14,20 +14,26 @@ local_id: "192.168.0.150"
 uplinks:
   0:
     remote_peer_ip: 192.168.0.252
+    # Optional: If not set, defaults to remote_peer_ip
     # remote_id: 192.168.0.252
+    # Optional: IPv6 prefix for tunnel/BGP peering between this host and the client VPN host.
+    # prefix_uplink_tunnel: "fd33:2:f:1::/127"
     psk: secretpassword
   1:
     remote_peer_ip: 192.168.0.253
+    # Optional: If not set, defaults to remote_peer_ip
     # remote_id: 192.168.0.253
+    # Optional: IPv6 prefix for tunnel/BGP peering between this host and the client VPN host.
+    # prefix_uplink_tunnel: "fd33:2:f:2::/127"
     psk: secretpassword
 
 # OVERLAY CONFIG
 # IPv6 prefix for client initiating administration traffic.
-mgmt_prefix: "fd33::/16"
+prefix_uplink: "fd33::/16"
 # Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.
-trusted_transit_prefix: "fd33:2:f::/127"
+prefix_root_tunnel: "fd33:2:f::/127"
 # IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s
-customer_tunnel_prefix: "100.99.0.0/16"
+prefix_customer: "100.99.0.0/16"
 
 ## BGP config
 # ASN must be between 4.200.000.000 and 4.294.967.294 inclusive.

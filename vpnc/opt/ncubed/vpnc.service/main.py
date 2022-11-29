@@ -39,8 +39,12 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 # Configuration file paths/directories
 VPN_CONFIG_DIR = pathlib.Path("/etc/swanctl/conf.d")
 VPNC_REMOTE_CONFIG_DIR = pathlib.Path("/opt/ncubed/config/vpnc/active/remote")
-VPNC_SERVICE_CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpnc/active/service/config.yaml")
-VPNC_SERVICE_MODE_PATH = pathlib.Path("/opt/ncubed/config/vpnc/active/service/mode.yaml")
+VPNC_SERVICE_CONFIG_PATH = pathlib.Path(
+    "/opt/ncubed/config/vpnc/active/service/config.yaml"
+)
+VPNC_SERVICE_MODE_PATH = pathlib.Path(
+    "/opt/ncubed/config/vpnc/active/service/mode.yaml"
+)
 # Load the configuration
 logger.info("Loading configuration from '%s'.", VPNC_SERVICE_CONFIG_PATH)
 if not VPNC_SERVICE_CONFIG_PATH.exists():
@@ -80,26 +84,26 @@ CUST_RE = re.compile(r"c\d{4}-\d{3}")
 TRUSTED_NETNS = "TRUST"  # name of trusted network namespace
 UNTRUSTED_NETNS = "UNTRUST"  # name of outside/untrusted network namespace
 # IPv6 prefix for client initiating administration traffic.
-MGMT_PREFIX = ipaddress.IPv6Network(VPNC_HUB_CONFIG.get("mgmt_prefix", "::/16"))
+PREFIX_UPLINK = ipaddress.IPv6Network(VPNC_HUB_CONFIG.get("prefix_uplink", "::/16"))
 # Tunnel transit IPv6 prefix for link between trusted namespace and root namespace, must be a /127.
-TRUSTED_TRANSIT_PREFIX = ipaddress.IPv6Network(
-    VPNC_HUB_CONFIG.get("trusted_transit_prefix", "::/127")
+PREFIX_ROOT_TUNNEL = ipaddress.IPv6Network(
+    VPNC_HUB_CONFIG.get("prefix_root_tunnel", "::/127")
 )
 # IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s
-CUST_TUNNEL_PREFIX = ipaddress.IPv4Network(
-    VPNC_HUB_CONFIG.get("customer_tunnel_prefix", "0.0.0.0/16")
+PREFIX_CUST_IPV4 = ipaddress.IPv4Network(
+    VPNC_HUB_CONFIG.get("prefix_customer", "0.0.0.0/16")
 )
-CUST_PREFIX = "fdcc:0:c::/48"  # IPv6 prefix for NAT64 to customer networks
-CUST_PREFIX_START = "fdcc:0:c"  # IPv6 prefix start for NAT64 to customer networks
+PREFIX_CUST_IPV6 = "fdcc:0:c::/48"  # IPv6 prefix for NAT64 to customer networks
+PREFIX_CUST_IPV6_START = "fdcc:0:c"  # IPv6 prefix start for NAT64 to customer networks
 
 
-if MGMT_PREFIX.prefixlen != 16:
+if PREFIX_UPLINK.prefixlen != 16:
     logger.critical("Prefix length for management prefix must be '/16'.")
     sys.exit(1)
-if TRUSTED_TRANSIT_PREFIX.prefixlen != 127:
+if PREFIX_ROOT_TUNNEL.prefixlen != 127:
     logger.critical("Prefix length for trusted transit must be '/127'.")
     sys.exit(1)
-if CUST_TUNNEL_PREFIX.prefixlen != 16:
+if PREFIX_CUST_IPV4.prefixlen != 16:
     logger.critical("Prefix length for customer tunnels must be '/16'.")
     sys.exit(1)
 
@@ -270,14 +274,14 @@ def add_downlink_connection(path: pathlib.Path):
         v6_segment_4 = int(vpn_id_int)  # outputs 1
         v6_segment_5 = int(tun_id)  # outputs 0
         # outputs fdcc:0:c:1:0
-        v6_cust_space = f"{CUST_PREFIX_START}:{v6_segment_4}:{v6_segment_5}"
+        v6_cust_space = f"{PREFIX_CUST_IPV6_START}:{v6_segment_4}:{v6_segment_5}"
 
         if tunnel_config.get("tunnel_ip"):
             v4_cust_tunnel_ip = tunnel_config["tunnel_ip"]
         else:
             v4_cust_tunnel_offset = ipaddress.IPv4Address(f"0.0.{int(tun_id)}.1")
             v4_cust_tunnel_ip = ipaddress.IPv4Address(
-                int(CUST_TUNNEL_PREFIX[0]) + int(v4_cust_tunnel_offset)
+                int(PREFIX_CUST_IPV4[0]) + int(v4_cust_tunnel_offset)
             )
             v4_cust_tunnel_ip = f"{v4_cust_tunnel_ip}/24"
 
@@ -296,7 +300,7 @@ def add_downlink_connection(path: pathlib.Path):
             ip -n {TRUSTED_NETNS} -6 address add {v6_cust_space}:1:0:0/127 dev {veth_i}
             ip -n {netns} -6 address add {v6_cust_space}:1:0:1/127 dev {veth_e}
             # add route from CUSTOMER to MGMT network via TRUSTED namespace
-            ip -n {netns} -6 route add {MGMT_PREFIX} via {v6_cust_space}:1:0:0
+            ip -n {netns} -6 route add {PREFIX_UPLINK} via {v6_cust_space}:1:0:0
             # configure XFRM interfaces
             ip -n {UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {VPNC_HUB_CONFIG["untrusted_if_name"]} if_id 0x{xfrm_id}
             ip -n {UNTRUSTED_NETNS} link set {xfrm} netns {netns}
@@ -594,6 +598,9 @@ def update_uplink_connection():
         ip -n {UNTRUSTED_NETNS} link set xfrm-uplink{tun_id:03} netns {TRUSTED_NETNS}
         ip -n {TRUSTED_NETNS} link set dev xfrm-uplink{tun_id:03} up
         """
+        # if uplink_tun := VPNC_HUB_CONFIG.get("prefix_uplink_tunnel"):
+        #     uplink_tun_prefix = ipaddress.IPv6Network(uplink_tun)
+        #     uplink_xfrm_cmd += f"\nip -n {TRUSTED_NETNS} address add {uplink_tun_prefix[0]}/127 dev xfrm-uplink{tun_id:03}"
         # run the commands
         subprocess.run(
             uplink_xfrm_cmd,
@@ -659,8 +666,8 @@ def update_uplink_connection():
         "bgp_asn": VPNC_HUB_CONFIG["bgp"]["asn"],
         "uplinks": uplinks_ref,
         "remove_uplinks": uplinks_remove,
-        "management_prefix": MGMT_PREFIX,
-        "customer_prefix": CUST_PREFIX,
+        "prefix_uplink": PREFIX_UPLINK,
+        "prefix_customer_ipv6": PREFIX_CUST_IPV6,
     }
     bgp_render = bgp_template.render(**bgp_configs)
     print(bgp_render)
@@ -739,12 +746,12 @@ def main_hub():
         ip link add {TRUSTED_NETNS}_I type veth peer name {TRUSTED_NETNS}_E netns {TRUSTED_NETNS}
 
         ip -n {TRUSTED_NETNS} link set dev {TRUSTED_NETNS}_E up
-        ip -n {TRUSTED_NETNS} address add {TRUSTED_TRANSIT_PREFIX[1]}/127 dev {TRUSTED_NETNS}_E
+        ip -n {TRUSTED_NETNS} address add {PREFIX_ROOT_TUNNEL[1]}/127 dev {TRUSTED_NETNS}_E
 
         ip link set dev {TRUSTED_NETNS}_I up
-        ip address add {TRUSTED_TRANSIT_PREFIX[0]}/127 dev {TRUSTED_NETNS}_I
+        ip address add {PREFIX_ROOT_TUNNEL[0]}/127 dev {TRUSTED_NETNS}_I
 
-        ip -6 route add {MGMT_PREFIX} via {TRUSTED_TRANSIT_PREFIX[1]}
+        ip -6 route add {PREFIX_UPLINK} via {PREFIX_ROOT_TUNNEL[1]}
         """,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
