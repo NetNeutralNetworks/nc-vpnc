@@ -118,7 +118,8 @@ def set_(
     local_id: str = typer.Option(None),
     prefix_uplink: str = typer.Option(None, callback=_validate_ip_network),
     prefix_root_tunnel: str = typer.Option(None, callback=_validate_ip_network),
-    prefix_customer: str = typer.Option(None, callback=_validate_ip_network),
+    prefix_customer_v4: str = typer.Option(None, callback=_validate_ip_network),
+    prefix_customer_v6: str = typer.Option(None, callback=_validate_ip_network),
     bgp_asn: str = typer.Option(None, callback=_validate_ip_address),
     bgp_router_id: str = typer.Option(None, callback=_validate_ip_address),
 ):
@@ -149,8 +150,10 @@ def set_(
             service.prefix_uplink = str(prefix_uplink)
         if prefix_root_tunnel:
             service.prefix_root_tunnel = str(prefix_root_tunnel)
-        if prefix_customer:
-            service.prefix_customer = str(prefix_customer)
+        if prefix_customer_v4:
+            service.prefix_customer_v4 = str(prefix_customer_v4)
+        if prefix_customer_v6:
+            service.prefix_customer_v6 = str(prefix_customer_v6)
         if bgp_asn:
             service.bgp["asn"] = int(bgp_asn)
         if bgp_router_id:

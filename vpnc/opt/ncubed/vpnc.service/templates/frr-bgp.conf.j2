@@ -27,8 +27,8 @@ router bgp {{ bgp_asn }} vrf {{ trusted_netns }}
 exit
 !
 ipv6 prefix-list MGMT-TRANSIT-PL-IN seq 10 permit {{ prefix_uplink }} le 64
-ipv6 prefix-list MGMT-TRANSIT-PL-OUT seq 10 permit {{ prefix_customer_ipv6 }} ge 96 le 96
-ipv6 prefix-list REDIS-PL-IN seq 10 permit {{ prefix_customer_ipv6 }} ge 96 le 96
+ipv6 prefix-list MGMT-TRANSIT-PL-OUT seq 10 permit {{ prefix_customer_v6 }} ge 96 le 96
+ipv6 prefix-list REDIS-PL-IN seq 10 permit {{ prefix_customer_v6 }} ge 96 le 96
 !
 route-map MGMT-TRANSIT-RM-IN permit 1
   match ipv6 address prefix-list MGMT-TRANSIT-PL-IN

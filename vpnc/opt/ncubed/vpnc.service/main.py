@@ -89,22 +89,30 @@ PREFIX_UPLINK = ipaddress.IPv6Network(VPNC_HUB_CONFIG.get("prefix_uplink", "::/1
 PREFIX_ROOT_TUNNEL = ipaddress.IPv6Network(
     VPNC_HUB_CONFIG.get("prefix_root_tunnel", "::/127")
 )
-# IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s
-PREFIX_CUST_IPV4 = ipaddress.IPv4Network(
-    VPNC_HUB_CONFIG.get("prefix_customer", "0.0.0.0/16")
+# IP prefix for customers. Must be a /16, will get subnetted into /24s per customer tunnel.
+PREFIX_CUST_V4 = ipaddress.IPv4Network(
+    VPNC_HUB_CONFIG.get("prefix_customer_v4", "100.99.0.0/16")
 )
-PREFIX_CUST_IPV6 = "fdcc:0:c::/48"  # IPv6 prefix for NAT64 to customer networks
-PREFIX_CUST_IPV6_START = "fdcc:0:c"  # IPv6 prefix start for NAT64 to customer networks
+# IPv6 prefix for customers. Must be a /48. Will be subnetted into /96s per customer per tunnel.
+PREFIX_CUST_V6 = ipaddress.IPv6Network(
+    VPNC_HUB_CONFIG.get("prefix_customer_v6", "fdcc:0:c::/48")
+)  
+# IPv6 prefix start for NAT64 to customer networks
+# returns "fdcc:0000:000c" if prefix is fdcc:0:c::/48
+PREFIX_CUST_V6_START = PREFIX_CUST_V6.exploded[:14]
 
 
 if PREFIX_UPLINK.prefixlen != 16:
-    logger.critical("Prefix length for management prefix must be '/16'.")
+    logger.critical("Prefix length for uplink prefix must be '/16'.")
     sys.exit(1)
 if PREFIX_ROOT_TUNNEL.prefixlen != 127:
-    logger.critical("Prefix length for trusted transit must be '/127'.")
+    logger.critical("Prefix length for root tunnel must be '/127'.")
     sys.exit(1)
-if PREFIX_CUST_IPV4.prefixlen != 16:
-    logger.critical("Prefix length for customer tunnels must be '/16'.")
+if PREFIX_CUST_V4.prefixlen != 16:
+    logger.critical("Prefix length for customer IPv4 prefix must be '/16'.")
+    sys.exit(1)
+if PREFIX_CUST_V6.prefixlen != 48:
+    logger.critical("Prefix length for customer IPv6 prefix must be '/48'.")
     sys.exit(1)
 
 
@@ -274,14 +282,14 @@ def add_downlink_connection(path: pathlib.Path):
         v6_segment_4 = int(vpn_id_int)  # outputs 1
         v6_segment_5 = int(tun_id)  # outputs 0
         # outputs fdcc:0:c:1:0
-        v6_cust_space = f"{PREFIX_CUST_IPV6_START}:{v6_segment_4}:{v6_segment_5}"
+        v6_cust_space = f"{PREFIX_CUST_V6_START}:{v6_segment_4}:{v6_segment_5}"
 
         if tunnel_config.get("tunnel_ip"):
             v4_cust_tunnel_ip = tunnel_config["tunnel_ip"]
         else:
             v4_cust_tunnel_offset = ipaddress.IPv4Address(f"0.0.{int(tun_id)}.1")
             v4_cust_tunnel_ip = ipaddress.IPv4Address(
-                int(PREFIX_CUST_IPV4[0]) + int(v4_cust_tunnel_offset)
+                int(PREFIX_CUST_V4[0]) + int(v4_cust_tunnel_offset)
             )
             v4_cust_tunnel_ip = f"{v4_cust_tunnel_ip}/24"
 
@@ -667,7 +675,7 @@ def update_uplink_connection():
         "uplinks": uplinks_ref,
         "remove_uplinks": uplinks_remove,
         "prefix_uplink": PREFIX_UPLINK,
-        "prefix_customer_ipv6": PREFIX_CUST_IPV6,
+        "prefix_customer_v6": PREFIX_CUST_V6,
     }
     bgp_render = bgp_template.render(**bgp_configs)
     print(bgp_render)

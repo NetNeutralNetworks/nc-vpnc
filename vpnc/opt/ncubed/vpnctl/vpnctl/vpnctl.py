@@ -166,7 +166,7 @@ class ServiceHub(Service):
     # Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.
     prefix_root_tunnel: IPv6Network = IPv6Network("fd33:2:f::/127")
     # IP prefix for tunnel interfaces to customers, must be a /16, will get subnetted into /24s
-    prefix_customer: IPv4Network = IPv4Network("100.99.0.0/16")
+    prefix_customer_v4: IPv4Network = IPv4Network("100.99.0.0/16")
 
     ## BGP config
     # bgp_asn must be between 4.200.000.000 and 4.294.967.294 inclusive.
@@ -292,8 +292,8 @@ def service_set(args: argparse.Namespace):
             service.prefix_uplink = str(args.prefix_uplink)
         if args.prefix_root_tunnel:
             service.prefix_root_tunnel = str(args.prefix_root_tunnel)
-        if args.prefix_customer:
-            service.prefix_customer = str(args.prefix_customer)
+        if args.prefix_customer_v4:
+            service.prefix_customer_v4 = str(args.prefix_customer_v4)
         if args.bgp_asn:
             service.bgp.asn = int(args.bgp_asn)
         if args.bgp.router_id:
