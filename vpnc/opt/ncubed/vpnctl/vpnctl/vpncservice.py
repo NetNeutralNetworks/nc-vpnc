@@ -8,17 +8,28 @@ import yaml
 from deepdiff import DeepDiff
 
 from . import vpncconst, vpncdata
+from .vpncvalidate import (
+    _validate_ip_address,
+    _validate_ip_interface,
+    _validate_ip_networks,
+    _validate_ip_network,
+)
 
 app = typer.Typer()
 
 
-def service_show(args: argparse.Namespace):
+@app.command()
+def show(
+    full: bool = False, active: bool = typer.Option(False, "--active/--candidate")
+):
     """
     Show the service configuration
     """
-    _ = args
+    if active:
+        path = vpncconst.VPNC_A_SERVICE_CONFIG_PATH
+    else:
+        path = vpncconst.VPNC_C_SERVICE_CONFIG_PATH
 
-    path = vpncconst.VPNC_C_SERVICE_CONFIG_PATH
     with open(vpncconst.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
@@ -29,7 +40,11 @@ def service_show(args: argparse.Namespace):
         service = svc(**yaml.safe_load(f))
 
     output = asdict(service)
-    print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
+    if full:
+        print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
+    elif not full and mode == "hub":
+        output["uplink_count"] = len(output.pop("uplinks"))
+        print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
 
 
 def service_connection_show(args: argparse.Namespace):
@@ -95,7 +110,18 @@ def service_connection_add(args: argparse.Namespace):
     service_connection_show(args)
 
 
-def service_set(args: argparse.Namespace):
+@app.command(name="set")
+def set_(
+    untrusted_if_name: str = typer.Option(None),
+    untrusted_if_ip: str = typer.Option(None, callback=_validate_ip_network),
+    untrusted_if_gw: str = typer.Option(None, callback=_validate_ip_address),
+    local_id: str = typer.Option(None),
+    mgmt_prefix: str = typer.Option(None, callback=_validate_ip_network),
+    trusted_transit_prefix: str = typer.Option(None, callback=_validate_ip_network),
+    customer_tunnel_prefix: str = typer.Option(None, callback=_validate_ip_network),
+    bgp_asn: str = typer.Option(None, callback=_validate_ip_address),
+    bgp_router_id: str = typer.Option(None, callback=_validate_ip_address),
+):
     """
     Set service properties
     """
@@ -110,31 +136,31 @@ def service_set(args: argparse.Namespace):
     with open(path, "r", encoding="utf-8") as f:
         service = svc(**yaml.safe_load(f))
 
-    if args.untrusted_if_name:
-        service.untrusted_if_name = args.untrusted_if_name
-    if args.untrusted_if_ip:
-        service.untrusted_if_ip = str(args.untrusted_if_ip)
-    if args.untrusted_if_gw:
-        service.untrusted_if_gw = str(args.untrusted_if_gw)
-    if args.local_id:
-        service.local_id = args.local_id
+    if untrusted_if_name:
+        service.untrusted_if_name = untrusted_if_name
+    if untrusted_if_ip:
+        service.untrusted_if_ip = str(untrusted_if_ip)
+    if untrusted_if_gw:
+        service.untrusted_if_gw = str(untrusted_if_gw)
+    if local_id:
+        service.local_id = local_id
     if mode == "hub":
-        if args.mgmt_prefix:
-            service.mgmt_prefix = str(args.mgmt_prefix)
-        if args.trusted_transit_prefix:
-            service.trusted_transit_prefix = str(args.trusted_transit_prefix)
-        if args.customer_tunnel_prefix:
-            service.customer_tunnel_prefix = str(args.customer_tunnel_prefix)
-        if args.bgp_asn:
-            service.bgp.asn = int(args.bgp_asn)
-        if args.bgp.router_id:
-            service.bgp.router_id = str(args.bgp_router_id)
+        if mgmt_prefix:
+            service.mgmt_prefix = str(mgmt_prefix)
+        if trusted_transit_prefix:
+            service.trusted_transit_prefix = str(trusted_transit_prefix)
+        if customer_tunnel_prefix:
+            service.customer_tunnel_prefix = str(customer_tunnel_prefix)
+        if bgp_asn:
+            service.bgp["asn"] = int(bgp_asn)
+        if bgp_router_id:
+            service.bgp["router_id"] = str(bgp_router_id)
 
     # performs the class post_init construction.
     output = yaml.safe_dump(asdict(service), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
-    service_show(args)
+    show()
 
 
 def service_connection_set(args: argparse.Namespace):
@@ -210,7 +236,91 @@ def service_connection_delete(args: argparse.Namespace):
         print(f"Deleted tunnel '{args.tunnel_id}'")
 
 
-def service_commit(args: argparse.Namespace):
+# def service_commit(args: argparse.Namespace):
+#     """
+#     Commit configuration
+#     """
+#     path = vpncconst.VPNC_C_SERVICE_CONFIG_PATH
+#     path_diff = vpncconst.VPNC_A_SERVICE_CONFIG_PATH
+
+#     with open(vpncconst.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+#         mode = yaml.safe_load(f)["mode"]
+
+#     svc = vpncdata.Service if mode == "endpoint" else vpncdata.ServiceHub
+
+#     if not path.exists():
+#         service_yaml = ""
+#         service = svc()
+#     else:
+#         with open(path, "r", encoding="utf-8") as f:
+#             service_yaml = f.read()
+#             service = svc(**yaml.safe_load(service_yaml))
+#         # if args.id != service.id:
+#         #     print(f"Mismatch between file name '{args.id}' and id '{service.id}'.")
+#         #     return
+
+#     if not path_diff.exists():
+#         service_diff_yaml = ""
+#         service_diff = svc()
+#     else:
+#         with open(path_diff, "r", encoding="utf-8") as f:
+#             service_diff_yaml = f.read()
+#             service_diff = svc(**yaml.safe_load(service_diff_yaml))
+#         # if args.id != service_diff.id:
+#         #     print(
+#         #         f"Mismatch between diff file name '{args.id}' and id '{service_diff.id}'."
+#         #     )
+#         #     return
+
+#     if service_yaml == service_diff_yaml:
+#         print("No changes.")
+#         return
+
+#     if args.revert:
+
+#         if args.diff:
+#             diff = DeepDiff(
+#                 asdict(service), asdict(service_diff), verbose_level=2
+#             ).to_dict()
+#             print(yaml.safe_dump(diff, explicit_start=True, explicit_end=True))
+#         if not args.execute:
+#             print("(Simulated) Revert succeeded.")
+#             return
+#         if not path_diff.exists():
+#             path.unlink(missing_ok=True)
+#             print("Revert succeeded.")
+#             return
+
+#         with open(path, "w", encoding="utf-8") as f:
+#             f.write(service_diff_yaml)
+#         print("Revert succeeded.")
+#         return
+
+#     if args.diff:
+#         diff = DeepDiff(
+#             asdict(service_diff), asdict(service), verbose_level=2
+#         ).to_dict()
+#         print(yaml.safe_dump(diff, explicit_start=True, explicit_end=True))
+
+#     if not args.execute:
+#         print("(Simulated) Commit succeeded.")
+#         return
+#     if not path.exists():
+#         path_diff.unlink(missing_ok=True)
+#         print("Commit succeeded.")
+#         return
+
+#     with open(path_diff, "w", encoding="utf-8") as f:
+#         f.write(service_yaml)
+#     print("Commit succeeded.")
+
+
+@app.command()
+def commit(
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    revert: bool = False,
+    diff: bool = False,
+):
     """
     Commit configuration
     """
@@ -229,9 +339,6 @@ def service_commit(args: argparse.Namespace):
         with open(path, "r", encoding="utf-8") as f:
             service_yaml = f.read()
             service = svc(**yaml.safe_load(service_yaml))
-        # if args.id != service.id:
-        #     print(f"Mismatch between file name '{args.id}' and id '{service.id}'.")
-        #     return
 
     if not path_diff.exists():
         service_diff_yaml = ""
@@ -240,24 +347,18 @@ def service_commit(args: argparse.Namespace):
         with open(path_diff, "r", encoding="utf-8") as f:
             service_diff_yaml = f.read()
             service_diff = svc(**yaml.safe_load(service_diff_yaml))
-        # if args.id != service_diff.id:
-        #     print(
-        #         f"Mismatch between diff file name '{args.id}' and id '{service_diff.id}'."
-        #     )
-        #     return
 
     if service_yaml == service_diff_yaml:
         print("No changes.")
         return
 
-    if args.revert:
-
-        if args.diff:
-            diff = DeepDiff(
+    if revert:
+        if diff:
+            diff_output = DeepDiff(
                 asdict(service), asdict(service_diff), verbose_level=2
             ).to_dict()
-            print(yaml.safe_dump(diff, explicit_start=True, explicit_end=True))
-        if not args.execute:
+            print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
+        if dry_run:
             print("(Simulated) Revert succeeded.")
             return
         if not path_diff.exists():
@@ -270,13 +371,13 @@ def service_commit(args: argparse.Namespace):
         print("Revert succeeded.")
         return
 
-    if args.diff:
-        diff = DeepDiff(
+    if diff:
+        diff_output = DeepDiff(
             asdict(service_diff), asdict(service), verbose_level=2
         ).to_dict()
-        print(yaml.safe_dump(diff, explicit_start=True, explicit_end=True))
+        print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
 
-    if not args.execute:
+    if dry_run:
         print("(Simulated) Commit succeeded.")
         return
     if not path.exists():

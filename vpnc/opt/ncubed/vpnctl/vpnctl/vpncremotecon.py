@@ -3,22 +3,16 @@
 import json
 from dataclasses import asdict
 from enum import Enum
-from ipaddress import (
-    IPv4Address,
-    IPv4Interface,
-    IPv4Network,
-    IPv6Address,
-    IPv6Interface,
-    IPv6Network,
-    ip_address,
-    ip_interface,
-    ip_network,
-)
 
 import typer
 import yaml
 
 from . import vpncconst, vpncdata
+from .vpncvalidate import (
+    _validate_ip_address,
+    _validate_ip_interface,
+    _validate_ip_networks,
+)
 
 app = typer.Typer()
 
@@ -94,25 +88,6 @@ class IkeVersion(str, Enum):
     TWO = 2
 
 
-def _validate_ip_address(x) -> IPv4Address | IPv6Address | None:
-    if x is None:
-        return None
-    return ip_address(x)
-
-
-def _validate_ip_interface(x) -> IPv4Interface | IPv6Interface | None:
-    if x is None:
-        return None
-    return ip_interface(x)
-
-
-def _validate_networks(x: list[str]) -> list[IPv4Network | IPv6Network]:
-    output = []
-    for i in x:
-        output.append(str(ip_network(i)))
-    return output
-
-
 @app.command()
 def add(
     ctx: typer.Context,
@@ -125,12 +100,12 @@ def add(
     tunnel_ip: str = typer.Option(None, callback=_validate_ip_interface),
     description: str = typer.Option(...),
     metadata: str = "{}",
-    routes: list[str] = typer.Option(None, callback=_validate_networks),
+    routes: list[str] = typer.Option(None, callback=_validate_ip_networks),
     traffic_selectors_local: list[str] = typer.Option(
-        None, callback=_validate_networks
+        None, callback=_validate_ip_networks
     ),
     traffic_selectors_remote: list[str] = typer.Option(
-        None, callback=_validate_networks
+        None, callback=_validate_ip_networks
     ),
 ):
     """
@@ -183,12 +158,12 @@ def set_(
     tunnel_ip: str = typer.Option(None, callback=_validate_ip_interface),
     description: str = typer.Option(""),
     metadata: str = "{}",
-    routes: list[str] = typer.Option(None, callback=_validate_networks),
+    routes: list[str] = typer.Option(None, callback=_validate_ip_networks),
     traffic_selectors_local: list[str] = typer.Option(
-        None, callback=_validate_networks
+        None, callback=_validate_ip_networks
     ),
     traffic_selectors_remote: list[str] = typer.Option(
-        None, callback=_validate_networks
+        None, callback=_validate_ip_networks
     ),
 ):
     """
@@ -252,12 +227,12 @@ def unset(
     ctx: typer.Context,
     tunnel_ip: bool = False,
     metadata: list[str] = typer.Option([]),
-    routes: list[str] = typer.Option(None, callback=_validate_networks),
+    routes: list[str] = typer.Option(None, callback=_validate_ip_networks),
     traffic_selectors_local: list[str] = typer.Option(
-        None, callback=_validate_networks
+        None, callback=_validate_ip_networks
     ),
     traffic_selectors_remote: list[str] = typer.Option(
-        None, callback=_validate_networks
+        None, callback=_validate_ip_networks
     ),
 ):
     """
