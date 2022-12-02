@@ -219,7 +219,7 @@ def _uplink_observer() -> Observer:
 def _load_swanctl_all_config():
     """Load all swanctl strongswan configurations. Cannot find a way to do this with vici"""
     subprocess.run(
-        "swanctl --load-all",
+        "swanctl --load-all --clear",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
@@ -493,6 +493,7 @@ def delete_downlink_connection(vpn_id: str):
 
     netns_remove = {x["name"] for x in ip_netns if x["name"].startswith(vpn_id)}
     for netns in netns_remove:
+        _terminate_swanctl_connection(netns)
         # run the netns remove commands
         subprocess.run(
             f"ip netns del {netns}",
@@ -528,6 +529,7 @@ def delete_endpoint_downlink_connection(vpn_id: str):
     }
 
     for xfrm in xfrm_remove:
+        _terminate_swanctl_connection(xfrm)
         # run the link remove commands
         subprocess.run(
             f"ip link del {xfrm}",
@@ -606,9 +608,9 @@ def update_uplink_connection():
         ip -n {UNTRUSTED_NETNS} link set xfrm-uplink{tun_id:03} netns {TRUSTED_NETNS}
         ip -n {TRUSTED_NETNS} link set dev xfrm-uplink{tun_id:03} up
         """
-        # if uplink_tun := VPNC_HUB_CONFIG.get("prefix_uplink_tunnel"):
-        #     uplink_tun_prefix = ipaddress.IPv6Network(uplink_tun)
-        #     uplink_xfrm_cmd += f"\nip -n {TRUSTED_NETNS} address add {uplink_tun_prefix[0]}/127 dev xfrm-uplink{tun_id:03}"
+        if uplink_tun := VPNC_HUB_CONFIG.get("prefix_uplink_tunnel"):
+            uplink_tun_prefix = ipaddress.IPv6Network(uplink_tun)
+            uplink_xfrm_cmd += f"\nip -n {TRUSTED_NETNS} address add {uplink_tun_prefix[0]}/127 dev xfrm-uplink{tun_id:03}"
         # run the commands
         subprocess.run(
             uplink_xfrm_cmd,
