@@ -10,12 +10,17 @@ router bgp {{ bgp_asn }} vrf {{ trusted_netns }}
   neighbor MGMT-TRANSIT advertisement-interval 0
   neighbor MGMT-TRANSIT timers 10 30
 {%- for uplink in uplinks %}
-  neighbor {{ uplink }} interface remote-as external
-  neighbor {{ uplink }} peer-group MGMT-TRANSIT
+  {%- if uplink.xfrm_ip %}
+  neighbor {{ uplink.xfrm_ip }} remote-as external
+  neighbor {{ uplink.xfrm_ip }} peer-group MGMT-TRANSIT
+  {%- else %}
+  neighbor {{ uplink.xfrm_name }} interface remote-as external
+  neighbor {{ uplink.xfrm_name }} peer-group MGMT-TRANSIT
+  {%- endif %}
 {%- endfor %}
-{%- for remove_uplink in remove_uplinks %}
-  no neighbor {{ remove_uplink}}
-{%- endfor %}
+{# {%- for remove_uplink in remove_uplinks %}
+  no neighbor {{ remove_uplink }}
+{%- endfor %} #}
   address-family ipv6 unicast
     redistribute connected route-map REDIS-RM-STATIC-TO-BGP
     redistribute kernel route-map REDIS-RM-STATIC-TO-BGP

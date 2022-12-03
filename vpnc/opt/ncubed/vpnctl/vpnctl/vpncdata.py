@@ -100,10 +100,13 @@ class Uplink:
     remote_peer_ip: IPv4Address | IPv6Address
     remote_id: str | None = None
     psk: str
+    prefix_uplink_tunnel: IPv6Interface | None = None
 
     def __post_init__(self):
         if not self.remote_id:
             self.remote_id = str(self.remote_peer_ip)
+        if not self.prefix_uplink_tunnel:
+            self.prefix_uplink_tunnel = str(self.prefix_uplink_tunnel)
 
 
 @dataclass(kw_only=True)

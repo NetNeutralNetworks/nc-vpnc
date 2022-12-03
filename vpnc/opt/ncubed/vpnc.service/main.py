@@ -601,16 +601,17 @@ def update_uplink_connection():
     # Configure XFRM interfaces for uplinks
     logger.info("Setting up uplink xfrm interfaces for %s netns.", TRUSTED_NETNS)
 
-    for tun_id in VPNC_HUB_CONFIG["uplinks"].keys():
+    for tun_id, tun_config in VPNC_HUB_CONFIG["uplinks"].items():
         uplink_xfrm_cmd = f"""
         # configure XFRM interfaces
         ip -n {UNTRUSTED_NETNS} link add xfrm-uplink{tun_id:03} type xfrm dev {VPNC_HUB_CONFIG["untrusted_if_name"]} if_id 0x9999{tun_id:03}
         ip -n {UNTRUSTED_NETNS} link set xfrm-uplink{tun_id:03} netns {TRUSTED_NETNS}
         ip -n {TRUSTED_NETNS} link set dev xfrm-uplink{tun_id:03} up
         """
-        if uplink_tun := VPNC_HUB_CONFIG.get("prefix_uplink_tunnel"):
+        if uplink_tun := tun_config.get("prefix_uplink_tunnel"):
             uplink_tun_prefix = ipaddress.IPv6Network(uplink_tun)
-            uplink_xfrm_cmd += f"\nip -n {TRUSTED_NETNS} address add {uplink_tun_prefix[0]}/127 dev xfrm-uplink{tun_id:03}"
+            uplink_xfrm_cmd += f"ip -n {TRUSTED_NETNS} address add {uplink_tun_prefix} dev xfrm-uplink{tun_id:03}"
+        print(uplink_xfrm_cmd)
         # run the commands
         subprocess.run(
             uplink_xfrm_cmd,
@@ -648,12 +649,19 @@ def update_uplink_connection():
     uplink_template = VPNC_TEMPLATE_ENV.get_template("uplink.conf.j2")
     uplink_configs = []
     for tun_id, tun_config in VPNC_HUB_CONFIG["uplinks"].items():
+        if not tun_config.get("prefix_uplink_tunnel", None) in ["None", None] :
+            xfrm_ip = ipaddress.IPv6Network(tun_config["prefix_uplink_tunnel"])[1]
+        else:
+            xfrm_ip = None
+
         uplink_configs.append(
             {
                 "remote": "uplink",
                 "t_id": f"{tun_id:03}",
                 "remote_peer_ip": tun_config["remote_peer_ip"],
                 "xfrm_id": f"9999{tun_id:03}",
+                "xfrm_name": f"xfrm-uplink{tun_id:03}",
+                "xfrm_ip": xfrm_ip,
                 "psk": tun_config["psk"],
                 "local_id": VPNC_HUB_CONFIG["local_id"],
                 "remote_id": tun_config["remote_peer_ip"],
@@ -674,8 +682,8 @@ def update_uplink_connection():
         "trusted_netns": TRUSTED_NETNS,
         "bgp_router_id": VPNC_HUB_CONFIG["bgp"]["router_id"],
         "bgp_asn": VPNC_HUB_CONFIG["bgp"]["asn"],
-        "uplinks": uplinks_ref,
-        "remove_uplinks": uplinks_remove,
+        "uplinks": uplink_configs,
+        # "remove_uplinks": uplinks_remove,
         "prefix_uplink": PREFIX_UPLINK,
         "prefix_customer_v6": PREFIX_CUST_V6,
     }
@@ -686,7 +694,7 @@ def update_uplink_connection():
 
     # Load the commands in case FRR was already running
     subprocess.run(
-        "vtysh -f /etc/frr/frr.conf",
+        "/usr/lib/frr/frr-reload.py /etc/frr/frr.conf --reload --stdout",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
