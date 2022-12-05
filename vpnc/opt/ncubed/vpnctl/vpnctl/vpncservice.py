@@ -179,7 +179,10 @@ def commit(
     if revert:
         if diff:
             diff_output = DeepDiff(
-                asdict(service), asdict(service_diff), verbose_level=2
+                asdict(service),
+                asdict(service_diff),
+                verbose_level=2,
+                ignore_type_in_groups=[(None, str), (None, int)],
             ).to_dict()
             print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
         if dry_run:
@@ -197,7 +200,10 @@ def commit(
 
     if diff:
         diff_output = DeepDiff(
-            asdict(service_diff), asdict(service), verbose_level=2
+            asdict(service_diff),
+            asdict(service),
+            verbose_level=2,
+            ignore_type_in_groups=[(None, str), (None, int)],
         ).to_dict()
         print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
 

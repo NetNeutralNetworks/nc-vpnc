@@ -101,12 +101,15 @@ class Uplink:
     remote_id: str | None = None
     psk: str
     prefix_uplink_tunnel: IPv6Interface | None = None
+    asn: int | None = None
 
     def __post_init__(self):
         if not self.remote_id:
             self.remote_id = str(self.remote_peer_ip)
-        if not self.prefix_uplink_tunnel:
-            self.prefix_uplink_tunnel = str(self.prefix_uplink_tunnel)
+        if self.asn and not self.prefix_uplink_tunnel:
+            raise ValueError("Prefix for the uplink tunnel must be specified if ASN is specified.")
+        if self.prefix_uplink_tunnel and not self.asn:
+            raise ValueError("ASN must be specified if tunnel prefix is specified.")
 
 
 @dataclass(kw_only=True)

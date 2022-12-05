@@ -96,7 +96,7 @@ PREFIX_CUST_V4 = ipaddress.IPv4Network(
 # IPv6 prefix for customers. Must be a /48. Will be subnetted into /96s per customer per tunnel.
 PREFIX_CUST_V6 = ipaddress.IPv6Network(
     VPNC_HUB_CONFIG.get("prefix_customer_v6", "fdcc:0:c::/48")
-)  
+)
 # IPv6 prefix start for NAT64 to customer networks
 # returns "fdcc:0000:000c" if prefix is fdcc:0:c::/48
 PREFIX_CUST_V6_START = PREFIX_CUST_V6.exploded[:14]
@@ -202,6 +202,7 @@ def _uplink_observer() -> Observer:
         def on_modified(self, event: FileModifiedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             _load_config()
+            time.sleep(1)
             update_uplink_connection()
 
     # Create the observer object. This doesn't start the handler.
@@ -649,7 +650,7 @@ def update_uplink_connection():
     uplink_template = VPNC_TEMPLATE_ENV.get_template("uplink.conf.j2")
     uplink_configs = []
     for tun_id, tun_config in VPNC_HUB_CONFIG["uplinks"].items():
-        if not tun_config.get("prefix_uplink_tunnel", None) in ["None", None] :
+        if not tun_config.get("prefix_uplink_tunnel", None) is None:
             xfrm_ip = ipaddress.IPv6Network(tun_config["prefix_uplink_tunnel"])[1]
         else:
             xfrm_ip = None
@@ -662,6 +663,7 @@ def update_uplink_connection():
                 "xfrm_id": f"9999{tun_id:03}",
                 "xfrm_name": f"xfrm-uplink{tun_id:03}",
                 "xfrm_ip": xfrm_ip,
+                "asn": tun_config["asn"],
                 "psk": tun_config["psk"],
                 "local_id": VPNC_HUB_CONFIG["local_id"],
                 "remote_id": tun_config["remote_peer_ip"],

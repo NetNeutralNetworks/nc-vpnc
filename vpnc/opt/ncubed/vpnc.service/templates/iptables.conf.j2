@@ -1,22 +1,29 @@
+{#- flush all old configuration and drop all IPv4 traffic by default #}
 ip netns exec {{ trusted_netns }} iptables -F
 ip netns exec {{ trusted_netns }} iptables -P INPUT DROP
 ip netns exec {{ trusted_netns }} iptables -P FORWARD DROP
 ip netns exec {{ trusted_netns }} iptables -P OUTPUT DROP
 
+{#- flush all old configuration and drop all IPv6 traffic by default #}
+{#- except traffic originating from the trusted netns #}
 ip netns exec {{ trusted_netns }} ip6tables -F
 ip netns exec {{ trusted_netns }} ip6tables -P INPUT DROP
 ip netns exec {{ trusted_netns }} ip6tables -P FORWARD DROP
 ip netns exec {{ trusted_netns }} ip6tables -P OUTPUT ACCEPT
 
+{#- allow inbound traffic from the uplink interfaces (BGP) #}
 {%- for uplink in uplinks %}
 ip netns exec {{ trusted_netns }} ip6tables -A INPUT -i {{ uplink }} -j ACCEPT
 {%- endfor %}
+{#- accept ICMPv6 as its needed for IPv6 to work correctly (NDP etc) #}
 ip netns exec {{ trusted_netns }} ip6tables -A INPUT -p ipv6-icmp -j ACCEPT
 ip netns exec {{ trusted_netns }} ip6tables -A INPUT -j DROP
 
+{#- allow forward for traffic from the uplink interfaces (management) #}
 {%- for uplink in uplinks %}
 ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -i {{ uplink }} -j ACCEPT
 {%- endfor %}
+{#- allow forward for traffic to ROOT and customer netns (management) #}
 ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -i {{ trusted_netns }}_E -j ACCEPT
 ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
 ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -j DROP
