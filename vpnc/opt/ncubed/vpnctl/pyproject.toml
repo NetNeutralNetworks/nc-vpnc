@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools >= 61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vpnctl"
+description = "Manages ncubed-vpnc configuration"
+readme = "README.md"
+authors = [{ name="Tony Fortes Ramos", email="tony.fortesramos@ncubed.nl" }]
+requires-python = ">=3.10"
+keywords = ["ncubed", "vpnc", "vpn"]
+license = {text = "GNU General Public License v3 (GPLv3)"}
+# classifiers = [
+#     "Framework :: Django",
+#     "Programming Language :: Python :: 3",
+# ]
+dependencies = [
+    "deepdiff",
+    "typer[all]",
+    "pyyaml",
+]
+dynamic = ["version"]
+
+[project.scripts]
+vpnctl = "vpnctl.main:app"
+
+[tool.setuptools.dynamic]
+version = {attr = "vpnctl.VERSION"}
