@@ -90,7 +90,8 @@ def set_(
     untrusted_if_gw: str = typer.Option(None, callback=_validate_ip_address),
     local_id: str = typer.Option(None),
     prefix_uplink: str = typer.Option(None, callback=_validate_ip_network),
-    prefix_root_tunnel: str = typer.Option(None, callback=_validate_ip_network),
+    ## VPN2MGMT
+    #prefix_root_tunnel: str = typer.Option(None, callback=_validate_ip_network),
     prefix_customer_v4: str = typer.Option(None, callback=_validate_ip_network),
     prefix_customer_v6: str = typer.Option(None, callback=_validate_ip_network),
     bgp_asn: str = typer.Option(None, callback=_validate_ip_address),
@@ -121,8 +122,9 @@ def set_(
     if mode == "hub":
         if prefix_uplink:
             service.prefix_uplink = str(prefix_uplink)
-        if prefix_root_tunnel:
-            service.prefix_root_tunnel = str(prefix_root_tunnel)
+        ## VPN2MGMT
+        #if prefix_root_tunnel:
+        #    service.prefix_root_tunnel = str(prefix_root_tunnel)
         if prefix_customer_v4:
             service.prefix_customer_v4 = str(prefix_customer_v4)
         if prefix_customer_v6:

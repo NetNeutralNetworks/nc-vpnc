@@ -3,7 +3,6 @@ Description=ncubed VPNC hub strongSwan IPsec init
 StartLimitInterval=200
 StartLimitBurst=5
 Wants=network-online.target
-Wants=frr.service
 After=network-online.target
 
 [Service]

@@ -24,10 +24,10 @@ hub)
     /usr/bin/systemctl stop ipsec.service
     /usr/bin/systemctl enable snmpd.service
     /usr/bin/systemctl restart snmpd.service
-    /usr/bin/systemctl enable frr.service
-    /usr/bin/systemctl restart frr.service
     /usr/bin/systemctl enable ncubed-$servicename-hub
     /usr/bin/systemctl restart ncubed-$servicename-hub
+    /usr/bin/systemctl enable frr.service
+    /usr/bin/systemctl restart frr.service
     ;;
 endpoint)
     cp -n /opt/ncubed/config/vpnc/candidate/service/config-endpoint.yaml.example /opt/ncubed/config/vpnc/candidate/service/config.yaml

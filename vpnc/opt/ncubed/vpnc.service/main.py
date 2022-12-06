@@ -85,10 +85,11 @@ TRUSTED_NETNS = "TRUST"  # name of trusted network namespace
 UNTRUSTED_NETNS = "UNTRUST"  # name of outside/untrusted network namespace
 # IPv6 prefix for client initiating administration traffic.
 PREFIX_UPLINK = ipaddress.IPv6Network(VPNC_HUB_CONFIG.get("prefix_uplink", "::/16"))
-# Tunnel transit IPv6 prefix for link between trusted namespace and root namespace, must be a /127.
-PREFIX_ROOT_TUNNEL = ipaddress.IPv6Network(
-    VPNC_HUB_CONFIG.get("prefix_root_tunnel", "::/127")
-)
+## VPN2MGMT
+## Tunnel transit IPv6 prefix for link between trusted namespace and root namespace, must be a /127.
+#PREFIX_ROOT_TUNNEL = ipaddress.IPv6Network(
+#    VPNC_HUB_CONFIG.get("prefix_root_tunnel", "::/127")
+#)
 # IP prefix for customers. Must be a /16, will get subnetted into /24s per customer tunnel.
 PREFIX_CUST_V4 = ipaddress.IPv4Network(
     VPNC_HUB_CONFIG.get("prefix_customer_v4", "100.99.0.0/16")
@@ -105,9 +106,10 @@ PREFIX_CUST_V6_START = PREFIX_CUST_V6.exploded[:14]
 if PREFIX_UPLINK.prefixlen != 16:
     logger.critical("Prefix length for uplink prefix must be '/16'.")
     sys.exit(1)
-if PREFIX_ROOT_TUNNEL.prefixlen != 127:
-    logger.critical("Prefix length for root tunnel must be '/127'.")
-    sys.exit(1)
+## VPN2MGMT
+#if PREFIX_ROOT_TUNNEL.prefixlen != 127:
+#    logger.critical("Prefix length for root tunnel must be '/127'.")
+#    sys.exit(1)
 if PREFIX_CUST_V4.prefixlen != 16:
     logger.critical("Prefix length for customer IPv4 prefix must be '/16'.")
     sys.exit(1)
@@ -754,30 +756,32 @@ def main_hub():
 
     # The trusted namespace has no internet connectivity.
     # IPv6 routing is enabled on the namespace.
-    # There is a link between the ROOT namespace and the trusted namespace.
-    # The management prefix is reachable from this namespace.
+    ## VPN2MGMT
+    ## There is a link between the ROOT namespace and the trusted namespace.
+    ## The management prefix is reachable from this namespace.
     logger.info("Setting up %s netns.", TRUSTED_NETNS)
     subprocess.run(
         f"""
         ip netns add {TRUSTED_NETNS}
         ip netns exec {TRUSTED_NETNS} sysctl -w net.ipv6.conf.all.forwarding=1
-
-        # Creates a veth pair and attaches it directly to the TRUSTED netns
-        ip link add {TRUSTED_NETNS}_I type veth peer name {TRUSTED_NETNS}_E netns {TRUSTED_NETNS}
-
-        ip -n {TRUSTED_NETNS} link set dev {TRUSTED_NETNS}_E up
-        ip -n {TRUSTED_NETNS} address add {PREFIX_ROOT_TUNNEL[1]}/127 dev {TRUSTED_NETNS}_E
-
-        ip link set dev {TRUSTED_NETNS}_I up
-        ip address add {PREFIX_ROOT_TUNNEL[0]}/127 dev {TRUSTED_NETNS}_I
-
-        ip -6 route add {PREFIX_UPLINK} via {PREFIX_ROOT_TUNNEL[1]}
         """,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
         check=False,
     )  # .stdout.decode().lower()
+
+        ## VPN2MGMT
+        ## Creates a veth pair and attaches it directly to the TRUSTED netns
+        #ip link add {TRUSTED_NETNS}_I type veth peer name {TRUSTED_NETNS}_E netns {TRUSTED_NETNS}
+
+        #ip -n {TRUSTED_NETNS} link set dev {TRUSTED_NETNS}_E up
+        #ip -n {TRUSTED_NETNS} address add {PREFIX_ROOT_TUNNEL[1]}/127 dev {TRUSTED_NETNS}_E
+
+        #ip link set dev {TRUSTED_NETNS}_I up
+        #ip address add {PREFIX_ROOT_TUNNEL[0]}/127 dev {TRUSTED_NETNS}_I
+
+        #ip -6 route add {PREFIX_UPLINK} via {PREFIX_ROOT_TUNNEL[1]}
 
     update_uplink_connection()
 
@@ -792,6 +796,18 @@ def main_hub():
     logger.info("Monitoring customer config changes.")
     downlink_observer = _downlink_observer()
     downlink_observer.start()
+
+    # Restart FRR to make sure it can find the namespaces
+    logger.info("Restarting FRR.")
+    subprocess.run(
+        """
+        systemctl restart frr.service
+        """,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=False,
+    )  # .stdout.decode().lower()
 
 
 def main_endpoint():
@@ -840,7 +856,7 @@ def main_endpoint():
     )
 
     # Enable IPv6 and IPv4 on the default namespace.
-    logger.info("Setting up %s netns.", TRUSTED_NETNS)
+    logger.info("Setting up ROOT netns.")
     subprocess.run(
         """
         sysctl -w net.ipv6.conf.all.forwarding=1

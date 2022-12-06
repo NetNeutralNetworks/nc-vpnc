@@ -24,6 +24,7 @@ ip netns exec {{ trusted_netns }} ip6tables -A INPUT -j DROP
 ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -i {{ uplink }} -j ACCEPT
 {%- endfor %}
 {#- allow forward for traffic to ROOT and customer netns (management) #}
-ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -i {{ trusted_netns }}_E -j ACCEPT
+## VPN2MGMT
+#ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -i {{ trusted_netns }}_E -j ACCEPT
 ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
 ip netns exec {{ trusted_netns }} ip6tables -A FORWARD -j DROP
