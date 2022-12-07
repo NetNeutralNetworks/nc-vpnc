@@ -10,11 +10,16 @@ hub)
 
     # Enable bgpd in FRR
     sed -i 's/^bgpd=no$/bgpd=yes/' /etc/frr/daemons
+    sed -i 's/^bfdd=no$/bfdd=yes/' /etc/frr/daemons
+    
     sed -i 's/^zebra_options="  -A 127.0.0.1 -s 90000000.*"$/zebra_options="  -A 127.0.0.1 -s 90000000 -n -M snmp"/' /etc/frr/daemons
     sed -i 's/^bgpd_options="   -A 127.0.0.1.*"$/bgpd_options="   -A 127.0.0.1 -M snmp"/' /etc/frr/daemons
 
     # comment SNMP agentaddress in snmpd
+    sed -i -E 's/^rocommunity (.*)/#rocommunity \1/' /etc/snmp/snmpd.conf
+    sed -i -E 's/^rocommunity6 (.*)/#rocommunity6 \1/' /etc/snmp/snmpd.conf
     sed -i -E 's/^agentaddress(.*)/#agentaddress\1/' /etc/snmp/snmpd.conf
+    sed -i 's/^rouser authPrivUser authpriv -V systemonly$/#rouser authPrivUser authpriv -V systemonly/' /etc/snmp/snmpd.conf
 
     cp -n /opt/ncubed/config/vpnc/candidate/service/config-hub.yaml.example /opt/ncubed/config/vpnc/candidate/service/config.yaml
     cp -n /opt/ncubed/config/vpnc/candidate/service/config-hub.yaml.example /opt/ncubed/config/vpnc/active/service/config.yaml
@@ -25,9 +30,12 @@ hub)
     /usr/bin/systemctl enable snmpd.service
     /usr/bin/systemctl restart snmpd.service
     /usr/bin/systemctl enable ncubed-$servicename-hub
-    /usr/bin/systemctl restart ncubed-$servicename-hub
+    /usr/bin/systemctl start ncubed-$servicename-hub
     /usr/bin/systemctl enable frr.service
     /usr/bin/systemctl restart frr.service
+
+    echo "Configure SNMP with the following command (if not already configured) after stopping the snmpd service."
+    echo "net-snmp-create-v3-user -ro -a SHA -A <authpass> -x AES -X <privpass> nc-admin"
     ;;
 endpoint)
     cp -n /opt/ncubed/config/vpnc/candidate/service/config-endpoint.yaml.example /opt/ncubed/config/vpnc/candidate/service/config.yaml
@@ -44,7 +52,7 @@ endpoint)
     /usr/bin/systemctl disable ipsec.service
     /usr/bin/systemctl stop ipsec.service
     /usr/bin/systemctl enable ncubed-$servicename-endpoint
-    /usr/bin/systemctl restart ncubed-$servicename-endpoint
+    /usr/bin/systemctl start ncubed-$servicename-endpoint
     ;;
 *)
     echo "Argument should be either 'hub' or 'endpoint'"
