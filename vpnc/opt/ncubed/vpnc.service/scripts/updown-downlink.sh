@@ -6,12 +6,12 @@
 NETNS=${PLUTO_CONNECTION}              # outputs c0001-009
 XFRM="xfrm-${PLUTO_CONNECTION}"        # outputs xfrm-c0001-009
 TRUSTED_NETNS="TRUST"                  #
-DOWNLINK_ID=$((${PLUTO_CONNECTION:1:4}))   # outputs 1
-DOWNLINK_VPN_ID=$((${PLUTO_CONNECTION:6})) # outputs 9
+DOWNLINK_ID=${PLUTO_CONNECTION:1:4}    # outputs 0001
+DOWNLINK_VPN_ID=${PLUTO_CONNECTION:6}  # outputs 009
 V6_SEGMENT_3=${PLUTO_CONNECTION:0:1}   # outputs c
-V6_SEGMENT_4=${DOWNLINK_ID}     # outputs 1
-V6_SEGMENT_5=${DOWNLINK_VPN_ID} # outputs 9
-# outputs fdcc:0:c:1:9
+V6_SEGMENT_4=${DOWNLINK_ID}            # outputs 0001
+V6_SEGMENT_5=${DOWNLINK_VPN_ID}        # outputs 009
+# outputs fdcc:0:c:0001:009
 V6_DOWNLINK_TUNNEL_SPACE="fdcc:0:${V6_SEGMENT_3}:${V6_SEGMENT_4}:${V6_SEGMENT_5}"
 
 printf "${V6_DOWNLINK_SPACE}\n\n"
