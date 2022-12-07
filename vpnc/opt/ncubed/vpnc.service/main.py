@@ -414,7 +414,6 @@ def add_endpoint_downlink_connection(path: pathlib.Path):
         ip -n {UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {VPNC_HUB_CONFIG["untrusted_if_name"]} if_id 0x{xfrm_id}
         ip -n {UNTRUSTED_NETNS} link set {xfrm} netns 1
         ip link set dev {xfrm} up
-        ip address add {tunnel_config["tunnel_ip"]} dev {xfrm}
         """
         if tunnel_config.get("traffic_selectors"):
             for i in tunnel_config["traffic_selectors"]["remote"]:
