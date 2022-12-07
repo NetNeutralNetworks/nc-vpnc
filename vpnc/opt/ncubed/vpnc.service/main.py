@@ -79,7 +79,7 @@ VPNC_TEMPLATE_ENV = jinja2.Environment(
 )
 
 # Match only customer connections
-CUST_RE = re.compile(r"c\d{4}-\d{3}")
+CUST_RE = re.compile(r"[a-f]\d{4}-\d{3}")
 
 TRUSTED_NETNS = "TRUST"  # name of trusted network namespace
 UNTRUSTED_NETNS = "UNTRUST"  # name of outside/untrusted network namespace
@@ -94,13 +94,13 @@ PREFIX_UPLINK = ipaddress.IPv6Network(VPNC_HUB_CONFIG.get("prefix_uplink", "::/1
 PREFIX_CUST_V4 = ipaddress.IPv4Network(
     VPNC_HUB_CONFIG.get("prefix_customer_v4", "100.99.0.0/16")
 )
-# IPv6 prefix for customers. Must be a /48. Will be subnetted into /96s per customer per tunnel.
+# IPv6 prefix for customers. Must be a /32. Will be subnetted into /96s per customer per tunnel.
 PREFIX_CUST_V6 = ipaddress.IPv6Network(
-    VPNC_HUB_CONFIG.get("prefix_customer_v6", "fdcc:0:c::/48")
+    VPNC_HUB_CONFIG.get("prefix_customer_v6", "fdcc::/32")
 )
 # IPv6 prefix start for NAT64 to customer networks
-# returns "fdcc:0000:000c" if prefix is fdcc:0:c::/48
-PREFIX_CUST_V6_START = PREFIX_CUST_V6.exploded[:14]
+# returns "fdcc:0000" if prefix is fdcc::/32
+PREFIX_CUST_V6_START = PREFIX_CUST_V6.exploded[:9]
 
 
 if PREFIX_UPLINK.prefixlen != 16:
@@ -113,8 +113,8 @@ if PREFIX_UPLINK.prefixlen != 16:
 if PREFIX_CUST_V4.prefixlen != 16:
     logger.critical("Prefix length for customer IPv4 prefix must be '/16'.")
     sys.exit(1)
-if PREFIX_CUST_V6.prefixlen != 48:
-    logger.critical("Prefix length for customer IPv6 prefix must be '/48'.")
+if PREFIX_CUST_V6.prefixlen != 32:
+    logger.critical("Prefix length for customer IPv6 prefix must be '/32'.")
     sys.exit(1)
 
 
@@ -282,10 +282,11 @@ def add_downlink_connection(path: pathlib.Path):
         xfrm = f"xfrm-{netns}"
         xfrm_id = int(vpn_id_int) * 1000 + int(tun_id)
 
+        v6_segment_3 = vpn_id[0]  # outputs c
         v6_segment_4 = int(vpn_id_int)  # outputs 1
         v6_segment_5 = int(tun_id)  # outputs 0
         # outputs fdcc:0:c:1:0
-        v6_cust_space = f"{PREFIX_CUST_V6_START}:{v6_segment_4}:{v6_segment_5}"
+        v6_cust_space = f"{PREFIX_CUST_V6_START}:{v6_segment_3}:{v6_segment_4}:{v6_segment_5}"
 
         if tunnel_config.get("tunnel_ip"):
             v4_cust_tunnel_ip = tunnel_config["tunnel_ip"]
@@ -665,7 +666,7 @@ def update_uplink_connection():
                 "xfrm_id": f"9999{tun_id:03}",
                 "xfrm_name": f"xfrm-uplink{tun_id:03}",
                 "xfrm_ip": xfrm_ip,
-                "asn": tun_config["asn"],
+                "asn": tun_config.get("asn", None),
                 "psk": tun_config["psk"],
                 "local_id": VPNC_HUB_CONFIG["local_id"],
                 "remote_id": tun_config["remote_peer_ip"],
