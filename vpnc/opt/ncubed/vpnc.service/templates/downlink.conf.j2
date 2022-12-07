@@ -1,6 +1,6 @@
 connections {
 {%- for conn in connections %}
-    {#- t_id is tunnel_id for customer #}
+    {#- t_id is tunnel_id for downlink #}
     # Section for an IKE connection named <conn>.
     {{ conn.remote }}-{{ conn.t_id }} : {{ conn.ike_proposal }} {
     {%- if conn.ike_version %}

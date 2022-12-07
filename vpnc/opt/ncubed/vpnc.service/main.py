@@ -78,8 +78,8 @@ VPNC_TEMPLATE_ENV = jinja2.Environment(
     loader=jinja2.FileSystemLoader(VPNC_TEMPLATE_DIR)
 )
 
-# Match only customer connections
-CUST_RE = re.compile(r"[a-f]\d{4}-\d{3}")
+# Match only downlink connections
+DOWNLINK_RE = re.compile(r"[a-f]\d{4}-\d{3}")
 
 TRUSTED_NETNS = "TRUST"  # name of trusted network namespace
 UNTRUSTED_NETNS = "UNTRUST"  # name of outside/untrusted network namespace
@@ -90,17 +90,17 @@ PREFIX_UPLINK = ipaddress.IPv6Network(VPNC_HUB_CONFIG.get("prefix_uplink", "::/1
 #PREFIX_ROOT_TUNNEL = ipaddress.IPv6Network(
 #    VPNC_HUB_CONFIG.get("prefix_root_tunnel", "::/127")
 #)
-# IP prefix for customers. Must be a /16, will get subnetted into /24s per customer tunnel.
-PREFIX_CUST_V4 = ipaddress.IPv4Network(
-    VPNC_HUB_CONFIG.get("prefix_customer_v4", "100.99.0.0/16")
+# IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
+PREFIX_DOWNLINK_V4 = ipaddress.IPv4Network(
+    VPNC_HUB_CONFIG.get("prefix_downlink_v4", "100.99.0.0/16")
 )
-# IPv6 prefix for customers. Must be a /32. Will be subnetted into /96s per customer per tunnel.
-PREFIX_CUST_V6 = ipaddress.IPv6Network(
-    VPNC_HUB_CONFIG.get("prefix_customer_v6", "fdcc::/32")
+# IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
+PREFIX_DOWNLINK_V6 = ipaddress.IPv6Network(
+    VPNC_HUB_CONFIG.get("prefix_downlink_v6", "fdcc::/32")
 )
-# IPv6 prefix start for NAT64 to customer networks
+# IPv6 prefix start for NAT64 to downlink networks
 # returns "fdcc:0000" if prefix is fdcc::/32
-PREFIX_CUST_V6_START = PREFIX_CUST_V6.exploded[:9]
+PREFIX_DOWNLINK_V6_START = PREFIX_DOWNLINK_V6.exploded[:9]
 
 
 if PREFIX_UPLINK.prefixlen != 16:
@@ -110,11 +110,11 @@ if PREFIX_UPLINK.prefixlen != 16:
 #if PREFIX_ROOT_TUNNEL.prefixlen != 127:
 #    logger.critical("Prefix length for root tunnel must be '/127'.")
 #    sys.exit(1)
-if PREFIX_CUST_V4.prefixlen != 16:
-    logger.critical("Prefix length for customer IPv4 prefix must be '/16'.")
+if PREFIX_DOWNLINK_V4.prefixlen != 16:
+    logger.critical("Prefix length for downlink IPv4 prefix must be '/16'.")
     sys.exit(1)
-if PREFIX_CUST_V6.prefixlen != 32:
-    logger.critical("Prefix length for customer IPv6 prefix must be '/32'.")
+if PREFIX_DOWNLINK_V6.prefixlen != 32:
+    logger.critical("Prefix length for downlink IPv6 prefix must be '/32'.")
     sys.exit(1)
 
 
@@ -127,19 +127,19 @@ def _downlink_observer() -> Observer:
 
         def on_created(self, event: FileCreatedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
-            cust_config = pathlib.Path(event.src_path)
-            add_downlink_connection(cust_config)
+            downlink_config = pathlib.Path(event.src_path)
+            add_downlink_connection(downlink_config)
 
         def on_modified(self, event: FileModifiedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
-            cust_config = pathlib.Path(event.src_path)
+            downlink_config = pathlib.Path(event.src_path)
             time.sleep(1)
-            add_downlink_connection(cust_config)
+            add_downlink_connection(downlink_config)
 
         def on_deleted(self, event: FileDeletedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
-            cust_config = pathlib.Path(event.src_path).stem
-            delete_downlink_connection(cust_config)
+            downlink_config = pathlib.Path(event.src_path).stem
+            delete_downlink_connection(downlink_config)
 
     # Create the observer object. This doesn't start the handler.
     observer = Observer()
@@ -165,19 +165,19 @@ def _downlink_endpoint_observer() -> Observer:
 
         def on_created(self, event: FileCreatedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
-            cust_config = pathlib.Path(event.src_path)
-            add_endpoint_downlink_connection(cust_config)
+            downlink_config = pathlib.Path(event.src_path)
+            add_endpoint_downlink_connection(downlink_config)
 
         def on_modified(self, event: FileModifiedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
-            cust_config = pathlib.Path(event.src_path)
+            downlink_config = pathlib.Path(event.src_path)
             time.sleep(1)
-            add_endpoint_downlink_connection(cust_config)
+            add_endpoint_downlink_connection(downlink_config)
 
         def on_deleted(self, event: FileDeletedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
-            cust_config = pathlib.Path(event.src_path).stem
-            delete_endpoint_downlink_connection(cust_config)
+            downlink_config = pathlib.Path(event.src_path).stem
+            delete_endpoint_downlink_connection(downlink_config)
 
     # Create the observer object. This doesn't start the handler.
     observer = Observer()
@@ -286,16 +286,16 @@ def add_downlink_connection(path: pathlib.Path):
         v6_segment_4 = int(vpn_id_int)  # outputs 1
         v6_segment_5 = int(tun_id)  # outputs 0
         # outputs fdcc:0:c:1:0
-        v6_cust_space = f"{PREFIX_CUST_V6_START}:{v6_segment_3}:{v6_segment_4}:{v6_segment_5}"
+        v6_downlink_space = f"{PREFIX_DOWNLINK_V6_START}:{v6_segment_3}:{v6_segment_4}:{v6_segment_5}"
 
         if tunnel_config.get("tunnel_ip"):
-            v4_cust_tunnel_ip = tunnel_config["tunnel_ip"]
+            v4_downlink_tunnel_ip = tunnel_config["tunnel_ip"]
         else:
-            v4_cust_tunnel_offset = ipaddress.IPv4Address(f"0.0.{int(tun_id)}.1")
-            v4_cust_tunnel_ip = ipaddress.IPv4Address(
-                int(PREFIX_CUST_V4[0]) + int(v4_cust_tunnel_offset)
+            v4_downlink_tunnel_offset = ipaddress.IPv4Address(f"0.0.{int(tun_id)}.1")
+            v4_downlink_tunnel_ip = ipaddress.IPv4Address(
+                int(PREFIX_DOWNLINK_V4[0]) + int(v4_downlink_tunnel_offset)
             )
-            v4_cust_tunnel_ip = f"{v4_cust_tunnel_ip}/24"
+            v4_downlink_tunnel_ip = f"{v4_downlink_tunnel_ip}/24"
 
         subprocess.run(
             f"""
@@ -303,21 +303,21 @@ def add_downlink_connection(path: pathlib.Path):
             # enable routing
             ip netns exec {netns} sysctl -w net.ipv4.conf.all.forwarding=1
             ip netns exec {netns} sysctl -w net.ipv6.conf.all.forwarding=1
-            # add veth interfaces between TRUSTED and CUSTOMER network namespaces
+            # add veth interfaces between TRUSTED and DOWNLINK network namespaces
             ip -n {TRUSTED_NETNS} link add {veth_i} type veth peer name {veth_e} netns {netns}
             # bring veth interfaces up
             ip -n {TRUSTED_NETNS} link set dev {veth_i} up
             ip -n {netns} link set dev {veth_e} up
             # assign IP addresses to veth interfaces
-            ip -n {TRUSTED_NETNS} -6 address add {v6_cust_space}:1:0:0/127 dev {veth_i}
-            ip -n {netns} -6 address add {v6_cust_space}:1:0:1/127 dev {veth_e}
-            # add route from CUSTOMER to MGMT network via TRUSTED namespace
-            ip -n {netns} -6 route add {PREFIX_UPLINK} via {v6_cust_space}:1:0:0
+            ip -n {TRUSTED_NETNS} -6 address add {v6_downlink_space}:1:0:0/127 dev {veth_i}
+            ip -n {netns} -6 address add {v6_downlink_space}:1:0:1/127 dev {veth_e}
+            # add route from DOWNLINK to MGMT network via TRUSTED namespace
+            ip -n {netns} -6 route add {PREFIX_UPLINK} via {v6_downlink_space}:1:0:0
             # configure XFRM interfaces
             ip -n {UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {VPNC_HUB_CONFIG["untrusted_if_name"]} if_id 0x{xfrm_id}
             ip -n {UNTRUSTED_NETNS} link set {xfrm} netns {netns}
             ip -n {netns} link set dev {xfrm} up
-            ip -n {netns} address add {v4_cust_tunnel_ip} dev {xfrm}
+            ip -n {netns} address add {v4_downlink_tunnel_ip} dev {xfrm}
             """,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -635,7 +635,7 @@ def update_uplink_connection():
         )  # .stdout.decode().lower()
 
     # IP(6)TABLES RULES
-    # The trusted netns blocks all traffic originating from the customer namespaces,
+    # The trusted netns blocks all traffic originating from the downlink namespaces,
     # but does accept traffic originating from the default and management zones.
     iptables_template = VPNC_TEMPLATE_ENV.get_template("iptables.conf.j2")
     iptables_configs = {"trusted_netns": TRUSTED_NETNS, "uplinks": uplinks_ref}
@@ -690,7 +690,7 @@ def update_uplink_connection():
         "uplinks": uplink_configs,
         # "remove_uplinks": uplinks_remove,
         "prefix_uplink": PREFIX_UPLINK,
-        "prefix_customer_v6": PREFIX_CUST_V6,
+        "prefix_downlink_v6": PREFIX_DOWNLINK_V6,
     }
     bgp_render = bgp_template.render(**bgp_configs)
     print(bgp_render)
@@ -794,7 +794,7 @@ def main_hub():
     update_downlink_connection()
 
     # Start the event handler.
-    logger.info("Monitoring customer config changes.")
+    logger.info("Monitoring downlink config changes.")
     downlink_observer = _downlink_observer()
     downlink_observer.start()
 
@@ -872,7 +872,7 @@ def main_endpoint():
     update_endpoint_downlink_connection()
 
     # Start the event handler.
-    logger.info("Monitoring customer config changes.")
+    logger.info("Monitoring downlink config changes.")
     downlink_observer = _downlink_endpoint_observer()
     downlink_observer.start()
 

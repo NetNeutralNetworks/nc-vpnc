@@ -147,10 +147,10 @@ class ServiceHub(Service):
     ## VPN2MGMT
     ## Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.
     #prefix_root_tunnel: IPv6Network = IPv6Network("fd33:2:f::/127")
-    # IP prefix for customers. Must be a /16, will get subnetted into /24s per customer tunnel.
-    prefix_customer_v4: IPv4Network = IPv4Network("100.99.0.0/16")
-    # IPv6 prefix for customers. Must be a /32. Will be subnetted into /96s per customer per tunnel.
-    prefix_customer_v6: IPv6Network = IPv6Network("fdcc::/32")
+    # IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
+    prefix_downlink_v4: IPv4Network = IPv4Network("100.99.0.0/16")
+    # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
+    prefix_downlink_v6: IPv6Network = IPv6Network("fdcc::/32")
 
 
     ## BGP config
