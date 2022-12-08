@@ -35,7 +35,8 @@ hub)
     /usr/bin/systemctl restart frr.service
 
     echo "Configure SNMP with the following command (if not already configured) after stopping the snmpd service."
-    echo "net-snmp-create-v3-user -ro -a SHA -A <authpass> -x AES -X <privpass> nc-admin"
+    echo "The space in front of the command makes sure it isn't logged into the Bash history."
+    echo " net-snmp-create-v3-user -ro -a SHA -A <authpass> -x AES -X <privpass> nc-snmp"
     ;;
 endpoint)
     cp -n /opt/ncubed/config/vpnc/candidate/service/config-endpoint.yaml.example /opt/ncubed/config/vpnc/candidate/service/config.yaml
