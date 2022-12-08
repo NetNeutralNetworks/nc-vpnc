@@ -8,6 +8,7 @@ vrf TRUST
 !
 router bgp {{ bgp_asn }} vrf {{ trusted_netns }}
   neighbor MGMT-TRANSIT peer-group
+  neighbor MGMT-TRANSIT bfd
   neighbor MGMT-TRANSIT advertisement-interval 0
   neighbor MGMT-TRANSIT timers 10 30
 {%- for uplink in uplinks %}
@@ -51,6 +52,16 @@ exit
 !
 route-map REDIS-RM-STATIC-TO-BGP permit 1
   match ipv6 address prefix-list REDIS-PL-IN
+exit
+!
+bfd
+{%- for uplink in uplinks %}
+  {%- if uplink.xfrm_ip %}
+  peer {{ uplink.xfrm_ip }} vrf {{ trusted_netns }}
+  {%- endif %}
+{%- endfor %}
+ exit
+ !
 exit
 !
 end

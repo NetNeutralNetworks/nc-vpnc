@@ -44,17 +44,21 @@ class Tunnel:
     psk: str
     tunnel_ip: IPv4Interface | IPv6Interface | None = None
     # Mutually exclusive with traffic selectors
-    routes: list[IPv4Network | IPv6Network] | None = field(default_factory=[])
+    routes: list[IPv4Network | IPv6Network] | None = None
     # Mutually exclusive with routes
-    traffic_selectors: TrafficSelectors | None = TrafficSelectors(remote=[], local=[])
+    traffic_selectors: TrafficSelectors | None = None
 
     def __post_init__(self):
         if not self.remote_id:
             self.remote_id = str(self.remote_peer_ip)
         if isinstance(self.traffic_selectors, dict):
             self.traffic_selectors = TrafficSelectors(**self.traffic_selectors)
+        else:
+            self.traffic_selectors = TrafficSelectors(local=[], remote=[])
         if self.routes:
             self.routes = [str(ip_network(x)) for x in self.routes]
+        else:
+            self.routes = []
         if self.routes and (
             self.traffic_selectors.remote or self.traffic_selectors.local
         ):
@@ -73,10 +77,13 @@ class Remote:
     id: str = ""
     name: str = ""
     metadata: dict = field(default_factory=dict)
-    tunnels: dict[int, Tunnel] = field(default_factory={})
+    tunnels: dict[int, Tunnel] | None = None
 
     def __post_init__(self):
-        self.tunnels = {k: Tunnel(**v) for (k, v) in self.tunnels.items()}
+        if self.tunnels:
+            self.tunnels = {k: Tunnel(**v) for (k, v) in self.tunnels.items()}
+        else:
+            self.tunnels = {}
 
 
 @dataclass(kw_only=True)
@@ -139,7 +146,7 @@ class ServiceHub(Service):
 
     # VPN CONFIG
     # Uplink VPNs
-    uplinks: dict[int, Uplink] = field(default_factory={})
+    uplinks: dict[int, Uplink] | None = None
 
     # OVERLAY CONFIG
     # IPv6 prefix for client initiating administration traffic.
