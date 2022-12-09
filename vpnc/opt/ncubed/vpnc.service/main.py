@@ -226,7 +226,7 @@ def _load_swanctl_all_config():
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
-        check=True,
+        check=False,
     )
 
 
