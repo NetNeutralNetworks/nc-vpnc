@@ -1,0 +1,28 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Module - main",
+            "type": "python",
+            "request": "launch",
+            "module": "vpncservice.main",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "sudo": true,
+            "cwd": "${workspaceFolder}/vpnc/opt/ncubed/"
+        }
+        {
+            "name": "Python: Module - endpoint",
+            "type": "python",
+            "request": "launch",
+            "module": "vpncservice.vpncendpoint",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "sudo": true,
+            "cwd": "${workspaceFolder}/vpnc/opt/ncubed/"
+        }
+    ]
+}

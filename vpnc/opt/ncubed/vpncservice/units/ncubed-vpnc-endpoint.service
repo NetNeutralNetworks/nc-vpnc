@@ -7,7 +7,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/ncubed/vpnc.service/.venv/bin/python3 /opt/ncubed/vpnc.service/main.py endpoint
+ExecStart=/opt/ncubed/vpncservice/.venv/bin/python3 /opt/ncubed/vpncservice/main.py endpoint
 Restart=on-failure
 RestartSec=15
 
