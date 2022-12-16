@@ -5,21 +5,33 @@ import subprocess
 
 import vici
 
+logger = logging.getLogger("vpncservice")
+
+
+def initiate_swanctl_connection(connection: str):
+    """Initiate an IKE/IPsec connection"""
+    logger.debug("Initiating connection '%s'.", connection)
+    vcs = vici.Session()
+    output = vcs.initiate({"ike": connection, "child": connection})
+    logger.debug(output)
+
 
 def load_swanctl_all_config():
     """Load all swanctl strongswan configurations. Cannot find a way to do this with vici"""
-    subprocess.run(
+    logger.debug("Loading all swanctl connections.")
+    output = subprocess.run(
         "swanctl --load-all --clear",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
         check=False,
-    )
+    ).stdout
+    logger.debug(output)
 
 
 def terminate_swanctl_connection(connection: str):
     """Terminate an IKE/IPsec connection"""
-    logging.debug("Terminating connection '%s'.", connection)
+    logger.debug("Terminating connection '%s'.", connection)
     vcs = vici.Session()
     output = vcs.terminate({"ike": connection, "child": connection})
-    logging.debug(output)
+    logger.debug(output)

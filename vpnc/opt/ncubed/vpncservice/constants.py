@@ -2,9 +2,15 @@
 
 import logging
 import pathlib
+import re
 import sys
 
 import jinja2
+
+logger = logging.getLogger("vpncservice")
+
+# Match only downlink connections
+DOWNLINK_RE = re.compile(r"[a-f]\d{4}-\d{3}")
 
 # Configuration file paths/directories
 VPN_CONFIG_DIR = pathlib.Path("/etc/swanctl/conf.d")
@@ -16,9 +22,9 @@ VPNC_SERVICE_MODE_PATH = pathlib.Path(
     "/opt/ncubed/config/vpnc/active/service/mode.yaml"
 )
 # Load the configuration
-logging.info("Loading configuration from '%s'.", VPNC_SERVICE_CONFIG_PATH)
+logger.info("Loading configuration from '%s'.", VPNC_SERVICE_CONFIG_PATH)
 if not VPNC_SERVICE_CONFIG_PATH.exists():
-    logging.critical("Configuration not found at '%s'.", VPNC_SERVICE_CONFIG_PATH)
+    logger.critical("Configuration not found at '%s'.", VPNC_SERVICE_CONFIG_PATH)
     sys.exit(1)
 
 # Load the Jinja templates

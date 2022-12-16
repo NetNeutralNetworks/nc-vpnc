@@ -148,14 +148,11 @@ class ServiceHub(Service):
 
     # VPN CONFIG
     # Uplink VPNs
-    uplinks: dict[int, Uplink] | None = None
+    uplinks: dict[int, Uplink] | None = field(default_factory=dict)
 
     # OVERLAY CONFIG
     # IPv6 prefix for client initiating administration traffic.
     prefix_uplink: IPv6Network = IPv6Network("fd33::/16")
-    ## VPN2MGMT
-    ## Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.
-    # prefix_root_tunnel: IPv6Network = IPv6Network("fd33:2:f::/127")
     # IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
     prefix_downlink_v4: IPv4Network = IPv4Network("100.99.0.0/16")
     # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
@@ -163,7 +160,7 @@ class ServiceHub(Service):
 
     ## BGP config
     # bgp_asn private range is between 4.200.000.000 and 4.294.967.294 inclusive.
-    bgp: BGP = BGP(asn=0, router_id=IPv4Address("0.0.0.0"))
+    bgp: BGP = BGP()
 
     def __post_init__(self):
         if self.uplinks:

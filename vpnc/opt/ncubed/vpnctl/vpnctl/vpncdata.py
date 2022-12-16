@@ -24,8 +24,8 @@ class TrafficSelectors:
     remote: list[IPv4Network | IPv6Network]
 
     def __post_init__(self):
-        self.local = [str(ip_network(x)) for x in self.local]
-        self.remote = [str(ip_network(x)) for x in self.remote]
+        self.local = [ip_network(x) for x in self.local]
+        self.remote = [ip_network(x) for x in self.remote]
 
 
 @dataclass(kw_only=True)
@@ -56,20 +56,20 @@ class Tunnel:
         else:
             self.traffic_selectors = TrafficSelectors(local=[], remote=[])
         if self.routes:
-            self.routes = [str(ip_network(x)) for x in self.routes]
+            self.routes = [ip_network(x) for x in self.routes]
         else:
             self.routes = []
         if self.routes and (
             self.traffic_selectors.remote or self.traffic_selectors.local
         ):
             raise ValueError("Cannot specify both routes and traffic selectors.")
-        self.remote_peer_ip = str(ip_address(self.remote_peer_ip))
+        self.remote_peer_ip = ip_address(self.remote_peer_ip)
         if self.tunnel_ip:
-            self.tunnel_ip = str(ip_interface(self.tunnel_ip))
+            self.tunnel_ip = ip_interface(self.tunnel_ip)
 
 
 @dataclass(kw_only=True)
-class Remote:
+class Downlink:
     """
     Defines a remote side data structure
     """
@@ -93,7 +93,7 @@ class BGP:
     """
 
     asn: int = 4200000000
-    router_id: IPv4Address = "0.0.0.1"
+    router_id: IPv4Address = IPv4Address("0.0.0.1")
 
 
 @dataclass(kw_only=True)
@@ -114,7 +114,9 @@ class Uplink:
         if not self.remote_id:
             self.remote_id = str(self.remote_peer_ip)
         if self.asn and not self.prefix_uplink_tunnel:
-            raise ValueError("Prefix for the uplink tunnel must be specified if ASN is specified.")
+            raise ValueError(
+                "Prefix for the uplink tunnel must be specified if ASN is specified."
+            )
         if self.prefix_uplink_tunnel and not self.asn:
             raise ValueError("ASN must be specified if tunnel prefix is specified.")
 
@@ -146,23 +148,19 @@ class ServiceHub(Service):
 
     # VPN CONFIG
     # Uplink VPNs
-    uplinks: dict[int, Uplink] | None = None
+    uplinks: dict[int, Uplink] | None = field(default_factory=dict)
 
     # OVERLAY CONFIG
     # IPv6 prefix for client initiating administration traffic.
     prefix_uplink: IPv6Network = IPv6Network("fd33::/16")
-    ## VPN2MGMT
-    ## Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.
-    #prefix_root_tunnel: IPv6Network = IPv6Network("fd33:2:f::/127")
     # IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
     prefix_downlink_v4: IPv4Network = IPv4Network("100.99.0.0/16")
     # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
     prefix_downlink_v6: IPv6Network = IPv6Network("fdcc::/32")
 
-
     ## BGP config
     # bgp_asn private range is between 4.200.000.000 and 4.294.967.294 inclusive.
-    bgp: BGP = BGP(asn=0, router_id="0.0.0.0")
+    bgp: BGP = BGP()
 
     def __post_init__(self):
         if self.uplinks:

@@ -13,7 +13,17 @@
             "justMyCode": true,
             "sudo": true,
             "cwd": "${workspaceFolder}/vpnc/opt/ncubed/"
-        }
+        },
+        {
+            "name": "Python: Module - hub",
+            "type": "python",
+            "request": "launch",
+            "module": "vpncservice.hub",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "sudo": true,
+            "cwd": "${workspaceFolder}/vpnc/opt/ncubed/"
+        },
         {
             "name": "Python: Module - endpoint",
             "type": "python",
