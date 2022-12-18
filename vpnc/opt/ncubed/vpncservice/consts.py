@@ -22,17 +22,5 @@ VPNC_C_SERVICE_CONFIG_PATH = Path(
     "/opt/ncubed/config/vpnc/candidate/service/config.yaml"
 )
 
-# Load the configuration
-logger.info("Loading configuration from '%s'.", VPNC_A_SERVICE_CONFIG_PATH)
-if not VPNC_A_SERVICE_CONFIG_PATH.exists():
-    logger.critical("Configuration not found at '%s'.", VPNC_A_SERVICE_CONFIG_PATH)
-    sys.exit(1)
-
-# Load the Jinja templates
-VPNC_TEMPLATE_DIR = Path(__file__).parent.joinpath("templates")
-VPNC_TEMPLATE_ENV = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(VPNC_TEMPLATE_DIR)
-)
-
 TRUSTED_NETNS = "TRUST"  # name of trusted network namespace
 UNTRUSTED_NETNS = "UNTRUST"  # name of outside/untrusted network namespace

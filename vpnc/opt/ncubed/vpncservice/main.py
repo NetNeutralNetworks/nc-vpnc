@@ -5,12 +5,19 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 
-from . import vpncendpoint, vpnchub
+from . import consts, vpncendpoint, vpnchub
 
 
 # LOGGER
 logger = logging.getLogger("vpncservice")
 
+# Load the configuration
+logger.info("Loading configuration from '%s'.", consts.VPNC_A_SERVICE_CONFIG_PATH)
+if not consts.VPNC_A_SERVICE_CONFIG_PATH.exists():
+    logger.critical(
+        "Configuration not found at '%s'.", consts.VPNC_A_SERVICE_CONFIG_PATH
+    )
+    sys.exit(1)
 
 if __name__ == "__main__":
     # Configure logging if package is run directly

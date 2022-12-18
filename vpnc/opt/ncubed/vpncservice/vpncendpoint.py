@@ -4,10 +4,10 @@ import json
 import logging
 import pathlib
 import subprocess
+import sys
 import time
 
-import sys
-
+import jinja2
 import yaml
 from watchdog.events import (
     FileCreatedEvent,
@@ -20,6 +20,14 @@ from watchdog.observers import Observer
 from . import consts, datacls, helpers
 
 logger = logging.getLogger("vpncservice")
+
+
+# Load the Jinja templates
+VPNC_TEMPLATE_DIR = pathlib.Path(__file__).parent.joinpath("templates")
+VPNC_TEMPLATE_ENV = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(VPNC_TEMPLATE_DIR)
+)
+
 
 # Global variable containing the configuration items. Should probably be a class.
 VPNC_HUB_CONFIG: datacls.Service = datacls.Service()
@@ -179,7 +187,7 @@ def _add_downlink_connection(path: pathlib.Path):
 
     # VPN DOWNLINKS
     logger.info("Setting up VPN tunnels.")
-    downlink_template = consts.VPNC_TEMPLATE_ENV.get_template("downlink.conf.j2")
+    downlink_template = VPNC_TEMPLATE_ENV.get_template("downlink.conf.j2")
     downlink_configs = []
     for tunnel_id, tunnel_config in config.tunnels.items():
         t_config = {

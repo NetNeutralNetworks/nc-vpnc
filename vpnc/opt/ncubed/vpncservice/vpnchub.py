@@ -1,11 +1,12 @@
+import ipaddress
 import json
 import logging
 import pathlib
 import subprocess
 import sys
 import time
-import ipaddress
 
+import jinja2
 import yaml
 from watchdog.events import (
     FileCreatedEvent,
@@ -19,6 +20,12 @@ from watchdog.observers import Observer
 from . import consts, datacls, helpers
 
 logger = logging.getLogger("vpncservice")
+
+# Load the Jinja templates
+VPNC_TEMPLATE_DIR = pathlib.Path(__file__).parent.joinpath("templates")
+VPNC_TEMPLATE_ENV = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(VPNC_TEMPLATE_DIR)
+)
 
 # Global variable containing the configuration items. Should probably be a class.
 VPNC_HUB_CONFIG: datacls.ServiceHub = datacls.ServiceHub()
@@ -185,9 +192,7 @@ def _add_downlink_connection(path: pathlib.Path):
     netns_remove = netns_diff.difference(netns_ref)
 
     # Configure XFRM interfaces for downlinks
-    logger.info(
-        "Setting up uplink xfrm interfaces for %s netns.", consts.TRUSTED_NETNS
-    )
+    logger.info("Setting up uplink xfrm interfaces for %s netns.", consts.TRUSTED_NETNS)
     for tunnel_id, t_config in config.tunnels.items():
         netns = f"{vpn_id}-{tunnel_id:03}"
 
@@ -253,7 +258,7 @@ def _add_downlink_connection(path: pathlib.Path):
         )
 
     # VPN DOWNLINKS
-    downlink_template = consts.VPNC_TEMPLATE_ENV.get_template("downlink.conf.j2")
+    downlink_template = VPNC_TEMPLATE_ENV.get_template("downlink.conf.j2")
     downlink_configs = []
     for tunnel_id, tunnel_config in config.tunnels.items():
         t_config = {
@@ -367,9 +372,7 @@ def _update_uplink_connection():
     uplinks_remove = uplinks_diff.difference(uplinks_ref)
 
     # Configure XFRM interfaces for uplinks
-    logger.info(
-        "Setting up uplink xfrm interfaces for %s netns.", consts.TRUSTED_NETNS
-    )
+    logger.info("Setting up uplink xfrm interfaces for %s netns.", consts.TRUSTED_NETNS)
 
     for tunnel_id, tunnel_config in VPNC_HUB_CONFIG.uplinks.items():
         uplink_xfrm_cmd = f"""
@@ -403,7 +406,7 @@ def _update_uplink_connection():
     # IP(6)TABLES RULES
     # The trusted netns blocks all traffic originating from the downlink namespaces,
     # but does accept traffic originating from the default and management zones.
-    iptables_template = consts.VPNC_TEMPLATE_ENV.get_template("iptables.conf.j2")
+    iptables_template = VPNC_TEMPLATE_ENV.get_template("iptables.conf.j2")
     iptables_configs = {
         "trusted_netns": consts.TRUSTED_NETNS,
         "uplinks": uplinks_ref,
@@ -419,7 +422,7 @@ def _update_uplink_connection():
     )
 
     # VPN UPLINKS
-    uplink_template = consts.VPNC_TEMPLATE_ENV.get_template("uplink.conf.j2")
+    uplink_template = VPNC_TEMPLATE_ENV.get_template("uplink.conf.j2")
     uplink_configs = []
     for tunnel_id, tunnel_config in VPNC_HUB_CONFIG.uplinks.items():
         if not tunnel_config.prefix_uplink_tunnel:
@@ -451,7 +454,7 @@ def _update_uplink_connection():
     helpers.load_swanctl_all_config()
 
     # FRR/BGP CONFIG
-    bgp_template = consts.VPNC_TEMPLATE_ENV.get_template("frr-bgp.conf.j2")
+    bgp_template = VPNC_TEMPLATE_ENV.get_template("frr-bgp.conf.j2")
     bgp_configs = {
         "trusted_netns": consts.TRUSTED_NETNS,
         "bgp_router_id": VPNC_HUB_CONFIG.bgp.router_id,
