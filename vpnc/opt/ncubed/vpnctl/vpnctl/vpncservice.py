@@ -44,10 +44,11 @@ def show(
     output = asdict(service)
     if full:
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
-    elif not full and mode == "hub":
+    elif mode == "hub":
         output["uplink_count"] = len(output.pop("uplinks"))
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
-
+    else:
+        print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
 
 @app.command()
 def edit():
@@ -94,8 +95,6 @@ def set_(
     untrusted_if_gw: str = typer.Option(None, callback=validate_ip_address),
     local_id: str = typer.Option(None),
     prefix_uplink: str = typer.Option(None, callback=validate_ip_network),
-    ## VPN2MGMT
-    # prefix_root_tunnel: str = typer.Option(None, callback=_validate_ip_network),
     prefix_downlink_v4: str = typer.Option(None, callback=validate_ip_network),
     prefix_downlink_v6: str = typer.Option(None, callback=validate_ip_network),
     bgp_asn: str = typer.Option(None, callback=validate_ip_address),
@@ -126,9 +125,6 @@ def set_(
     if mode == "hub":
         if prefix_uplink:
             service.prefix_uplink = IPv6Network(prefix_uplink)
-        ## VPN2MGMT
-        # if prefix_root_tunnel:
-        #    service.prefix_root_tunnel = str(prefix_root_tunnel)
         if prefix_downlink_v4:
             service.prefix_downlink_v4 = IPv4Network(prefix_downlink_v4)
         if prefix_downlink_v6:
@@ -209,7 +205,7 @@ def commit(
             service_diff,
             service,
             verbose_level=2,
-            ignore_type_in_groups=[(None, str), (None, int)],
+            # ignore_type_in_groups=[(None, str), (None, int)],
         )
         print(diff_output)
 

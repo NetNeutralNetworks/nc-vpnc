@@ -534,9 +534,6 @@ def main():
 
     # The trusted namespace has no internet connectivity.
     # IPv6 routing is enabled on the namespace.
-    ## VPN2MGMT
-    ## There is a link between the ROOT namespace and the trusted namespace.
-    ## The management prefix is reachable from this namespace.
     logger.info("Setting up %s netns.", consts.TRUSTED_NETNS)
     subprocess.run(
         f"""
