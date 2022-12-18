@@ -7,11 +7,11 @@ from enum import Enum
 import typer
 import yaml
 
-from . import vpncconst, vpncdata
-from .vpncvalidate import (
-    _validate_ip_address,
-    _validate_ip_interface,
-    _validate_ip_networks,
+from . import consts, datacls
+from .helpers import (
+    validate_ip_address,
+    validate_ip_interface,
+    validate_ip_networks,
 )
 
 app = typer.Typer()
@@ -37,12 +37,12 @@ def list_(ctx: typer.Context):
     List all tunnels for a remote
     """
     id_: str = ctx.obj["id_"]
-    path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = vpncdata.Remote(**yaml.safe_load(f))
+        remote = datacls.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -63,14 +63,14 @@ def show(
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
     if active:
-        path = vpncconst.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = consts.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
     else:
-        path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = vpncdata.Remote(**yaml.safe_load(f))
+        remote = datacls.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -95,17 +95,17 @@ def add(
     ike_proposal: str = typer.Option(...),
     ipsec_proposal: str = typer.Option(...),
     psk: str = typer.Option(..., "--pre-shared-key"),
-    remote_peer_ip: str = typer.Option(..., callback=_validate_ip_address),
+    remote_peer_ip: str = typer.Option(..., callback=validate_ip_address),
     remote_id: str = "",
-    tunnel_ip: str = typer.Option(None, callback=_validate_ip_interface),
+    tunnel_ip: str = typer.Option(None, callback=validate_ip_interface),
     description: str = typer.Option(...),
     metadata: str = "{}",
-    routes: list[str] = typer.Option(None, callback=_validate_ip_networks),
+    routes: list[str] = typer.Option(None, callback=validate_ip_networks),
     traffic_selectors_local: list[str] = typer.Option(
-        None, callback=_validate_ip_networks
+        None, callback=validate_ip_networks
     ),
     traffic_selectors_remote: list[str] = typer.Option(
-        None, callback=_validate_ip_networks
+        None, callback=validate_ip_networks
     ),
 ):
     """
@@ -114,12 +114,12 @@ def add(
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
     ctx.params["metadata"] = json.loads(metadata)
-    path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = vpncdata.Remote(**yaml.safe_load(f))
+        remote = datacls.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -129,7 +129,6 @@ def add(
         return
 
     data = ctx.params
-    print(ctx.params)
     if data.get("traffic_selectors_local") or data.get("traffic_selectors_remote"):
         data["traffic_selectors"] = {}
         data["traffic_selectors"]["local"] = set(data.pop("traffic_selectors_local"))
@@ -137,13 +136,13 @@ def add(
     else:
         data.pop("traffic_selectors_local")
         data.pop("traffic_selectors_remote")
-    tunnel = vpncdata.Tunnel(**data)
+    tunnel = datacls.Tunnel(**data)
     remote.tunnels[int(tunnel_id)] = tunnel
 
     output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
-    show(ctx)
+    show(ctx, active=False)
 
 
 @app.command(name="set")
@@ -153,17 +152,17 @@ def set_(
     ike_proposal: str = typer.Option(None),
     ipsec_proposal: str = typer.Option(None),
     psk: str = typer.Option("", "--pre-shared-key"),
-    remote_peer_ip: str = typer.Option(None, callback=_validate_ip_address),
+    remote_peer_ip: str = typer.Option(None, callback=validate_ip_address),
     remote_id: str = "",
-    tunnel_ip: str = typer.Option(None, callback=_validate_ip_interface),
+    tunnel_ip: str = typer.Option(None, callback=validate_ip_interface),
     description: str = typer.Option(""),
     metadata: str = "{}",
-    routes: list[str] = typer.Option(None, callback=_validate_ip_networks),
+    routes: list[str] = typer.Option(None, callback=validate_ip_networks),
     traffic_selectors_local: list[str] = typer.Option(
-        None, callback=_validate_ip_networks
+        None, callback=validate_ip_networks
     ),
     traffic_selectors_remote: list[str] = typer.Option(
-        None, callback=_validate_ip_networks
+        None, callback=validate_ip_networks
     ),
 ):
     """
@@ -172,12 +171,12 @@ def set_(
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
     ctx.params["metadata"] = json.loads(metadata)
-    path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = vpncdata.Remote(**yaml.safe_load(f))
+        remote = datacls.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -219,7 +218,7 @@ def set_(
     output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
-    show(ctx)
+    show(ctx, active=False)
 
 
 @app.command()
@@ -227,12 +226,12 @@ def unset(
     ctx: typer.Context,
     tunnel_ip: bool = False,
     metadata: list[str] = typer.Option([]),
-    routes: list[str] = typer.Option(None, callback=_validate_ip_networks),
+    routes: list[str] = typer.Option(None, callback=validate_ip_networks),
     traffic_selectors_local: list[str] = typer.Option(
-        None, callback=_validate_ip_networks
+        None, callback=validate_ip_networks
     ),
     traffic_selectors_remote: list[str] = typer.Option(
-        None, callback=_validate_ip_networks
+        None, callback=validate_ip_networks
     ),
 ):
     """
@@ -240,12 +239,12 @@ def unset(
     """
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
-    path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = vpncdata.Remote(**yaml.safe_load(f))
+        remote = datacls.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -279,7 +278,7 @@ def unset(
     output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
-    show(ctx)
+    show(ctx, active=False)
 
 
 @app.command()
@@ -293,12 +292,12 @@ def delete(
     """
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
-    path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = vpncdata.Remote(**yaml.safe_load(f))
+        remote = datacls.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return

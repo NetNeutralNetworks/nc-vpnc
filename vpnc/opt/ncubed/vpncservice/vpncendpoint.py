@@ -17,12 +17,12 @@ from watchdog.events import (
 )
 from watchdog.observers import Observer
 
-from . import constants, data, helpers
+from . import consts, datacls, helpers
 
 logger = logging.getLogger("vpncservice")
 
 # Global variable containing the configuration items. Should probably be a class.
-VPNC_HUB_CONFIG: data.Service = data.Service()
+VPNC_HUB_CONFIG: datacls.Service = datacls.Service()
 
 
 def _load_config(config_path: pathlib.Path):
@@ -32,11 +32,11 @@ def _load_config(config_path: pathlib.Path):
     global VPNC_HUB_CONFIG
 
     error = False
-    new_cfg: data.Service = data.Service()
+    new_cfg: datacls.Service = datacls.Service()
     with open(config_path, "r", encoding="utf-8") as f:
         try:
             new_cfg_dict = yaml.safe_load(f)
-            new_cfg = data.Service(**new_cfg_dict)
+            new_cfg = datacls.Service(**new_cfg_dict)
         except yaml.YAMLError:
             error = True
         except TypeError:
@@ -82,7 +82,7 @@ def _downlink_observer() -> Observer:
     # Configure the event handler that watches directories. This doesn't start the handler.
     observer.schedule(
         event_handler=DownlinkHandler(patterns=["c*.yaml"], ignore_directories=True),
-        path=constants.VPNC_REMOTE_CONFIG_DIR,
+        path=consts.VPNC_A_REMOTE_CONFIG_DIR,
         recursive=False,
     )
     # The handler will not be running as a thread.
@@ -106,7 +106,7 @@ def _add_downlink_connection(path: pathlib.Path):
 
     # Parse the YAML file to a Downlink object and validate the input.
     try:
-        config = data.Downlink(**config_yaml)
+        config = datacls.Remote(**config_yaml)
     except (TypeError, ValueError):
         logger.error(
             "Invalid configuration found in '%s'. Skipping.", path, exc_info=True
@@ -149,8 +149,8 @@ def _add_downlink_connection(path: pathlib.Path):
 
         cmd = f"""
         # configure XFRM interfaces
-        ip -n {constants.UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {VPNC_HUB_CONFIG.untrusted_if_name} if_id 0x{xfrm_id}
-        ip -n {constants.UNTRUSTED_NETNS} link set {xfrm} netns 1
+        ip -n {consts.UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {VPNC_HUB_CONFIG.untrusted_if_name} if_id 0x{xfrm_id}
+        ip -n {consts.UNTRUSTED_NETNS} link set {xfrm} netns 1
         ip link set dev {xfrm} up
         """
         for i in tunnel_config.traffic_selectors.remote:
@@ -179,7 +179,7 @@ def _add_downlink_connection(path: pathlib.Path):
 
     # VPN DOWNLINKS
     logger.info("Setting up VPN tunnels.")
-    downlink_template = constants.VPNC_TEMPLATE_ENV.get_template("downlink.conf.j2")
+    downlink_template = consts.VPNC_TEMPLATE_ENV.get_template("downlink.conf.j2")
     downlink_configs = []
     for tunnel_id, tunnel_config in config.tunnels.items():
         t_config = {
@@ -209,7 +209,7 @@ def _add_downlink_connection(path: pathlib.Path):
         downlink_configs.append(t_config)
 
     downlink_render = downlink_template.render(connections=downlink_configs)
-    downlink_path = constants.VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
+    downlink_path = consts.VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
 
     with open(downlink_path, "w", encoding="utf-8") as f:
         f.write(downlink_render)
@@ -249,7 +249,7 @@ def _delete_downlink_connection(vpn_id: str):
         )
 
     logger.info("Removing VPN configuration for '%s'.", vpn_id)
-    downlink_path = constants.VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
+    downlink_path = consts.VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
     downlink_path.unlink(missing_ok=True)
 
     helpers.load_swanctl_all_config()
@@ -259,9 +259,9 @@ def _update_endpoint_downlink_connection():
     """
     Configures downlinks.
     """
-    config_files = list(constants.VPNC_REMOTE_CONFIG_DIR.glob(pattern="*.yaml"))
+    config_files = list(consts.VPNC_A_REMOTE_CONFIG_DIR.glob(pattern="*.yaml"))
     config_set = {x.stem for x in config_files}
-    vpn_config_files = list(constants.VPN_CONFIG_DIR.glob(pattern="[abcdef]*.conf"))
+    vpn_config_files = list(consts.VPN_CONFIG_DIR.glob(pattern="[abcdef]*.conf"))
     vpn_config_set = {x.stem for x in vpn_config_files}
 
     for file_path in config_files:
@@ -280,11 +280,11 @@ def main():
 
     # write a flag that specifies the run mode. This is used by the CLI to determine the
     # capabilities.
-    with open(constants.VPNC_SERVICE_MODE_PATH, "w", encoding="utf-8") as f:
+    with open(consts.VPNC_A_SERVICE_MODE_PATH, "w", encoding="utf-8") as f:
         f.write("---\nmode: endpoint\n...\n")
 
     # Load the global configuration from file.
-    _load_config(constants.VPNC_SERVICE_CONFIG_PATH)
+    _load_config(consts.VPNC_A_SERVICE_CONFIG_PATH)
 
     # Mounts the default network namespace with the alias ROOT. This makes for consistent operation
     # between all namespaces
@@ -304,17 +304,17 @@ def main():
     # After creating this namespace, ipsec is (re)started in this namespace.
     # No IPv6 routing is enabled on this namespace.
     # There is no connectivity to other namespaces.
-    logger.info("Setting up %s netns", constants.UNTRUSTED_NETNS)
+    logger.info("Setting up %s netns", consts.UNTRUSTED_NETNS)
     subprocess.run(
         f"""
-        ip netns add {constants.UNTRUSTED_NETNS}
-        ip link set {VPNC_HUB_CONFIG.untrusted_if_name} netns {constants.UNTRUSTED_NETNS}
-        ip -n {constants.UNTRUSTED_NETNS} address flush dev {VPNC_HUB_CONFIG.untrusted_if_name}
-        ip -n {constants.UNTRUSTED_NETNS} address add {VPNC_HUB_CONFIG.untrusted_if_ip} dev {VPNC_HUB_CONFIG.untrusted_if_name}
-        ip -n {constants.UNTRUSTED_NETNS} link set dev {VPNC_HUB_CONFIG.untrusted_if_name} up
-        ip -n {constants.UNTRUSTED_NETNS} route del default
-        ip -n {constants.UNTRUSTED_NETNS} route add default via {VPNC_HUB_CONFIG.untrusted_if_gw}
-        ip netns exec {constants.UNTRUSTED_NETNS} ipsec start
+        ip netns add {consts.UNTRUSTED_NETNS}
+        ip link set {VPNC_HUB_CONFIG.untrusted_if_name} netns {consts.UNTRUSTED_NETNS}
+        ip -n {consts.UNTRUSTED_NETNS} address flush dev {VPNC_HUB_CONFIG.untrusted_if_name}
+        ip -n {consts.UNTRUSTED_NETNS} address add {VPNC_HUB_CONFIG.untrusted_if_ip} dev {VPNC_HUB_CONFIG.untrusted_if_name}
+        ip -n {consts.UNTRUSTED_NETNS} link set dev {VPNC_HUB_CONFIG.untrusted_if_name} up
+        ip -n {consts.UNTRUSTED_NETNS} route del default
+        ip -n {consts.UNTRUSTED_NETNS} route add default via {VPNC_HUB_CONFIG.untrusted_if_gw}
+        ip netns exec {consts.UNTRUSTED_NETNS} ipsec start
         """,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

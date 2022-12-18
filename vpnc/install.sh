@@ -25,6 +25,7 @@ hub)
     /opt/ncubed/vpncservice/scripts/install.sh hub
 
     # Migration steps
+    ## 0.0.2
     rm -rf /opt/ncubed/vpnc.service
     ;;
 endpoint)
@@ -40,6 +41,7 @@ endpoint)
     /opt/ncubed/vpncservice/scripts/install.sh endpoint
 
     # Migration steps
+    ## 0.0.2
     rm -rf /opt/ncubed/vpnc.service
     ;;
 *)
