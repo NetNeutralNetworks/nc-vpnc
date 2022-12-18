@@ -295,7 +295,7 @@ class ServiceHub(Service):
 
     # VPN CONFIG
     # Uplink VPNs
-    uplinks: dict[int, Uplink] | None = field(default_factory=dict)
+    uplinks: dict[int, Uplink] = field(default_factory=dict)
 
     # OVERLAY CONFIG
     # IPv6 prefix for client initiating administration traffic.

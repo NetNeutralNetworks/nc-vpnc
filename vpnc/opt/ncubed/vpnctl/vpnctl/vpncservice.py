@@ -3,6 +3,7 @@
 import os
 import tempfile
 from dataclasses import asdict
+from ipaddress import ip_address, ip_interface, IPv4Address, IPv4Network, IPv6Network
 from subprocess import call
 
 import typer
@@ -117,25 +118,25 @@ def set_(
     if untrusted_if_name:
         service.untrusted_if_name = untrusted_if_name
     if untrusted_if_ip:
-        service.untrusted_if_ip = untrusted_if_ip
+        service.untrusted_if_ip = ip_interface(untrusted_if_ip)
     if untrusted_if_gw:
-        service.untrusted_if_gw = untrusted_if_gw
+        service.untrusted_if_gw = ip_address(untrusted_if_gw)
     if local_id:
         service.local_id = local_id
     if mode == "hub":
         if prefix_uplink:
-            service.prefix_uplink = prefix_uplink
+            service.prefix_uplink = IPv6Network(prefix_uplink)
         ## VPN2MGMT
         # if prefix_root_tunnel:
         #    service.prefix_root_tunnel = str(prefix_root_tunnel)
         if prefix_downlink_v4:
-            service.prefix_downlink_v4 = prefix_downlink_v4
+            service.prefix_downlink_v4 = IPv4Network(prefix_downlink_v4)
         if prefix_downlink_v6:
-            service.prefix_downlink_v6 = prefix_downlink_v6
+            service.prefix_downlink_v6 = IPv6Network(prefix_downlink_v6)
         if bgp_asn:
             service.bgp.asn = int(bgp_asn)
         if bgp_router_id:
-            service.bgp.router_id = bgp_router_id
+            service.bgp.router_id = IPv4Address(bgp_router_id)
 
     # performs the class post_init construction.
     output = yaml.safe_dump(asdict(service), explicit_start=True, explicit_end=True)
@@ -187,7 +188,7 @@ def commit(
                 asdict(service),
                 asdict(service_diff),
                 verbose_level=2,
-                ignore_type_in_groups=[(None, str), (None, int)],
+                # ignore_type_in_groups=[(None, str), (None, int)],
             ).to_dict()
             print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
         if dry_run:

@@ -2,10 +2,7 @@
 
 import logging
 import re
-import sys
 from pathlib import Path
-
-import jinja2
 
 logger = logging.getLogger("vpncservice")
 

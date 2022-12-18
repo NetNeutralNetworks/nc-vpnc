@@ -3,6 +3,7 @@
 import json
 from dataclasses import asdict
 from enum import Enum
+from ipaddress import ip_address, ip_interface
 
 import typer
 import yaml
@@ -192,19 +193,23 @@ def set_(
         if not v:
             continue
         if k == "routes":
-            tunnel.routes = set(tunnel.routes).union(data["routes"])
+            tunnel.routes = list(set(tunnel.routes).union(data["routes"]))
         elif k == "traffic_selectors_local":
-            tunnel.traffic_selectors.local = set(tunnel.traffic_selectors.local).union(
-                data["traffic_selectors_local"]
+            tunnel.traffic_selectors.local = list(
+                set(tunnel.traffic_selectors.local).union(
+                    data["traffic_selectors_local"]
+                )
             )
         elif k == "traffic_selectors_remote":
-            tunnel.traffic_selectors.remote = set(
-                tunnel.traffic_selectors.remote
-            ).union(data["traffic_selectors_remote"])
+            tunnel.traffic_selectors.remote = list(
+                set(tunnel.traffic_selectors.remote).union(
+                    data["traffic_selectors_remote"]
+                )
+            )
         elif k == "remote_peer_ip":
-            tunnel.remote_peer_ip = str(v)
+            tunnel.remote_peer_ip = ip_address(v)
         elif k == "tunnel_ip":
-            tunnel.tunnel_ip = str(v)
+            tunnel.tunnel_ip = ip_interface(v)
         elif k == "metadata":
             tunnel.metadata.update(v)
         else:
@@ -260,15 +265,15 @@ def unset(
     for i in metadata:
         tunnel.metadata.pop(i)
     if routes:
-        tunnel.routes = set(tunnel.routes).difference(routes)
+        tunnel.routes = list(set(tunnel.routes).difference(routes))
     if traffic_selectors_local:
-        tunnel.traffic_selectors.local = set(tunnel.traffic_selectors.local).difference(
-            traffic_selectors_local
+        tunnel.traffic_selectors.local = list(
+            set(tunnel.traffic_selectors.local).difference(traffic_selectors_local)
         )
     if traffic_selectors_remote:
-        tunnel.traffic_selectors.remote = set(
-            tunnel.traffic_selectors.remote
-        ).difference(traffic_selectors_remote)
+        tunnel.traffic_selectors.remote = list(
+            set(tunnel.traffic_selectors.remote).difference(traffic_selectors_remote)
+        )
 
     if tunnel.routes and (
         tunnel.traffic_selectors.remote or tunnel.traffic_selectors.local

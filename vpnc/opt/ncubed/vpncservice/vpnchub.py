@@ -381,7 +381,7 @@ def _update_uplink_connection():
         ip -n {consts.UNTRUSTED_NETNS} link set xfrm-uplink{tunnel_id:03} netns {consts.TRUSTED_NETNS}
         ip -n {consts.TRUSTED_NETNS} link set dev xfrm-uplink{tunnel_id:03} up
         """
-        if uplink_tun := tunnel_config.get("prefix_uplink_tunnel"):
+        if uplink_tun := tunnel_config.prefix_uplink_tunnel:
             uplink_tun_prefix = ipaddress.IPv6Network(uplink_tun)
             uplink_xfrm_cmd += f"ip -n {consts.TRUSTED_NETNS} address add {uplink_tun_prefix} dev xfrm-uplink{tunnel_id:03}"
         print(uplink_xfrm_cmd)
