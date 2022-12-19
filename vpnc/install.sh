@@ -1,6 +1,6 @@
 #! /bin/bash
 SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
-VENVDIR=/opt/ncubed/vpnc.service/.venv
+VENVDIR=/opt/ncubed/vpncservice/.venv
 
 case $1 in
 hub)
@@ -18,10 +18,11 @@ hub)
 
     cp -rf $SCRIPTDIR/etc/* /etc/
     cp -rf $SCRIPTDIR/opt/* /opt/
+
     python3 -m venv $VENVDIR
     $VENVDIR/bin/python3 -m pip install -r $SCRIPTDIR/requirements.txt
 
-    /opt/ncubed/vpnc.service/scripts/install.sh hub
+    /opt/ncubed/vpncservice/scripts/install.sh hub
     ;;
 endpoint)
     # update and install strongSwan
@@ -33,8 +34,10 @@ endpoint)
     python3 -m venv $VENVDIR
     $VENVDIR/bin/python3 -m pip install -r $SCRIPTDIR/requirements.txt
 
-    /opt/ncubed/vpnc.service/scripts/install.sh endpoint
+    /opt/ncubed/vpncservice/scripts/install.sh endpoint
     ;;
 *)
     echo "Argument should be either 'hub' or 'endpoint'"
+    exit 1
+    ;;
 esac

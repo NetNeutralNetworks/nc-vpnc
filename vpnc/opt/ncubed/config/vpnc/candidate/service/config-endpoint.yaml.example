@@ -1,13 +1,13 @@
 ---
 # UNTRUSTED INTERFACE CONFIG
 # Untrusted/outside interface
-untrusted_if_name: "eth1"
-# IP address of untrusted/outside interface
-untrusted_if_ip: "192.168.0.150/20"
+untrusted_if_name:
+# IP address of untrusted/outside interface with CIDR mask
+untrusted_if_ip:
 # Default gateway of untrusted/outside interface
-untrusted_if_gw: "192.168.0.1"
+untrusted_if_gw:
 
 # VPN CONFIG
 # IKE local identifier for VPNs
-local_id: "192.168.0.150"
+local_id:
 ...

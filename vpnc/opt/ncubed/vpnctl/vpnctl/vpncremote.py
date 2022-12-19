@@ -11,7 +11,7 @@ import typer
 import yaml
 from deepdiff import DeepDiff
 
-from . import vpncconst, vpncdata, vpncremotecon
+from . import consts, datacls, vpncremotecon
 
 app = typer.Typer()
 app.add_typer(vpncremotecon.app, name="connection")
@@ -37,10 +37,10 @@ def list_():
     """
 
     print(f"{'id':<6} name\n{'-'*6} {'-'*4}")
-    for i in vpncconst.VPNC_C_REMOTE_CONFIG_DIR.glob("*.yaml"):
+    for i in consts.VPNC_C_REMOTE_CONFIG_DIR.glob("*.yaml"):
         file_name = i.stem
         with open(i, "r", encoding="utf-8") as f:
-            remote = vpncdata.Remote(**yaml.safe_load(f))
+            remote = datacls.Remote(**yaml.safe_load(f))
         if file_name != remote.id:
             print(f"Mismatch between file name '{file_name}' and id '{remote.id}'.")
         elif file_name == remote.id:
@@ -58,14 +58,14 @@ def show(
     """
     id_: str = ctx.obj["id_"]
     if active:
-        path = vpncconst.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = consts.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
     else:
-        path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = vpncdata.Remote(**yaml.safe_load(f))
+        remote = datacls.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -84,7 +84,7 @@ def edit(ctx: typer.Context):
     Edit a candidate config file
     """
     id_: str = ctx.obj["id_"]
-    path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     editor = os.environ.get("EDITOR", "vim")
 
@@ -92,7 +92,7 @@ def edit(ctx: typer.Context):
         return
     with open(path, "r", encoding="utf-8") as f:
         remote_content = f.read()
-        remote = vpncdata.Remote(**yaml.safe_load(remote_content))
+        remote = datacls.Remote(**yaml.safe_load(remote_content))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -105,11 +105,13 @@ def edit(ctx: typer.Context):
         tf.seek(0)
         edited_message = tf.read()
 
-    edited_remote = vpncdata.Remote(**yaml.safe_load(edited_message))
+    edited_remote = datacls.Remote(**yaml.safe_load(edited_message))
     print("Edited file")
     print(edited_message)
 
-    output = yaml.dump(asdict(edited_remote), explicit_start=True, explicit_end=True)
+    output = yaml.safe_dump(
+        asdict(edited_remote), explicit_start=True, explicit_end=True
+    )
     with open(path, mode="w", encoding="utf-8") as f:
         f.write(output)
 
@@ -121,18 +123,18 @@ def add(ctx: typer.Context, name: str, metadata: str = "{}"):
     """
     id_: str = ctx.obj["id_"]
     metadict: dict = json.loads(metadata)
-    path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
     if path.exists():
-        print(f"vpncdata.Remote '{id_}' already exists.")
+        print(f"Remote '{id_}' already exists.")
         return
 
     data = {"id": id_, "name": name, "metadata": metadict, "tunnels": {}}
-    remote = vpncdata.Remote(**data)
+    remote = datacls.Remote(**data)
 
     output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
-    show(ctx)
+    show(ctx, active=False)
 
 
 @app.command(name="set")
@@ -142,12 +144,12 @@ def set_(ctx: typer.Context, name: str = "", metadata: str = "{}"):
     """
     id_: str = ctx.obj["id_"]
     metadict: dict = json.loads(metadata)
-    path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = vpncdata.Remote(**yaml.safe_load(f))
+        remote = datacls.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -160,7 +162,7 @@ def set_(ctx: typer.Context, name: str = "", metadata: str = "{}"):
     output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
-    show(ctx)
+    show(ctx, active=False)
 
 
 class RemoteUnset(str, Enum):
@@ -176,12 +178,12 @@ def unset(ctx: typer.Context, metadata: list[str] = typer.Option([])):
     Unset a remote
     """
     id_: str = ctx.obj["id_"]
-    path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = vpncdata.Remote(**yaml.safe_load(f))
+        remote = datacls.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -192,7 +194,7 @@ def unset(ctx: typer.Context, metadata: list[str] = typer.Option([])):
     output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
-    show(ctx)
+    show(ctx, active=False)
 
 
 @app.command()
@@ -205,12 +207,12 @@ def delete(
     Delete a remote side
     """
     id_: str = ctx.obj["id_"]
-    path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
     if not path.exists():
-        print(f"vpncdata.Remote '{id_}' doesn't exist.")
+        print(f"Remote '{id_}' doesn't exist.")
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = vpncdata.Remote(**yaml.safe_load(f))
+        remote = datacls.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -241,26 +243,26 @@ def commit(
     Commit configuration
     """
     id_: str = ctx.obj["id_"]
-    path = vpncconst.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
-    path_diff = vpncconst.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path_diff = consts.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
     if not path.exists():
         remote_yaml = ""
-        remote = vpncdata.Remote()
+        remote = datacls.Remote()
     else:
         with open(path, "r", encoding="utf-8") as f:
             remote_yaml = f.read()
-            remote = vpncdata.Remote(**yaml.safe_load(remote_yaml))
+            remote = datacls.Remote(**yaml.safe_load(remote_yaml))
         if id_ != remote.id:
             print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
             return
 
     if not path_diff.exists():
         remote_diff_yaml = ""
-        remote_diff = vpncdata.Remote()
+        remote_diff = datacls.Remote()
     else:
         with open(path_diff, "r", encoding="utf-8") as f:
             remote_diff_yaml = f.read()
-            remote_diff = vpncdata.Remote(**yaml.safe_load(remote_diff_yaml))
+            remote_diff = datacls.Remote(**yaml.safe_load(remote_diff_yaml))
         if id_ != remote_diff.id:
             print(f"Mismatch between diff file name '{id_}' and id '{remote_diff.id}'.")
             return

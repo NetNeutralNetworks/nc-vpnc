@@ -30,9 +30,6 @@ uplinks:
 # OVERLAY CONFIG
 # IPv6 prefix for client initiating administration traffic.
 prefix_uplink: "fd33::/16"
-## VPN2MGMT
-## Tunnel transit prefix for link between trusted namespace and root namespace, must be a /127.
-#prefix_root_tunnel: "fd33:2:f::/127"
 # IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
 prefix_downlink_v4: "100.99.0.0/16"
 # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
