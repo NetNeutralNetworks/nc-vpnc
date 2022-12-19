@@ -45,20 +45,15 @@ def _load_config(config_path: pathlib.Path):
         try:
             new_cfg_dict = yaml.safe_load(f)
             new_cfg = datacls.Service(**new_cfg_dict)
-        except yaml.YAMLError:
-            error = True
-        except TypeError:
-            error = True
-    if error:
-        logger.critical(
-            "Configuration is not valid '%s'.",
-            config_path,
-            exc_info=True,
-        )
-        sys.exit(1)
-    else:
-        VPNC_HUB_CONFIG = new_cfg
-        logger.info("Loaded new configuration.")
+        except (yaml.YAMLError, TypeError):
+            logger.critical(
+                "Configuration is not valid '%s'.",
+                config_path,
+                exc_info=True,
+            )
+            sys.exit(1)
+    VPNC_HUB_CONFIG = new_cfg
+    logger.info("Loaded new configuration.")
 
 
 def _downlink_observer() -> Observer:

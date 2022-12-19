@@ -63,20 +63,16 @@ def _load_config(config_path: pathlib.Path):
         try:
             new_cfg_dict = yaml.safe_load(f)
             new_cfg = datacls.ServiceHub(**new_cfg_dict)
-        except yaml.YAMLError:
-            error = True
-        except TypeError:
-            error = True
-    if error:
-        logger.critical(
-            "Configuration is not valid '%s'.",
-            config_path,
-            exc_info=True,
-        )
-        sys.exit(1)
-    else:
-        VPNC_HUB_CONFIG = new_cfg
-        logger.info("Loaded new configuration.")
+        except (yaml.YAMLError, TypeError):
+            logger.critical(
+                "Configuration is not valid '%s'.",
+                config_path,
+                exc_info=True,
+            )
+            sys.exit(1)
+
+    VPNC_HUB_CONFIG = new_cfg
+    logger.info("Loaded new configuration.")
 
 
 def _downlink_observer() -> Observer:
@@ -425,7 +421,7 @@ def _update_uplink_connection():
     uplink_template = VPNC_TEMPLATE_ENV.get_template("uplink.conf.j2")
     uplink_configs = []
     for tunnel_id, tunnel_config in VPNC_HUB_CONFIG.uplinks.items():
-        if not tunnel_config.prefix_uplink_tunnel:
+        if tunnel_config.prefix_uplink_tunnel:
             xfrm_ip = ipaddress.IPv6Network(tunnel_config.prefix_uplink_tunnel)[1]
         else:
             xfrm_ip = None
@@ -457,6 +453,7 @@ def _update_uplink_connection():
     bgp_template = VPNC_TEMPLATE_ENV.get_template("frr-bgp.conf.j2")
     bgp_configs = {
         "trusted_netns": consts.TRUSTED_NETNS,
+        "untrusted_netns": consts.UNTRUSTED_NETNS,
         "bgp_router_id": VPNC_HUB_CONFIG.bgp.router_id,
         "bgp_asn": VPNC_HUB_CONFIG.bgp.asn,
         "uplinks": uplink_configs,

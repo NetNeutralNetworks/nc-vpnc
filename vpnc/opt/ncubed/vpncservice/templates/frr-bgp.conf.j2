@@ -1,10 +1,16 @@
 {#- Configures FRR -#}
+frr defaults traditional
+service integrated-vtysh-config
 ip forwarding
 ipv6 forwarding
 agentx
 !
-vrf TRUST
+vrf {{ trusted_netns }}
+  netns /run/netns/{{ trusted_netns }}
   router-id {{ bgp_router_id }}
+!
+vrf {{ untrusted_netns }}
+  netns /run/netns/{{ untrusted_netns }}
 !
 router bgp {{ bgp_asn }} vrf {{ trusted_netns }}
   neighbor MGMT-TRANSIT peer-group
