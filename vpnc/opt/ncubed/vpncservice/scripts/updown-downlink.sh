@@ -14,7 +14,7 @@ V6_SEGMENT_5=${DOWNLINK_VPN_ID}        # outputs 009
 # outputs fdcc:0:c:0001:009
 V6_DOWNLINK_TUNNEL_SPACE="fdcc:0:${V6_SEGMENT_3}:${V6_SEGMENT_4}:${V6_SEGMENT_5}"
 
-printf "${V6_DOWNLINK_SPACE}\n\n"
+printf "${V6_DOWNLINK_TUNNEL_SPACE}\n\n"
 printf "${XFRM}\n\n"
 
 case "${PLUTO_VERB}" in
