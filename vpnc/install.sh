@@ -23,10 +23,6 @@ hub)
     $VENVDIR/bin/python3 -m pip install -r $SCRIPTDIR/requirements.txt
 
     /opt/ncubed/vpncservice/scripts/install.sh hub
-
-    # Migration steps
-    ## 0.0.2
-    rm -rf /opt/ncubed/vpnc.service
     ;;
 endpoint)
     # update and install strongSwan
@@ -39,12 +35,9 @@ endpoint)
     $VENVDIR/bin/python3 -m pip install -r $SCRIPTDIR/requirements.txt
 
     /opt/ncubed/vpncservice/scripts/install.sh endpoint
-
-    # Migration steps
-    ## 0.0.2
-    rm -rf /opt/ncubed/vpnc.service
     ;;
 *)
     echo "Argument should be either 'hub' or 'endpoint'"
+    exit 1
     ;;
 esac
