@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
