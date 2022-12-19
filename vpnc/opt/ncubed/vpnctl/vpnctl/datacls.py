@@ -192,7 +192,8 @@ class Tunnel:
         assert self.ike_version in [1, 2]
         if self.tunnel_ip:
             self.tunnel_ip = ip_interface(self.tunnel_ip)
-        self.routes = [ip_network(x) for x in self.routes]
+        if isinstance(self.routes, list):
+            self.routes = [ip_network(x) for x in self.routes]
         if isinstance(self.traffic_selectors, dict):
             self.traffic_selectors = TrafficSelectors(**self.traffic_selectors)
         if self.routes and (
@@ -326,3 +327,5 @@ class ServiceHub(Service):
                     self.uplinks[k] = v
                 elif isinstance(v, dict):
                     self.uplinks[k] = Uplink(**v)
+        if self.bgp and not isinstance(self.bgp, BGP):
+            self.bgp = BGP(**self.bgp)
