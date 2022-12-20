@@ -1,15 +1,14 @@
 [Unit]
-Description=ncubed VPNC hub strongSwan IPsec init
+Description=ncubed VPNC endpoint strongSwan IPsec init
 StartLimitInterval=200
 StartLimitBurst=5
 Wants=network-online.target
-Wants=frr.service
 After=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/ncubed
-ExecStart=/opt/ncubed/vpncservice/.venv/bin/python3 -m vpncservice.main hub
+ExecStart=/opt/ncubed/vpnc/.venv/bin/vpnc endpoint
 Restart=on-failure
 RestartSec=15
 

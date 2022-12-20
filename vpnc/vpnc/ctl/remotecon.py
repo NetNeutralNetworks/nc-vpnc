@@ -8,7 +8,7 @@ from ipaddress import ip_address, ip_interface
 import typer
 import yaml
 
-from . import consts, datacls
+from .. import consts, datacls
 from .helpers import (
     validate_ip_address,
     validate_ip_interface,

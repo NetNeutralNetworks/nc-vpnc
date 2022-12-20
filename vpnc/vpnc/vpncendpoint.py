@@ -19,13 +19,12 @@ from watchdog.observers import Observer
 
 from . import consts, datacls, helpers
 
-logger = logging.getLogger("vpncservice")
+logger = logging.getLogger("vpnc")
 
 
 # Load the Jinja templates
-VPNC_TEMPLATE_DIR = pathlib.Path(__file__).parent.joinpath("templates")
 VPNC_TEMPLATE_ENV = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(VPNC_TEMPLATE_DIR)
+    loader=jinja2.FileSystemLoader(consts.VPNC_TEMPLATES_DIR)
 )
 
 
@@ -39,7 +38,6 @@ def _load_config(config_path: pathlib.Path):
     """
     global VPNC_HUB_CONFIG
 
-    error = False
     new_cfg: datacls.Service = datacls.Service()
     with open(config_path, "r", encoding="utf-8") as f:
         try:

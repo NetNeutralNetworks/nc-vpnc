@@ -7,7 +7,7 @@ import typer
 import yaml
 from deepdiff import DeepDiff
 
-from . import consts, datacls
+from .. import consts, datacls
 from .helpers import (
     validate_ip_address,
     validate_ip_interface,
