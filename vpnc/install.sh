@@ -39,7 +39,7 @@ hub)
     /usr/bin/systemctl enable frr.service
     /usr/bin/systemctl restart frr.service
     /usr/bin/systemctl enable ncubed-${SERVICENAME}-hub
-    /usr/bin/systemctl start ncubed-${SERVICENAME}-hub
+    /usr/bin/systemctl restart ncubed-${SERVICENAME}-hub
 
     echo "Configure SNMP with the following command (if not already configured) after stopping the snmpd service."
     echo "The space in front of the command makes sure it isn't logged into the Bash history."
@@ -62,7 +62,7 @@ endpoint)
     /usr/bin/systemctl disable ipsec.service
     /usr/bin/systemctl stop ipsec.service
     /usr/bin/systemctl enable ncubed-${SERVICENAME}-endpoint
-    /usr/bin/systemctl start ncubed-${SERVICENAME}-endpoint
+    /usr/bin/systemctl restart ncubed-${SERVICENAME}-endpoint
     ;;
 *)
     echo "Argument should be either 'hub' or 'endpoint'"
@@ -70,4 +70,4 @@ endpoint)
     ;;
 esac
 
-/opt/ncubed/vpnc/migrate.sh
+${INSTALLDIR}/migrate.sh
