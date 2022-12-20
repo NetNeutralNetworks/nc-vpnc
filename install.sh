@@ -46,7 +46,7 @@ endpoint)
     $VENVDIR/bin/python3 -m pip install --upgrade pip setuptools wheel
     $VENVDIR/bin/python3 -m pip install ${INSTALLDIR}
 
-    ${INSTALLDIR}/${SERVICENAME}/install.sh endpoint
+    ${INSTALLDIR}/install.sh endpoint
     ;;
 *)
     echo "Argument should be either 'hub' or 'endpoint'"
