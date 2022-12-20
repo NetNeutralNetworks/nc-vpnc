@@ -17,7 +17,9 @@ license = {text = "GNU General Public License v3 (GPLv3)"}
 dependencies = [
     "deepdiff==6.2.2",
     "Jinja2==3.1.2",
+    "NetfilterQueue==1.0.0",
     "PyYAML==6.0",
+    "scapy==2.5.0rc3",
     "typer[all]",
     "vici==5.9.3",
     "watchdog==2.2.0",
@@ -35,6 +37,7 @@ dev = [
 [project.scripts]
 vpnctl = "vpnc.ctl.main:app"
 vpnc = "vpnc.main:args.func"
+vpncmangle = "vpnc.mangle.main:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "vpnc.__version__"}

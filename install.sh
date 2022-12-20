@@ -21,7 +21,7 @@ hub)
 
     # update and install FRR/strongSwan
     apt update
-    apt install -y python3-venv python3-pip strongswan strongswan-swanctl jool-tools frr frr-pythontools frr-snmp
+    apt install -y python3-venv python3-pip python3-dev strongswan strongswan-swanctl jool-tools frr frr-pythontools frr-snmp build-essential libnetfilter-queue-dev
 
     cp -rf $SCRIPTDIR/etc/* /etc/
     cp -rf $SCRIPTDIR/config/* ${BASEDIR}/config/
