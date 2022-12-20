@@ -8,31 +8,31 @@
             "name": "Python: Module - main",
             "type": "python",
             "request": "launch",
-            "module": "vpncservice.main",
+            "module": "vpnc.main",
             "console": "integratedTerminal",
             "justMyCode": true,
             "sudo": true,
-            "cwd": "${workspaceFolder}/vpnc/opt/ncubed/"
+            "cwd": "${workspaceFolder}/vpnc/"
         },
         {
             "name": "Python: Module - hub",
             "type": "python",
             "request": "launch",
-            "module": "vpncservice.hub",
+            "module": "vpnc.hub",
             "console": "integratedTerminal",
             "justMyCode": true,
             "sudo": true,
-            "cwd": "${workspaceFolder}/vpnc/opt/ncubed/"
+            "cwd": "${workspaceFolder}/vpnc/"
         },
         {
             "name": "Python: Module - endpoint",
             "type": "python",
             "request": "launch",
-            "module": "vpncservice.vpncendpoint",
+            "module": "vpnc.vpncendpoint",
             "console": "integratedTerminal",
             "justMyCode": true,
             "sudo": true,
-            "cwd": "${workspaceFolder}/vpnc/opt/ncubed/"
+            "cwd": "${workspaceFolder}/vpnc/"
         }
     ]
 }

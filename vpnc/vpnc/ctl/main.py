@@ -4,15 +4,15 @@ import logging
 
 import typer
 
-from . import vpncremote, vpncservice
+from . import remote, service
 
 
 logging.basicConfig()
 logger = logging.getLogger()
 
 app = typer.Typer()
-app.add_typer(vpncremote.app, name="remote")
-app.add_typer(vpncservice.app, name="service")
+app.add_typer(remote.app, name="remote")
+app.add_typer(service.app, name="service")
 
 
 if __name__ == "__main__":

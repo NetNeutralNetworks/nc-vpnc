@@ -11,10 +11,11 @@ import typer
 import yaml
 from deepdiff import DeepDiff
 
-from . import consts, datacls, vpncremotecon
+from . import remotecon
+from .. import consts, datacls
 
 app = typer.Typer()
-app.add_typer(vpncremotecon.app, name="connection")
+app.add_typer(remotecon.app, name="connection")
 
 
 @app.callback(invoke_without_command=True)

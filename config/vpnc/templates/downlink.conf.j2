@@ -38,13 +38,11 @@ connections {
             # CHILD_SA configuration sub-section.
     {#- ts are traffic selectors #}
             {{ conn.remote }}-{{ conn.t_id }} {
-    {%- if conn.ts is defined and conn.ts %}
-        {%- if conn.ts.remote is defined and conn.ts.local is defined and conn.ts.remote and conn.ts.local %}
+    {%- if conn.ts is defined and conn.ts and conn.ts.remote is defined and conn.ts.local is defined and conn.ts.remote and conn.ts.local %}
                 # Local traffic selectors to include in CHILD_SA.
                 local_ts = {{ conn.ts.local }}
                 # Remote selectors to include in CHILD_SA.
                 remote_ts = {{ conn.ts.remote }}
-        {%- endif %}
     {%- else %}
                 # Local traffic selectors to include in CHILD_SA.
                 local_ts = 0.0.0.0/0
@@ -59,7 +57,7 @@ connections {
                 start_action = start
                 close_action = start
     {%- if updown is defined and updown is sameas true %}
-                updown=/opt/ncubed/vpncservice/scripts/updown-downlink.sh
+                updown=/opt/ncubed/config/vpnc/scripts/updown-downlink.sh
     {%- endif %}
             }
         }

@@ -5,7 +5,7 @@ import subprocess
 
 import vici
 
-logger = logging.getLogger("vpncservice")
+logger = logging.getLogger("vpnc")
 
 
 def initiate_swanctl_connection(connection: str):

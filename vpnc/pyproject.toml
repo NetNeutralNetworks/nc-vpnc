@@ -3,7 +3,7 @@ requires = ["setuptools >= 61.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vpnctl"
+name = "vpnc"
 description = "Manages ncubed-vpnc configuration"
 readme = "README.md"
 authors = [{ name="Tony Fortes Ramos", email="tony.fortesramos@ncubed.nl" }]
@@ -15,14 +15,26 @@ license = {text = "GNU General Public License v3 (GPLv3)"}
 #     "Programming Language :: Python :: 3",
 # ]
 dependencies = [
-    "deepdiff",
+    "deepdiff==6.2.2",
+    "Jinja2==3.1.2",
+    "PyYAML==6.0",
     "typer[all]",
-    "pyyaml",
+    "vici==5.9.3",
+    "watchdog==2.2.0",
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+dev = [
+    "bandit==1.7.4",
+    "black==22.12.0",
+    "mypy==0.991",
+    "pylint==2.15.9",
+]
+
 [project.scripts]
-vpnctl = "vpnctl.main:app"
+vpnctl = "vpnc.ctl.main:app"
+vpnc = "vpnc.main:args.func"
 
 [tool.setuptools.dynamic]
-version = {attr = "vpnctl.__version__"}
+version = {attr = "vpnc.__version__"}

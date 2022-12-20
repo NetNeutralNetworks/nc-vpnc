@@ -10,14 +10,15 @@ import typer
 import yaml
 from deepdiff import DeepDiff
 
-from . import consts, datacls, vpncservicecon
+from . import servicecon
+from .. import consts, datacls
 from .helpers import (
     validate_ip_address,
     validate_ip_network,
 )
 
 app = typer.Typer()
-app.add_typer(vpncservicecon.app, name="connection")
+app.add_typer(servicecon.app, name="connection")
 
 
 @app.command()
