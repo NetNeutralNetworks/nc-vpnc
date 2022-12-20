@@ -82,7 +82,7 @@ def _downlink_observer() -> Observer:
 
     # Configure the event handler that watches directories. This doesn't start the handler.
     observer.schedule(
-        event_handler=DownlinkHandler(patterns=["c*.yaml"], ignore_directories=True),
+        event_handler=DownlinkHandler(patterns=["[abcdef]*.yaml"], ignore_directories=True),
         path=consts.VPNC_A_REMOTE_CONFIG_DIR,
         recursive=False,
     )
@@ -155,9 +155,9 @@ def _add_downlink_connection(path: pathlib.Path):
         ip link set dev {xfrm} up
         """
         for i in tunnel_config.traffic_selectors.remote:
-            cmd += f"\nip route add {i} dev xfrm"
+            cmd += f"\nip route add {i} dev {xfrm}"
         for i in tunnel_config.routes:
-            cmd += f"\nip route add {i} dev xfrm"
+            cmd += f"\nip route add {i} dev {xfrm}"
 
         subprocess.run(
             cmd,
