@@ -14,6 +14,18 @@
             "sudo": true,
         },
         {
+            "name": "Python: File - hub",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/.venv/bin/vpnc",
+            "args": [
+                "hub"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "sudo": true,
+        },
+        {
             "name": "Python: Module - main",
             "type": "python",
             "request": "launch",
@@ -27,7 +39,7 @@
             "name": "Python: Module - hub",
             "type": "python",
             "request": "launch",
-            "module": "vpnc.hub",
+            "module": "vpnc.vpnchub",
             "console": "integratedTerminal",
             "justMyCode": true,
             "sudo": true,

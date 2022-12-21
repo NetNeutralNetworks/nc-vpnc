@@ -37,7 +37,7 @@ hub)
     /usr/bin/systemctl enable snmpd.service
     /usr/bin/systemctl restart snmpd.service
     /usr/bin/systemctl enable frr.service
-    /usr/bin/systemctl restart frr.service
+    #/usr/bin/systemctl restart frr.service
     /usr/bin/systemctl enable ncubed-${SERVICENAME}-hub
     /usr/bin/systemctl restart ncubed-${SERVICENAME}-hub
 

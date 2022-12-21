@@ -29,7 +29,7 @@ hub)
 
     python3 -m venv $VENVDIR
     $VENVDIR/bin/python3 -m pip install --upgrade pip setuptools wheel
-    $VENVDIR/bin/python3 -m pip install ${INSTALLDIR}
+    $VENVDIR/bin/python3 -m pip install --upgrade ${INSTALLDIR}
 
     ${INSTALLDIR}/install.sh hub
     ;;
