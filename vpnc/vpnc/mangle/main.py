@@ -1,39 +1,84 @@
 #!/usr/bin/env python3
 
-# import pdb
+import argparse
 import logging
+import subprocess
+import sys
 from ipaddress import IPv4Address, IPv6Address, IPv6Network
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import scapy.all as sc
 from netfilterqueue import NetfilterQueue, Packet
 
-logger = logging.getLogger('vpnc')
+logger = logging.getLogger("vpncmangle")
+
+
+def setup_ip6tables():
+    """
+    Configure ip6tables to capture DNS responses.
+    """
+
+    sp = subprocess.run(
+        """
+        # Configure DNS64 mangle
+        ip6tables -t mangle -F
+        ip6tables -t mangle -A POSTROUTING -p udp -m udp --sport 53 -j NFQUEUE --queue-num 1
+        ip6tables -t mangle -A POSTROUTING -p tcp -m tcp --sport 53 -j NFQUEUE --queue-num 1
+        """,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=True,
+    )
+    logger.info(sp.args)
+    logger.info(sp.stdout.decode())
+
+
+def clean_ip6tables():
+    """
+    Remove ip6tables rules.
+    """
+
+    sp = subprocess.run(
+        """
+        # Configure DNS64 mangle
+        ip6tables -t mangle -F
+        """,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=True,
+        check=True,
+    )
+    logger.info(sp.args)
+    logger.info(sp.stdout.decode())
+
 
 def mangle_dns(pkt: Packet):
+    """
+    Mangle DNS responses of the 'A' type.
+    """
     pkt_sc = sc.IPv6(pkt.get_payload())
 
     # If not DNS record.
-    if not pkt_sc.haslayer(sc.DNSRR):
+    if not pkt_sc.haslayer(sc.DNS):
         logger.warning("Captured packet without DNS response.")
-        print("Captured packet without DNS response.")
+        logger.warning(pkt_sc)
         pkt.accept()
         return
     # If not a response (QR field, query is 0, response 1).
     if pkt_sc[sc.DNS].qr != 1:
-        logger.warning("Packet is not of type response.")
-        print("Packet is not of type response.")
+        logger.debug("Packet is not of type response.")
         pkt.accept()
         return
     # If return code is not ok.
     if pkt_sc[sc.DNS].rcode != 0:
-        logger.warning("Packet response indicates error.")
-        print("Packet response indicates error.")
+        logger.debug("Packet response indicates error.")
         pkt.accept()
         return
     # If no answers in DNS.
     if not pkt_sc[sc.DNS].an:
-        logger.warning("Packet response contains no answers.")
-        print("Packet response contains no answers.")
+        logger.debug("Packet response contains no answers.")
         pkt.accept()
         return
 
@@ -43,39 +88,46 @@ def mangle_dns(pkt: Packet):
     # Temporary list to store all desired DNS responses.
     temp_list = []
     temp_v4_list = []
+    rrname = pkt_sc[sc.DNS].an.rrname
     for i in pkt_sc[sc.DNS].an.iterpayloads():
-        # If AAAA record response, don't include it.
-        if i.type == 28:
-            logger.debug("DNS response answer is 'AAAA'. Ignoring.")
-            print("DNS response answer is 'AAAA'. Ignoring.")
-            continue
+        # # If AAAA record response, don't include it.
+        # if i.type == 28:
+        #     logger.debug("DNS response answer is 'AAAA'. Ignoring.")
+        #     continue
+        # # If CNAME record, get all addresses
+        # if i.type == 5:
+        #     logger.debug("DNS response answer is 'CNAME'. Ignoring.")
+        #     continue
         # If not A record response, then include unedited
         if i.type != 1:
-            logger.debug("DNS response answer is not 'A'. Passing as-is.")
-            print("DNS response answer is not 'A'. Passing as-is.")
-            temp_list.append(i)
+            logger.debug("DNS response answer is not 'A'. Ignoring.")
+            # temp_list.append(i)
             continue
 
         # # Include an invalid IPv4 address just to make sure that Windows caches it correctly.
-        # # This seems to break in Linux if preference isn't set. 
+        # # This seems to break in Linux if preference isn't set.
         # if not temp_v4_list:
         #     temp_v4_dict = {
-        #         "rrname": i.rrname,
+        #         "rrname": rrname,
         #         "type": i.type,
         #         "rclass": i.rclass,
         #         "ttl": i.ttl,
-        #         "rdata": "0.0.0.1",
+        #         "rdata": "0.0.0.254",
         #     }
         #     temp_v4_list.append(temp_v4_dict)
 
         # Calculate address.
         ipv4_addr = IPv4Address(i.rdata)
         ipv6_addr = IPv6Address(int(ipv6_net) + int(ipv4_addr))
-        logger.info("DNS response answer for '%s' translated from '%s' to '%s'.", i.rrname, ipv4_addr, ipv6_addr)
-        print("DNS response answer for '%s' translated from '%s' to '%s'.", i.rrname, ipv4_addr, ipv6_addr)
+        logger.debug(
+            "DNS response answer for '%s' translated from '%s' to '%s'.",
+            i.rrname,
+            ipv4_addr,
+            ipv6_addr,
+        )
         # Change the response type and answer.
         temp_dict = {
-            "rrname": i.rrname,
+            "rrname": rrname,
             "type": "AAAA",
             "rclass": i.rclass,
             "ttl": i.ttl,
@@ -114,20 +166,55 @@ def mangle_dns(pkt: Packet):
     del pkt_sc[sc.UDP].len
     del pkt_sc[sc.UDP].chksum
 
-    logger.debug("Packet sent.")
-    print("Packet sent.")
-    pkt.set_payload(bytes(pkt_sc))
-
-    pkt.accept()
+    try:
+        pkt.set_payload(bytes(pkt_sc))
+        pkt.accept()
+        logger.debug("Packet sent.")
+    except Exception:
+        logger.warning("Error occurred mangling DNS.", exc_info=True)
 
 
 def main():
+    """
+    Main function. Binds to netfilter.
+    """
+
+    # Parse the arguments
+    parser = argparse.ArgumentParser(description="Control the VPNC Strongswan daemon")
+    parser.set_defaults(func=main)
+    parser.add_argument("netns", action="store")
+
+    args = parser.parse_args()
+
+    # LOGGER
+    # Get logger
+    logger = logging.getLogger("vpncmangle")
+    # Configure logging
+    logger.setLevel(level=logging.INFO)
+    formatter = logging.Formatter(
+        fmt="%(asctime)s(File:%(name)s,Line:%(lineno)d, %(funcName)s) - %(levelname)s - %(message)s",
+        datefmt="%m/%d/%Y %H:%M:%S %p",
+    )
+    logdir = Path("/var/log/ncubed/")
+    logdir.mkdir(exist_ok=True, parents=True)
+    rothandler = RotatingFileHandler(
+        f"/var/log/ncubed/vpncmangle.{args.netns}.log", maxBytes=100000, backupCount=5
+    )
+    rothandler.setFormatter(formatter)
+    logger.addHandler(rothandler)
+    logger.addHandler(logging.StreamHandler(sys.stdout))
+
+    setup_ip6tables()
+
     nfqueue = NetfilterQueue()
     nfqueue.bind(1, mangle_dns)
     try:
+        print("Starting mangle process.")
         nfqueue.run()
     except KeyboardInterrupt:
-        print("Exiting")
+        print("Exiting mangle process.")
+
+    clean_ip6tables()
 
     nfqueue.unbind()
 

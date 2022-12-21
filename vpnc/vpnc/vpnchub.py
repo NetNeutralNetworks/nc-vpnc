@@ -243,39 +243,17 @@ def _add_downlink_connection(path: pathlib.Path):
             check=False,
         )
         logger.info(sp.args)
-        print(sp.args)
         logger.info(sp.stdout.decode())
-        print(sp.stdout.decode())
-
-        sp = subprocess.run(
-            f"""
-            # Configure DNS64 mangle
-            ip netns exec {netns} ip6tables -t mangle -F
-            ip netns exec {netns} ip6tables -t mangle -A POSTROUTING -p udp -m udp --sport 53 -j NFQUEUE --queue-num 1
-            ip netns exec {netns} ip6tables -t mangle -A POSTROUTING -p tcp -m tcp --sport 53 -j NFQUEUE --queue-num 1
-            """,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            shell=True,
-            check=True,
-        )
-        logger.info(sp.args)
-        print(sp.args)
-        logger.info(sp.stdout.decode())
-        print(sp.stdout.decode())
 
         sp = subprocess.Popen(
             f"""
-            ip netns exec {netns} /opt/ncubed/vpnc/.venv/bin/vpncmangle
+            ip netns exec {netns} /opt/ncubed/vpnc/.venv/bin/vpncmangle {netns}
             """,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             shell=True,
         )
         logger.info(sp.args)
-        print(sp.args)
-        # logger.info(sp.stdout.decode())
-        # print(sp.stdout.decode())
 
     for netns in netns_remove:
         # run the netns remove commands
@@ -287,9 +265,7 @@ def _add_downlink_connection(path: pathlib.Path):
             check=False,
         )
         logger.info(sp.args)
-        print(sp.args)
         logger.info(sp.stdout.decode())
-        print(sp.stdout.decode())
 
     # VPN DOWNLINKS
     downlink_template = VPNC_TEMPLATE_ENV.get_template("downlink.conf.j2")
