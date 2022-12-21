@@ -189,8 +189,6 @@ def main():
     args = parser.parse_args()
 
     # LOGGER
-    # Get logger
-    logger = logging.getLogger("vpncmangle")
     # Configure logging
     logger.setLevel(level=logging.INFO)
     formatter = logging.Formatter(
