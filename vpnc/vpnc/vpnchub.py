@@ -246,12 +246,10 @@ def _add_downlink_connection(path: pathlib.Path):
         logger.info(sp.stdout.decode())
 
         sp = subprocess.Popen(
-            f"""
-            ip netns exec {netns} /opt/ncubed/vpnc/.venv/bin/vpncmangle {netns}
-            """,
+            ["ip", "netns", "exec", netns, f"{consts.VPNC_VENV_DIR}/bin/vpncmangle", netns],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            shell=True,
+            shell=False,
         )
         logger.info(sp.args)
 

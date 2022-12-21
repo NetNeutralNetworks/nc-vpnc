@@ -7,6 +7,7 @@ import sys
 from ipaddress import IPv4Address, IPv6Address, IPv6Network
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from time import sleep
 
 import scapy.all as sc
 from netfilterqueue import NetfilterQueue, Packet
@@ -172,6 +173,7 @@ def mangle_dns(pkt: Packet):
         logger.debug("Packet sent.")
     except Exception:
         logger.warning("Error occurred mangling DNS.", exc_info=True)
+        pkt.drop()
 
 
 def main():
@@ -207,16 +209,25 @@ def main():
     setup_ip6tables()
 
     nfqueue = NetfilterQueue()
-    nfqueue.bind(1, mangle_dns)
-    try:
-        print("Starting mangle process.")
-        nfqueue.run()
-    except KeyboardInterrupt:
-        print("Exiting mangle process.")
+    while True:
+        nfqueue.bind(1, mangle_dns)
+        try:
+            logger.info("Starting mangle process.")
+            nfqueue.run()
+        except KeyboardInterrupt:
+            logger.info("Exiting mangle process.")
+            clean_ip6tables()
+            nfqueue.unbind()
+            sys.exit(0)
+        except Exception:
+            logger.critical("Mangle process ended prematurely. Restarting.", exc_info=True)
+            clean_ip6tables()
+            nfqueue.unbind()
 
-    clean_ip6tables()
+        clean_ip6tables()
 
-    nfqueue.unbind()
+        nfqueue.unbind()
+        sleep(1)
 
 
 if __name__ == "__main__":
