@@ -12,7 +12,7 @@ from . import consts, vpncendpoint, vpnchub
 # Get logger
 logger = logging.getLogger("vpnc")
 # Configure logging
-logger.setLevel(level=logging.DEBUG)
+logger.setLevel(level=logging.INFO)
 formatter = logging.Formatter(
     fmt="%(asctime)s(File:%(name)s,Line:%(lineno)d, %(funcName)s) - %(levelname)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S %p",
