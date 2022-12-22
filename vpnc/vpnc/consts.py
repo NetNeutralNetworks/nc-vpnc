@@ -7,7 +7,7 @@ from pathlib import Path
 logger = logging.getLogger("vpnc")
 
 # Match only downlink connections
-DOWNLINK_RE = re.compile(r"[a-f]\d{4}-\d{3}")
+DOWNLINK_RE = re.compile(r"[a-fA-F]\d{4}-\d{3}")
 
 # Configuration file paths/directories
 VPN_CONFIG_DIR = Path("/etc/swanctl/conf.d")
