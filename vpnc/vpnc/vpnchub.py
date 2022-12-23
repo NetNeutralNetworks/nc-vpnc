@@ -342,7 +342,7 @@ def _update_downlink_connection():
     """
     config_files = list(consts.VPNC_A_REMOTE_CONFIG_DIR.glob(pattern="*.yaml"))
     config_set = {x.stem for x in config_files}
-    vpn_config_files = list(consts.VPN_CONFIG_DIR.glob(pattern="[abcdef]*.conf"))
+    vpn_config_files = list(consts.VPN_CONFIG_DIR.glob(pattern="[aAbBcCdDeEfF]*.conf"))
     vpn_config_set = {x.stem for x in vpn_config_files}
 
     for file_path in config_files:

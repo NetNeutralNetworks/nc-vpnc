@@ -83,7 +83,7 @@ def _downlink_observer() -> Observer:
     # Configure the event handler that watches directories. This doesn't start the handler.
     observer.schedule(
         event_handler=DownlinkHandler(
-            patterns=["[abcdef]*.yaml"], ignore_directories=True
+            patterns=["[aAbBcCdDeEfF]*.yaml"], ignore_directories=True
         ),
         path=consts.VPNC_A_REMOTE_CONFIG_DIR,
         recursive=False,
@@ -264,7 +264,7 @@ def _update_endpoint_downlink_connection():
     """
     config_files = list(consts.VPNC_A_REMOTE_CONFIG_DIR.glob(pattern="*.yaml"))
     config_set = {x.stem for x in config_files}
-    vpn_config_files = list(consts.VPN_CONFIG_DIR.glob(pattern="[abcdef]*.conf"))
+    vpn_config_files = list(consts.VPN_CONFIG_DIR.glob(pattern="[aAbBcCdDeEfF]*.conf"))
     vpn_config_set = {x.stem for x in vpn_config_files}
 
     for file_path in config_files:
