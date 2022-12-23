@@ -23,7 +23,7 @@ def setup_ip6tables():
         # Configure DNS64 mangle
         ip6tables -t mangle -F
         ip6tables -t mangle -A POSTROUTING -p udp -m udp --sport 53 -j NFQUEUE --queue-num 1
-        ip6tables -t mangle -A POSTROUTING -p tcp -m tcp --sport 53 -j NFQUEUE --queue-num 1
+        # ip6tables -t mangle -A POSTROUTING -p tcp -m tcp --sport 53 -j NFQUEUE --queue-num 1
         """,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -181,7 +181,7 @@ def main():
 
     # LOGGER
     # Configure logging
-    logger.setLevel(level=logging.INFO)
+    logger.setLevel(level=logging.DEBUG)
     formatter = logging.Formatter(
         fmt="%(asctime)s(File:%(name)s,Line:%(lineno)d, %(funcName)s) - %(levelname)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S %p",
