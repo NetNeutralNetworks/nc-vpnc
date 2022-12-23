@@ -122,7 +122,7 @@ def mangle_dns(pkt: Packet):
         ipv6_addr = IPv6Address(int(ipv6_net) + int(ipv4_addr))
         logger.debug(
             "DNS response answer for '%s' translated from '%s' to '%s'.",
-            i.rrname,
+            i.rrname.decode(),
             ipv4_addr,
             ipv6_addr,
         )

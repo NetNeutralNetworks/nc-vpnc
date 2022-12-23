@@ -90,7 +90,7 @@ def _downlink_observer() -> Observer:
         def on_modified(self, event: FileModifiedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             downlink_config = pathlib.Path(event.src_path)
-            time.sleep(1)
+            time.sleep(0.1)
             _add_downlink_connection(downlink_config)
 
         def on_deleted(self, event: FileDeletedEvent):
@@ -123,7 +123,7 @@ def _uplink_observer() -> Observer:
         def on_modified(self, event: FileModifiedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             _load_config(consts.VPNC_A_SERVICE_CONFIG_PATH)
-            time.sleep(1)
+            time.sleep(0.1)
             _update_uplink_connection()
 
     # Create the observer object. This doesn't start the handler.
@@ -246,7 +246,7 @@ def _add_downlink_connection(path: pathlib.Path):
         logger.info(sp.stdout.decode())
 
         sp = subprocess.Popen(
-            ["ip", "netns", "exec", netns, f"{consts.VPNC_VENV_DIR}/bin/vpncmangle", netns],
+            ["ip", "netns", "exec", netns, f"{consts.VPNC_INSTALL_DIR}/bin/vpncmangle", netns],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             shell=False,

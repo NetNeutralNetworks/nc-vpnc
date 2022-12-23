@@ -69,7 +69,7 @@ def _downlink_observer() -> Observer:
         def on_modified(self, event: FileModifiedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             downlink_config = pathlib.Path(event.src_path)
-            time.sleep(1)
+            time.sleep(0.1)
             _add_downlink_connection(downlink_config)
 
         def on_deleted(self, event: FileDeletedEvent):
@@ -82,7 +82,9 @@ def _downlink_observer() -> Observer:
 
     # Configure the event handler that watches directories. This doesn't start the handler.
     observer.schedule(
-        event_handler=DownlinkHandler(patterns=["[abcdef]*.yaml"], ignore_directories=True),
+        event_handler=DownlinkHandler(
+            patterns=["[abcdef]*.yaml"], ignore_directories=True
+        ),
         path=consts.VPNC_A_REMOTE_CONFIG_DIR,
         recursive=False,
     )

@@ -8,7 +8,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/ncubed
-ExecStart=/opt/ncubed/vpnc/.venv/bin/vpnc endpoint
+ExecStart=/opt/ncubed/vpnc/bin/vpnc endpoint
 Restart=on-failure
 RestartSec=15
 

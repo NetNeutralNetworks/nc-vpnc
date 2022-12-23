@@ -35,8 +35,8 @@ dev = [
 ]
 
 [project.scripts]
+vpnc = "vpnc.main:main"
 vpnctl = "vpnc.ctl.main:app"
-vpnc = "vpnc.main:args.func"
 vpncmangle = "vpnc.mangle.main:main"
 
 [tool.setuptools.dynamic]
