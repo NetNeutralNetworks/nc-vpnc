@@ -11,7 +11,7 @@ mkdir -p ${INSTALLDIR}
 
 # update and install general packages
 apt update
-apt install -y python3-venv python3-pip strongswan strongswan-swanctl
+apt install -y python3-dev python3-pip python3-venv strongswan strongswan-swanctl build-essential libnetfilter-queue-dev
 
 # Copy configuration files over to the configuration directories.
 cp -rf ${SCRIPTDIR}/etc/* /etc/
@@ -42,7 +42,7 @@ hub)
 
     # update and install FRR/strongSwan
     apt update
-    apt install -y python3-dev jool-tools frr frr-pythontools frr-snmp build-essential libnetfilter-queue-dev
+    apt install -y jool-tools frr frr-pythontools frr-snmp
 
     # Configure FRR daemon
     sed -i 's/^bgpd=no$/bgpd=yes/' /etc/frr/daemons
