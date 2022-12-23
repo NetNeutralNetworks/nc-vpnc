@@ -245,14 +245,6 @@ def _add_downlink_connection(path: pathlib.Path):
         logger.info(sp.args)
         logger.info(sp.stdout.decode())
 
-        sp = subprocess.Popen(
-            ["ip", "netns", "exec", netns, f"{consts.VPNC_INSTALL_DIR}/bin/vpncmangle", netns],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            shell=False,
-        )
-        logger.info(sp.args)
-
     for netns in netns_remove:
         # run the netns remove commands
         sp = subprocess.run(
@@ -556,6 +548,15 @@ def main():
         shell=True,
         check=False,
     )
+
+    # Start the VPNC mangle process in the TRUSTED net namespace.
+    sp = subprocess.Popen(
+        ["ip", "netns", "exec", consts.TRUSTED_NETNS, f"{consts.VPNC_INSTALL_DIR}/bin/vpncmangle"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=False,
+    )
+    logger.info(sp.args)
 
     _update_uplink_connection()
 

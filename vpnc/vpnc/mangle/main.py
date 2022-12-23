@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 
-import argparse
 import logging
 import subprocess
 import sys
 from ipaddress import IPv4Address, IPv6Address, IPv6Network
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 from time import sleep
 
 import scapy.all as sc
@@ -181,13 +179,6 @@ def main():
     Main function. Binds to netfilter.
     """
 
-    # Parse the arguments
-    parser = argparse.ArgumentParser(description="Control the VPNC Strongswan daemon")
-    parser.set_defaults(func=main)
-    parser.add_argument("netns", action="store")
-
-    args = parser.parse_args()
-
     # LOGGER
     # Configure logging
     logger.setLevel(level=logging.INFO)
@@ -195,10 +186,8 @@ def main():
         fmt="%(asctime)s(File:%(name)s,Line:%(lineno)d, %(funcName)s) - %(levelname)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S %p",
     )
-    logdir = Path("/var/log/ncubed/")
-    logdir.mkdir(exist_ok=True, parents=True)
     rothandler = RotatingFileHandler(
-        f"/var/log/ncubed/vpncmangle.{args.netns}.log", maxBytes=100000, backupCount=5
+        "/var/log/vpncmangle.log", maxBytes=100000, backupCount=5
     )
     rothandler.setFormatter(formatter)
     logger.addHandler(rothandler)
