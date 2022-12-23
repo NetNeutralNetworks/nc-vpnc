@@ -103,7 +103,7 @@ def _downlink_observer() -> Observer:
 
     # Configure the event handler that watches directories. This doesn't start the handler.
     observer.schedule(
-        event_handler=DownlinkHandler(patterns=["c*.yaml"], ignore_directories=True),
+        event_handler=DownlinkHandler(patterns=["[aAbBcCdDeEfF]*.yaml"], ignore_directories=True),
         path=consts.VPNC_A_REMOTE_CONFIG_DIR,
         recursive=False,
     )

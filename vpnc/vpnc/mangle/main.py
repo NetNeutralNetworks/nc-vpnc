@@ -187,7 +187,7 @@ def main():
         datefmt="%m/%d/%Y %H:%M:%S %p",
     )
     rothandler = RotatingFileHandler(
-        "/var/log/vpncmangle.log", maxBytes=100000, backupCount=5
+        "/var/log/ncubed.vpncmangle.log", maxBytes=100000, backupCount=5
     )
     rothandler.setFormatter(formatter)
     logger.addHandler(rothandler)
