@@ -69,7 +69,7 @@ def _downlink_observer() -> Observer:
         def on_modified(self, event: FileModifiedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             downlink_config = pathlib.Path(event.src_path)
-            time.sleep(1)
+            time.sleep(0.1)
             _add_downlink_connection(downlink_config)
 
         def on_deleted(self, event: FileDeletedEvent):

@@ -9,7 +9,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/ncubed
-ExecStart=/opt/ncubed/vpnc/.venv/bin/vpnc hub
+ExecStart=/opt/ncubed/vpnc/bin/vpnc hub
 Restart=on-failure
 RestartSec=15
 

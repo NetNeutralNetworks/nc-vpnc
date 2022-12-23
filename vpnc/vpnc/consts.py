@@ -19,6 +19,7 @@ VPNC_C_SERVICE_CONFIG_PATH = Path(
     "/opt/ncubed/config/vpnc/candidate/service/config.yaml"
 )
 VPNC_TEMPLATES_DIR = Path("/opt/ncubed/config/vpnc/templates")
+VPNC_INSTALL_DIR = Path("/opt/ncubed/vpnc/")
 
 TRUSTED_NETNS = "TRUST"  # name of trusted network namespace
 UNTRUSTED_NETNS = "UNTRUST"  # name of outside/untrusted network namespace

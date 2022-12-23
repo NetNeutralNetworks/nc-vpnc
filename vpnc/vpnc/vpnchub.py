@@ -90,7 +90,7 @@ def _downlink_observer() -> Observer:
         def on_modified(self, event: FileModifiedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             downlink_config = pathlib.Path(event.src_path)
-            time.sleep(1)
+            time.sleep(0.1)
             _add_downlink_connection(downlink_config)
 
         def on_deleted(self, event: FileDeletedEvent):
@@ -123,7 +123,7 @@ def _uplink_observer() -> Observer:
         def on_modified(self, event: FileModifiedEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             _load_config(consts.VPNC_A_SERVICE_CONFIG_PATH)
-            time.sleep(1)
+            time.sleep(0.1)
             _update_uplink_connection()
 
     # Create the observer object. This doesn't start the handler.
@@ -215,7 +215,7 @@ def _add_downlink_connection(path: pathlib.Path):
             )
             v4_downlink_tunnel_ip = f"{v4_downlink_tunnel_ip}/24"
 
-        subprocess.run(
+        sp = subprocess.run(
             f"""
             ip netns add {netns}
             # enable routing
@@ -242,16 +242,20 @@ def _add_downlink_connection(path: pathlib.Path):
             shell=True,
             check=False,
         )
+        logger.info(sp.args)
+        logger.info(sp.stdout.decode())
 
     for netns in netns_remove:
         # run the netns remove commands
-        subprocess.run(
+        sp = subprocess.run(
             f"ip netns del {netns}",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             shell=True,
             check=False,
         )
+        logger.info(sp.args)
+        logger.info(sp.stdout.decode())
 
     # VPN DOWNLINKS
     downlink_template = VPNC_TEMPLATE_ENV.get_template("downlink.conf.j2")
@@ -315,13 +319,15 @@ def _delete_downlink_connection(vpn_id: str):
     for netns in netns_remove:
         helpers.terminate_swanctl_connection(netns)
         # run the netns remove commands
-        subprocess.run(
+        sp = subprocess.run(
             f"ip netns del {netns}",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             shell=True,
             check=False,
-        )
+        ).stdout
+        logger.info(sp)
+        print(sp)
 
     logger.info("Removing VPN configuration for '%s'.", vpn_id)
     downlink_path = consts.VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
@@ -542,6 +548,15 @@ def main():
         shell=True,
         check=False,
     )
+
+    # Start the VPNC mangle process in the TRUSTED net namespace.
+    sp = subprocess.Popen(
+        ["ip", "netns", "exec", consts.TRUSTED_NETNS, f"{consts.VPNC_INSTALL_DIR}/bin/vpncmangle"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=False,
+    )
+    logger.info(sp.args)
 
     _update_uplink_connection()
 
