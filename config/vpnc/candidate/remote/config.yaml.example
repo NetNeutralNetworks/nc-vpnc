@@ -14,8 +14,8 @@ tunnels:
     tunnel_ip: 172.16.31.1/24
     psk: DitIsEENV4ilugP0sSwerd!
     ike_version: 2
-    ike_proposal: ike-aes128gcm16-sha256-ecp384-prfsha384
-    ipsec_proposal: ipsec-aes128gcm16-aes128gmac-ecp384
+    ike_proposal: aes128gcm16-prfsha384-ecp384
+    ipsec_proposal: aes128gcm16-ecp384
     # mutually exclusive with traffic selectors
     # does not work in hub mode
     # routes:
@@ -37,8 +37,8 @@ tunnels:
     # tunnel_ip: 172.16.31.1/24
     psk: DitIsEENV4ilugP0sSwerd!
     # ike_version: 2
-    ike_proposal: ike-aes128gcm16-sha256-ecp384-prfsha384
-    ipsec_proposal: ipsec-aes128gcm16-aes128gmac-ecp384
+    ike_proposal: aes128gcm16-prfsha384-ecp384
+    ipsec_proposal: aes128gcm16-ecp384
     # mutually exclusive with traffic selectors
     # does not work in hub mode
     # routes:

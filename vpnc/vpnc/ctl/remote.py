@@ -21,7 +21,7 @@ app.add_typer(remotecon.app, name="connection")
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context, id_: str = typer.Argument(None)):
     """
-    Edit remote settings
+    Edit settings for remote connections
     """
     _ = id_
     ctx.obj = ctx.params
