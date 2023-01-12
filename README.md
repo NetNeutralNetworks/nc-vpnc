@@ -174,7 +174,7 @@ Add a new connection to a remote (requires sudo/root):
 ...
 ```
 
-Add/change configuration to/of an existing connection on a remote (requires sudo/root):
+Update configuration of an existing connection on a remote (requires sudo/root):
 ```bash
 ~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection 1 set --ike-proposal aes256gcm16-prfsha384-ecp384 --ipsec-proposal aes256gcm16-ecp384 --tunnel-ip 172.16.0.1 --routes 10.0.0.0/24 --routes 10.0.1.0/24
 ---
@@ -197,7 +197,7 @@ Add/change configuration to/of an existing connection on a remote (requires sudo
 ...
 ```
 
-Remove configuration to an existing connection on a remote (requires sudo/root):
+Remove configuration from an existing connection on a remote (requires sudo/root):
 ```bash
 ~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection 0 unset --routes 10.0.0.0/24 --routes 10.0.1.0/24   
 ---
@@ -218,7 +218,7 @@ Remove configuration to an existing connection on a remote (requires sudo/root):
 ...
 ```
 
-Delete a connection (requires sudo/root):
+Delete a connection from a remote (requires sudo/root):
 ```bash
 ~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection 1 delete
 1:
@@ -241,7 +241,7 @@ Are you sure you want to delete remote 'D0001' connection '1' [y/N]:
 
 Commit changes (requires sudo/root):
 ```bash
-#simulate a run, show diff
+# simulate a run, show diff
 ~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 commit --dry-run --diff 
 # commit and show diff
 ~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 commit --diff 
