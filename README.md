@@ -2,10 +2,10 @@
 
 A VPN service that has the following features:
 * A bridge between management environment and clients.
-* Uses IPv6 internally to allow IP overlap. Uses NAT64 to map customer IPv4 spaces into IPv6.
-* DNS64 to translate A records into AAAA records mapped to the IPv6 range mapped to the customer.
-* Uses active and candidate config to allow for easier configuration.
-* Uses dynamic routing via BGP to exchange active VPN routes to the management environment.
+* Uses IPv6 internally to accomodate client IPv4 overlap. Uses NAT64 to map a clients entire possible IPv4 address space into IPv6.
+* DNS64 mangling translates A records resolved in a client network to AAAA records.
+* Uses dynamic routing via BGP to exchange routes from established VPNs to the management environment.
+* Uses active and candidate config to allow for easier configuration. Configuration updated with the `vpnctl` client validates input.
 
 ## Usage
 
