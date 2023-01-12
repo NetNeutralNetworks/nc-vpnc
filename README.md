@@ -25,7 +25,7 @@ Changes committed to remote are automatically applied. Service changes require a
 
 Below are a few examples on how to add remotes (customers) and connections (VPN connections to a customer) as well as the data structure of a remote configuration
 
-### Configuration data structure
+#### Configuration data structure
 
 The configuration for a remote is just a YAML file with the following structure:
 
