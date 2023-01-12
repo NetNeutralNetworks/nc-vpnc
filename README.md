@@ -23,7 +23,34 @@ Changes committed to remote are automatically applied. Service changes require a
 
 ### Remotes
 
-Below are a few examples on how to add remotes (customers) and connections (VPN connections to a customer).
+Below are a few examples on how to add remotes (customers) and connections (VPN connections to a customer) as well as the data structure of a remote configuration
+
+### Configuration data structure
+
+The configuration for a remote is just a YAML file with the following structure:
+
+```yaml
+id: str                # required, ^[CD]\d{4}$
+metadata: {}           # optional, dictionary containing arbitrary k/v pairs
+name: str              # required
+tunnels:               # optional, dictionary containing connections
+  0:                     # required, connection id, int between 0-255
+    description: str       # required
+    ike_proposal: str      # required, see the allowed values for strongswan
+    ike_version: int       # optional, 1 or 2, defaults to 2     
+    ipsec_proposal:        # required, see the allowed values for strongswan
+    metadata: {}           # optional, dictionary containing arbitrary k/v pairs
+    psk: str               # required
+    remote_id: str         # optional, arbirary, defaults to remote_peer_ip
+    remote_peer_ip: ip     # required, IPv4 host address
+    routes: []             # optional, list of subnets, if defined, mutually exclusive with traffic_selectors
+    traffic_selectors:     # optional, if defined, mutually exclusive with routes
+      local: []              # required, list of subnets
+      remote: []             # required, list of subnets
+    tunnel_ip: ip/cidr     # optional, host IP + CIDR mask, defaults to value configured in the service.
+```
+
+#### Remote configuration
 
 List the configured remotes:
 ```bash
@@ -120,6 +147,8 @@ tunnels: {}
 Are you sure you want to delete remote 'D0010' [y/N]:
 ```
 
+#### Connection configuration
+
 List connections for a specific remote:
 ```bash
 ~$ /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection list
@@ -174,7 +203,7 @@ Add a new connection to a remote (requires sudo/root):
 ...
 ```
 
-Update configuration of an existing connection on a remote (requires sudo/root):
+Update the configuration of an existing connection on a remote (requires sudo/root):
 ```bash
 ~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection 1 set --ike-proposal aes256gcm16-prfsha384-ecp384 --ipsec-proposal aes256gcm16-ecp384 --tunnel-ip 172.16.0.1 --routes 10.0.0.0/24 --routes 10.0.1.0/24
 ---
@@ -238,6 +267,8 @@ Delete a connection from a remote (requires sudo/root):
 
 Are you sure you want to delete remote 'D0001' connection '1' [y/N]:
 ```
+
+#### Commit or revert configuration
 
 Commit changes (requires sudo/root):
 ```bash
