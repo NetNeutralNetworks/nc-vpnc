@@ -218,7 +218,7 @@ Remove configuration to an existing connection on a remote (requires sudo/root):
 ...
 ```
 
-Delete a connection:
+Delete a connection (requires sudo/root):
 ```bash
 ~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection 1 delete
 1:
@@ -239,7 +239,7 @@ Delete a connection:
 Are you sure you want to delete remote 'D0001' connection '1' [y/N]:
 ```
 
-Commit changes:
+Commit changes (requires sudo/root):
 ```bash
 #simulate a run, show diff
 ~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 commit --dry-run --diff 
