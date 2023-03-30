@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import ipaddress
 import os
 import tempfile
 from dataclasses import asdict
@@ -19,6 +20,8 @@ from .helpers import (
 
 app = typer.Typer()
 app.add_typer(servicecon.app, name="connection")
+
+DEEPDIFF_IGNORE = [(None, str), (None, int), (None, ipaddress.IPv4Interface)]
 
 
 @app.command()
@@ -185,7 +188,7 @@ def commit(
                 asdict(service),
                 asdict(service_diff),
                 verbose_level=2,
-                # ignore_type_in_groups=[(None, str), (None, int)],
+                ignore_type_in_groups=DEEPDIFF_IGNORE,
             ).to_dict()
             print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
         if dry_run:
@@ -206,7 +209,7 @@ def commit(
             service_diff,
             service,
             verbose_level=2,
-            # ignore_type_in_groups=[(None, str), (None, int)],
+            ignore_type_in_groups=DEEPDIFF_IGNORE,
         )
         print(diff_output)
 

@@ -54,6 +54,17 @@
             "justMyCode": true,
             "sudo": true,
             "cwd": "${workspaceFolder}/vpnc/"
+        },
+        {
+            "name": "Python: Module - vpnctl",
+            "type": "python",
+            "request": "launch",
+            "module": "vpnc.ctl.main",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "sudo": true,
+            "cwd": "${workspaceFolder}/vpnc/",
+            "args": ["remote", "D0001", "commit", "--dry-run", "--diff", "--revert"]
         }
     ]
 }
