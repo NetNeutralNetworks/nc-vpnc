@@ -1,10 +1,23 @@
 #!/usr/bin/env python3
 
+import ipaddress
 import logging
 import re
 from pathlib import Path
 
 logger = logging.getLogger("vpnc")
+
+# Type changes to ignore in vpnctl diffs:
+DEEPDIFF_IGNORE = [
+    (
+        None,
+        str,
+        int,
+        ipaddress.IPv4Interface,
+        ipaddress.IPv4Address,
+        ipaddress.IPv4Network,
+    )
+]
 
 # Match only downlink connections
 DOWNLINK_RE = re.compile(r"[a-fA-F]\d{4}-\d{3}")

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import ipaddress
 import json
 import os
 import tempfile
@@ -17,8 +16,6 @@ from .. import consts, datacls
 
 app = typer.Typer()
 app.add_typer(remotecon.app, name="connection")
-
-DEEPDIFF_IGNORE = [(None, str), (None, int), (None, ipaddress.IPv4Interface)]
 
 
 @app.callback(invoke_without_command=True)
@@ -278,7 +275,10 @@ def commit(
     if revert:
         if diff:
             diff_output = DeepDiff(
-                asdict(remote), asdict(remote_diff), verbose_level=1, ignore_type_in_groups=DEEPDIFF_IGNORE
+                asdict(remote),
+                asdict(remote_diff),
+                verbose_level=1,
+                ignore_type_in_groups=consts.DEEPDIFF_IGNORE,
             ).to_dict()
             print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
         if dry_run:
@@ -296,7 +296,10 @@ def commit(
 
     if diff:
         diff_output = DeepDiff(
-            asdict(remote_diff), asdict(remote), verbose_level=2, ignore_type_in_groups=DEEPDIFF_IGNORE
+            asdict(remote_diff),
+            asdict(remote),
+            verbose_level=2,
+            ignore_type_in_groups=consts.DEEPDIFF_IGNORE,
         ).to_dict()
         print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
 
