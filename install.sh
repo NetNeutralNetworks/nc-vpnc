@@ -90,7 +90,10 @@ cp -n ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example 
 /usr/bin/systemctl restart ncubed-${SERVICENAME}-$1
 
 # Run migrations to current version
-${SCRIPTDIR}/migrate.sh
+${SCRIPTDIR}/setup/migrate.sh
+
+# Add the default profile for the service
+cp ${SCRIPTDIR}/setup/profile-nc-vpn.sh /etc/profile.d/
 
 echo "Configure SNMP with the following command (if not already configured) after stopping the snmpd service."
 echo "The space in front of the command makes sure it isn't logged into the Bash history."
