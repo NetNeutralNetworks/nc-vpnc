@@ -203,18 +203,14 @@ def main():
             nfqueue.run()
         except KeyboardInterrupt:
             logger.info("Exiting mangle process.")
-            clean_ip6tables()
-            nfqueue.unbind()
             sys.exit(0)
         except Exception:
             logger.critical("Mangle process ended prematurely. Restarting.", exc_info=True)
+        finally:
             clean_ip6tables()
             nfqueue.unbind()
 
-        clean_ip6tables()
-
-        nfqueue.unbind()
-        sleep(1)
+        sleep(0.1)
 
 
 if __name__ == "__main__":
