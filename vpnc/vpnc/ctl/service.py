@@ -11,7 +11,7 @@ import yaml
 from deepdiff import DeepDiff
 
 from . import servicecon
-from .. import consts, datacls
+from .. import consts, models
 from .helpers import (
     validate_ip_address,
     validate_ip_network,
@@ -36,7 +36,7 @@ def show(
     with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
-    svc = datacls.Service if mode == "endpoint" else datacls.ServiceHub
+    svc = models.Service if mode == "endpoint" else models.ServiceHub
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
@@ -62,7 +62,7 @@ def edit():
     with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
-    svc = datacls.Service if mode == "endpoint" else datacls.ServiceHub
+    svc = models.Service if mode == "endpoint" else models.ServiceHub
     editor = os.environ.get("EDITOR", "vim")
 
     if not path.exists():
@@ -109,7 +109,7 @@ def set_(
     with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
-    svc = datacls.Service if mode == "endpoint" else datacls.ServiceHub
+    svc = models.Service if mode == "endpoint" else models.ServiceHub
 
     if not path.exists():
         return
@@ -158,7 +158,7 @@ def commit(
     with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
-    svc = datacls.Service if mode == "endpoint" else datacls.ServiceHub
+    svc = models.Service if mode == "endpoint" else models.ServiceHub
 
     if not path.exists():
         service_yaml = ""

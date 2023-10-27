@@ -8,7 +8,7 @@ from ipaddress import ip_address, ip_interface
 import typer
 import yaml
 
-from .. import consts, datacls
+from .. import consts, models
 from .helpers import (
     validate_ip_address,
     validate_ip_interface,
@@ -43,7 +43,7 @@ def list_(ctx: typer.Context):
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = datacls.Remote(**yaml.safe_load(f))
+        remote = models.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -71,7 +71,7 @@ def show(
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = datacls.Remote(**yaml.safe_load(f))
+        remote = models.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -120,7 +120,7 @@ def add(
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = datacls.Remote(**yaml.safe_load(f))
+        remote = models.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -137,7 +137,7 @@ def add(
     else:
         data.pop("traffic_selectors_local")
         data.pop("traffic_selectors_remote")
-    tunnel = datacls.Tunnel(**data)
+    tunnel = models.Tunnel(**data)
     remote.tunnels[int(tunnel_id)] = tunnel
 
     output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
@@ -177,7 +177,7 @@ def set_(
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = datacls.Remote(**yaml.safe_load(f))
+        remote = models.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -249,7 +249,7 @@ def unset(
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = datacls.Remote(**yaml.safe_load(f))
+        remote = models.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -302,7 +302,7 @@ def delete(
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = datacls.Remote(**yaml.safe_load(f))
+        remote = models.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return

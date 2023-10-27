@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from dataclasses import dataclass, field
-from typing import Literal
+from enum import Enum
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
@@ -13,6 +13,7 @@ from ipaddress import (
     ip_interface,
     ip_network,
 )
+from typing import Literal
 
 import yaml
 
@@ -147,6 +148,15 @@ yaml.SafeDumper.add_representer(
 #     "tag:yaml.org,2002:python/object/apply:ipaddress.IPv6Interface",
 #     _construct_ipv6_interface,
 # )
+
+
+class ServiceMode(Enum):
+    """
+    Defines the modes in which the service can run
+    """
+
+    HUB = "hub"
+    ENDPOINT = "endpoint"
 
 
 @dataclass(kw_only=True)

@@ -12,7 +12,7 @@ import yaml
 from deepdiff import DeepDiff
 
 from . import remotecon
-from .. import consts, datacls
+from .. import consts, models
 
 app = typer.Typer()
 app.add_typer(remotecon.app, name="connection")
@@ -41,7 +41,7 @@ def list_():
     for i in consts.VPNC_C_REMOTE_CONFIG_DIR.glob("*.yaml"):
         file_name = i.stem
         with open(i, "r", encoding="utf-8") as f:
-            remote = datacls.Remote(**yaml.safe_load(f))
+            remote = models.Remote(**yaml.safe_load(f))
         if file_name != remote.id:
             print(f"Mismatch between file name '{file_name}' and id '{remote.id}'.")
         elif file_name == remote.id:
@@ -66,7 +66,7 @@ def show(
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = datacls.Remote(**yaml.safe_load(f))
+        remote = models.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -93,7 +93,7 @@ def edit(ctx: typer.Context):
         return
     with open(path, "r", encoding="utf-8") as f:
         remote_content = f.read()
-        remote = datacls.Remote(**yaml.safe_load(remote_content))
+        remote = models.Remote(**yaml.safe_load(remote_content))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -106,7 +106,7 @@ def edit(ctx: typer.Context):
         tf.seek(0)
         edited_message = tf.read()
 
-    edited_remote = datacls.Remote(**yaml.safe_load(edited_message))
+    edited_remote = models.Remote(**yaml.safe_load(edited_message))
     print("Edited file")
     print(edited_message)
 
@@ -130,7 +130,7 @@ def add(ctx: typer.Context, name: str, metadata: str = "{}"):
         return
 
     data = {"id": id_, "name": name, "metadata": metadict, "tunnels": {}}
-    remote = datacls.Remote(**data)
+    remote = models.Remote(**data)
 
     output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
     with open(path, "w+", encoding="utf-8") as f:
@@ -150,7 +150,7 @@ def set_(ctx: typer.Context, name: str = "", metadata: str = "{}"):
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = datacls.Remote(**yaml.safe_load(f))
+        remote = models.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -184,7 +184,7 @@ def unset(ctx: typer.Context, metadata: list[str] = typer.Option([])):
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = datacls.Remote(**yaml.safe_load(f))
+        remote = models.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -213,7 +213,7 @@ def delete(
         print(f"Remote '{id_}' doesn't exist.")
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = datacls.Remote(**yaml.safe_load(f))
+        remote = models.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -248,22 +248,22 @@ def commit(
     path_diff = consts.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
     if not path.exists():
         remote_yaml = ""
-        remote = datacls.Remote()
+        remote = models.Remote()
     else:
         with open(path, "r", encoding="utf-8") as f:
             remote_yaml = f.read()
-            remote = datacls.Remote(**yaml.safe_load(remote_yaml))
+            remote = models.Remote(**yaml.safe_load(remote_yaml))
         if id_ != remote.id:
             print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
             return
 
     if not path_diff.exists():
         remote_diff_yaml = ""
-        remote_diff = datacls.Remote()
+        remote_diff = models.Remote()
     else:
         with open(path_diff, "r", encoding="utf-8") as f:
             remote_diff_yaml = f.read()
-            remote_diff = datacls.Remote(**yaml.safe_load(remote_diff_yaml))
+            remote_diff = models.Remote(**yaml.safe_load(remote_diff_yaml))
         if id_ != remote_diff.id:
             print(f"Mismatch between diff file name '{id_}' and id '{remote_diff.id}'.")
             return

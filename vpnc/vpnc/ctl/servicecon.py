@@ -7,7 +7,7 @@ import typer
 import yaml
 from deepdiff import DeepDiff
 
-from .. import consts, datacls
+from .. import consts, models
 from .helpers import (
     validate_ip_address,
     validate_ip_interface,
@@ -33,7 +33,7 @@ def service_connection_show(args: argparse.Namespace):
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        service = datacls.ServiceHub(**yaml.safe_load(f))
+        service = models.ServiceHub(**yaml.safe_load(f))
 
     tunnel = service.uplinks.get(int(args.tunnel_id))
     if not tunnel:
@@ -57,7 +57,7 @@ def service_connection_add(args: argparse.Namespace):
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        service = datacls.ServiceHub(**yaml.safe_load(f))
+        service = models.ServiceHub(**yaml.safe_load(f))
     # if args.id != remote.id:
     #     print(f"Mismatch between file name '{args.id}' and id '{remote.id}'.")
     #     return
@@ -71,7 +71,7 @@ def service_connection_add(args: argparse.Namespace):
         "remote_peer_ip": str(args.remote_peer_ip),
         "remote_id": str(args.remote_id) if args.remote_id else None,
     }
-    tunnel = datacls.Uplink(**data)
+    tunnel = models.Uplink(**data)
 
     service.uplinks[int(args.tunnel_id)] = tunnel
 
@@ -96,7 +96,7 @@ def service_connection_set(args: argparse.Namespace):
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        service = datacls.ServiceHub(**yaml.safe_load(f))
+        service = models.ServiceHub(**yaml.safe_load(f))
 
     if not service.uplinks.get(int(args.tunnel_id)):
         print(f"Connection '{args.tunnel_id}' doesn't exists'.")
@@ -132,7 +132,7 @@ def service_connection_delete(args: argparse.Namespace):
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        service = datacls.ServiceHub(**yaml.safe_load(f))
+        service = models.ServiceHub(**yaml.safe_load(f))
 
     if not service.uplinks.get(int(args.tunnel_id)):
         print(f"Connection '{args.tunnel_id}' doesn't exists'.")
