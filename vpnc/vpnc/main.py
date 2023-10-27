@@ -7,7 +7,6 @@ from logging.handlers import RotatingFileHandler
 
 from . import consts, vpncendpoint, vpnchub
 
-
 # LOGGER
 # Get logger
 logger = logging.getLogger("vpnc")
@@ -40,12 +39,17 @@ def main():
 
     # Parse the arguments
     parser = argparse.ArgumentParser(description="Control the VPNC Strongswan daemon")
-    parser.set_defaults(func=lambda: parser.print_usage())
+    parser.set_defaults(func=parser.print_usage)
     subparser = parser.add_subparsers(help="Sub command help")
-    parser_start = subparser.add_parser("hub", help="Starts the VPN service in hub mode")
-    parser_start.set_defaults(func=vpnchub.main)
+
     parser_start = subparser.add_parser(
-        "endpoint", help="Starts the VPN service in endpoint mode"
+        name="hub",
+        help="Starts the VPN service in hub mode")
+    parser_start.set_defaults(func=vpnchub.main)
+
+    parser_start = subparser.add_parser(
+        name="endpoint",
+        help="Starts the VPN service in endpoint mode"
     )
     parser_start.set_defaults(func=vpncendpoint.main)
 
