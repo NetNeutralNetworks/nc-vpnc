@@ -8,7 +8,7 @@ from ipaddress import ip_address, ip_interface
 import typer
 import yaml
 
-from .. import consts, models
+from .. import config, models
 from .helpers import (
     validate_ip_address,
     validate_ip_interface,
@@ -38,7 +38,7 @@ def list_(ctx: typer.Context):
     List all tunnels for a remote
     """
     id_: str = ctx.obj["id_"]
-    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
@@ -64,9 +64,9 @@ def show(
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
     if active:
-        path = consts.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = config.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
     else:
-        path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
@@ -115,7 +115,7 @@ def add(
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
     ctx.params["metadata"] = json.loads(metadata)
-    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
@@ -172,7 +172,7 @@ def set_(
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
     ctx.params["metadata"] = json.loads(metadata)
-    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
@@ -244,7 +244,7 @@ def unset(
     """
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
-    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
@@ -297,7 +297,7 @@ def delete(
     """
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
-    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""
+Models used by the services.
+"""
 
 from dataclasses import dataclass, field
 from enum import Enum

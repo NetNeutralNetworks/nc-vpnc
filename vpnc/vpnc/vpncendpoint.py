@@ -1,100 +1,26 @@
 #!/usr/bin/env python3
+"""
+Runs the service in endpoint mode
+"""
+
 
 import json
 import logging
 import pathlib
 import subprocess
-import sys
-import time
 
-import jinja2
 import yaml
-from watchdog.events import (
-    FileCreatedEvent,
-    FileDeletedEvent,
-    FileModifiedEvent,
-    PatternMatchingEventHandler,
-)
-from watchdog.observers import Observer
 
-from . import consts, datacls, helpers
+from . import config, helpers, models, observers
 
 logger = logging.getLogger("vpnc")
 
 
-# Load the Jinja templates
-VPNC_TEMPLATE_ENV = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(consts.VPNC_TEMPLATES_DIR)
-)
-
-
 # Global variable containing the configuration items. Should probably be a class.
-VPNC_HUB_CONFIG: datacls.Service = datacls.Service()
+config.VPNC_SERVICE_CONFIG = models.Service()
 
 
-def _load_config(config_path: pathlib.Path):
-    """
-    Load the global configuration.
-    """
-    global VPNC_HUB_CONFIG
-
-    new_cfg: datacls.Service = datacls.Service()
-    with open(config_path, "r", encoding="utf-8") as f:
-        try:
-            new_cfg_dict = yaml.safe_load(f)
-            new_cfg = datacls.Service(**new_cfg_dict)
-        except (yaml.YAMLError, TypeError):
-            logger.critical(
-                "Configuration is not valid '%s'.",
-                config_path,
-                exc_info=True,
-            )
-            sys.exit(1)
-    VPNC_HUB_CONFIG = new_cfg
-    logger.info("Loaded new configuration.")
-
-
-def _downlink_observer() -> Observer:
-    # Define what should happen when downlink files are created, modified or deleted.
-    class DownlinkHandler(PatternMatchingEventHandler):
-        """
-        Handler for the event monitoring.
-        """
-
-        def on_created(self, event: FileCreatedEvent):
-            logger.info("File %s: %s", event.event_type, event.src_path)
-            downlink_config = pathlib.Path(event.src_path)
-            _add_downlink_connection(downlink_config)
-
-        def on_modified(self, event: FileModifiedEvent):
-            logger.info("File %s: %s", event.event_type, event.src_path)
-            downlink_config = pathlib.Path(event.src_path)
-            time.sleep(0.1)
-            _add_downlink_connection(downlink_config)
-
-        def on_deleted(self, event: FileDeletedEvent):
-            logger.info("File %s: %s", event.event_type, event.src_path)
-            downlink_config = pathlib.Path(event.src_path).stem
-            _delete_downlink_connection(downlink_config)
-
-    # Create the observer object. This doesn't start the handler.
-    observer = Observer()
-
-    # Configure the event handler that watches directories. This doesn't start the handler.
-    observer.schedule(
-        event_handler=DownlinkHandler(
-            patterns=["[aAbBcCdDeEfF]*.yaml"], ignore_directories=True
-        ),
-        path=consts.VPNC_A_REMOTE_CONFIG_DIR,
-        recursive=False,
-    )
-    # The handler will not be running as a thread.
-    observer.daemon = False
-
-    return observer
-
-
-def _add_downlink_connection(path: pathlib.Path):
+def add_downlink_connection(path: pathlib.Path):
     """
     Configures downlink VPN connections.
     """
@@ -109,7 +35,7 @@ def _add_downlink_connection(path: pathlib.Path):
 
     # Parse the YAML file to a Downlink object and validate the input.
     try:
-        config = datacls.Remote(**config_yaml)
+        config = models.Remote(**config_yaml)
     except (TypeError, ValueError):
         logger.error(
             "Invalid configuration found in '%s'. Skipping.", path, exc_info=True
@@ -141,7 +67,7 @@ def _add_downlink_connection(path: pathlib.Path):
     xfrm_diff = {
         x["ifname"] for x in ip_xfrm if x["ifname"].startswith(f"xfrm-{vpn_id}")
     }
-    xfrm_ref = {f"xfrm-{vpn_id}-{x:03}" for x in config.tunnels.keys()}
+    xfrm_ref = {f"xfrm-{vpn_id}-{x:03}" for x in config.tunnels}
     xfrm_remove = xfrm_diff.difference(xfrm_ref)
 
     # Configure XFRM interfaces for downlinks
@@ -152,8 +78,8 @@ def _add_downlink_connection(path: pathlib.Path):
 
         cmd = f"""
         # configure XFRM interfaces
-        ip -n {consts.UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {VPNC_HUB_CONFIG.untrusted_if_name} if_id 0x{xfrm_id}
-        ip -n {consts.UNTRUSTED_NETNS} link set {xfrm} netns 1
+        ip -n {config.UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {config.VPNC_SERVICE_CONFIG.untrusted_if_name} if_id 0x{xfrm_id}
+        ip -n {config.UNTRUSTED_NETNS} link set {xfrm} netns 1
         ip link set dev {xfrm} up
         """
         for i in tunnel_config.traffic_selectors.remote:
@@ -182,7 +108,7 @@ def _add_downlink_connection(path: pathlib.Path):
 
     # VPN DOWNLINKS
     logger.info("Setting up VPN tunnels.")
-    downlink_template = VPNC_TEMPLATE_ENV.get_template("downlink.conf.j2")
+    downlink_template = config.VPNC_TEMPLATES_ENV.get_template("downlink.conf.j2")
     downlink_configs = []
     for tunnel_id, tunnel_config in config.tunnels.items():
         t_config = {
@@ -198,7 +124,7 @@ def _add_downlink_connection(path: pathlib.Path):
         t_config["ike_proposal"] = tunnel_config.ike_proposal
         t_config["ipsec_proposal"] = tunnel_config.ipsec_proposal
 
-        t_config["local_id"] = VPNC_HUB_CONFIG.local_id
+        t_config["local_id"] = config.VPNC_SERVICE_CONFIG.local_id
         if tunnel_config.remote_id:
             t_config["remote_id"] = tunnel_config.remote_id
         else:
@@ -212,7 +138,7 @@ def _add_downlink_connection(path: pathlib.Path):
         downlink_configs.append(t_config)
 
     downlink_render = downlink_template.render(connections=downlink_configs)
-    downlink_path = consts.VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
+    downlink_path = config.VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
 
     with open(downlink_path, "w", encoding="utf-8") as f:
         f.write(downlink_render)
@@ -220,7 +146,23 @@ def _add_downlink_connection(path: pathlib.Path):
     helpers.load_swanctl_all_config()
 
 
-def _delete_downlink_connection(vpn_id: str):
+def _update_downlink_connection():
+    """
+    Configures downlinks.
+    """
+    config_files = list(config.VPNC_A_REMOTE_CONFIG_DIR.glob(pattern="*.yaml"))
+    config_set = {x.stem for x in config_files}
+    vpn_config_files = list(config.VPN_CONFIG_DIR.glob(pattern="[aAbBcCdDeEfF]*.conf"))
+    vpn_config_set = {x.stem for x in vpn_config_files}
+
+    for file_path in config_files:
+        add_downlink_connection(file_path)
+
+    for vpn_id in vpn_config_set.difference(config_set):
+        delete_downlink_connection(vpn_id)
+
+
+def delete_downlink_connection(vpn_id: str):
     """
     Removes downlink VPN connections.
     """
@@ -252,26 +194,10 @@ def _delete_downlink_connection(vpn_id: str):
         )
 
     logger.info("Removing VPN configuration for '%s'.", vpn_id)
-    downlink_path = consts.VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
+    downlink_path = config.VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
     downlink_path.unlink(missing_ok=True)
 
     helpers.load_swanctl_all_config()
-
-
-def _update_endpoint_downlink_connection():
-    """
-    Configures downlinks.
-    """
-    config_files = list(consts.VPNC_A_REMOTE_CONFIG_DIR.glob(pattern="*.yaml"))
-    config_set = {x.stem for x in config_files}
-    vpn_config_files = list(consts.VPN_CONFIG_DIR.glob(pattern="[aAbBcCdDeEfF]*.conf"))
-    vpn_config_set = {x.stem for x in vpn_config_files}
-
-    for file_path in config_files:
-        _add_downlink_connection(file_path)
-
-    for vpn_id in vpn_config_set.difference(config_set):
-        _delete_downlink_connection(vpn_id)
 
 
 def main():
@@ -281,13 +207,10 @@ def main():
     logger.info("#" * 100)
     logger.info("Starting ncubed VPNC strongSwan daemon in endpoint mode.")
 
-    # write a flag that specifies the run mode. This is used by the CLI to determine the
-    # capabilities.
-    with open(consts.VPNC_A_SERVICE_MODE_PATH, "w", encoding="utf-8") as f:
-        f.write("---\nmode: endpoint\n...\n")
-
+    # Set a flag that specifies the run mode.
+    config.VPNC_SERVICE_MODE = models.ServiceMode("endpoint")
     # Load the global configuration from file.
-    _load_config(consts.VPNC_A_SERVICE_CONFIG_PATH)
+    helpers.load_config(config.VPNC_A_SERVICE_CONFIG_PATH)
 
     # Mounts the default network namespace with the alias ROOT. This makes for consistent operation
     # between all namespaces
@@ -307,17 +230,17 @@ def main():
     # After creating this namespace, ipsec is (re)started in this namespace.
     # No IPv6 routing is enabled on this namespace.
     # There is no connectivity to other namespaces.
-    logger.info("Setting up %s netns", consts.UNTRUSTED_NETNS)
+    logger.info("Setting up %s netns", config.UNTRUSTED_NETNS)
     subprocess.run(
         f"""
-        ip netns add {consts.UNTRUSTED_NETNS}
-        ip link set {VPNC_HUB_CONFIG.untrusted_if_name} netns {consts.UNTRUSTED_NETNS}
-        ip -n {consts.UNTRUSTED_NETNS} address flush dev {VPNC_HUB_CONFIG.untrusted_if_name}
-        ip -n {consts.UNTRUSTED_NETNS} address add {VPNC_HUB_CONFIG.untrusted_if_ip} dev {VPNC_HUB_CONFIG.untrusted_if_name}
-        ip -n {consts.UNTRUSTED_NETNS} link set dev {VPNC_HUB_CONFIG.untrusted_if_name} up
-        ip -n {consts.UNTRUSTED_NETNS} route del default
-        ip -n {consts.UNTRUSTED_NETNS} route add default via {VPNC_HUB_CONFIG.untrusted_if_gw}
-        ip netns exec {consts.UNTRUSTED_NETNS} ipsec start
+        ip netns add {config.UNTRUSTED_NETNS}
+        ip link set {config.VPNC_SERVICE_CONFIG.untrusted_if_name} netns {config.UNTRUSTED_NETNS}
+        ip -n {config.UNTRUSTED_NETNS} address flush dev {config.VPNC_SERVICE_CONFIG.untrusted_if_name}
+        ip -n {config.UNTRUSTED_NETNS} address add {config.VPNC_SERVICE_CONFIG.untrusted_if_ip} dev {config.VPNC_SERVICE_CONFIG.untrusted_if_name}
+        ip -n {config.UNTRUSTED_NETNS} link set dev {config.VPNC_SERVICE_CONFIG.untrusted_if_name} up
+        ip -n {config.UNTRUSTED_NETNS} route del default
+        ip -n {config.UNTRUSTED_NETNS} route add default via {config.VPNC_SERVICE_CONFIG.untrusted_if_gw}
+        ip netns exec {config.UNTRUSTED_NETNS} ipsec start
         """,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -338,11 +261,11 @@ def main():
         check=False,
     )  # .stdout.decode().lower()
 
-    _update_endpoint_downlink_connection()
+    _update_downlink_connection()
 
     # Start the event handler.
     logger.info("Monitoring downlink config changes.")
-    downlink_observer = _downlink_observer()
+    downlink_observer = observers.downlink_observer()
     downlink_observer.start()
 
 

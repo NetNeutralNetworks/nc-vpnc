@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
+"""
+Starts the service and runs it in either endpoint or hub mode
+"""
+
 
 import argparse
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
 
-from . import consts, vpncendpoint, vpnchub
+from . import config, vpncendpoint, vpnchub
 
 # LOGGER
 # Get logger
 logger = logging.getLogger("vpnc")
+
 
 def main():
     """
@@ -29,13 +34,12 @@ def main():
     logger.addHandler(logging.StreamHandler(sys.stdout))
 
     # Load the configuration
-    logger.info("Loading configuration from '%s'.", consts.VPNC_A_SERVICE_CONFIG_PATH)
-    if not consts.VPNC_A_SERVICE_CONFIG_PATH.exists():
+    logger.info("Loading configuration from '%s'.", config.VPNC_A_SERVICE_CONFIG_PATH)
+    if not config.VPNC_A_SERVICE_CONFIG_PATH.exists():
         logger.critical(
-            "Configuration not found at '%s'.", consts.VPNC_A_SERVICE_CONFIG_PATH
+            "Configuration not found at '%s'.", config.VPNC_A_SERVICE_CONFIG_PATH
         )
         sys.exit(1)
-
 
     # Parse the arguments
     parser = argparse.ArgumentParser(description="Control the VPNC Strongswan daemon")
@@ -43,19 +47,19 @@ def main():
     subparser = parser.add_subparsers(help="Sub command help")
 
     parser_start = subparser.add_parser(
-        name="hub",
-        help="Starts the VPN service in hub mode")
+        name="hub", help="Starts the VPN service in hub mode"
+    )
     parser_start.set_defaults(func=vpnchub.main)
 
     parser_start = subparser.add_parser(
-        name="endpoint",
-        help="Starts the VPN service in endpoint mode"
+        name="endpoint", help="Starts the VPN service in endpoint mode"
     )
     parser_start.set_defaults(func=vpncendpoint.main)
 
     args = parser.parse_args()
 
     args.func()
+
 
 if __name__ == "__main__":
     main()

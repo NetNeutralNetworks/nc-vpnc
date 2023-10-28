@@ -11,7 +11,7 @@ import yaml
 from deepdiff import DeepDiff
 
 from . import servicecon
-from .. import consts, models
+from .. import config, models
 from .helpers import (
     validate_ip_address,
     validate_ip_network,
@@ -29,11 +29,11 @@ def show(
     Show the service configuration
     """
     if active:
-        path = consts.VPNC_A_SERVICE_CONFIG_PATH
+        path = config.VPNC_A_SERVICE_CONFIG_PATH
     else:
-        path = consts.VPNC_C_SERVICE_CONFIG_PATH
+        path = config.VPNC_C_SERVICE_CONFIG_PATH
 
-    with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
     svc = models.Service if mode == "endpoint" else models.ServiceHub
@@ -57,9 +57,9 @@ def edit():
     """
     Edit a candidate config file
     """
-    path = consts.VPNC_C_SERVICE_CONFIG_PATH
+    path = config.VPNC_C_SERVICE_CONFIG_PATH
 
-    with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
     svc = models.Service if mode == "endpoint" else models.ServiceHub
@@ -105,8 +105,8 @@ def set_(
     """
     Set service properties
     """
-    path = consts.VPNC_C_SERVICE_CONFIG_PATH
-    with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+    path = config.VPNC_C_SERVICE_CONFIG_PATH
+    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
     svc = models.Service if mode == "endpoint" else models.ServiceHub
@@ -152,10 +152,10 @@ def commit(
     """
     Commit configuration
     """
-    path = consts.VPNC_C_SERVICE_CONFIG_PATH
-    path_diff = consts.VPNC_A_SERVICE_CONFIG_PATH
+    path = config.VPNC_C_SERVICE_CONFIG_PATH
+    path_diff = config.VPNC_A_SERVICE_CONFIG_PATH
 
-    with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
     svc = models.Service if mode == "endpoint" else models.ServiceHub
@@ -186,7 +186,7 @@ def commit(
                 asdict(service),
                 asdict(service_diff),
                 verbose_level=2,
-                ignore_type_in_groups=consts.DEEPDIFF_IGNORE,
+                ignore_type_in_groups=config.DEEPDIFF_IGNORE,
             ).to_dict()
             print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
         if dry_run:
@@ -207,7 +207,7 @@ def commit(
             service_diff,
             service,
             verbose_level=2,
-            ignore_type_in_groups=consts.DEEPDIFF_IGNORE,
+            ignore_type_in_groups=config.DEEPDIFF_IGNORE,
         )
         print(diff_output)
 

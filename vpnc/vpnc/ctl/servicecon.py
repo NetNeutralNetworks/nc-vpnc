@@ -7,7 +7,7 @@ import typer
 import yaml
 from deepdiff import DeepDiff
 
-from .. import consts, models
+from .. import config, models
 from .helpers import (
     validate_ip_address,
     validate_ip_interface,
@@ -22,8 +22,8 @@ def service_connection_show(args: argparse.Namespace):
     """
     Show a specific tunnel for an uplink
     """
-    path = consts.VPNC_C_SERVICE_CONFIG_PATH
-    with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+    path = config.VPNC_C_SERVICE_CONFIG_PATH
+    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
     if mode != "hub":
@@ -46,8 +46,8 @@ def service_connection_add(args: argparse.Namespace):
     """
     Add tunnels to an uplink
     """
-    path = consts.VPNC_C_SERVICE_CONFIG_PATH
-    with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+    path = config.VPNC_C_SERVICE_CONFIG_PATH
+    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
     if mode != "hub":
@@ -85,8 +85,8 @@ def service_connection_set(args: argparse.Namespace):
     """
     Set tunnel properties for an uplink
     """
-    path = consts.VPNC_C_SERVICE_CONFIG_PATH
-    with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+    path = config.VPNC_C_SERVICE_CONFIG_PATH
+    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
     if mode != "hub":
@@ -121,8 +121,8 @@ def service_connection_delete(args: argparse.Namespace):
     """
     Delete a specific tunnel from an uplink
     """
-    path = consts.VPNC_C_SERVICE_CONFIG_PATH
-    with open(consts.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+    path = config.VPNC_C_SERVICE_CONFIG_PATH
+    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
     if mode != "hub":

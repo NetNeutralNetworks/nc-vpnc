@@ -12,7 +12,7 @@ import yaml
 from deepdiff import DeepDiff
 
 from . import remotecon
-from .. import consts, models
+from .. import config, models
 
 app = typer.Typer()
 app.add_typer(remotecon.app, name="connection")
@@ -38,7 +38,7 @@ def list_():
     """
 
     print(f"{'id':<6} name\n{'-'*6} {'-'*4}")
-    for i in consts.VPNC_C_REMOTE_CONFIG_DIR.glob("*.yaml"):
+    for i in config.VPNC_C_REMOTE_CONFIG_DIR.glob("*.yaml"):
         file_name = i.stem
         with open(i, "r", encoding="utf-8") as f:
             remote = models.Remote(**yaml.safe_load(f))
@@ -59,9 +59,9 @@ def show(
     """
     id_: str = ctx.obj["id_"]
     if active:
-        path = consts.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = config.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
     else:
-        path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
@@ -85,7 +85,7 @@ def edit(ctx: typer.Context):
     Edit a candidate config file
     """
     id_: str = ctx.obj["id_"]
-    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     editor = os.environ.get("EDITOR", "vim")
 
@@ -124,7 +124,7 @@ def add(ctx: typer.Context, name: str, metadata: str = "{}"):
     """
     id_: str = ctx.obj["id_"]
     metadict: dict = json.loads(metadata)
-    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
     if path.exists():
         print(f"Remote '{id_}' already exists.")
         return
@@ -145,7 +145,7 @@ def set_(ctx: typer.Context, name: str = "", metadata: str = "{}"):
     """
     id_: str = ctx.obj["id_"]
     metadict: dict = json.loads(metadata)
-    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
@@ -179,7 +179,7 @@ def unset(ctx: typer.Context, metadata: list[str] = typer.Option([])):
     Unset a remote
     """
     id_: str = ctx.obj["id_"]
-    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
@@ -208,7 +208,7 @@ def delete(
     Delete a remote side
     """
     id_: str = ctx.obj["id_"]
-    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
     if not path.exists():
         print(f"Remote '{id_}' doesn't exist.")
         return
@@ -244,8 +244,8 @@ def commit(
     Commit configuration
     """
     id_: str = ctx.obj["id_"]
-    path = consts.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
-    path_diff = consts.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path_diff = config.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
     if not path.exists():
         remote_yaml = ""
         remote = models.Remote()
@@ -278,7 +278,7 @@ def commit(
                 asdict(remote),
                 asdict(remote_diff),
                 verbose_level=1,
-                ignore_type_in_groups=consts.DEEPDIFF_IGNORE,
+                ignore_type_in_groups=config.DEEPDIFF_IGNORE,
             ).to_dict()
             print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
         if dry_run:
@@ -299,7 +299,7 @@ def commit(
             asdict(remote_diff),
             asdict(remote),
             verbose_level=2,
-            ignore_type_in_groups=consts.DEEPDIFF_IGNORE,
+            ignore_type_in_groups=config.DEEPDIFF_IGNORE,
         ).to_dict()
         print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
 
