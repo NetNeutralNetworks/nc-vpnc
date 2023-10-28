@@ -146,7 +146,7 @@ def add_downlink_connection(path: pathlib.Path):
     helpers.load_swanctl_all_config()
 
 
-def _update_downlink_connection():
+def update_downlink_connection():
     """
     Configures downlinks.
     """
@@ -261,7 +261,7 @@ def main():
         check=False,
     )  # .stdout.decode().lower()
 
-    _update_downlink_connection()
+    update_downlink_connection()
 
     # Start the event handler.
     logger.info("Monitoring downlink config changes.")
