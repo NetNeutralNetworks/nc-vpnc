@@ -12,3 +12,15 @@ rm -rf /opt/ncubed/vpnctl
 if [ -f /etc/profile.d/nc.sh ]; then
   rm /etc/profile.d/nc.sh
 fi
+
+/usr/bin/systemctl stop ncubed-vpnc-hub.service
+/usr/bin/systemctl disable ncubed-vpnc-hub.service
+/usr/bin/systemctl stop ncubed-vpnc-endpoint.service
+/usr/bin/systemctl disable ncubed-vpnc-endpoint.service
+
+rm /opt/ncubed/config/vpnc/units/ncubed-vpnc-hub.service
+rm /opt/ncubed/config/vpnc/units/ncubed-vpnc-endpoint.service
+
+# Remove the units if disable failed somehow to remove the unit file.
+/usr/bin/systemctl daemon-reload
+/usr/bin/systemctl reset-failed

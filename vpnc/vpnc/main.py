@@ -9,7 +9,7 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 
-from . import config, vpnc_endpoint, vpnc_hub
+from . import config, helpers, vpnc_endpoint, vpnc_hub
 
 # LOGGER
 # Get logger
@@ -41,24 +41,14 @@ def main():
         )
         sys.exit(1)
 
-    # Parse the arguments
-    parser = argparse.ArgumentParser(description="Control the VPNC Strongswan daemon")
-    parser.set_defaults(func=parser.print_usage)
-    subparser = parser.add_subparsers(help="Sub command help")
+    # Load the global configuration from file.
+    helpers.load_config(config.VPNC_A_SERVICE_CONFIG_PATH)
 
-    parser_start = subparser.add_parser(
-        name="hub", help="Starts the VPN service in hub mode"
-    )
-    parser_start.set_defaults(func=vpnc_hub.main)
-
-    parser_start = subparser.add_parser(
-        name="endpoint", help="Starts the VPN service in endpoint mode"
-    )
-    parser_start.set_defaults(func=vpnc_endpoint.main)
-
-    args = parser.parse_args()
-
-    args.func()
+    # Start the service
+    if config.VPNC_SERVICE_CONFIG.mode.name == "HUB":
+        vpnc_hub.main()
+    elif config.VPNC_SERVICE_CONFIG.mode.name == "ENDPOINT":
+        vpnc_endpoint.main()
 
 
 if __name__ == "__main__":

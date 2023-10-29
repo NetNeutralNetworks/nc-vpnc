@@ -16,8 +16,8 @@ from . import config, helpers, models, observers
 logger = logging.getLogger("vpnc")
 
 
-# Global variable containing the configuration items. Should probably be a class.
-config.VPNC_SERVICE_CONFIG = models.Service()
+# # Global variable containing the configuration items. Should probably be a class.
+# config.VPNC_SERVICE_CONFIG = models.Service()
 
 
 def add_downlink_connection(path: pathlib.Path):
@@ -206,11 +206,6 @@ def main():
     """
     logger.info("#" * 100)
     logger.info("Starting ncubed VPNC strongSwan daemon in endpoint mode.")
-
-    # Set a flag that specifies the run mode.
-    config.VPNC_SERVICE_MODE = models.ServiceMode("endpoint")
-    # Load the global configuration from file.
-    helpers.load_config(config.VPNC_A_SERVICE_CONFIG_PATH)
 
     # Mounts the default network namespace with the alias ROOT. This makes for consistent operation
     # between all namespaces

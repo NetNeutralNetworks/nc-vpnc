@@ -16,33 +16,6 @@ from . import config, helpers, models, observers
 
 logger = logging.getLogger("vpnc")
 
-# Global variable containing the configuration items. Should probably be a class.
-config.VPNC_SERVICE_CONFIG = models.ServiceHub()
-# IPv6 prefix for client initiating administration traffic.
-PREFIX_UPLINK: ipaddress.IPv6Network = config.VPNC_SERVICE_CONFIG.prefix_uplink
-# IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
-PREFIX_DOWNLINK_V4: ipaddress.IPv4Network = (
-    config.VPNC_SERVICE_CONFIG.prefix_downlink_v4
-)
-# IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
-PREFIX_DOWNLINK_V6: ipaddress.IPv6Network = (
-    config.VPNC_SERVICE_CONFIG.prefix_downlink_v6
-)
-# IPv6 prefix start for NAT64 to downlink networks
-# returns "fdcc:0000" if prefix is fdcc::/32
-PREFIX_DOWNLINK_V6_START = PREFIX_DOWNLINK_V6.exploded[:9]
-
-
-if PREFIX_UPLINK.prefixlen != 16:
-    logger.critical("Prefix length for uplink prefix must be '/16'.")
-    sys.exit(1)
-if PREFIX_DOWNLINK_V4.prefixlen != 16:
-    logger.critical("Prefix length for downlink IPv4 prefix must be '/16'.")
-    sys.exit(1)
-if PREFIX_DOWNLINK_V6.prefixlen != 32:
-    logger.critical("Prefix length for downlink IPv6 prefix must be '/32'.")
-    sys.exit(1)
-
 
 def update_uplink_connection():
     """
@@ -111,7 +84,7 @@ def update_uplink_connection():
         "uplinks": uplinks_ref,
     }
     iptables_render = iptables_template.render(**iptables_configs)
-    print(iptables_render)
+    logger.info(iptables_render)
     subprocess.run(
         iptables_render,
         stdout=subprocess.PIPE,
@@ -160,8 +133,8 @@ def update_uplink_connection():
         "bgp_router_id": config.VPNC_SERVICE_CONFIG.bgp.router_id,
         "bgp_asn": config.VPNC_SERVICE_CONFIG.bgp.asn,
         "uplinks": uplink_configs,
-        "prefix_uplink": PREFIX_UPLINK,
-        "prefix_downlink_v6": PREFIX_DOWNLINK_V6,
+        "prefix_uplink": config.VPNC_SERVICE_CONFIG.prefix_uplink,
+        "prefix_downlink_v6": config.VPNC_SERVICE_CONFIG.prefix_downlink_v6,
     }
     bgp_render = bgp_template.render(**bgp_configs)
     logger.info(bgp_render)
@@ -242,16 +215,15 @@ def add_downlink_connection(path: pathlib.Path):
         v6_segment_4 = int(vpn_id_int)  # outputs 1
         v6_segment_5 = int(tunnel_id)  # outputs 0
         # outputs fdcc:0:c:1:0
-        v6_downlink_space = (
-            f"{PREFIX_DOWNLINK_V6_START}:{v6_segment_3}:{v6_segment_4}:{v6_segment_5}"
-        )
+        v6_downlink_space = f"{config.VPNC_SERVICE_CONFIG.prefix_downlink_v6.exploded[:9]}:{v6_segment_3}:{v6_segment_4}:{v6_segment_5}"
 
         if t_config.tunnel_ip:
             v4_downlink_tunnel_ip = t_config.tunnel_ip
         else:
             v4_downlink_tunnel_offset = ipaddress.IPv4Address(f"0.0.{int(tunnel_id)}.1")
             v4_downlink_tunnel_ip = ipaddress.IPv4Address(
-                int(PREFIX_DOWNLINK_V4[0]) + int(v4_downlink_tunnel_offset)
+                int(config.VPNC_SERVICE_CONFIG.prefix_downlink_v4[0])
+                + int(v4_downlink_tunnel_offset)
             )
             v4_downlink_tunnel_ip = f"{v4_downlink_tunnel_ip}/24"
 
@@ -270,7 +242,7 @@ def add_downlink_connection(path: pathlib.Path):
             ip -n {config.TRUSTED_NETNS} -6 address add {v6_downlink_space}:1:0:0/127 dev {veth_i}
             ip -n {netns} -6 address add {v6_downlink_space}:1:0:1/127 dev {veth_e}
             # add route from DOWNLINK to MGMT network via TRUSTED namespace
-            ip -n {netns} -6 route add {PREFIX_UPLINK} via {v6_downlink_space}:1:0:0
+            ip -n {netns} -6 route add {config.VPNC_SERVICE_CONFIG.prefix_uplink} via {v6_downlink_space}:1:0:0
             # configure XFRM interfaces
             ip -n {config.UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {config.VPNC_SERVICE_CONFIG.untrusted_if_name} if_id 0x{xfrm_id}
             ip -n {config.UNTRUSTED_NETNS} link set {xfrm} netns {netns}
@@ -397,11 +369,6 @@ def main():
     """
     logger.info("#" * 100)
     logger.info("Starting ncubed VPNC strongSwan daemon in hub mode.")
-
-    # Set a flag that specifies the run mode.
-    config.VPNC_SERVICE_MODE = models.ServiceMode("hub")
-    # Load the global configuration from file.
-    helpers.load_config(config.VPNC_A_SERVICE_CONFIG_PATH)
 
     # Mounts the default network namespace with the alias ROOT. This makes for consistent operation
     # between all namespaces

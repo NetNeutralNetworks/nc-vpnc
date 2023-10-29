@@ -1,4 +1,8 @@
 ---
+# Runtime mode
+# Defines if the service is running in endpoint or hub mode
+mode: endpoint
+
 # UNTRUSTED INTERFACE CONFIG
 # Untrusted/outside interface
 untrusted_if_name:

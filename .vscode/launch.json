@@ -39,7 +39,7 @@
             "name": "Python: Module - hub",
             "type": "python",
             "request": "launch",
-            "module": "vpnc.vpnchub",
+            "module": "vpnc.vpnc_hub",
             "console": "integratedTerminal",
             "justMyCode": true,
             "sudo": true,
@@ -49,7 +49,7 @@
             "name": "Python: Module - endpoint",
             "type": "python",
             "request": "launch",
-            "module": "vpnc.vpncendpoint",
+            "module": "vpnc.vpnc_endpoint",
             "console": "integratedTerminal",
             "justMyCode": true,
             "sudo": true,
@@ -64,7 +64,14 @@
             "justMyCode": true,
             "sudo": true,
             "cwd": "${workspaceFolder}/vpnc/",
-            "args": ["remote", "D0001", "commit", "--dry-run", "--diff", "--revert"]
+            "args": [
+                "remote",
+                "D0001",
+                "commit",
+                "--dry-run",
+                "--diff",
+                "--revert"
+            ]
         }
     ]
 }

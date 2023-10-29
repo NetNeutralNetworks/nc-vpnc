@@ -1,4 +1,8 @@
 ---
+# Runtime mode
+# Defines if the service is running in endpoint or hub mode
+mode: hub
+
 # UNTRUSTED INTERFACE CONFIG
 # Untrusted/outside interface
 untrusted_if_name: "eth1"
@@ -16,23 +20,28 @@ uplinks:
     remote_peer_ip: 192.168.0.252
     # Optional: If not set, defaults to remote_peer_ip
     # remote_id: 192.168.0.252
-    # Optional: IPv6 prefix for tunnel/BGP peering between this host and the client VPN host.
+    # Optional: IPv6 prefix for tunnel/BGP peering between this host and the provider client VPN host.
+    # Not required if the remote is capable of BGP unnumbered.
     # prefix_uplink_tunnel: "fd33:2:f:1::/127"
     psk: secretpassword
   1:
     remote_peer_ip: 192.168.0.253
     # Optional: If not set, defaults to remote_peer_ip
     # remote_id: 192.168.0.253
-    # Optional: IPv6 prefix for tunnel/BGP peering between this host and the client VPN host.
+    # Optional: IPv6 prefix for tunnel/BGP peering between this host and the provider client VPN host.
+    # Not required if the remote is capable of BGP unnumbered.
     # prefix_uplink_tunnel: "fd33:2:f:2::/127"
     psk: secretpassword
 
 # OVERLAY CONFIG
-# IPv6 prefix for client initiating administration traffic.
+# IPv6 prefix for provider client subnets initiating administration traffic to customers.
 prefix_uplink: "fd33::/16"
 # IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
+# The prefix is the same for all customers. Customers will see traffic originating from this prefix.
 prefix_downlink_v4: "100.99.0.0/16"
 # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
+# This is the prefix by which each customer will be uniquely identified.
+# Customer 0001 will use fdcc:0:c:1::/64 and customer with identifier 0002 will use fdcc:0:c:2::/64.
 prefix_downlink_v6: "fdcc::/32"
 
 ## BGP config

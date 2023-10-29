@@ -3,7 +3,6 @@
 Models used by the services.
 """
 
-from dataclasses import dataclass, field
 from enum import Enum
 from ipaddress import (
     IPv4Address,
@@ -12,13 +11,11 @@ from ipaddress import (
     IPv6Address,
     IPv6Interface,
     IPv6Network,
-    ip_address,
-    ip_interface,
-    ip_network,
 )
 from typing import Literal
 
 import yaml
+from pydantic import BaseModel, Field
 
 
 def _represent_ipv4_address(dumper: yaml.SafeDumper, node: IPv4Address):
@@ -162,28 +159,26 @@ class ServiceMode(Enum):
     ENDPOINT = "endpoint"
 
 
-@dataclass(kw_only=True)
-class TrafficSelectors:
+class TrafficSelectors(BaseModel):
     """
     Defines a traffic selector data structure
     """
 
-    local: list[IPv4Network | IPv6Network] = field(default_factory=list)
-    remote: list[IPv4Network | IPv6Network] = field(default_factory=list)
+    local: list[IPv4Network | IPv6Network] = Field(default_factory=list)
+    remote: list[IPv4Network | IPv6Network] = Field(default_factory=list)
 
-    def __post_init__(self):
-        self.local = [ip_network(x) for x in self.local]
-        self.remote = [ip_network(x) for x in self.remote]
+    # def __post_init__(self):
+    #     self.local = [ip_network(x) for x in self.local]
+    #     self.remote = [ip_network(x) for x in self.remote]
 
 
-@dataclass(kw_only=True)
-class Tunnel:
+class Tunnel(BaseModel):
     """
     Defines a tunnel data structure
     """
 
-    description: str = ""
-    metadata: dict = field(default_factory=dict)
+    description: str | None = None
+    metadata: dict | None = Field(default_factory=dict)
     remote_peer_ip: IPv4Address | IPv6Address
     remote_id: str | None = None
     ike_version: Literal[1, 2] = 2
@@ -192,48 +187,46 @@ class Tunnel:
     psk: str
     tunnel_ip: IPv4Interface | IPv6Interface | None = None
     # Mutually exclusive with traffic selectors
-    routes: list[IPv4Network | IPv6Network] = field(default_factory=list)
+    routes: list[IPv4Network | IPv6Network] | None = Field(default_factory=list)
     # Mutually exclusive with routes
-    traffic_selectors: TrafficSelectors = field(default=TrafficSelectors())
+    traffic_selectors: TrafficSelectors | None = Field(default_factory=TrafficSelectors)
 
-    def __post_init__(self):
-        self.description = str(self.description)
-        self.remote_peer_ip = ip_address(self.remote_peer_ip)
-        if not self.remote_id:
-            self.remote_id = str(self.remote_peer_ip)
-        self.ike_version = int(self.ike_version)
-        assert self.ike_version in [1, 2]
-        if self.tunnel_ip:
-            self.tunnel_ip = ip_interface(self.tunnel_ip)
-        if isinstance(self.routes, list):
-            self.routes = [ip_network(x) for x in self.routes]
-        if isinstance(self.traffic_selectors, dict):
-            self.traffic_selectors = TrafficSelectors(**self.traffic_selectors)
-        if self.routes and (
-            self.traffic_selectors.remote or self.traffic_selectors.local
-        ):
-            raise ValueError("Cannot specify both routes and traffic selectors.")
+    # def __post_init__(self):
+    #     self.description = str(self.description)
+    #     self.remote_peer_ip = ip_address(self.remote_peer_ip)
+    #     if not self.remote_id:
+    #         self.remote_id = str(self.remote_peer_ip)
+    #     self.ike_version = int(self.ike_version)
+    #     assert self.ike_version in [1, 2]
+    #     if self.tunnel_ip:
+    #         self.tunnel_ip = ip_interface(self.tunnel_ip)
+    #     if isinstance(self.routes, list):
+    #         self.routes = [ip_network(x) for x in self.routes]
+    #     if isinstance(self.traffic_selectors, dict):
+    #         self.traffic_selectors = TrafficSelectors(**self.traffic_selectors)
+    #     if self.routes and (
+    #         self.traffic_selectors.remote or self.traffic_selectors.local
+    #     ):
+    #         raise ValueError("Cannot specify both routes and traffic selectors.")
 
 
-@dataclass(kw_only=True)
-class Remote:
+class Remote(BaseModel):
     """
     Defines a remote side data structure
     """
 
-    id: str = ""
-    name: str = ""
-    metadata: dict = field(default_factory=dict)
-    tunnels: dict[int, Tunnel] = field(default_factory=dict)
+    id: str
+    name: str
+    metadata: dict = Field(default_factory=dict)
+    tunnels: dict[int, Tunnel] = Field(default_factory=dict)
 
-    def __post_init__(self):
-        self.id = str(self.id)
-        self.name = str(self.name)
-        self.tunnels = {k: Tunnel(**v) for (k, v) in self.tunnels.items()}
+    # def __post_init__(self):
+    #     self.id = str(self.id)
+    #     self.name = str(self.name)
+    #     self.tunnels = {k: Tunnel(**v) for (k, v) in self.tunnels.items()}
 
 
-@dataclass(kw_only=True)
-class BGP:
+class BGP(BaseModel):
     """
     Defines an BGP data structure
     """
@@ -241,13 +234,12 @@ class BGP:
     asn: int = 4200000000
     router_id: IPv4Address = IPv4Address("1.0.0.1")
 
-    def __post_init__(self):
-        self.asn = int(self.asn)
-        self.router_id = IPv4Address(self.router_id)
+    # def __post_init__(self):
+    #     self.asn = int(self.asn)
+    #     self.router_id = IPv4Address(self.router_id)
 
 
-@dataclass(kw_only=True)
-class Uplink:
+class Uplink(BaseModel):
     """
     Defines an uplink data structure
     """
@@ -260,31 +252,32 @@ class Uplink:
     prefix_uplink_tunnel: IPv6Interface | None = None
     asn: int | None = None
 
-    def __post_init__(self):
-        self.remote_peer_ip = ip_address(self.remote_peer_ip)
-        if not self.remote_id:
-            self.remote_id = str(self.remote_peer_ip)
-        if self.prefix_uplink_tunnel:
-            self.prefix_uplink_tunnel = IPv6Interface(self.prefix_uplink_tunnel)
-        if self.asn:
-            self.asn = int(self.asn)
-        if self.asn and not self.prefix_uplink_tunnel:
-            raise ValueError(
-                "Prefix for the uplink tunnel must be specified if ASN is specified."
-            )
-        if self.prefix_uplink_tunnel and not self.asn:
-            raise ValueError("ASN must be specified if tunnel prefix is specified.")
+    # def __post_init__(self):
+    #     self.remote_peer_ip = ip_address(self.remote_peer_ip)
+    #     if not self.remote_id:
+    #         self.remote_id = str(self.remote_peer_ip)
+    #     if self.prefix_uplink_tunnel:
+    #         self.prefix_uplink_tunnel = IPv6Interface(self.prefix_uplink_tunnel)
+    #     if self.asn:
+    #         self.asn = int(self.asn)
+    #     if self.asn and not self.prefix_uplink_tunnel:
+    #         raise ValueError(
+    #             "Prefix for the uplink tunnel must be specified if ASN is specified."
+    #         )
+    #     if self.prefix_uplink_tunnel and not self.asn:
+    #         raise ValueError("ASN must be specified if tunnel prefix is specified.")
 
 
-@dataclass(kw_only=True)
-class Service:
+class Service(BaseModel):
     """
     Defines a service data structure
     """
 
+    mode: ServiceMode
+
     # UNTRUSTED INTERFACE CONFIG
     # Untrusted/outside interface
-    untrusted_if_name: str = ""
+    untrusted_if_name: str
     # IP address of untrusted/outside interface
     untrusted_if_ip: IPv4Interface | IPv6Interface | None = None
     # Default gateway of untrusted/outside interface
@@ -292,16 +285,15 @@ class Service:
 
     # VPN CONFIG
     # IKE local identifier for VPNs
-    local_id: str = ""
+    local_id: str
 
-    def __post_init__(self):
-        if self.untrusted_if_ip:
-            self.untrusted_if_ip = ip_interface(self.untrusted_if_ip)
-        if self.untrusted_if_gw:
-            self.untrusted_if_gw = ip_address(self.untrusted_if_gw)
+    # def __post_init__(self):
+    #     if self.untrusted_if_ip:
+    #         self.untrusted_if_ip = ip_interface(self.untrusted_if_ip)
+    #     if self.untrusted_if_gw:
+    #         self.untrusted_if_gw = ip_address(self.untrusted_if_gw)
 
 
-@dataclass(kw_only=True)
 class ServiceHub(Service):
     """
     Defines a hub data structure
@@ -309,7 +301,7 @@ class ServiceHub(Service):
 
     # VPN CONFIG
     # Uplink VPNs
-    uplinks: dict[int, Uplink] = field(default_factory=dict)
+    uplinks: dict[int, Uplink]
 
     # OVERLAY CONFIG
     # IPv6 prefix for client initiating administration traffic.
@@ -321,24 +313,24 @@ class ServiceHub(Service):
 
     ## BGP config
     # bgp_asn private range is between 4.200.000.000 and 4.294.967.294 inclusive.
-    bgp: BGP = BGP()
+    bgp: BGP
 
-    def __post_init__(self):
-        if self.untrusted_if_ip:
-            self.untrusted_if_ip = ip_interface(self.untrusted_if_ip)
-        if self.untrusted_if_gw:
-            self.untrusted_if_gw = ip_address(self.untrusted_if_gw)
-        if self.prefix_uplink:
-            self.prefix_uplink = IPv6Network(self.prefix_uplink)
-        if self.prefix_downlink_v4:
-            self.prefix_downlink_v4 = IPv4Network(self.prefix_downlink_v4)
-        if self.prefix_downlink_v6:
-            self.prefix_downlink_v6 = IPv6Network(self.prefix_downlink_v6)
-        if self.uplinks:
-            for k, v in self.uplinks.items():
-                if isinstance(v, Uplink):
-                    self.uplinks[k] = v
-                elif isinstance(v, dict):
-                    self.uplinks[k] = Uplink(**v)
-        if self.bgp and not isinstance(self.bgp, BGP):
-            self.bgp = BGP(**self.bgp)
+    # def __post_init__(self):
+    #     if self.untrusted_if_ip:
+    #         self.untrusted_if_ip = ip_interface(self.untrusted_if_ip)
+    #     if self.untrusted_if_gw:
+    #         self.untrusted_if_gw = ip_address(self.untrusted_if_gw)
+    #     if self.prefix_uplink:
+    #         self.prefix_uplink = IPv6Network(self.prefix_uplink)
+    #     if self.prefix_downlink_v4:
+    #         self.prefix_downlink_v4 = IPv4Network(self.prefix_downlink_v4)
+    #     if self.prefix_downlink_v6:
+    #         self.prefix_downlink_v6 = IPv6Network(self.prefix_downlink_v6)
+    #     if self.uplinks:
+    #         for k, v in self.uplinks.items():
+    #             if isinstance(v, Uplink):
+    #                 self.uplinks[k] = v
+    #             elif isinstance(v, dict):
+    #                 self.uplinks[k] = Uplink(**v)
+    #     if self.bgp and not isinstance(self.bgp, BGP):
+    #         self.bgp = BGP(**self.bgp)

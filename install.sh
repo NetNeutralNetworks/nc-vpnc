@@ -72,25 +72,24 @@ endpoint)
 esac
 
 # It's important to have the link have the same name as the desired service, otherwise the symlink won't work.
-/usr/bin/systemctl stop ncubed-${SERVICENAME}-hub.service
-/usr/bin/systemctl disable ncubed-${SERVICENAME}-hub.service
-/usr/bin/systemctl stop ncubed-${SERVICENAME}-endpoint.service
-/usr/bin/systemctl disable ncubed-${SERVICENAME}-endpoint.service
+/usr/bin/systemctl stop ncubed-${SERVICENAME}.service
+/usr/bin/systemctl disable ncubed-${SERVICENAME}.service
 
-/usr/bin/systemctl link ${BASEDIR}/config/vpnc/units/ncubed-${SERVICENAME}-$1.service
+/usr/bin/systemctl link ${BASEDIR}/config/vpnc/units/ncubed-${SERVICENAME}.service
 
 cp -n ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example \
     ${BASEDIR}/config/${SERVICENAME}/candidate/service/config.yaml
 cp -n ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example \
     ${BASEDIR}/config/${SERVICENAME}/active/service/config.yaml
 
-# Enable the service
-/usr/bin/systemctl daemon-reload
-/usr/bin/systemctl enable ncubed-${SERVICENAME}-$1
-/usr/bin/systemctl restart ncubed-${SERVICENAME}-$1
-
 # Run migrations to current version
 ${SCRIPTDIR}/setup/migrate.sh
+
+# Enable the service
+/usr/bin/systemctl daemon-reload
+/usr/bin/systemctl enable ncubed-${SERVICENAME}
+/usr/bin/systemctl restart ncubed-${SERVICENAME}
+
 
 # Add the default profile for the service
 cp ${SCRIPTDIR}/setup/profile-nc-vpn.sh /etc/profile.d/

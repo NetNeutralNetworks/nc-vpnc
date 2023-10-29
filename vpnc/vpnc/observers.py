@@ -55,7 +55,7 @@ def downlink_observer() -> Observer:
     """
     Create the observer for downlink connections configuration
     """
-    if config.VPNC_SERVICE_MODE.name == "HUB":
+    if config.VPNC_SERVICE_CONFIG.mode.name == "HUB":
         module = vpnc_hub
     else:
         module = vpnc_endpoint

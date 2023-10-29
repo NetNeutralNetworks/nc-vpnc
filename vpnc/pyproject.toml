@@ -10,28 +10,32 @@ authors = [{ name="Tony Fortes Ramos", email="tony.fortesramos@ncubed.nl" }]
 requires-python = ">=3.10"
 keywords = ["ncubed", "vpnc", "vpn"]
 license = {text = "GNU General Public License v3 (GPLv3)"}
-# classifiers = [
-#     "Framework :: Django",
-#     "Programming Language :: Python :: 3",
-# ]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Natural Language :: English",
+    "Operating System :: Linux",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
 dependencies = [
-    "deepdiff==6.2.2",
-    "Jinja2==3.1.2",
-    "NetfilterQueue==1.0.0",
-    "PyYAML==6.0",
-    "scapy==2.5.0rc3",
+    "deepdiff~=6.2",
+    "Jinja2~=3.1",
+    "NetfilterQueue~=1.1",
+    "PyYAML~=6.0",
+    "scapy~=2.5",
     "typer[all]",
-    "vici==5.9.3",
-    "watchdog==2.2.0",
+    "vici~=5.9",
+    "watchdog~=3.0",
+    "pydantic~=2.4",
 ]
 dynamic = ["version"]
 
 [project.optional-dependencies]
 dev = [
-    "bandit==1.7.4",
-    "black==22.12.0",
-    "mypy==0.991",
-    "pylint==2.15.9",
+    "bandit",
 ]
 
 [project.scripts]

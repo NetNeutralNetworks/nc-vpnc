@@ -1,15 +1,14 @@
 [Unit]
-Description=ncubed VPNC hub strongSwan IPsec init
+Description=ncubed VPNC strongSwan IPsec init
 StartLimitInterval=200
 StartLimitBurst=5
 Wants=network-online.target
-Wants=frr.service
 After=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/ncubed
-ExecStart=/opt/ncubed/vpnc/bin/vpnc hub
+ExecStart=/opt/ncubed/vpnc/bin/vpnc
 Restart=on-failure
 RestartSec=15
 
