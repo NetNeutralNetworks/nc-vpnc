@@ -15,7 +15,7 @@ from watchdog.events import (
 )
 from watchdog.observers import Observer
 
-from . import config, helpers, vpncendpoint, vpnchub
+from . import config, helpers, vpnc_endpoint, vpnc_hub
 
 logger = logging.getLogger("vpnc")
 
@@ -35,7 +35,7 @@ def uplink_observer() -> Observer:
             logger.info("File %s: %s", event.event_type, event.src_path)
             helpers.load_config(config.VPNC_A_SERVICE_CONFIG_PATH)
             time.sleep(0.1)
-            vpnchub.update_uplink_connection()
+            vpnc_hub.update_uplink_connection()
 
     # Create the observer object. This doesn't start the handler.
     observer = Observer()
@@ -56,9 +56,9 @@ def downlink_observer() -> Observer:
     Create the observer for downlink connections configuration
     """
     if config.VPNC_SERVICE_MODE.name == "HUB":
-        module = vpnchub
+        module = vpnc_hub
     else:
-        module = vpncendpoint
+        module = vpnc_endpoint
 
     # Define what should happen when downlink files are created, modified or deleted.
     class DownlinkHandler(PatternMatchingEventHandler):

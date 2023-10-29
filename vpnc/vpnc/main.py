@@ -9,7 +9,7 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 
-from . import config, vpncendpoint, vpnchub
+from . import config, vpnc_endpoint, vpnc_hub
 
 # LOGGER
 # Get logger
@@ -49,12 +49,12 @@ def main():
     parser_start = subparser.add_parser(
         name="hub", help="Starts the VPN service in hub mode"
     )
-    parser_start.set_defaults(func=vpnchub.main)
+    parser_start.set_defaults(func=vpnc_hub.main)
 
     parser_start = subparser.add_parser(
         name="endpoint", help="Starts the VPN service in endpoint mode"
     )
-    parser_start.set_defaults(func=vpncendpoint.main)
+    parser_start.set_defaults(func=vpnc_endpoint.main)
 
     args = parser.parse_args()
 

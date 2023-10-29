@@ -35,7 +35,7 @@ def add_downlink_connection(path: pathlib.Path):
 
     # Parse the YAML file to a Downlink object and validate the input.
     try:
-        config = models.Remote(**config_yaml)
+        remote_config = models.Remote(**config_yaml)
     except (TypeError, ValueError):
         logger.error(
             "Invalid configuration found in '%s'. Skipping.", path, exc_info=True
@@ -43,7 +43,7 @@ def add_downlink_connection(path: pathlib.Path):
         return
 
     # Get the downlink ID. This must match the file name.
-    vpn_id = config.id
+    vpn_id = remote_config.id
     vpn_id_int = int(vpn_id[1:])
 
     if vpn_id != path.stem:
@@ -67,12 +67,12 @@ def add_downlink_connection(path: pathlib.Path):
     xfrm_diff = {
         x["ifname"] for x in ip_xfrm if x["ifname"].startswith(f"xfrm-{vpn_id}")
     }
-    xfrm_ref = {f"xfrm-{vpn_id}-{x:03}" for x in config.tunnels}
+    xfrm_ref = {f"xfrm-{vpn_id}-{x:03}" for x in remote_config.tunnels}
     xfrm_remove = xfrm_diff.difference(xfrm_ref)
 
     # Configure XFRM interfaces for downlinks
     logger.info("Setting up downlink xfrm interfaces.")
-    for tunnel_id, tunnel_config in config.tunnels.items():
+    for tunnel_id, tunnel_config in remote_config.tunnels.items():
         xfrm = f"xfrm-{vpn_id}-{tunnel_id:03}"
         xfrm_id = int(vpn_id_int) * 1000 + int(tunnel_id)
 
@@ -110,7 +110,7 @@ def add_downlink_connection(path: pathlib.Path):
     logger.info("Setting up VPN tunnels.")
     downlink_template = config.VPNC_TEMPLATES_ENV.get_template("downlink.conf.j2")
     downlink_configs = []
-    for tunnel_id, tunnel_config in config.tunnels.items():
+    for tunnel_id, tunnel_config in remote_config.tunnels.items():
         t_config = {
             "remote": vpn_id,
             "t_id": f"{tunnel_id:03}",

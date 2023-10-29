@@ -184,6 +184,7 @@ def add_downlink_connection(path: pathlib.Path):
     Configures downlink VPN connections.
     """
 
+    # Open the configuration file and check if it's valid YAML.
     with open(path, "r", encoding="utf-8") as f:
         try:
             config_yaml = yaml.safe_load(f)
@@ -193,7 +194,7 @@ def add_downlink_connection(path: pathlib.Path):
 
     # Parse the YAML file to a Downlink object and validate the input.
     try:
-        config = models.Remote(**config_yaml)
+        remote_config = models.Remote(**config_yaml)
     except (TypeError, ValueError):
         logger.error(
             "Invalid configuration found in '%s'. Skipping.", path, exc_info=True
@@ -201,7 +202,7 @@ def add_downlink_connection(path: pathlib.Path):
         return
 
     # Get the downlink ID. This must match the file name.
-    vpn_id = config.id
+    vpn_id = remote_config.id
     vpn_id_int = int(vpn_id[1:])
 
     if vpn_id != path.stem:
@@ -223,12 +224,12 @@ def add_downlink_connection(path: pathlib.Path):
     ip_netns = json.loads(ip_netns_str)
 
     netns_diff = {x["name"] for x in ip_netns if x["name"].startswith(vpn_id)}
-    netns_ref = {f"{vpn_id}-{x:03}" for x in config.tunnels}
+    netns_ref = {f"{vpn_id}-{x:03}" for x in remote_config.tunnels}
     netns_remove = netns_diff.difference(netns_ref)
 
     # Configure XFRM interfaces for downlinks
     logger.info("Setting up uplink xfrm interfaces for %s netns.", config.TRUSTED_NETNS)
-    for tunnel_id, t_config in config.tunnels.items():
+    for tunnel_id, t_config in remote_config.tunnels.items():
         netns = f"{vpn_id}-{tunnel_id:03}"
 
         veth_i = f"{netns}_I"
@@ -299,7 +300,7 @@ def add_downlink_connection(path: pathlib.Path):
     # VPN DOWNLINKS
     downlink_template = config.VPNC_TEMPLATES_ENV.get_template("downlink.conf.j2")
     downlink_configs = []
-    for tunnel_id, tunnel_config in config.tunnels.items():
+    for tunnel_id, tunnel_config in remote_config.tunnels.items():
         t_config = {
             "remote": vpn_id,
             "t_id": f"{tunnel_id:03}",
