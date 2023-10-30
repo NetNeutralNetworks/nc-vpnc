@@ -63,11 +63,6 @@ def load_config(config_path: pathlib.Path):
             )
             sys.exit(1)
 
-    if new_cfg_dict.get("mode") == "hub":
-        service = models.ServiceHub
-    else:
-        service = models.Service
-
-    config.VPNC_SERVICE_CONFIG = service(**new_cfg_dict)
+    config.VPNC_SERVICE_CONFIG = models.Service(**new_cfg_dict)
 
     logger.info("Loaded new configuration.")

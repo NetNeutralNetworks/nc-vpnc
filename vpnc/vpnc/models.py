@@ -12,10 +12,11 @@ from ipaddress import (
     IPv6Interface,
     IPv6Network,
 )
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic_core import PydanticCustomError
 
 
 def _represent_ipv4_address(dumper: yaml.SafeDumper, node: IPv4Address):
@@ -164,8 +165,8 @@ class TrafficSelectors(BaseModel):
     Defines a traffic selector data structure
     """
 
-    local: list[IPv4Network | IPv6Network] = Field(default_factory=list)
-    remote: list[IPv4Network | IPv6Network] = Field(default_factory=list)
+    local: set[IPv4Network | IPv6Network] = Field(default_factory=set)
+    remote: set[IPv4Network | IPv6Network] = Field(default_factory=set)
 
     # def __post_init__(self):
     #     self.local = [ip_network(x) for x in self.local]
@@ -187,7 +188,7 @@ class Tunnel(BaseModel):
     psk: str
     tunnel_ip: IPv4Interface | IPv6Interface | None = None
     # Mutually exclusive with traffic selectors
-    routes: list[IPv4Network | IPv6Network] | None = Field(default_factory=list)
+    routes: set[IPv4Network | IPv6Network] | None = Field(default_factory=set)
     # Mutually exclusive with routes
     traffic_selectors: TrafficSelectors | None = Field(default_factory=TrafficSelectors)
 
@@ -286,6 +287,35 @@ class Service(BaseModel):
     # VPN CONFIG
     # IKE local identifier for VPNs
     local_id: str
+    # Uplink VPNs
+    uplinks: dict[int, Uplink] | None = None
+
+    # OVERLAY CONFIG
+    # IPv6 prefix for client initiating administration traffic.
+    prefix_uplink: IPv6Network = IPv6Network("fd33::/16")
+    # IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
+    prefix_downlink_v4: IPv4Network = IPv4Network("100.99.0.0/16")
+    # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
+    prefix_downlink_v6: IPv6Network = IPv6Network("fdcc::/32")
+
+    ## BGP config
+    # bgp_asn private range is between 4.200.000.000 and 4.294.967.294 inclusive.
+    bgp: BGP | None = None
+
+    @field_validator(
+        "uplinks", "prefix_uplink", "prefix_downlink_v4", "prefix_downlink_v6", "bgp"
+    )
+    @classmethod
+    def check_endpoint_mode(cls, v: Any, info: ValidationInfo) -> Any:
+        mode: ServiceMode = info.data["mode"]
+        if mode.name == "ENDPOINT" and v is not None:
+            raise PydanticCustomError(
+                "service mode error",
+                "value for {prop} must be None or unset",
+                {"prop": v},
+            )
+
+        return v
 
     # def __post_init__(self):
     #     if self.untrusted_if_ip:

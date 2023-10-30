@@ -3,19 +3,15 @@
 import os
 import tempfile
 from dataclasses import asdict
-from ipaddress import ip_address, ip_interface, IPv4Address, IPv4Network, IPv6Network
 from subprocess import call
 
 import typer
 import yaml
 from deepdiff import DeepDiff
 
-from . import servicecon
 from .. import config, models
-from .helpers import (
-    validate_ip_address,
-    validate_ip_network,
-)
+from . import servicecon
+from .helpers import validate_ip_address, validate_ip_network
 
 app = typer.Typer()
 app.add_typer(servicecon.app, name="connection")
@@ -33,16 +29,15 @@ def show(
     else:
         path = config.VPNC_C_SERVICE_CONFIG_PATH
 
-    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+    with open(config.VPNC_A_SERVICE_CONFIG_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
-    svc = models.Service if mode == "endpoint" else models.ServiceHub
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        service = svc(**yaml.safe_load(f))
+        service = models.Service(**yaml.safe_load(f))
 
-    output = asdict(service)
+    output = service.model_dump(mode="json")
     if full:
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
     elif mode == "hub":
@@ -59,10 +54,9 @@ def edit():
     """
     path = config.VPNC_C_SERVICE_CONFIG_PATH
 
-    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
+    with open(config.VPNC_A_SERVICE_CONFIG_PATH, "r", encoding="utf-8") as f:
         mode = yaml.safe_load(f)["mode"]
 
-    svc = models.Service if mode == "endpoint" else models.ServiceHub
     editor = os.environ.get("EDITOR", "vim")
 
     if not path.exists():
@@ -78,11 +72,11 @@ def edit():
         tf.seek(0)
         edited_message = tf.read()
 
-    edited_service = svc(**yaml.safe_load(edited_message))
+    edited_service = models.Service(**yaml.safe_load(edited_message))
     print("Edited file")
 
     output = yaml.safe_dump(
-        asdict(edited_service), explicit_start=True, explicit_end=True
+        edited_service.model_dump(mode="json"), explicit_start=True, explicit_end=True
     )
     with open(path, mode="w", encoding="utf-8") as f:
         f.write(output)
@@ -99,45 +93,39 @@ def set_(
     prefix_uplink: str = typer.Option(None, callback=validate_ip_network),
     prefix_downlink_v4: str = typer.Option(None, callback=validate_ip_network),
     prefix_downlink_v6: str = typer.Option(None, callback=validate_ip_network),
-    bgp_asn: str = typer.Option(None, callback=validate_ip_address),
+    bgp_asn: str = typer.Option(None),
     bgp_router_id: str = typer.Option(None, callback=validate_ip_address),
 ):
     """
     Set service properties
     """
-    path = config.VPNC_C_SERVICE_CONFIG_PATH
-    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
-        mode = yaml.safe_load(f)["mode"]
+    all_args = {k: v for k, v in locals().items() if v is not None}
 
-    svc = models.Service if mode == "endpoint" else models.ServiceHub
+    path = config.VPNC_C_SERVICE_CONFIG_PATH
+    with open(config.VPNC_A_SERVICE_CONFIG_PATH, "r", encoding="utf-8") as f:
+        mode = yaml.safe_load(f)["mode"]
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        service = svc(**yaml.safe_load(f))
+        service = models.Service(**yaml.safe_load(f))
 
-    if untrusted_if_name:
-        service.untrusted_if_name = untrusted_if_name
-    if untrusted_if_ip:
-        service.untrusted_if_ip = ip_interface(untrusted_if_ip)
-    if untrusted_if_gw:
-        service.untrusted_if_gw = ip_address(untrusted_if_gw)
-    if local_id:
-        service.local_id = local_id
-    if mode == "hub":
-        if prefix_uplink:
-            service.prefix_uplink = IPv6Network(prefix_uplink)
-        if prefix_downlink_v4:
-            service.prefix_downlink_v4 = IPv4Network(prefix_downlink_v4)
-        if prefix_downlink_v6:
-            service.prefix_downlink_v6 = IPv6Network(prefix_downlink_v6)
+    bgp = {}
+    if any([bgp_asn, bgp_router_id]):
         if bgp_asn:
-            service.bgp.asn = int(bgp_asn)
+            bgp["asn"] = bgp_asn
+            all_args.pop("bgp_asn")
         if bgp_router_id:
-            service.bgp.router_id = IPv4Address(bgp_router_id)
+            bgp["router_id"] = bgp_router_id
+            all_args.pop("bgp_router_id")
+
+    updated_service = service.model_copy(update=all_args)
+    updated_service.bgp = updated_service.bgp.model_copy(update=bgp)
 
     # performs the class post_init construction.
-    output = yaml.safe_dump(asdict(service), explicit_start=True, explicit_end=True)
+    output = yaml.safe_dump(
+        updated_service.model_dump(mode="json"), explicit_start=True, explicit_end=True
+    )
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
     show(active=False)
@@ -155,26 +143,21 @@ def commit(
     path = config.VPNC_C_SERVICE_CONFIG_PATH
     path_diff = config.VPNC_A_SERVICE_CONFIG_PATH
 
-    with open(config.VPNC_A_SERVICE_MODE_PATH, "r", encoding="utf-8") as f:
-        mode = yaml.safe_load(f)["mode"]
-
-    svc = models.Service if mode == "endpoint" else models.ServiceHub
-
     if not path.exists():
         service_yaml = ""
-        service = svc()
+        service = models.Service()
     else:
         with open(path, "r", encoding="utf-8") as f:
             service_yaml = f.read()
-            service = svc(**yaml.safe_load(service_yaml))
+            service = models.Service(**yaml.safe_load(service_yaml))
 
     if not path_diff.exists():
         service_diff_yaml = ""
-        service_diff = svc()
+        service_diff = models.Service()
     else:
         with open(path_diff, "r", encoding="utf-8") as f:
             service_diff_yaml = f.read()
-            service_diff = svc(**yaml.safe_load(service_diff_yaml))
+            service_diff = models.Service(**yaml.safe_load(service_diff_yaml))
 
     if service_yaml == service_diff_yaml:
         print("No changes.")
