@@ -11,7 +11,6 @@ import sys
 
 import vici
 import yaml
-from xxlimited import new
 
 from . import config, models
 

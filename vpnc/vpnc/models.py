@@ -274,7 +274,7 @@ class Service(BaseModel):
     Defines a service data structure
     """
 
-    mode: ServiceMode
+    mode: ServiceMode = Field(frozen=True)
 
     # UNTRUSTED INTERFACE CONFIG
     # Untrusted/outside interface
@@ -292,21 +292,24 @@ class Service(BaseModel):
 
     # OVERLAY CONFIG
     # IPv6 prefix for client initiating administration traffic.
-    prefix_uplink: IPv6Network = IPv6Network("fd33::/16")
+    prefix_uplink: IPv6Network | None = Field(default=None, validate_default=True)
     # IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
-    prefix_downlink_v4: IPv4Network = IPv4Network("100.99.0.0/16")
+    prefix_downlink_v4: IPv4Network | None = Field(default=None, validate_default=True)
     # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
-    prefix_downlink_v6: IPv6Network = IPv6Network("fdcc::/32")
+    prefix_downlink_v6: IPv6Network | None = Field(default=None, validate_default=True)
 
     ## BGP config
     # bgp_asn private range is between 4.200.000.000 and 4.294.967.294 inclusive.
-    bgp: BGP | None = None
+    bgp: BGP | None = Field(default=None, validate_default=True)
 
     @field_validator(
         "uplinks", "prefix_uplink", "prefix_downlink_v4", "prefix_downlink_v6", "bgp"
     )
     @classmethod
     def check_endpoint_mode(cls, v: Any, info: ValidationInfo) -> Any:
+        """
+        Performs checks for specific items if running in endpoint mode.
+        """
         mode: ServiceMode = info.data["mode"]
         if mode.name == "ENDPOINT" and v is not None:
             raise PydanticCustomError(
@@ -317,50 +320,68 @@ class Service(BaseModel):
 
         return v
 
-    # def __post_init__(self):
-    #     if self.untrusted_if_ip:
-    #         self.untrusted_if_ip = ip_interface(self.untrusted_if_ip)
-    #     if self.untrusted_if_gw:
-    #         self.untrusted_if_gw = ip_address(self.untrusted_if_gw)
+    @field_validator("prefix_uplink")
+    @classmethod
+    def set_default_prefix_uplink(
+        cls, v: IPv6Network | None, info: ValidationInfo
+    ) -> IPv6Network | None:
+        """
+        Set the default value based on mode.
+        """
+        mode: ServiceMode = info.data["mode"]
+        if mode.name == "HUB" and v is None:
+            # IPv6 prefix for client initiating administration traffic.
+            return IPv6Network("fd33::/16")
+        if mode.name == "ENDPOINT":
+            return None
 
+        return v
 
-class ServiceHub(Service):
-    """
-    Defines a hub data structure
-    """
+    @field_validator("prefix_downlink_v4")
+    @classmethod
+    def set_default_prefix_downlink_v4(
+        cls, v: IPv4Network | None, info: ValidationInfo
+    ) -> IPv4Network | None:
+        """
+        Set the default value based on mode.
+        """
+        mode: ServiceMode = info.data["mode"]
+        if mode.name == "HUB" and v is None:
+            # IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
+            return IPv4Network("100.99.0.0/16")
+        if mode.name == "ENDPOINT":
+            return None
 
-    # VPN CONFIG
-    # Uplink VPNs
-    uplinks: dict[int, Uplink]
+        return v
 
-    # OVERLAY CONFIG
-    # IPv6 prefix for client initiating administration traffic.
-    prefix_uplink: IPv6Network = IPv6Network("fd33::/16")
-    # IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
-    prefix_downlink_v4: IPv4Network = IPv4Network("100.99.0.0/16")
-    # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
-    prefix_downlink_v6: IPv6Network = IPv6Network("fdcc::/32")
+    @field_validator("prefix_downlink_v6")
+    @classmethod
+    def set_default_prefix_downlink_v6(
+        cls, v: IPv6Network | None, info: ValidationInfo
+    ) -> IPv6Network | None:
+        """
+        Set the default value based on mode.
+        """
+        mode: ServiceMode = info.data["mode"]
+        if mode.name == "HUB" and v is None:
+            # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
+            return IPv6Network("fdcc::/32")
+        if mode.name == "ENDPOINT":
+            return None
 
-    ## BGP config
-    # bgp_asn private range is between 4.200.000.000 and 4.294.967.294 inclusive.
-    bgp: BGP
+        return v
 
-    # def __post_init__(self):
-    #     if self.untrusted_if_ip:
-    #         self.untrusted_if_ip = ip_interface(self.untrusted_if_ip)
-    #     if self.untrusted_if_gw:
-    #         self.untrusted_if_gw = ip_address(self.untrusted_if_gw)
-    #     if self.prefix_uplink:
-    #         self.prefix_uplink = IPv6Network(self.prefix_uplink)
-    #     if self.prefix_downlink_v4:
-    #         self.prefix_downlink_v4 = IPv4Network(self.prefix_downlink_v4)
-    #     if self.prefix_downlink_v6:
-    #         self.prefix_downlink_v6 = IPv6Network(self.prefix_downlink_v6)
-    #     if self.uplinks:
-    #         for k, v in self.uplinks.items():
-    #             if isinstance(v, Uplink):
-    #                 self.uplinks[k] = v
-    #             elif isinstance(v, dict):
-    #                 self.uplinks[k] = Uplink(**v)
-    #     if self.bgp and not isinstance(self.bgp, BGP):
-    #         self.bgp = BGP(**self.bgp)
+    @field_validator("bgp")
+    @classmethod
+    def set_default_bgp(cls, v: BGP | None, info: ValidationInfo) -> BGP | None:
+        """
+        Set the default value based on mode.
+        """
+        mode: ServiceMode = info.data["mode"]
+        if mode.name == "HUB" and v is None:
+            # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
+            return BGP()
+        if mode.name == "ENDPOINT":
+            return None
+
+        return v
