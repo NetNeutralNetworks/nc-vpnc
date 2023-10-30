@@ -21,7 +21,7 @@ print_service_state () {
 }
 
 printf "\n"
-print_service_state "ncubed-vpnc-hub"
+print_service_state "ncubed-vpnc"
 
 printf "\e[1m
                    _               _
