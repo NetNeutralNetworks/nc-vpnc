@@ -4,7 +4,6 @@ Starts the service and runs it in either endpoint or hub mode
 """
 
 
-import argparse
 import logging
 import sys
 from logging.handlers import RotatingFileHandler

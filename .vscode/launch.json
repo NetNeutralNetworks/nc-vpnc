@@ -65,12 +65,18 @@
             "sudo": true,
             "cwd": "${workspaceFolder}/vpnc/",
             "args": [
-                "remote",
-                "D0001",
-                "commit",
-                "--dry-run",
-                "--diff",
-                "--revert"
+                // "remote",
+                // "D0001",
+                // "commit",
+                // "--dry-run",
+                // "--diff",
+                // "--revert"
+                "service",
+                "set",
+                "--untrusted-if-name",
+                "ens3",
+                "--bgp-asn",
+                "1234567",
             ]
         }
     ]

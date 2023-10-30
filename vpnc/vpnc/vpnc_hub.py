@@ -8,7 +8,6 @@ import json
 import logging
 import pathlib
 import subprocess
-import sys
 
 import yaml
 
