@@ -20,6 +20,9 @@ print_service_state () {
   printf "\e[1m$1: $color\t$state\e[0m\n"
 }
 
+# Enable autocomplete
+vpnctl --install-completion > /dev/null
+
 printf "\n"
 print_service_state "ncubed-vpnc"
 
@@ -31,4 +34,26 @@ printf "\e[1m
 | | | ( (___| |_| | |_) ) ____( (_| |
 |_| |_|\____)____/|____/|_____)\____|
 \e[0m
+
+VPNC configuration is stored in /opt/ncubed/config/vpnc
+This directory contains the active and candidate configuration directories.
+
+Manage the configuration by using the 'vpnctl' command. This binary has autocompletion.
+
+> vpnctl service show (--active)
+shows the (active) service configuration
+
+> vpnctl service bgp show
+shows the bgp configuration
+
+> vpnctl service uplink
+shows all provider/management connections
+
+> vpnctl service edit
+opens the default editor for editing the service configuration
+
+> vpnctl service commit
+copy the candidate configuration to the active configuration
+reverting the candidate configuration, dry-runs and diffs are possible
+
 "
