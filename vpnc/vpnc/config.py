@@ -17,6 +17,8 @@ DEEPDIFF_IGNORE = [
         None,
         str,
         int,
+        list,
+        dict,
         ipaddress.IPv4Interface,
         ipaddress.IPv4Address,
         ipaddress.IPv4Network,

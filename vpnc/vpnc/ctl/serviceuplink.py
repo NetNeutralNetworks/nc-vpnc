@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 
 import json
-from ipaddress import IPv4Address, IPv4Network, IPv6Network
+from ipaddress import IPv4Address, IPv6Network
 from typing import Optional
 
 import typer
 import yaml
-from deepdiff import DeepDiff
 from typing_extensions import Annotated
 
 from .. import config, models
@@ -142,6 +141,7 @@ def set_(
     """
     all_args = {k: v for k, v in locals().items() if v}
     all_args.pop("ctx")
+    all_metadata: list[str] = all_args.pop("metadata", {})
     path = config.VPNC_C_SERVICE_CONFIG_PATH
     with open(path, "r", encoding="utf-8") as f:
         service = models.Service(**yaml.safe_load(f))
@@ -161,6 +161,8 @@ def set_(
     tunnel = service.uplinks[tunnel_id]
 
     updated_tunnel = tunnel.model_copy(update=all_args)
+    updated_tunnel.metadata.update(all_metadata)
+
     service.uplinks[tunnel_id] = updated_tunnel
 
     output = yaml.safe_dump(
@@ -208,7 +210,7 @@ def unset(
         tunnel_dict.pop(k)
 
     for i in all_metadata:
-        tunnel_dict["metadata"].pop(i)
+        tunnel_dict["metadata"].pop(i, None)
 
     updated_tunnel = models.Uplink(**tunnel_dict)
     service.uplinks[tunnel_id] = updated_tunnel

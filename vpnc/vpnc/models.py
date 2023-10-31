@@ -188,6 +188,16 @@ class Tunnel(BaseModel):
     # Mutually exclusive with routes
     traffic_selectors: TrafficSelectors | None = Field(default_factory=TrafficSelectors)
 
+    @field_validator("ike_version", mode="before")
+    @classmethod
+    def coerce_ike_version(cls, v: Any):
+        """
+        Coerces strings to integers
+        """
+        if isinstance(v, str) and v.isdigit():
+            return int(v)
+        return v
+
 
 class Remote(BaseModel):
     """

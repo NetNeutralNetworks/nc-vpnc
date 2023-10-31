@@ -10,6 +10,7 @@ from ipaddress import (
     ip_address,
     ip_interface,
 )
+from pprint import pprint
 from subprocess import call
 from typing import Optional
 
@@ -28,8 +29,8 @@ app.add_typer(servicebgp.app, name="bgp")
 
 @app.command()
 def show(
-    full: Annotated[bool, typer.Option("--full/--summary")] = False,
-    active: Annotated[bool, typer.Option("--active/--candidate")] = False,
+    full: Annotated[bool, typer.Option("--full")] = False,
+    active: Annotated[bool, typer.Option("--active")] = False,
 ):
     """
     Show the service configuration
@@ -87,7 +88,7 @@ def edit():
     with open(path, mode="w", encoding="utf-8") as f:
         f.write(output)
 
-    show(active=False)
+    show()
 
 
 @app.command(name="set")
@@ -171,7 +172,7 @@ def commit(
                 verbose_level=2,
                 ignore_type_in_groups=config.DEEPDIFF_IGNORE,
             ).to_dict()
-            print(yaml.safe_dump(diff_output, explicit_start=True, explicit_end=True))
+            pprint(diff_output)
         if dry_run:
             print("(Simulated) Revert succeeded.")
             return
@@ -188,7 +189,7 @@ def commit(
             verbose_level=2,
             ignore_type_in_groups=config.DEEPDIFF_IGNORE,
         )
-        print(diff_output)
+        pprint(diff_output)
 
     if dry_run:
         print("(Simulated) Commit succeeded.")
