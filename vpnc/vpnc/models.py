@@ -247,6 +247,8 @@ class Uplink(BaseModel):
 
     # VPN CONFIG
     # Uplink VPNs
+    description: str | None = None
+    metadata: dict | None = Field(default_factory=dict)
     remote_peer_ip: IPv4Address | IPv6Address
     remote_id: str | None = None
     psk: str

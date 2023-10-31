@@ -17,6 +17,12 @@ local_id: "192.168.0.150"
 # Uplink VPNs
 uplinks:
   0:
+    # Provider side BGP ASN
+    asn: 4132357873
+    # Optional
+    description: Uplink to provider
+    # Optional
+    metadata: {}
     remote_peer_ip: 192.168.0.252
     # Optional: If not set, defaults to remote_peer_ip
     # remote_id: 192.168.0.252
@@ -25,6 +31,12 @@ uplinks:
     # prefix_uplink_tunnel: "fd33:2:f:1::/127"
     psk: secretpassword
   1:
+    # Provider side BGP ASN
+    asn: 4132357873
+    # Optional
+    description: Uplink to provider
+    # Optional
+    metadata: {}
     remote_peer_ip: 192.168.0.253
     # Optional: If not set, defaults to remote_peer_ip
     # remote_id: 192.168.0.253

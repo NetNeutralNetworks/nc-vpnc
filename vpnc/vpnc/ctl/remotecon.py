@@ -9,11 +9,7 @@ import typer
 import yaml
 
 from .. import config, models
-from .helpers import (
-    validate_ip_address,
-    validate_ip_interface,
-    validate_ip_networks,
-)
+from .helpers import ip_addr, ip_if, validate_ip_networks
 
 app = typer.Typer()
 
@@ -96,9 +92,9 @@ def add(
     ike_proposal: str = typer.Option(...),
     ipsec_proposal: str = typer.Option(...),
     psk: str = typer.Option(..., "--pre-shared-key"),
-    remote_peer_ip: str = typer.Option(..., callback=validate_ip_address),
+    remote_peer_ip: str = typer.Option(..., callback=ip_addr),
     remote_id: str = "",
-    tunnel_ip: str = typer.Option(None, callback=validate_ip_interface),
+    tunnel_ip: str = typer.Option(None, callback=ip_if),
     description: str = typer.Option(...),
     metadata: str = "{}",
     routes: list[str] = typer.Option(None, callback=validate_ip_networks),
@@ -153,9 +149,9 @@ def set_(
     ike_proposal: str = typer.Option(None),
     ipsec_proposal: str = typer.Option(None),
     psk: str = typer.Option("", "--pre-shared-key"),
-    remote_peer_ip: str = typer.Option(None, callback=validate_ip_address),
+    remote_peer_ip: str = typer.Option(None, callback=ip_addr),
     remote_id: str = "",
-    tunnel_ip: str = typer.Option(None, callback=validate_ip_interface),
+    tunnel_ip: str = typer.Option(None, callback=ip_if),
     description: str = typer.Option(""),
     metadata: str = "{}",
     routes: list[str] = typer.Option(None, callback=validate_ip_networks),
@@ -207,7 +203,7 @@ def set_(
                 )
             )
         elif k == "remote_peer_ip":
-            tunnel.remote_peer_ip = ip_address(v)
+            tunnel.remote_peer_ip = ip_addr(v)
         elif k == "tunnel_ip":
             tunnel.tunnel_ip = ip_interface(v)
         elif k == "metadata":
@@ -321,14 +317,13 @@ def delete(
         with open(path, "w", encoding="utf-8") as f:
             f.write(output)
         print(f"Deleted tunnel '{tunnel_id}'")
-    elif delete_ := typer.confirm(
-        f"Are you sure you want to delete remote '{id_}' connection '{tunnel_id}'",
+    elif typer.confirm(
+        f"Are you sure you want to delete remote '{id_}' connection '{tunnel_id}'?",
         abort=True,
     ):
-        if delete_:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(output)
-            print(f"Deleted tunnel '{tunnel_id}'")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(output)
+        print(f"Deleted tunnel '{tunnel_id}'")
 
 
 if __name__ == "__main__":
