@@ -85,14 +85,13 @@ def add(
     prefix_uplink_tunnel: Annotated[
         Optional[IPv6Network], typer.Option(parser=IPv6Network)
     ] = None,
-    remote_id: Annotated[
-        Optional[IPv4Address], typer.Option(parser=IPv4Address)
-    ] = None,
+    remote_id: Annotated[Optional[str], typer.Option()] = None,
 ):
     """
     Add a new uplink
     """
     all_args = {k: v for k, v in locals().items() if v}
+    all_args.pop("ctx")
     path = config.VPNC_C_SERVICE_CONFIG_PATH
     with open(path, "r", encoding="utf-8") as f:
         service = models.Service(**yaml.safe_load(f))
@@ -142,6 +141,7 @@ def set_(
     Set properties for an uplink
     """
     all_args = {k: v for k, v in locals().items() if v}
+    all_args.pop("ctx")
     path = config.VPNC_C_SERVICE_CONFIG_PATH
     with open(path, "r", encoding="utf-8") as f:
         service = models.Service(**yaml.safe_load(f))
@@ -161,6 +161,56 @@ def set_(
     tunnel = service.uplinks[tunnel_id]
 
     updated_tunnel = tunnel.model_copy(update=all_args)
+    service.uplinks[tunnel_id] = updated_tunnel
+
+    output = yaml.safe_dump(
+        service.model_dump(mode="json"), explicit_start=True, explicit_end=True
+    )
+    with open(path, "w+", encoding="utf-8") as f:
+        f.write(output)
+
+    show(ctx)
+
+
+@app.command()
+def unset(
+    ctx: typer.Context,
+    # pylint: disable=unused-argument
+    description: Annotated[bool, typer.Option("--description")] = False,
+    metadata: Annotated[Optional[list[str]], typer.Option()] = None,
+    prefix_uplink_tunnel: Annotated[
+        bool, typer.Option("--prefix-uplink-tunnel")
+    ] = False,
+    remote_id: Annotated[bool, typer.Option("--remote-id")] = False,
+):
+    """
+    Unset properties for an uplink
+    """
+    all_args = {k: v for k, v in locals().items() if v}
+    all_args.pop("ctx")
+    all_metadata: list[str] = all_args.pop("metadata", [])
+    path = config.VPNC_C_SERVICE_CONFIG_PATH
+    with open(path, "r", encoding="utf-8") as f:
+        service = models.Service(**yaml.safe_load(f))
+
+    if not path.exists():
+        return
+
+    tunnel_id = ctx.obj["tunnel_id"]
+    if not service.uplinks.get(tunnel_id):
+        print(f"Connection '{tunnel_id}' doesn't exists'.")
+        return
+
+    tunnel = service.uplinks[tunnel_id]
+    tunnel_dict = tunnel.model_dump(mode="json")
+
+    for k in all_args:
+        tunnel_dict.pop(k)
+
+    for i in all_metadata:
+        tunnel_dict["metadata"].pop(i)
+
+    updated_tunnel = models.Uplink(**tunnel_dict)
     service.uplinks[tunnel_id] = updated_tunnel
 
     output = yaml.safe_dump(

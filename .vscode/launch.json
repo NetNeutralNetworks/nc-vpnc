@@ -66,17 +66,17 @@
             "cwd": "${workspaceFolder}/vpnc/",
             "args": [
                 "service",
-                "uplink",
-                "1",
-                "set",
-                "--asn",
-                "1337",
-                "--description",
-                "sometext",
-                "--remote-peer-ip",
-                "1.1.2.2",
-                "--remote-id",
-                "1.1.1.1",
+                // "uplink",
+                // "1",
+                // "set",
+                // "--asn",
+                // "1337",
+                // "--description",
+                // "sometext",
+                // "--remote-peer-ip",
+                // "1.1.2.2",
+                // "--remote-id",
+                // "1.1.1.1",
             ]
         }
     ]

@@ -168,10 +168,6 @@ class TrafficSelectors(BaseModel):
     local: set[IPv4Network | IPv6Network] = Field(default_factory=set)
     remote: set[IPv4Network | IPv6Network] = Field(default_factory=set)
 
-    # def __post_init__(self):
-    #     self.local = [ip_network(x) for x in self.local]
-    #     self.remote = [ip_network(x) for x in self.remote]
-
 
 class Tunnel(BaseModel):
     """
@@ -192,24 +188,6 @@ class Tunnel(BaseModel):
     # Mutually exclusive with routes
     traffic_selectors: TrafficSelectors | None = Field(default_factory=TrafficSelectors)
 
-    # def __post_init__(self):
-    #     self.description = str(self.description)
-    #     self.remote_peer_ip = ip_address(self.remote_peer_ip)
-    #     if not self.remote_id:
-    #         self.remote_id = str(self.remote_peer_ip)
-    #     self.ike_version = int(self.ike_version)
-    #     assert self.ike_version in [1, 2]
-    #     if self.tunnel_ip:
-    #         self.tunnel_ip = ip_interface(self.tunnel_ip)
-    #     if isinstance(self.routes, list):
-    #         self.routes = [ip_network(x) for x in self.routes]
-    #     if isinstance(self.traffic_selectors, dict):
-    #         self.traffic_selectors = TrafficSelectors(**self.traffic_selectors)
-    #     if self.routes and (
-    #         self.traffic_selectors.remote or self.traffic_selectors.local
-    #     ):
-    #         raise ValueError("Cannot specify both routes and traffic selectors.")
-
 
 class Remote(BaseModel):
     """
@@ -221,11 +199,6 @@ class Remote(BaseModel):
     metadata: dict = Field(default_factory=dict)
     tunnels: dict[int, Tunnel] = Field(default_factory=dict)
 
-    # def __post_init__(self):
-    #     self.id = str(self.id)
-    #     self.name = str(self.name)
-    #     self.tunnels = {k: Tunnel(**v) for (k, v) in self.tunnels.items()}
-
 
 class BGP(BaseModel):
     """
@@ -234,10 +207,6 @@ class BGP(BaseModel):
 
     asn: int = 4200000000
     router_id: IPv4Address = IPv4Address("1.0.0.1")
-
-    # def __post_init__(self):
-    #     self.asn = int(self.asn)
-    #     self.router_id = IPv4Address(self.router_id)
 
 
 class Uplink(BaseModel):
@@ -254,21 +223,6 @@ class Uplink(BaseModel):
     psk: str
     prefix_uplink_tunnel: IPv6Interface | None = None
     asn: int | None = None
-
-    # def __post_init__(self):
-    #     self.remote_peer_ip = ip_address(self.remote_peer_ip)
-    #     if not self.remote_id:
-    #         self.remote_id = str(self.remote_peer_ip)
-    #     if self.prefix_uplink_tunnel:
-    #         self.prefix_uplink_tunnel = IPv6Interface(self.prefix_uplink_tunnel)
-    #     if self.asn:
-    #         self.asn = int(self.asn)
-    #     if self.asn and not self.prefix_uplink_tunnel:
-    #         raise ValueError(
-    #             "Prefix for the uplink tunnel must be specified if ASN is specified."
-    #         )
-    #     if self.prefix_uplink_tunnel and not self.asn:
-    #         raise ValueError("ASN must be specified if tunnel prefix is specified.")
 
 
 class Service(BaseModel):
