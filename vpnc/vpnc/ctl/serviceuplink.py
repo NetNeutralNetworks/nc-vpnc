@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import json
-from ipaddress import IPv4Address, IPv6Network
+from ipaddress import IPv4Address, IPv6Address, IPv6Network, ip_address
 from typing import Optional
 
 import typer
@@ -78,8 +78,8 @@ def add(
     # pylint: disable=unused-argument
     asn: Annotated[int, typer.Option()],
     psk: Annotated[str, typer.Option()],
-    remote_peer_ip: Annotated[IPv4Address, typer.Option(parser=IPv4Address)],
-    description: str | None = None,
+    remote_peer_ip: Annotated[IPv4Address, typer.Option(parser=ip_address)],
+    description: str = None,
     metadata: Annotated[Optional[dict], typer.Option(parser=json.loads)] = None,
     prefix_uplink_tunnel: Annotated[
         Optional[IPv6Network], typer.Option(parser=IPv6Network)
@@ -133,7 +133,7 @@ def set_(
     ] = None,
     remote_id: Annotated[Optional[str], typer.Option()] = None,
     remote_peer_ip: Annotated[
-        Optional[IPv4Address], typer.Option(parser=IPv4Address)
+        IPv4Address | IPv6Address | None, typer.Option(parser=ip_address)
     ] = None,
 ):
     """

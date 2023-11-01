@@ -3,10 +3,18 @@
 import json
 from dataclasses import asdict
 from enum import Enum
-from ipaddress import ip_address, ip_interface
+from ipaddress import (
+    IPv4Address,
+    IPv4Interface,
+    IPv6Address,
+    ip_address,
+    ip_interface,
+)
+from typing import Optional
 
 import typer
 import yaml
+from typing_extensions import Annotated
 
 from .. import config, models
 from .helpers import ip_addr, ip_if, validate_ip_networks
@@ -15,12 +23,16 @@ app = typer.Typer()
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context, tunnel_id: int = typer.Argument(None)):
+def main(
+    ctx: typer.Context, tunnel_id: Annotated[Optional[int], typer.Argument()] = None
+):
     """
     Edit remote connections (tunnels)
     """
     _ = tunnel_id
 
+    if not ctx.obj:
+        ctx.obj = {}
     ctx.obj.update(ctx.params)
     if ctx.invoked_subcommand is None and tunnel_id is not None:
         ctx.fail("Missing command.")
@@ -28,7 +40,6 @@ def main(ctx: typer.Context, tunnel_id: int = typer.Argument(None)):
         list_(ctx)
 
 
-@app.command(name="list")
 def list_(ctx: typer.Context):
     """
     List all tunnels for a remote
@@ -38,6 +49,7 @@ def list_(ctx: typer.Context):
 
     if not path.exists():
         return
+
     with open(path, "r", encoding="utf-8") as f:
         remote = models.Remote(**yaml.safe_load(f))
     if id_ != remote.id:
@@ -52,11 +64,12 @@ def list_(ctx: typer.Context):
 @app.command()
 def show(
     ctx: typer.Context,
-    active: bool = typer.Option(False, "--active/--candidate"),
+    active: Annotated[bool, typer.Option("--active")] = False,
 ):
     """
     Show a specific tunnel for a remote
     """
+
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
     if active:
@@ -71,11 +84,12 @@ def show(
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
-
+    # print(remote)
+    # print(remote.tunnels)
     tunnel = remote.tunnels.get(tunnel_id)
     if not tunnel:
         return
-    output = {tunnel_id: asdict(tunnel)}
+    output = {tunnel_id: tunnel.model_dump(mode="json")}
     print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
 
 
@@ -88,29 +102,37 @@ class IkeVersion(str, Enum):
 @app.command()
 def add(
     ctx: typer.Context,
-    ike_version: IkeVersion = IkeVersion.TWO,
-    ike_proposal: str = typer.Option(...),
-    ipsec_proposal: str = typer.Option(...),
-    psk: str = typer.Option(..., "--pre-shared-key"),
-    remote_peer_ip: str = typer.Option(..., callback=ip_addr),
-    remote_id: str = "",
-    tunnel_ip: str = typer.Option(None, callback=ip_if),
-    description: str = typer.Option(...),
-    metadata: str = "{}",
-    routes: list[str] = typer.Option(None, callback=validate_ip_networks),
-    traffic_selectors_local: list[str] = typer.Option(
-        None, callback=validate_ip_networks
-    ),
-    traffic_selectors_remote: list[str] = typer.Option(
-        None, callback=validate_ip_networks
-    ),
+    # pylint: disable=unused-argument
+    description: Annotated[str, typer.Option()],
+    ike_proposal: Annotated[str, typer.Option()],
+    ipsec_proposal: Annotated[str, typer.Option()],
+    psk: Annotated[str, typer.Option("--pre-shared-key")],
+    remote_peer_ip: Annotated[
+        IPv4Address | IPv6Address, typer.Option(parser=ip_address)
+    ],
+    ike_version: Annotated[Optional[IkeVersion], typer.Option()] = None,
+    remote_id: Annotated[Optional[str], typer.Option()] = None,
+    tunnel_ip: Annotated[
+        Optional[IPv4Interface], typer.Option(parser=IPv4Interface)
+    ] = None,
+    metadata: Annotated[Optional[dict], typer.Option(parser=json.loads)] = None,
+    # routes: Annotated[
+    #     Optional[set[Union[IPv4Network, IPv6Network]]], typer.Option()
+    # ] = None,
+    # traffic_selectors_local: list[str] = typer.Option(
+    #     None, callback=validate_ip_networks
+    # ),
+    # traffic_selectors_remote: list[str] = typer.Option(
+    #     None, callback=validate_ip_networks
+    # ),
 ):
     """
     Add a tunnel to a remote
     """
+    all_args = {k: v for k, v in locals().items() if v}
+    all_args.pop("ctx")
     id_: str = ctx.obj["id_"]
-    tunnel_id: int = ctx.obj["tunnel_id"]
-    ctx.params["metadata"] = json.loads(metadata)
+    tunnel_id: int = int(ctx.obj["tunnel_id"])
     path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
@@ -125,27 +147,30 @@ def add(
         print(f"Connection '{tunnel_id}' already exists'.")
         return
 
-    data = ctx.params
-    if data.get("traffic_selectors_local") or data.get("traffic_selectors_remote"):
-        data["traffic_selectors"] = {}
-        data["traffic_selectors"]["local"] = set(data.pop("traffic_selectors_local"))
-        data["traffic_selectors"]["remote"] = set(data.pop("traffic_selectors_remote"))
-    else:
-        data.pop("traffic_selectors_local")
-        data.pop("traffic_selectors_remote")
-    tunnel = models.Tunnel(**data)
-    remote.tunnels[int(tunnel_id)] = tunnel
+    updated_tunnel = models.Tunnel(**all_args)
+    # if data.get("traffic_selectors_local") or data.get("traffic_selectors_remote"):
+    #     data["traffic_selectors"] = {}
+    #     data["traffic_selectors"]["local"] = set(data.pop("traffic_selectors_local"))
+    #     data["traffic_selectors"]["remote"] = set(data.pop("traffic_selectors_remote"))
+    # else:
+    #     data.pop("traffic_selectors_local")
+    #     data.pop("traffic_selectors_remote")
+    # tunnel = models.Tunnel(**data)
+    remote.tunnels[tunnel_id] = updated_tunnel
+    # print(tunnel_id)
 
-    output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
+    output = yaml.safe_dump(
+        remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
+    )
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
-    show(ctx, active=False)
+
+    show(ctx)
 
 
 @app.command(name="set")
 def set_(
     ctx: typer.Context,
-    ike_version: IkeVersion = IkeVersion.TWO,
     ike_proposal: str = typer.Option(None),
     ipsec_proposal: str = typer.Option(None),
     psk: str = typer.Option("", "--pre-shared-key"),
@@ -161,6 +186,7 @@ def set_(
     traffic_selectors_remote: list[str] = typer.Option(
         None, callback=validate_ip_networks
     ),
+    ike_version: Annotated[Optional[IkeVersion], typer.Option()] = None,
 ):
     """
     Set tunnel properties for a remote
