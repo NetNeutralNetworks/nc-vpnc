@@ -37,7 +37,7 @@ tunnels:               # optional, dictionary containing connections
   0:                     # required, connection id, int between 0-255
     description: str       # required
     ike_proposal: str      # required, see the allowed values for strongswan
-    ike_version: int       # optional, 1 or 2, defaults to 2     
+    ike_version: int       # optional, 1 or 2, defaults to 2
     ipsec_proposal:        # required, see the allowed values for strongswan
     metadata: {}           # optional, dictionary containing arbitrary k/v pairs
     psk: str               # required
@@ -47,14 +47,14 @@ tunnels:               # optional, dictionary containing connections
     traffic_selectors:     # optional, if defined, mutually exclusive with routes
       local: []              # required, list of subnets
       remote: []             # required, list of subnets
-    tunnel_ip: ip/cidr     # optional, host IP + CIDR mask, defaults to value configured in the service.
+    tunnel_ip: ip_prefix   # optional, host IP + CIDR mask, defaults to value configured in the service.
 ```
 
 #### Remote configuration
 
 List the configured remotes:
 ```bash
-~$ /opt/ncubed/vpnc/bin/vpnctl remote
+~$ vpnctl remote
 id     name
 ------ ----
 D0002  Lab-test-2
@@ -66,9 +66,9 @@ C0002  NSD
 Show a specific remote configuration:
 ```bash
 # candidate configuration
-~$ /opt/ncubed/vpnc/bin/vpnctl remote D0001 show
+~$ vpnctl remote D0001 show
 # active configuration
-~$ /opt/ncubed/vpnc/bin/vpnctl remote D0001 show --active 
+~$ vpnctl remote D0001 show --active 
 ---
 id: D0001
 metadata: {}
@@ -77,9 +77,9 @@ tunnel_count: 1
 ...
 
 # full candidate configuration
-~$ /opt/ncubed/vpnc/bin/vpnctl remote D0001 show --full
+~$ vpnctl remote D0001 show --full
 # full active configuration
-~$ /opt/ncubed/vpnc/bin/vpnctl remote D0001 show --full --active
+~$ vpnctl remote D0001 show --full --active
 ---
 id: D0001
 metadata: {}
@@ -108,12 +108,12 @@ Edit the configuration file in your favorite editor (vim by default, requires su
 # Open the configuration in vim/nano
 # after saving and exiting, the changes are validated.
 # if wrong, your changes will be discarded.
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 edit
+~$ sudo vpnctl remote D0001 edit
 ```
 
 Add a new remote (requires sudo/root):
 ```bash
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0010 add "Customer Inc."
+~$ sudo vpnctl remote D0010 add "Customer Inc."
 ---
 id: D0010
 metadata: {}
@@ -124,7 +124,7 @@ tunnel_count: 0
 
 Edit a remote (requires sudo/root):
 ```bash
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0010 set --metadata '{"location": "Europe"}'
+~$ sudo vpnctl remote D0010 set --metadata '{"location": "Europe"}'
 ---
 id: D0010
 metadata:
@@ -136,7 +136,7 @@ tunnel_count: 1
 
 Delete a remote (requires sudo/root):
 ```bash
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0010 delete
+~$ sudo vpnctl remote D0010 delete
 ---
 id: D0010
 metadata: {}
@@ -151,7 +151,7 @@ Are you sure you want to delete remote 'D0010' [y/N]:
 
 List connections for a specific remote:
 ```bash
-~$ /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection list
+~$ vpnctl remote D0001 connection list
 tunnel description
 ------ -----------
 0      lab endpoint
@@ -159,7 +159,7 @@ tunnel description
 
 Show a connection configuration for a specific remote:
 ```bash
-~$ /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection 0 show
+~$ vpnctl remote D0001 connection 0 show
 ---
 0:
   description: lab endpoint
@@ -184,7 +184,7 @@ Add a new connection to a remote (requires sudo/root):
 > **IKE:** <(authenticated) encryption algorithm>-<pseudo-random function/integrity algorithm>-<dh group/key exchange>  
 > **IPsec:** <(authenticated) encryption algorithm>[-<pseudo-random function/integrity algorithm>]-<dh group/key exchange>
 ```bash
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection 1 add --description "lab 1 connection test" --ike-proposal aes128gcm16-prfsha384-ecp384 --ipsec-proposal aes128gcm16-ecp384 --remote-peer-ip 192.0.2.128 --pre-shared-key "welcome01!"
+~$ sudo vpnctl remote D0001 connection 1 add --description "lab 1 connection test" --ike-proposal aes128gcm16-prfsha384-ecp384 --ipsec-proposal aes128gcm16-ecp384 --remote-peer-ip 192.0.2.128 --pre-shared-key "welcome01!"
 ---
 1:
   description: lab 1 connection test
@@ -205,7 +205,7 @@ Add a new connection to a remote (requires sudo/root):
 
 Update the configuration of an existing connection on a remote (requires sudo/root):
 ```bash
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection 1 set --ike-proposal aes256gcm16-prfsha384-ecp384 --ipsec-proposal aes256gcm16-ecp384 --tunnel-ip 172.16.0.1 --routes 10.0.0.0/24 --routes 10.0.1.0/24
+~$ sudo vpnctl remote D0001 connection 1 set --ike-proposal aes256gcm16-prfsha384-ecp384 --ipsec-proposal aes256gcm16-ecp384 --tunnel-ip 172.16.0.1 --routes 10.0.0.0/24 --routes 10.0.1.0/24
 ---
 1:
   description: lab 1 connection test
@@ -228,7 +228,7 @@ Update the configuration of an existing connection on a remote (requires sudo/ro
 
 Remove configuration from an existing connection on a remote (requires sudo/root):
 ```bash
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection 0 unset --routes 10.0.0.0/24 --routes 10.0.1.0/24   
+~$ sudo vpnctl remote D0001 connection 0 unset --routes 10.0.0.0/24 --routes 10.0.1.0/24   
 ---
 1:
   description: lab 1 connection test
@@ -249,7 +249,7 @@ Remove configuration from an existing connection on a remote (requires sudo/root
 
 Delete a connection from a remote (requires sudo/root):
 ```bash
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 connection 1 delete
+~$ sudo vpnctl remote D0001 connection 1 delete
 1:
   description: lab 1 connection test
   ike_proposal: aes256gcm16-prfsha384-ecp384
@@ -273,15 +273,15 @@ Are you sure you want to delete remote 'D0001' connection '1' [y/N]:
 Commit changes (requires sudo/root):
 ```bash
 # simulate a run, show diff
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 commit --dry-run --diff 
+~$ sudo vpnctl remote D0001 commit --dry-run --diff 
 # commit and show diff
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 commit --diff 
+~$ sudo vpnctl remote D0001 commit --diff 
 # commit without showing diff
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 commit
+~$ sudo vpnctl remote D0001 commit
 # the same as the examples above, except revert the candidate changes.
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 commit --revert --dry-run --diff 
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 commit --revert --diff
-~$ sudo /opt/ncubed/vpnc/bin/vpnctl remote D0001 commit --revert
+~$ sudo vpnctl remote D0001 commit --revert --dry-run --diff 
+~$ sudo vpnctl remote D0001 commit --revert --diff
+~$ sudo vpnctl remote D0001 commit --revert
 ```
 
 ## Installation
