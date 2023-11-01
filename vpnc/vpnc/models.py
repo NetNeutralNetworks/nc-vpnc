@@ -15,7 +15,7 @@ from ipaddress import (
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 
@@ -197,6 +197,14 @@ class Tunnel(BaseModel):
         if isinstance(v, str) and v.isdigit():
             return int(v)
         return v
+
+    @model_validator(mode="after")
+    def mutual_exclusive(self) -> "Tunnel":
+        if self.routes and (
+            self.traffic_selectors.local or self.traffic_selectors.remote
+        ):
+            raise ValueError("Cannot specify routes and traffic selectors.")
+        return self
 
 
 class Remote(BaseModel):

@@ -6,9 +6,12 @@ from enum import Enum
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
+    IPv4Network,
     IPv6Address,
+    IPv6Network,
     ip_address,
     ip_interface,
+    ip_network,
 )
 from typing import Optional
 
@@ -116,9 +119,10 @@ def add(
         Optional[IPv4Interface], typer.Option(parser=IPv4Interface)
     ] = None,
     metadata: Annotated[Optional[dict], typer.Option(parser=json.loads)] = None,
-    # routes: Annotated[
-    #     Optional[set[Union[IPv4Network, IPv6Network]]], typer.Option()
-    # ] = None,
+    routes: Annotated[
+        Optional[list[IPv4Network | IPv6Network]],
+        typer.Option(parser=ip_network),
+    ] = None,
     # traffic_selectors_local: list[str] = typer.Option(
     #     None, callback=validate_ip_networks
     # ),
@@ -157,7 +161,6 @@ def add(
     #     data.pop("traffic_selectors_remote")
     # tunnel = models.Tunnel(**data)
     remote.tunnels[tunnel_id] = updated_tunnel
-    # print(tunnel_id)
 
     output = yaml.safe_dump(
         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
@@ -171,29 +174,44 @@ def add(
 @app.command(name="set")
 def set_(
     ctx: typer.Context,
-    ike_proposal: str = typer.Option(None),
-    ipsec_proposal: str = typer.Option(None),
-    psk: str = typer.Option("", "--pre-shared-key"),
-    remote_peer_ip: str = typer.Option(None, callback=ip_addr),
-    remote_id: str = "",
-    tunnel_ip: str = typer.Option(None, callback=ip_if),
-    description: str = typer.Option(""),
-    metadata: str = "{}",
-    routes: list[str] = typer.Option(None, callback=validate_ip_networks),
-    traffic_selectors_local: list[str] = typer.Option(
-        None, callback=validate_ip_networks
-    ),
-    traffic_selectors_remote: list[str] = typer.Option(
-        None, callback=validate_ip_networks
-    ),
+    # pylint: disable=unused-argument
+    ike_proposal: Annotated[Optional[str], typer.Option()] = None,
+    ipsec_proposal: Annotated[Optional[str], typer.Option()] = None,
+    psk: Annotated[Optional[str], typer.Option("--pre-shared-key")] = None,
+    remote_peer_ip: Annotated[
+        IPv4Address | IPv6Address | None, typer.Option(parser=ip_address)
+    ] = None,
+    remote_id: Annotated[Optional[str], typer.Option()] = None,
+    tunnel_ip: Annotated[
+        Optional[IPv4Interface], typer.Option(parser=IPv4Interface)
+    ] = None,
+    description: Annotated[Optional[str], typer.Option()] = None,
+    metadata: Annotated[Optional[dict], typer.Option(parser=json.loads)] = None,
+    routes: Annotated[
+        Optional[list[IPv4Network | IPv6Network]],
+        typer.Option(parser=ip_network),
+    ] = None,
+    traffic_selectors_local: Annotated[
+        Optional[list[IPv4Network | IPv6Network]],
+        typer.Option(parser=ip_network),
+    ] = None,
+    traffic_selectors_remote: Annotated[
+        Optional[list[IPv4Network | IPv6Network]],
+        typer.Option(parser=ip_network),
+    ] = None,
     ike_version: Annotated[Optional[IkeVersion], typer.Option()] = None,
 ):
     """
     Set tunnel properties for a remote
     """
+    all_args = {k: v for k, v in locals().items() if v}
+    all_args.pop("ctx")
+    all_metadata = all_args.pop("metadata", {})
+    all_routes = all_args.pop("routes", [])
+    all_ts_local = all_args.pop("traffic_selectors_local", [])
+    all_ts_remote = all_args.pop("traffic_selectors_remote", [])
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
-    ctx.params["metadata"] = json.loads(metadata)
     path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
@@ -208,62 +226,56 @@ def set_(
         print(f"Connection '{tunnel_id}' doesn't exists'.")
         return
 
-    tunnel = remote.tunnels[int(tunnel_id)]
+    tunnel = remote.tunnels[tunnel_id]
+    updated_tunnel = tunnel.model_copy(update=all_args)
+    updated_tunnel.metadata.update(all_metadata)
+    updated_tunnel.routes.update(all_routes)
+    updated_tunnel.traffic_selectors.local.update(all_ts_local)
+    updated_tunnel.traffic_selectors.remote.update(all_ts_remote)
 
-    data = ctx.params
-    for k, v in data.items():
-        if not v:
-            continue
-        if k == "routes":
-            tunnel.routes = list(set(tunnel.routes).union(data["routes"]))
-        elif k == "traffic_selectors_local":
-            tunnel.traffic_selectors.local = list(
-                set(tunnel.traffic_selectors.local).union(
-                    data["traffic_selectors_local"]
-                )
-            )
-        elif k == "traffic_selectors_remote":
-            tunnel.traffic_selectors.remote = list(
-                set(tunnel.traffic_selectors.remote).union(
-                    data["traffic_selectors_remote"]
-                )
-            )
-        elif k == "remote_peer_ip":
-            tunnel.remote_peer_ip = ip_addr(v)
-        elif k == "tunnel_ip":
-            tunnel.tunnel_ip = ip_interface(v)
-        elif k == "metadata":
-            tunnel.metadata.update(v)
-        else:
-            setattr(tunnel, k, v)
+    updated_tunnel.model_validate(updated_tunnel)
 
-    if tunnel.routes and (
-        tunnel.traffic_selectors.remote or tunnel.traffic_selectors.local
-    ):
-        raise ValueError("Cannot specify both routes and traffic selectors.")
+    remote.tunnels[tunnel_id] = updated_tunnel
 
-    output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
+    output = yaml.safe_dump(
+        remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
+    )
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
-    show(ctx, active=False)
+    show(ctx)
 
 
 @app.command()
 def unset(
     ctx: typer.Context,
-    tunnel_ip: bool = False,
-    metadata: list[str] = typer.Option([]),
-    routes: list[str] = typer.Option(None, callback=validate_ip_networks),
-    traffic_selectors_local: list[str] = typer.Option(
-        None, callback=validate_ip_networks
-    ),
-    traffic_selectors_remote: list[str] = typer.Option(
-        None, callback=validate_ip_networks
-    ),
+    # pylint: disable=unused-argument
+    metadata: Annotated[Optional[list[str]], typer.Option()] = None,
+    ike_version: Annotated[bool, typer.Option()] = False,
+    tunnel_ip: Annotated[bool, typer.Option()] = False,
+    remote_id: Annotated[bool, typer.Option()] = False,
+    routes: Annotated[
+        Optional[list[IPv4Network | IPv6Network]],
+        typer.Option(parser=ip_network),
+    ] = None,
+    traffic_selectors_local: Annotated[
+        Optional[list[IPv4Network | IPv6Network]],
+        typer.Option(parser=ip_network),
+    ] = None,
+    traffic_selectors_remote: Annotated[
+        Optional[list[IPv4Network | IPv6Network]],
+        typer.Option(parser=ip_network),
+    ] = None,
 ):
     """
     Unset tunnel properties for a remote
     """
+    all_args = {k: v for k, v in locals().items() if v}
+    all_args.pop("ctx")
+    all_metadata = all_args.pop("metadata", {})
+    all_routes = all_args.pop("routes", [])
+    all_ts_local = all_args.pop("traffic_selectors_local", [])
+    all_ts_remote = all_args.pop("traffic_selectors_remote", [])
+
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
     path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
@@ -281,31 +293,31 @@ def unset(
         return
 
     tunnel = remote.tunnels[int(tunnel_id)]
+    tunnel_dict = tunnel.model_dump(mode="json")
 
-    if tunnel_ip:
-        tunnel.tunnel_ip = None
-    for i in metadata:
-        tunnel.metadata.pop(i)
-    if routes:
-        tunnel.routes = list(set(tunnel.routes).difference(routes))
-    if traffic_selectors_local:
-        tunnel.traffic_selectors.local = list(
-            set(tunnel.traffic_selectors.local).difference(traffic_selectors_local)
-        )
-    if traffic_selectors_remote:
-        tunnel.traffic_selectors.remote = list(
-            set(tunnel.traffic_selectors.remote).difference(traffic_selectors_remote)
-        )
+    for k in all_args:
+        tunnel_dict.pop(k, None)
 
-    if tunnel.routes and (
-        tunnel.traffic_selectors.remote or tunnel.traffic_selectors.local
-    ):
-        raise ValueError("Cannot specify both routes and traffic selectors.")
+    for k in all_metadata:
+        tunnel_dict.get("metadata", {}).pop(k, None)
+    set(tunnel_dict.get("routes", set())).symmetric_difference(all_routes)
+    set(
+        tunnel_dict.get("traffic_selectors", {}).get("local", set())
+    ).symmetric_difference(set(all_ts_local))
+    set(
+        tunnel_dict.get("traffic_selectors", {}).get("remote", set())
+    ).symmetric_difference(set(all_ts_remote))
 
-    output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
+    updated_tunnel = models.Tunnel(**tunnel_dict)
+    remote.tunnels[tunnel_id] = updated_tunnel
+
+    output = yaml.safe_dump(
+        remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
+    )
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
-    show(ctx, active=False)
+
+    show(ctx)
 
 
 @app.command()
@@ -329,14 +341,16 @@ def delete(
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
 
-    tunnel = remote.tunnels.get(int(tunnel_id))
+    tunnel = remote.tunnels.get(tunnel_id)
     if not tunnel:
         print(f"Tunnel with id '{tunnel_id}' doesn't exist.")
         return
-    remote.tunnels.pop(int(tunnel_id))
+    remote.tunnels.pop(tunnel_id)
 
-    output = yaml.safe_dump(asdict(remote), explicit_start=True, explicit_end=True)
-    print(yaml.safe_dump({tunnel_id: asdict(tunnel)}))
+    output = yaml.safe_dump(
+        remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
+    )
+    print(yaml.safe_dump({tunnel_id: tunnel.model_dump(mode="json")}))
     if dry_run:
         print(f"(Simulated) Deleted tunnel '{tunnel_id}'")
     elif force:
