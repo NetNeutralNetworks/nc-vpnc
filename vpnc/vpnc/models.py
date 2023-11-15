@@ -15,7 +15,14 @@ from ipaddress import (
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_core import PydanticCustomError
 
 
@@ -151,6 +158,15 @@ yaml.SafeDumper.add_representer(
 # )
 
 
+class Initiation(Enum):
+    """
+    Defines the modes in which the service can run
+    """
+
+    INITIATOR = "start"
+    RESPONDER = "none"
+
+
 class ServiceMode(Enum):
     """
     Defines the modes in which the service can run
@@ -168,25 +184,35 @@ class TrafficSelectors(BaseModel):
     local: set[IPv4Network | IPv6Network] = Field(default_factory=set)
     remote: set[IPv4Network | IPv6Network] = Field(default_factory=set)
 
+    @field_validator("local", "remote", mode="before")
+    @classmethod
+    def _coerce_traffic_selectors(cls, v: Any):
+        if v is None:
+            return set()
+        return v
+
 
 class Tunnel(BaseModel):
     """
     Defines a tunnel data structure
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     description: str | None = None
-    metadata: dict | None = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
     remote_peer_ip: IPv4Address | IPv6Address
     remote_id: str | None = None
     ike_version: Literal[1, 2] = 2
     ike_proposal: str
     ipsec_proposal: str
     psk: str
+    initiation: Initiation = Initiation.INITIATOR
     tunnel_ip: IPv4Interface | IPv6Interface | None = None
     # Mutually exclusive with traffic selectors
-    routes: set[IPv4Network | IPv6Network] | None = Field(default_factory=set)
+    routes: set[IPv4Network | IPv6Network]
     # Mutually exclusive with routes
-    traffic_selectors: TrafficSelectors | None = Field(default_factory=TrafficSelectors)
+    traffic_selectors: TrafficSelectors
 
     @field_validator("ike_version", mode="before")
     @classmethod
@@ -196,6 +222,27 @@ class Tunnel(BaseModel):
         """
         if isinstance(v, str) and v.isdigit():
             return int(v)
+        return v
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _coerce_metadata(cls, v: Any):
+        if v is None:
+            return {}
+        return v
+
+    @field_validator("routes", mode="before")
+    @classmethod
+    def _coerce_routes(cls, v: Any):
+        if not isinstance(v, set):
+            return set()
+        return v
+
+    @field_validator("traffic_selectors", mode="before")
+    @classmethod
+    def _coerce_traffic_selectors(cls, v: Any):
+        if v is None:
+            return TrafficSelectors(local=set(), remote=set())
         return v
 
     @model_validator(mode="after")
@@ -212,10 +259,19 @@ class Remote(BaseModel):
     Defines a remote side data structure
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: str
     name: str
     metadata: dict = Field(default_factory=dict)
     tunnels: dict[int, Tunnel] = Field(default_factory=dict)
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _coerce_metadata(cls, v: Any):
+        if v is None:
+            return {}
+        return v
 
 
 class BGP(BaseModel):

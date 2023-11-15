@@ -284,6 +284,7 @@ def add_downlink_connection(path: pathlib.Path):
             t_config["ike_version"] = tunnel_config.ike_version
         t_config["ike_proposal"] = tunnel_config.ike_proposal
         t_config["ipsec_proposal"] = tunnel_config.ipsec_proposal
+        t_config["action"] = tunnel_config.action.value
 
         t_config["local_id"] = config.VPNC_SERVICE_CONFIG.local_id
         if tunnel_config.remote_id:

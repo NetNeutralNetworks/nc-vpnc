@@ -113,6 +113,9 @@ def add(
     remote_peer_ip: Annotated[
         IPv4Address | IPv6Address, typer.Option(parser=ip_address)
     ],
+    initiation: Annotated[
+        Optional[models.Initiation], typer.Option()
+    ] = models.Initiation.INITIATOR,
     ike_version: Annotated[Optional[IkeVersion], typer.Option()] = None,
     remote_id: Annotated[Optional[str], typer.Option()] = None,
     tunnel_ip: Annotated[
@@ -178,6 +181,9 @@ def set_(
     ike_proposal: Annotated[Optional[str], typer.Option()] = None,
     ipsec_proposal: Annotated[Optional[str], typer.Option()] = None,
     psk: Annotated[Optional[str], typer.Option("--pre-shared-key")] = None,
+    initiation: Annotated[
+        Optional[models.Initiation], typer.Option()
+    ] = models.Initiation.INITIATOR,
     remote_peer_ip: Annotated[
         IPv4Address | IPv6Address | None, typer.Option(parser=ip_address)
     ] = None,
@@ -207,9 +213,9 @@ def set_(
     all_args = {k: v for k, v in locals().items() if v}
     all_args.pop("ctx")
     all_metadata = all_args.pop("metadata", {})
-    all_routes = all_args.pop("routes", [])
-    all_ts_local = all_args.pop("traffic_selectors_local", [])
-    all_ts_remote = all_args.pop("traffic_selectors_remote", [])
+    all_routes = all_args.pop("routes", set())
+    all_ts_local = all_args.pop("traffic_selectors_local", set())
+    all_ts_remote = all_args.pop("traffic_selectors_remote", set())
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
     path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
@@ -251,6 +257,7 @@ def unset(
     # pylint: disable=unused-argument
     metadata: Annotated[Optional[list[str]], typer.Option()] = None,
     ike_version: Annotated[bool, typer.Option()] = False,
+    initiation: Annotated[bool, typer.Option()] = False,
     tunnel_ip: Annotated[bool, typer.Option()] = False,
     remote_id: Annotated[bool, typer.Option()] = False,
     routes: Annotated[

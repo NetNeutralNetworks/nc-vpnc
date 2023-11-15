@@ -34,7 +34,7 @@ connections {
 
         children {
             # CHILD_SA configuration sub-section.
-            uplink1 {
+            {{ conn.remote }}-{{ conn.t_id }} {
                 # Local traffic selectors to include in CHILD_SA.
                 local_ts = ::/0
                 # Remote selectors to include in CHILD_SA.
