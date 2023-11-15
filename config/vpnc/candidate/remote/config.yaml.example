@@ -39,6 +39,8 @@ tunnels:
     # ike_version: 2
     ike_proposal: aes128gcm16-prfsha384-ecp384
     ipsec_proposal: aes128gcm16-ecp384
+    # optional, defaults to start. Start means inititate and respond, none means respond only.
+    # initiation: "start"|"none"
     # mutually exclusive with traffic selectors
     # does not work in hub mode
     # routes:
