@@ -205,7 +205,9 @@ class Tunnel(BaseModel):
     remote_id: str | None = None
     ike_version: Literal[1, 2] = 2
     ike_proposal: str
+    ike_lifetime: int = 86400
     ipsec_proposal: str
+    ipsec_lifetime: int = 3600
     psk: str
     initiation: Initiation = Initiation.INITIATOR
     tunnel_ip: IPv4Interface | IPv6Interface | None = None

@@ -113,10 +113,10 @@ def add(
     remote_peer_ip: Annotated[
         IPv4Address | IPv6Address, typer.Option(parser=ip_address)
     ],
-    initiation: Annotated[
-        Optional[models.Initiation], typer.Option()
-    ] = models.Initiation.INITIATOR,
+    initiation: Annotated[Optional[models.Initiation], typer.Option()] = None,
     ike_version: Annotated[Optional[IkeVersion], typer.Option()] = None,
+    ike_lifetime: Annotated[Optional[int], typer.Option()] = None,
+    ipsec_lifetime: Annotated[Optional[int], typer.Option()] = None,
     remote_id: Annotated[Optional[str], typer.Option()] = None,
     tunnel_ip: Annotated[
         Optional[IPv4Interface], typer.Option(parser=IPv4Interface)
@@ -179,11 +179,11 @@ def set_(
     ctx: typer.Context,
     # pylint: disable=unused-argument
     ike_proposal: Annotated[Optional[str], typer.Option()] = None,
+    ike_lifetime: Annotated[Optional[int], typer.Option()] = None,
     ipsec_proposal: Annotated[Optional[str], typer.Option()] = None,
+    ipsec_lifetime: Annotated[Optional[int], typer.Option()] = None,
     psk: Annotated[Optional[str], typer.Option("--pre-shared-key")] = None,
-    initiation: Annotated[
-        Optional[models.Initiation], typer.Option()
-    ] = models.Initiation.INITIATOR,
+    initiation: Annotated[Optional[models.Initiation], typer.Option()] = None,
     remote_peer_ip: Annotated[
         IPv4Address | IPv6Address | None, typer.Option(parser=ip_address)
     ] = None,
@@ -257,6 +257,8 @@ def unset(
     # pylint: disable=unused-argument
     metadata: Annotated[Optional[list[str]], typer.Option()] = None,
     ike_version: Annotated[bool, typer.Option()] = False,
+    ike_lifetime: Annotated[bool, typer.Option()] = False,
+    ipsec_lifetime: Annotated[bool, typer.Option()] = False,
     initiation: Annotated[bool, typer.Option()] = False,
     tunnel_ip: Annotated[bool, typer.Option()] = False,
     remote_id: Annotated[bool, typer.Option()] = False,

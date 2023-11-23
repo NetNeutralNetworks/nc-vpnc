@@ -16,7 +16,7 @@ connections {
         # Continuously tries to reconnect instead of a specific amount of times.
         keyingtries = 0
         # Tries to enforce unique connections, replaces old connection with new.
-        unique = keep
+        unique = replace
         # Default inbound XFRM interface ID for children.
         if_id_in = 0x{{ conn.xfrm_id }}
         # Default outbound XFRM interface ID for children.
@@ -32,7 +32,7 @@ connections {
             auth = psk
         }
         proposals = {{ conn.ike_proposal | replace("ike-", "") }}
-        rekey_time = 24h
+        rekey_time = {{ conn.ike_lifetime}}s
 
         children {
             # CHILD_SA configuration sub-section.
@@ -49,8 +49,8 @@ connections {
                 # Remote selectors to include in CHILD_SA.
                 remote_ts = 0.0.0.0/0
     {%- endif %}
-                life_time = 3960s
-                rekey_time = 3600s
+                life_time = {{ (conn.ipsec_lifetime * 1.1) | round | int }}s
+                rekey_time = {{ conn.ipsec_lifetime }}s
                 rekey_bytes = 1024000000
                 esp_proposals = {{ conn.ipsec_proposal | replace("ipsec-", "") }}
                 dpd_action = restart

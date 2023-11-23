@@ -15,7 +15,11 @@ tunnels:
     psk: DitIsEENV4ilugP0sSwerd!
     ike_version: 2
     ike_proposal: aes128gcm16-prfsha384-ecp384
+    # Optional: The IKE lifetime in seconds
+    # ike_lifetime: 86400
     ipsec_proposal: aes128gcm16-ecp384
+    # Optional: The IPsec lifetime in seconds
+    # ipsec_lifetime: 3600
     # mutually exclusive with traffic selectors
     # does not work in hub mode
     # routes:
@@ -38,7 +42,11 @@ tunnels:
     psk: DitIsEENV4ilugP0sSwerd!
     # ike_version: 2
     ike_proposal: aes128gcm16-prfsha384-ecp384
+    # Optional: The IKE lifetime in seconds
+    # ike_lifetime: 86400
     ipsec_proposal: aes128gcm16-ecp384
+    # Optional: The IPsec lifetime in seconds
+    # ipsec_lifetime: 3600
     # optional, defaults to start. Start means inititate and respond, none means respond only.
     # initiation: "start"|"none"
     # mutually exclusive with traffic selectors
