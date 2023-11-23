@@ -113,6 +113,10 @@ def update_uplink_connection():
                 "psk": tunnel_config.psk,
                 "local_id": config.VPNC_SERVICE_CONFIG.local_id,
                 "remote_id": tunnel_config.remote_id,
+                "priority": tunnel_config.priority,
+                "prepend": (
+                    f"{config.VPNC_SERVICE_CONFIG.bgp.asn} " * tunnel_config.priority
+                ).strip(),
             }
         )
 

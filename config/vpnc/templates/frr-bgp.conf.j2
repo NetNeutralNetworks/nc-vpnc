@@ -20,22 +20,32 @@ router bgp {{ bgp_asn }} vrf {{ trusted_netns }}
   neighbor MGMT-TRANSIT timers 10 30
 {%- for uplink in uplinks %}
   {%- if uplink.xfrm_ip %}
-  {#- Normal BGP configuration #}
-  neighbor {{ uplink.xfrm_ip }} remote-as {{ uplink.asn }}
-  neighbor {{ uplink.xfrm_ip }} peer-group MGMT-TRANSIT
+    {#- Normal BGP configuration #}
+    {%- set neigh = uplink.xfrm_ip %}
+    neighbor {{ neigh }} remote-as {{ uplink.asn }}
   {%- else %}
-  {#- BGP unnumbered configuration #}
-  neighbor {{ uplink.xfrm_name }} interface remote-as external
-  neighbor {{ uplink.xfrm_name }} peer-group MGMT-TRANSIT
+    {#- BGP unnumbered configuration #}
+    {%- set neigh = uplink.xfrm_name %}
+    neighbor {{ neigh }} interface remote-as {{ uplink.asn }}
   {%- endif %}
+  neighbor {{ neigh }} peer-group MGMT-TRANSIT
 {%- endfor %}
   address-family ipv6 unicast
     redistribute connected route-map REDIS-RM-STATIC-TO-BGP
     redistribute kernel route-map REDIS-RM-STATIC-TO-BGP
     neighbor MGMT-TRANSIT activate
-    neighbor MGMT-TRANSIT route-map MGMT-TRANSIT-RM-IN in
-    neighbor MGMT-TRANSIT route-map MGMT-TRANSIT-RM-OUT out
     neighbor MGMT-TRANSIT soft-reconfiguration inbound
+    {%- for uplink in uplinks %}
+    {%- if uplink.xfrm_ip %}
+    {#- Normal BGP configuration #}
+    {%- set neigh = uplink.xfrm_ip %}
+    {%- else %}
+    {#- BGP unnumbered configuration #}
+    {%- set neigh = uplink.xfrm_name %}
+    {%- endif %}
+    neighbor {{ neigh }} route-map MGMT-TRANSIT-RM-{{ neigh }}-IN in
+    neighbor {{ neigh }} route-map MGMT-TRANSIT-RM-{{ neigh }}-OUT out
+  {%- endfor %}
   exit-address-family
 exit
 !
@@ -43,20 +53,33 @@ ipv6 prefix-list MGMT-TRANSIT-PL-IN seq 10 permit {{ prefix_uplink }} le 64
 ipv6 prefix-list MGMT-TRANSIT-PL-OUT seq 10 permit {{ prefix_downlink_v6 }} ge 96 le 96
 ipv6 prefix-list REDIS-PL-IN seq 10 permit {{ prefix_downlink_v6 }} ge 96 le 96
 !
-route-map MGMT-TRANSIT-RM-IN permit 1
+{%- for uplink in uplinks %}
+  {%- if uplink.xfrm_ip %}
+    {#- Normal BGP configuration #}
+    {%- set neigh = uplink.xfrm_ip %}
+  {%- else %}
+    {#- BGP unnumbered configuration #}
+    {%- set neigh = uplink.xfrm_name %}
+  {%- endif %}
+route-map MGMT-TRANSIT-RM-{{ neigh }}-IN permit 1
   match ipv6 address prefix-list MGMT-TRANSIT-PL-IN
+  set local-preference {{ 100 - (10 * uplink.priority)}}
 exit
 !
-route-map MGMT-TRANSIT-RM-IN deny 2
+route-map MGMT-TRANSIT-RM-{{ neigh }}-IN deny 2
 exit
 !
-route-map MGMT-TRANSIT-RM-OUT permit 1
+route-map MGMT-TRANSIT-RM-{{ neigh }}-OUT permit 1
   match ipv6 address prefix-list MGMT-TRANSIT-PL-OUT
+    {%- if uplink.prepend %}
+  set as-path prepend {{ uplink.prepend }}
+    {%- endif %}
 exit
 !
-route-map MGMT-TRANSIT-RM-OUT deny 2
+route-map MGMT-TRANSIT-RM-{{ neigh }}-OUT deny 2
 exit
 !
+{%- endfor %}
 route-map REDIS-RM-STATIC-TO-BGP permit 1
   match ipv6 address prefix-list REDIS-PL-IN
 exit

@@ -299,6 +299,7 @@ class Uplink(BaseModel):
     psk: str
     prefix_uplink_tunnel: IPv6Interface | None = None
     asn: int | None = None
+    priority: int = Field(0, ge=0, le=9)
 
 
 class Service(BaseModel):

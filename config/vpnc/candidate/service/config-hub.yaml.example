@@ -23,6 +23,8 @@ uplinks:
     description: Uplink to provider
     # Optional
     metadata: {}
+    # Optional, lower is more preferred uplink for receiving traffic, defaults to 0, max is 9
+    priority: 0
     remote_peer_ip: 192.168.0.252
     # Optional: If not set, defaults to remote_peer_ip
     # remote_id: 192.168.0.252

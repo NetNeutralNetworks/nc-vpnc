@@ -85,6 +85,7 @@ def add(
         Optional[IPv6Network], typer.Option(parser=IPv6Network)
     ] = None,
     remote_id: Annotated[Optional[str], typer.Option()] = None,
+    priority: Annotated[Optional[int], typer.Option()] = None,
 ):
     """
     Add a new uplink
@@ -135,6 +136,7 @@ def set_(
     remote_peer_ip: Annotated[
         IPv4Address | IPv6Address | None, typer.Option(parser=ip_address)
     ] = None,
+    priority: Annotated[Optional[int], typer.Option()] = None,
 ):
     """
     Set properties for an uplink
@@ -184,6 +186,7 @@ def unset(
         bool, typer.Option("--prefix-uplink-tunnel")
     ] = False,
     remote_id: Annotated[bool, typer.Option("--remote-id")] = False,
+    priority: Annotated[bool, typer.Option()] = False,
 ):
     """
     Unset properties for an uplink
