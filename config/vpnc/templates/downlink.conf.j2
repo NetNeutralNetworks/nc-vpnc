@@ -69,7 +69,7 @@ secrets {
 {%- for conn in connections %}
     ike-{{ conn.remote }}-{{ conn.t_id }} {
         id-{{ conn.remote }}-{{ conn.t_id }} = {{ conn.remote_id }}
-        secret = "{{ conn.psk }}"
+        secret = {{ conn.psk }}
     }
 {%- endfor %}
 }
