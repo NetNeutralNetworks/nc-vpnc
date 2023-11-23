@@ -250,6 +250,7 @@ def add_downlink_connection(path: pathlib.Path):
             ip -n {config.UNTRUSTED_NETNS} link add {xfrm} type xfrm dev {config.VPNC_SERVICE_CONFIG.untrusted_if_name} if_id 0x{xfrm_id}
             ip -n {config.UNTRUSTED_NETNS} link set {xfrm} netns {netns}
             ip -n {netns} link set dev {xfrm} up
+            ip -n {netns} -4 address flush dev {xfrm}
             ip -n {netns} address add {v4_downlink_tunnel_ip} dev {xfrm}
             """,
             stdout=subprocess.PIPE,
@@ -354,7 +355,10 @@ def delete_downlink_connection(vpn_id: str):
         helpers.terminate_swanctl_connection(netns)
         # run the netns remove commands
         sp = subprocess.run(
-            f"ip netns del {netns}",
+            f"""
+            ip -n {netns}
+            ip netns del {netns}
+            """,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             shell=True,
