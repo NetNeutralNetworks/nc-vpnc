@@ -53,6 +53,7 @@ connections {
                 rekey_time = {{ conn.ipsec_lifetime }}s
                 rekey_bytes = 1024000000
                 esp_proposals = {{ conn.ipsec_proposal | replace("ipsec-", "") }}
+                hw_offload = auto
                 dpd_action = restart
                 start_action = {{ conn.initiation }}
                 close_action = {{ conn.initiation }}
