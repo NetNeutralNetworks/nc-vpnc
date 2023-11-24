@@ -1,0 +1,19 @@
+{#- flush all old configuration and drop all IPv4 traffic by default #}
+ip netns exec {{ netns }} iptables -F
+ip netns exec {{ netns }} iptables -P INPUT DROP
+ip netns exec {{ netns }} iptables -P FORWARD DROP
+ip netns exec {{ netns }} iptables -P OUTPUT DROP
+
+{#- flush all old configuration and drop all IPv6 traffic by default #}
+{#- except traffic originating from the trusted netns #}
+ip netns exec {{ netns }} ip6tables -F
+ip netns exec {{ netns }} ip6tables -P INPUT DROP
+ip netns exec {{ netns }} ip6tables -P FORWARD DROP
+ip netns exec {{ netns }} ip6tables -P OUTPUT DROP
+
+{#- allow forward for traffic from TRUST and  return traffic #}
+ip netns exec {{ netns }} ip6tables -A FORWARD -i {{ veth }} -j ACCEPT
+
+{#- allow icmpv6 for PMTU #}
+ip netns exec {{ netns }} ip6tables -A INPUT -i {{ veth }} -p ipv6-icmp -j ACCEPT
+ip netns exec {{ netns }} ip6tables -A OUTPUT -o {{ veth }} -p ipv6-icmp -j ACCEPT

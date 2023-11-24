@@ -77,7 +77,9 @@ def update_uplink_connection():
     # IP(6)TABLES RULES
     # The trusted netns blocks all traffic originating from the downlink namespaces,
     # but does accept traffic originating from the default and management zones.
-    iptables_template = config.VPNC_TEMPLATES_ENV.get_template("iptables.conf.j2")
+    iptables_template = config.VPNC_TEMPLATES_ENV.get_template(
+        "iptables-uplink.conf.j2"
+    )
     iptables_configs = {
         "trusted_netns": config.TRUSTED_NETNS,
         "uplinks": uplinks_ref,
@@ -260,6 +262,23 @@ def add_downlink_connection(path: pathlib.Path):
         )
         logger.info(sp.args)
         logger.info(sp.stdout.decode())
+
+        # IP(6)TABLES RULES
+        # The customer netns blocks all traffic except for traffic from the TRUSTED namespace and
+        # ICMPv6
+        iptables_template = config.VPNC_TEMPLATES_ENV.get_template(
+            "iptables-downlink.conf.j2"
+        )
+        iptables_configs = {"netns": netns, "veth": veth_e, "xfrm": xfrm}
+        iptables_render = iptables_template.render(**iptables_configs)
+        logger.info(iptables_render)
+        subprocess.run(
+            iptables_render,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=True,
+            check=True,
+        )
 
     for netns in netns_remove:
         # run the netns remove commands
