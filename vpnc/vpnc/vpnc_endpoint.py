@@ -108,7 +108,7 @@ def add_downlink_connection(path: pathlib.Path):
 
     # VPN DOWNLINKS
     logger.info("Setting up VPN tunnels.")
-    downlink_template = config.VPNC_TEMPLATES_ENV.get_template("downlink.conf.j2")
+    downlink_template = config.VPNC_TEMPLATES_ENV.get_template("swanctl-downlink.conf.j2")
     downlink_configs = []
     for tunnel_id, tunnel_config in remote_config.tunnels.items():
         t_config = {

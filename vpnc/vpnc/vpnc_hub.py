@@ -95,7 +95,7 @@ def update_uplink_connection():
     )
 
     # VPN UPLINKS
-    uplink_template = config.VPNC_TEMPLATES_ENV.get_template("uplink.conf.j2")
+    uplink_template = config.VPNC_TEMPLATES_ENV.get_template("swanctl-uplink.conf.j2")
     uplink_configs = []
     for tunnel_id, tunnel_config in config.VPNC_SERVICE_CONFIG.uplinks.items():
         if tunnel_config.prefix_uplink_tunnel:
@@ -131,7 +131,7 @@ def update_uplink_connection():
     helpers.load_swanctl_all_config()
 
     # FRR/BGP CONFIG
-    bgp_template = config.VPNC_TEMPLATES_ENV.get_template("frr-bgp.conf.j2")
+    bgp_template = config.VPNC_TEMPLATES_ENV.get_template("frr.conf.j2")
     bgp_configs = {
         "trusted_netns": config.TRUSTED_NETNS,
         "untrusted_netns": config.UNTRUSTED_NETNS,
@@ -293,7 +293,9 @@ def add_downlink_connection(path: pathlib.Path):
         logger.info(sp.stdout.decode())
 
     # VPN DOWNLINKS
-    downlink_template = config.VPNC_TEMPLATES_ENV.get_template("downlink.conf.j2")
+    downlink_template = config.VPNC_TEMPLATES_ENV.get_template(
+        "swanctl-downlink.conf.j2"
+    )
     downlink_configs = []
     for tunnel_id, tunnel_config in remote_config.tunnels.items():
         t_config = {
