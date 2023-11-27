@@ -14,7 +14,7 @@ connections {
         # Continuously tries to reconnect instead of a specific amount of times.
         keyingtries = 0
         # Tries to enforce unique connections, replaces old connection with new.
-        unique = keep
+        unique = replace
         # Default inbound XFRM interface ID for children.
         if_id_in = 0x{{ conn.xfrm_id }}
         # Default outbound XFRM interface ID for children.
