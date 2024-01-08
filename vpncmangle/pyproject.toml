@@ -3,12 +3,12 @@ requires = ["setuptools >= 61.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vpnc"
-description = "Manages ncubed-vpnc configuration"
+name = "vpncmangle"
+description = "Runs a process to mangle DNS responses"
 readme = "README.md"
 authors = [{ name="Tony Fortes Ramos", email="tony.fortesramos@ncubed.nl" }]
 requires-python = ">=3.10"
-keywords = ["ncubed", "vpnc", "vpn"]
+keywords = ["ncubed", "vpncmangle", "mangle"]
 license = {text = "GNU General Public License v3 (GPLv3)"}
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -19,13 +19,8 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "deepdiff~=6.2",
-    "Jinja2~=3.1",
-    "PyYAML~=6.0",
-    "typer[all]~=0.9",
-    "vici~=5.9",
-    "watchdog~=3.0",
-    "pydantic~=2.4",
+    "NetfilterQueue~=1.1",
+    "scapy~=2.5",
 ]
 dynamic = ["version"]
 
@@ -35,8 +30,7 @@ dev = [
 ]
 
 [project.scripts]
-vpnc = "vpnc.main:main"
-vpnctl = "vpnc.ctl.main:app"
+vpncmangle = "vpncmangle.main:main"
 
 [tool.setuptools.dynamic]
-version = {attr = "vpnc.__version__"}
+version = {attr = "vpncmangle.__version__"}
