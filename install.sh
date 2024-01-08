@@ -71,9 +71,7 @@ case $1 in
 hub)
 ${INSTALLDIR}/bin/python3 -m pip install --upgrade pip setuptools wheel
 ${INSTALLDIR}/bin/python3 -m pip install --upgrade ${SCRIPTDIR}/${SERVICENAME}
-echo "PIP INSTALLING HUB!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 ${INSTALLDIR}/bin/python3 -m pip install --upgrade ${SCRIPTDIR}/vpncmangle
-echo "PIP INSTALLING HUB DONE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     ;;
 endpoint|addon)
 ${INSTALLDIR}/bin/python3 -m pip install --upgrade ${SCRIPTDIR}/${SERVICENAME}
