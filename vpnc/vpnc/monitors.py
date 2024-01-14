@@ -40,11 +40,13 @@ class VpncSecAssocMonitor(threading.Thread):
     ) -> None:
         super().__init__(group, target, name, args, kwargs, daemon=daemon)
 
-        for _ in range(10):
+        for i in range(10):
             try:
                 self.session = vici.Session()
                 break
-            except ConnectionRefusedError:
+            except ConnectionRefusedError as err:
+                if i == 10:
+                    raise err
                 time.sleep(1)
 
     def run(self):
