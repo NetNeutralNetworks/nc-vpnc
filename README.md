@@ -6,6 +6,7 @@ A VPN service that has the following features:
 * DNS64 mangling translates A records resolved in a client network to AAAA records.
 * Uses dynamic routing via BGP to exchange routes from established VPNs to the management environment.
 * Uses active and candidate config to allow for easier configuration. Configuration updated with the `vpnctl` client validates input.
+* Monitors for too many duplicate IKE and IPsec security associations and keeps the youngest. It takes rekeys into account.
 
 ## Usage
 
