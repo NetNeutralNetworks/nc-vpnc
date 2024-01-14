@@ -5,6 +5,8 @@ simultaneous connections from both parties or intermittent internet connectivity
 
 import logging
 import threading
+import time
+from collections.abc import Callable, Iterable, Mapping
 from types import MappingProxyType
 from typing import Any, TypeAlias
 
@@ -24,7 +26,26 @@ class VpncSecAssocMonitor(threading.Thread):
     Monitors the IKE and IPsec security associations for duplicates.
     """
 
-    session: vici.Session = vici.Session()
+    session: vici.Session = None
+
+    def __init__(
+        self,
+        group: None = None,
+        target: Callable[..., object] | None = None,
+        name: str | None = None,
+        args: Iterable[Any] = ...,
+        kwargs: Mapping[str, Any] | None = None,
+        *,
+        daemon: bool | None = None,
+    ) -> None:
+        super().__init__(group, target, name, args, kwargs, daemon=daemon)
+
+        for _ in range(10):
+            try:
+                self.session = vici.Session()
+                break
+            except ConnectionRefusedError:
+                time.sleep(1)
 
     def run(self):
         self.monitor_events()
