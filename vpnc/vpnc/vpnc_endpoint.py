@@ -11,7 +11,7 @@ import subprocess
 
 import yaml
 
-from . import config, helpers, models, observers
+from . import config, helpers, models, monitors, observers
 
 logger = logging.getLogger("vpnc")
 
@@ -108,7 +108,9 @@ def add_downlink_connection(path: pathlib.Path):
 
     # VPN DOWNLINKS
     logger.info("Setting up VPN tunnels.")
-    downlink_template = config.VPNC_TEMPLATES_ENV.get_template("swanctl-downlink.conf.j2")
+    downlink_template = config.VPNC_TEMPLATES_ENV.get_template(
+        "swanctl-downlink.conf.j2"
+    )
     downlink_configs = []
     for tunnel_id, tunnel_config in remote_config.tunnels.items():
         t_config = {
@@ -256,6 +258,10 @@ def main():
         shell=True,
         check=False,
     )  # .stdout.decode().lower()
+
+    # Start the VPNC Security Association monitor to fix duplicate connections.
+    sa_mon = monitors.VpncSecAssocMonitor(daemon=True)
+    sa_mon.start()
 
     update_downlink_connection()
 

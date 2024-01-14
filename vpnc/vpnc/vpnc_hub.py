@@ -11,7 +11,7 @@ import subprocess
 
 import yaml
 
-from . import config, helpers, models, observers
+from . import config, helpers, models, monitors, observers
 
 logger = logging.getLogger("vpnc")
 
@@ -460,6 +460,10 @@ def main():
         shell=True,
         check=False,
     )
+
+    # Start the VPNC Security Association monitor to fix duplicate connections.
+    sa_mon = monitors.VpncSecAssocMonitor(daemon=True)
+    sa_mon.start()
 
     # Start the VPNC mangle process in the TRUSTED net namespace.
     # This process mangles DNS responses to translate A responses to AAAA responses.
