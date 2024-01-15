@@ -132,14 +132,16 @@ class VpncSecAssocMonitor(threading.Thread):
                 # Compare the seconds since the SA was established. Choose the most recent one.
                 ipsec_sa_established = int(ipsec_sa["install-time"])
                 best_sa_established = int(unique[ts_key]["best"]["install-time"])
-                if ipsec_sa_established < best_sa_established:
+                if ipsec_sa_established <= best_sa_established:
                     unique[ts_key]["rest"].append(unique[ts_key]["best"])
                     unique[ts_key]["best"] = ipsec_sa
                 else:
                     unique[ts_key]["rest"].append(ipsec_sa)
 
+            # For each TS pair, check if there are any that need to be removed
             for _, ipsec_sas in unique.items():
-                if len(ipsec_sas["rest"]) <= 1:
+                # Set to 0 so that only 1 pair is allowed.
+                if len(ipsec_sas["rest"]) == 0:
                     continue
 
                 for ipsec_sa in ipsec_sas["rest"]:

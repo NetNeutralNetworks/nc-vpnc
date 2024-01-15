@@ -12,7 +12,7 @@ from . import config, helpers, vpnc_endpoint, vpnc_hub
 
 # LOGGER
 # Get logger
-logger = logging.getLogger("vpnc")
+logger = logging.getLogger()
 
 
 def main():
