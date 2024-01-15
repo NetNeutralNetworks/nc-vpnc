@@ -99,8 +99,7 @@ class VpncSecAssocMonitor(threading.Thread):
                     ike_sa_established = int(ike_sa["established"])
                     best_sa_established = int(best_ike_sa_event[ike_name]["established"])
                 except TypeError:
-                    ike_sa_established = 10
-                    best_sa_established = 0
+                    continue
                 if ike_sa_established <= best_sa_established:
                     self.terminate_sa(ike_id=best_ike_sa_event[ike_name]["uniqueid"])
                     best_ike_sa_event = ike_sa_event
@@ -138,8 +137,7 @@ class VpncSecAssocMonitor(threading.Thread):
                     ipsec_sa_established = int(ipsec_sa["install-time"])
                     best_sa_established = int(unique[ts_key]["best"]["install-time"])
                 except TypeError:
-                    ipsec_sa_established = 10
-                    best_sa_established = 0
+                    continue
                 if ipsec_sa_established <= best_sa_established:
                     unique[ts_key]["rest"].append(unique[ts_key]["best"])
                     unique[ts_key]["best"] = ipsec_sa
@@ -153,6 +151,8 @@ class VpncSecAssocMonitor(threading.Thread):
                     continue
 
                 for ipsec_sa in ipsec_sas["rest"]:
+                    print(f"UNIQUEID IS !!!!!!!!!!!!!!!!!! {ipsec_sa["uniqueid"]}")
+                    print(f"{ipsec_sa}")
                     self.terminate_sa(child_id=ipsec_sa["uniqueid"])
 
     def terminate_sa(
