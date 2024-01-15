@@ -95,8 +95,12 @@ class VpncSecAssocMonitor(threading.Thread):
                     continue
 
                 # Compare the seconds since the SA was established. Choose the most recent one.
-                ike_sa_established = int(ike_sa["established"])
-                best_sa_established = int(best_ike_sa_event[ike_name]["established"])
+                try:
+                    ike_sa_established = int(ike_sa["established"])
+                    best_sa_established = int(best_ike_sa_event[ike_name]["established"])
+                except TypeError:
+                    ike_sa_established = 10
+                    best_sa_established = 0
                 if ike_sa_established <= best_sa_established:
                     self.terminate_sa(ike_id=best_ike_sa_event[ike_name]["uniqueid"])
                     best_ike_sa_event = ike_sa_event
@@ -130,8 +134,12 @@ class VpncSecAssocMonitor(threading.Thread):
                     continue
 
                 # Compare the seconds since the SA was established. Choose the most recent one.
-                ipsec_sa_established = int(ipsec_sa["install-time"])
-                best_sa_established = int(unique[ts_key]["best"]["install-time"])
+                try:
+                    ipsec_sa_established = int(ipsec_sa["install-time"])
+                    best_sa_established = int(unique[ts_key]["best"]["install-time"])
+                except TypeError:
+                    ipsec_sa_established = 10
+                    best_sa_established = 0
                 if ipsec_sa_established <= best_sa_established:
                     unique[ts_key]["rest"].append(unique[ts_key]["best"])
                     unique[ts_key]["best"] = ipsec_sa
