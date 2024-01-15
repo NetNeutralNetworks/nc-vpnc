@@ -151,7 +151,7 @@ class VpncSecAssocMonitor(threading.Thread):
                     continue
 
                 for ipsec_sa in ipsec_sas["rest"]:
-                    print(f"UNIQUEID IS !!!!!!!!!!!!!!!!!! {ipsec_sa["uniqueid"]}")
+                    print(f"UNIQUEID IS !!!!!!!!!!!!!!!!!! {ipsec_sa['uniqueid']}")
                     print(f"{ipsec_sa}")
                     self.terminate_sa(child_id=ipsec_sa["uniqueid"])
 
