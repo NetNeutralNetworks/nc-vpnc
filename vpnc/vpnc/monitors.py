@@ -100,6 +100,8 @@ class VpncSecAssocMonitor(threading.Thread):
                     best_sa_established = int(best_ike_sa_event[ike_name]["established"])
                 except TypeError:
                     continue
+                except KeyError:
+                    continue
                 if ike_sa_established <= best_sa_established:
                     self.terminate_sa(ike_id=best_ike_sa_event[ike_name]["uniqueid"])
                     best_ike_sa_event = ike_sa_event
