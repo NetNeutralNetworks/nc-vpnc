@@ -18,7 +18,7 @@ EventType: TypeAlias = bytes
 Event: TypeAlias = tuple[EventType, IkeData]
 
 
-logger = logging.getLogger("vpnc-sa-mon")
+logger = logging.getLogger("vpnc")
 
 
 class VpncSecAssocMonitor(threading.Thread):
