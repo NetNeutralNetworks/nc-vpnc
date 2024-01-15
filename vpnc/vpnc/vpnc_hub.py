@@ -254,6 +254,9 @@ def add_downlink_connection(path: pathlib.Path):
             ip -n {netns} link set dev {xfrm} up
             ip -n {netns} -4 address flush dev {xfrm}
             ip -n {netns} address add {v4_downlink_tunnel_ip} dev {xfrm}
+            ip -n {netns} route add 0.0.0.0/0 dev {xfrm}
+            # start NAT64
+            ip netns exec {netns} jool instance add {netns} --netfilter --pool6 {v6_downlink_space}::/96
             """,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -378,6 +381,9 @@ def delete_downlink_connection(vpn_id: str):
         sp = subprocess.run(
             f"""
             ip -n {netns}
+            # remove NAT64
+            ip netns exec {netns} jool instance remove {netns}
+            # remove netns
             ip netns del {netns}
             """,
             stdout=subprocess.PIPE,

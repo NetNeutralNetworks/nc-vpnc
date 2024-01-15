@@ -19,19 +19,12 @@ printf "${XFRM}\n\n"
 
 case "${PLUTO_VERB}" in
 up-client)
-    printf "Creating interface and routing rules\n\n"
+    printf "Creating VPN redistribution routes\n\n"
     # add routes
     ip -n ${TRUSTED_NETNS} -6 route add ${V6_DOWNLINK_TUNNEL_SPACE}::/96 via ${V6_DOWNLINK_TUNNEL_SPACE}:1:0:1
-    ip -n ${NETNS} route add 0.0.0.0/0 dev ${XFRM}
-    # start NAT64
-    ip netns exec ${NETNS} jool instance add ${NETNS} --netfilter --pool6 ${V6_DOWNLINK_TUNNEL_SPACE}::/96
     ;;
 down-client)
-    printf "Cleaning up interfaces\n\n"
-    # remove NAT64
-    ip netns exec ${NETNS} jool instance remove ${NETNS}
-    # remove default route over VPN
-    ip -n ${NETNS} route del 0.0.0.0/0 dev ${XFRM}
+    printf "Cleaning up VPN redistribution routes\n\n"
     # remmove IPv6 route to VPN tunnel
     ip -n ${TRUSTED_NETNS} -6 route del ${V6_DOWNLINK_TUNNEL_SPACE}::/96
     ;;
