@@ -40,14 +40,19 @@ class VpncSecAssocMonitor(threading.Thread):
     ) -> None:
         super().__init__(group, target, name, args, kwargs, daemon=daemon)
 
-        for i in range(10):
+        retries = 10
+        for i in range(retries):
             try:
                 self.session = vici.Session()
                 break
             except ConnectionRefusedError as err:
-                if i == 10:
+                if i >= retries:
+                    logger.warning(
+                        "VICI socket not available after %s tries. Exiting.", retries
+                    )
                     raise err
-                time.sleep(1)
+                logger.info("VICI socket is not yet available. Retrying.")
+                time.sleep(2)
 
     def run(self):
         while True:
@@ -55,7 +60,6 @@ class VpncSecAssocMonitor(threading.Thread):
                 self.monitor_events()
             except Exception:
                 time.sleep(1)
-
 
     def monitor_events(self):
         """
@@ -83,8 +87,7 @@ class VpncSecAssocMonitor(threading.Thread):
 
         ike_sas: list[IkeData] = list(self.session.list_sas({"ike": ike_name}))
 
-        # During rekeys there can be two IKE SAs active.
-        if len(ike_sas) <= 2:
+        if len(ike_sas) <= 1:
             logger.debug(
                 "Skipping IKE event for SA '%s'. Two or fewer SAs active.", ike_name
             )
@@ -102,11 +105,14 @@ class VpncSecAssocMonitor(threading.Thread):
                 # Compare the seconds since the SA was established. Choose the most recent one.
                 try:
                     ike_sa_established = int(ike_sa["established"])
-                    best_sa_established = int(best_ike_sa_event[ike_name]["established"])
+                    best_sa_established = int(
+                        best_ike_sa_event[ike_name]["established"]
+                    )
                 except TypeError:
                     continue
                 except KeyError:
                     continue
+
                 if ike_sa_established <= best_sa_established:
                     self.terminate_sa(ike_id=best_ike_sa_event[ike_name]["uniqueid"])
                     best_ike_sa_event = ike_sa_event
@@ -127,39 +133,31 @@ class VpncSecAssocMonitor(threading.Thread):
         for ike_sa in ike_sas:
             ike_sa_props = ike_sa[ike_name]
 
-            # During rekeys there can be two IPsec SAs active.
-            unique: dict[str, Any] = {}
+            # Get the most recent SA for each TS pair.
+            ts_unique: dict[str, Any] = {}
 
             for _, ipsec_sa in ike_sa_props["child-sas"].items():
                 # The check must be done per traffic selector pair.
                 # If this is the first time seeing the traffic selector for the IKE SA, don't do
                 # anything.
                 ts_key = str((ipsec_sa["local-ts"], ipsec_sa["remote-ts"]))
-                if ts_key not in unique:
-                    unique[ts_key] = {"rest": [], "best": ipsec_sa}
+                if ts_key not in ts_unique:
+                    ts_unique[ts_key] = ipsec_sa
                     continue
 
                 # Compare the seconds since the SA was established. Choose the most recent one.
                 try:
                     ipsec_sa_established = int(ipsec_sa["install-time"])
-                    best_sa_established = int(unique[ts_key]["best"]["install-time"])
+                    best_sa_established = int(ts_unique[ts_key]["install-time"])
                 except TypeError:
                     continue
                 except KeyError:
                     continue
+
                 if ipsec_sa_established <= best_sa_established:
-                    unique[ts_key]["rest"].append(unique[ts_key]["best"])
-                    unique[ts_key]["best"] = ipsec_sa
+                    self.terminate_sa(child_id=ts_unique[ts_key]["uniqueid"])
+                    ts_unique[ts_key] = ipsec_sa
                 else:
-                    unique[ts_key]["rest"].append(ipsec_sa)
-
-            # For each TS pair, check if there are any that need to be removed
-            for _, ipsec_sas in unique.items():
-                # Set to 0 so that only 1 pair is allowed.
-                if len(ipsec_sas["rest"]) == 0:
-                    continue
-
-                for ipsec_sa in ipsec_sas["rest"]:
                     self.terminate_sa(child_id=ipsec_sa["uniqueid"])
 
     def terminate_sa(
