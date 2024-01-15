@@ -50,7 +50,12 @@ class VpncSecAssocMonitor(threading.Thread):
                 time.sleep(1)
 
     def run(self):
-        self.monitor_events()
+        while True:
+            try:
+                self.monitor_events()
+            except Exception:
+                time.sleep(1)
+
 
     def monitor_events(self):
         """
@@ -155,8 +160,6 @@ class VpncSecAssocMonitor(threading.Thread):
                     continue
 
                 for ipsec_sa in ipsec_sas["rest"]:
-                    print(f"UNIQUEID IS !!!!!!!!!!!!!!!!!! {ipsec_sa['uniqueid']}")
-                    print(f"{ipsec_sa}")
                     self.terminate_sa(child_id=ipsec_sa["uniqueid"])
 
     def terminate_sa(
