@@ -140,6 +140,8 @@ class VpncSecAssocMonitor(threading.Thread):
                     best_sa_established = int(unique[ts_key]["best"]["install-time"])
                 except TypeError:
                     continue
+                except KeyError:
+                    continue
                 if ipsec_sa_established <= best_sa_established:
                     unique[ts_key]["rest"].append(unique[ts_key]["best"])
                     unique[ts_key]["best"] = ipsec_sa
