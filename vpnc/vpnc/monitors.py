@@ -54,7 +54,7 @@ class VpncMonitor(threading.Thread):
         # Run the task to check for inactive connections every 5 minutes.
         logger.info("Starting inactive connection monitor.")
         t1 = loop.create_task(
-            self.repeat(300, self.monitor_conn_inactive, init_wait=True)
+            self.repeat(60, self.monitor_conn_inactive, init_wait=True)
         )
         await t1
 
@@ -97,6 +97,8 @@ class VpncMonitor(threading.Thread):
         """
         Monitor for SA events and take action accordingly.
         """
+        # Wait for startup before starting to manage VPNs
+        time.sleep(60)
         vcs = self.connect()
         for event in vcs.listen(
             event_types=["ike-updown", "child-updown"]  # , timeout=0.05
