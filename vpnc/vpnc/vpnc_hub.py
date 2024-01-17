@@ -469,7 +469,7 @@ def main():
 
     # Start the VPNC Security Association monitor to fix duplicate connections.
     logger.info("Monitoring IKE/IPsec security associations.")
-    sa_mon = monitors.VpncSecAssocMonitor(daemon=True)
+    sa_mon = monitors.VpncMonitor(daemon=True)
     sa_mon.start()
 
     # Start the VPNC mangle process in the TRUSTED net namespace.

@@ -3,10 +3,12 @@ Monitors the VPN security associations for unwanted duplicates. These can be cau
 simultaneous connections from both parties or intermittent internet connectivity issues.
 """
 
+import asyncio
+
+# import concurrent.futures
 import logging
 import threading
 import time
-from collections.abc import Callable, Iterable, Mapping
 from types import MappingProxyType
 from typing import Any, TypeAlias
 
@@ -21,52 +23,80 @@ Event: TypeAlias = tuple[EventType, IkeData]
 logger = logging.getLogger("vpnc")
 
 
-class VpncSecAssocMonitor(threading.Thread):
+class VpncMonitor(threading.Thread):
     """
-    Monitors the IKE and IPsec security associations for duplicates.
+    Monitors the VPNC service and components. This is blocking and as such in a separate threads.
     """
-
-    session: vici.Session = None
-
-    def __init__(
-        self,
-        group: None = None,
-        target: Callable[..., object] | None = None,
-        name: str | None = None,
-        args: Iterable[Any] = ...,
-        kwargs: Mapping[str, Any] | None = None,
-        *,
-        daemon: bool | None = None,
-    ) -> None:
-        super().__init__(group, target, name, args, kwargs, daemon=daemon)
-
-        retries = 10
-        for i in range(retries):
-            try:
-                self.session = vici.Session()
-                break
-            except ConnectionRefusedError as err:
-                if i >= retries:
-                    logger.warning(
-                        "VICI socket not available after %s tries. Exiting.", retries
-                    )
-                    raise err
-                logger.info("VICI socket is not yet available. Retrying.")
-                time.sleep(2)
 
     def run(self):
         while True:
-            try:
-                self.monitor_events()
-            except Exception:
-                time.sleep(1)
+            # try:
+            asyncio.run(self.monitor())
+            # except Exception:
+            #     time.sleep(1)
 
-    def monitor_events(self):
+    async def monitor(self):
+        """
+        Test function
+        """
+
+        loop = asyncio.get_running_loop()
+        # executor = concurrent.futures.ThreadPoolExecutor()
+        # loop.run_in_executor(executor, self.monitor_sa_events)
+
+        # Run the task to monitor the security associations for duplicates.
+        t0 = threading.Thread(target=self.monitor_sa_events, daemon=True)
+        t0.start()
+
+        # Run the task to check for inactive connections every 5 minutes.
+        t1 = loop.create_task(
+            self.repeat(300, self.monitor_conn_inactive, init_wait=True)
+        )
+        await t1
+
+    async def repeat(self, interval, func, *args, init_wait=False, **kwargs):
+        """Run func every interval seconds.
+
+        If func has not finished before *interval*, will run again
+        immediately when the previous iteration finished.
+
+        *args and **kwargs are passed as the arguments to func.
+        """
+        if init_wait:
+            await asyncio.sleep(interval)
+        while True:
+            await asyncio.gather(
+                func(*args, **kwargs),
+                asyncio.sleep(interval),
+            )
+
+    async def monitor_conn_inactive(self):
+        """
+        Monitors for inactive connection definitions where the connection is set to initiate/start.
+        This doesn't check for IKE SAs without IPsec SAs.
+        """
+        vcs = self.connect()
+        conns = [i.decode() for i in vcs.get_conns()["conns"]]
+        sas = [list(i.keys())[0] for i in vcs.list_sas()]
+
+        # TODO: Implement IKE SA without IPsec SAs check?
+
+        for con in conns:
+            if con in sas:
+                continue
+            self.initiate_sa(vcs=vcs, ike=con, child=con)
+
+    def monitor_sa_events(self):
         """
         Monitor for SA events and take action accordingly.
         """
-        for event in self.session.listen(event_types=["ike-updown", "child-updown"]):
+        vcs = self.connect()
+        for event in vcs.listen(
+            event_types=["ike-updown", "child-updown"]  # , timeout=0.05
+        ):
             event_type, event_data = event
+            if event_type is None or event_data is None:
+                continue
             match event_type:
                 case b"ike-updown":
                     self.resolve_duplicate_ike_sa(event_data)
@@ -78,6 +108,7 @@ class VpncSecAssocMonitor(threading.Thread):
         Checks for duplicate IPsec security associations and if these need to be removed.
         If SAs need be removed, the older ones are removed in favor of the youngest.
         """
+        vcs = self.connect()
         if len(keys := ike_event.keys()) == 2:
             _, ike_name = list(keys)
         else:
@@ -85,7 +116,7 @@ class VpncSecAssocMonitor(threading.Thread):
 
         logger.debug("IKE event received for SA '%s'", ike_name)
 
-        ike_sas: list[IkeData] = list(self.session.list_sas({"ike": ike_name}))
+        ike_sas: list[IkeData] = list(vcs.list_sas({"ike": ike_name}))
 
         if len(ike_sas) <= 1:
             logger.debug(
@@ -114,21 +145,24 @@ class VpncSecAssocMonitor(threading.Thread):
                     continue
 
                 if ike_sa_established <= best_sa_established:
-                    self.terminate_sa(ike_id=best_ike_sa_event[ike_name]["uniqueid"])
+                    self.terminate_sa(
+                        vcs=vcs, ike_id=best_ike_sa_event[ike_name]["uniqueid"]
+                    )
                     best_ike_sa_event = ike_sa_event
                 else:
-                    self.terminate_sa(ike_id=ike_sa["uniqueid"])
+                    self.terminate_sa(vcs=vcs, ike_id=ike_sa["uniqueid"])
 
     def resolve_duplicate_ipsec_sa(self, ike_event: IkeData):
         """
         Checks for duplicate IPsec security associations and if these need to be removed.
         If SAs need be removed, the older ones are removed in favor of the youngest.
         """
+        vcs = self.connect()
         if len(keys := ike_event.keys()) == 2:
             _, ike_name = list(keys)
         else:
             ike_name = list(keys)[0]
-        ike_sas: list[IkeData] = list(self.session.list_sas({"ike": ike_name}))
+        ike_sas: list[IkeData] = list(vcs.list_sas({"ike": ike_name}))
 
         for ike_sa in ike_sas:
             ike_sa_props = ike_sa[ike_name]
@@ -155,24 +189,83 @@ class VpncSecAssocMonitor(threading.Thread):
                     continue
 
                 if ipsec_sa_established <= best_sa_established:
-                    self.terminate_sa(child_id=ts_unique[ts_key]["uniqueid"])
+                    self.terminate_sa(vcs=vcs, child_id=ts_unique[ts_key]["uniqueid"])
                     ts_unique[ts_key] = ipsec_sa
                 else:
-                    self.terminate_sa(child_id=ipsec_sa["uniqueid"])
+                    self.terminate_sa(vcs=vcs, child_id=ipsec_sa["uniqueid"])
+
+    def connect(self, tries: int = 10, delay: int = 2):
+        """
+        Tries to connect to the VICI socket
+        """
+        for i in range(tries):
+            try:
+                return vici.Session()
+            except ConnectionRefusedError as err:
+                if i >= tries:
+                    logger.warning(
+                        "VICI socket not available after %s tries. Exiting.", tries
+                    )
+                    raise err
+                logger.info("VICI socket is not yet available. Retrying.")
+                time.sleep(delay)
+
+        raise ConnectionAbortedError
+
+    def initiate_sa(
+        self,
+        vcs: vici.Session,
+        ike: str | bytes | None = None,
+        child: str | bytes | None = None,
+    ):
+        """
+        Initiates IKE/IPsec security associations.
+        """
+
+        _filter: dict[str, bytes] = {}
+        if isinstance(ike, str):
+            ike = ike.encode("utf-8")
+        if ike is not None:
+            _filter.update({"ike": ike})
+        if isinstance(child, str):
+            child = child.encode("utf-8")
+        if child is not None:
+            _filter.update({"child": child})
+
+        logger.info("Initiating SA with parameters: '%s'", _filter)
+        for i in vcs.initiate(_filter):
+            logger.info(i)
 
     def terminate_sa(
-        self, ike_id: str | bytes | None = None, child_id: str | bytes | None = None
+        self,
+        vcs: vici.Session,
+        ike: str | bytes | None = None,
+        ike_id: str | bytes | None = None,
+        child: str | bytes | None = None,
+        child_id: str | bytes | None = None,
     ):
         """
         Terminates IKE/IPsec security associations.
         """
         _filter: dict[str, bytes] = {}
+        if isinstance(ike, str):
+            ike = ike.encode("utf-8")
+        if ike is not None:
+            _filter.update({"ike": ike})
+        if isinstance(ike_id, str):
+            ike_id = ike_id.encode("utf-8")
         if ike_id is not None:
-            _filter.update({"ike-id": bytes(ike_id)})
+            _filter.update({"ike-id": ike_id})
+        if isinstance(child, str):
+            child = child.encode("utf-8")
+        if child is not None:
+            _filter.update({"child": child})
+        if isinstance(child_id, str):
+            child_id = child_id.encode("utf-8")
         if child_id is not None:
-            _filter.update({"child-id": bytes(child_id)})
+            _filter.update({"child-id": child_id})
         logger.info("Terminating SA with parameters: '%s'", _filter)
-        for i in self.session.terminate(_filter):
+        for i in vcs.terminate(_filter):
             logger.info(i)
 
 
@@ -180,8 +273,11 @@ def main():
     """
     Test function
     """
-    monitor = VpncSecAssocMonitor()
+    monitor = VpncMonitor(daemon=True)
     monitor.start()
+
+    while True:
+        time.sleep(1)
 
 
 if __name__ == "__main__":
