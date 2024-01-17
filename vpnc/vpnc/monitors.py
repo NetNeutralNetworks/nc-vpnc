@@ -241,7 +241,7 @@ class VpncMonitor(threading.Thread):
 
         logger.info("Initiating SA with parameters: '%s'", _filter)
         for i in vcs.initiate(_filter):
-            logger.info(i)
+            logger.debug(i)
 
     def terminate_sa(
         self,
@@ -274,7 +274,7 @@ class VpncMonitor(threading.Thread):
 
         logger.info("Terminating SA with parameters: '%s'", _filter)
         for i in vcs.terminate(_filter):
-            logger.info(i)
+            logger.debug(i)
 
 
 def main():
