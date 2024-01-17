@@ -8,6 +8,7 @@ import json
 import logging
 import pathlib
 import subprocess
+import time
 
 import yaml
 
@@ -338,6 +339,7 @@ def add_downlink_connection(path: pathlib.Path):
     with open(downlink_path, "w", encoding="utf-8") as f:
         f.write(downlink_render)
 
+    time.sleep(1)
     helpers.load_swanctl_all_config()
 
 
