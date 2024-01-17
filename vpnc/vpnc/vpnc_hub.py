@@ -409,6 +409,10 @@ def main():
     logger.info("#" * 100)
     logger.info("Starting ncubed VPNC strongSwan daemon in hub mode.")
 
+    # Remove old swanctl config files
+    for file in config.VPN_CONFIG_DIR.iterdir():
+        file.unlink(missing_ok=True)
+
     # Mounts the default network namespace with the alias ROOT. This makes for consistent operation
     # between all namespaces
     logger.info("Mounting default namespace as ROOT")
