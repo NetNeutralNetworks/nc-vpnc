@@ -30,10 +30,12 @@ class VpncMonitor(threading.Thread):
 
     def run(self):
         while True:
-            # try:
-            asyncio.run(self.monitor())
-            # except Exception:
-            #     time.sleep(1)
+            try:
+                logger.info("Starting VPNC Monitors")
+                asyncio.run(self.monitor())
+            except Exception:
+                logger.warning("VPNC Monitors crashed", exc_info=True)
+                time.sleep(1)
 
     async def monitor(self):
         """
@@ -45,10 +47,12 @@ class VpncMonitor(threading.Thread):
         # loop.run_in_executor(executor, self.monitor_sa_events)
 
         # Run the task to monitor the security associations for duplicates.
+        logger.info("Starting SA monitor.")
         t0 = threading.Thread(target=self.monitor_sa_events, daemon=True)
         t0.start()
 
         # Run the task to check for inactive connections every 5 minutes.
+        logger.info("Starting inactive connection monitor.")
         t1 = loop.create_task(
             self.repeat(300, self.monitor_conn_inactive, init_wait=True)
         )
@@ -78,12 +82,15 @@ class VpncMonitor(threading.Thread):
         vcs = self.connect()
         conns = [i.decode() for i in vcs.get_conns()["conns"]]
         sas = [list(i.keys())[0] for i in vcs.list_sas()]
+        logger.debug("Configured connections: %s", conns)
+        logger.debug("Active connections: %s", sas)
 
         # TODO: Implement IKE SA without IPsec SAs check?
 
         for con in conns:
             if con in sas:
                 continue
+            logger.info("Starting connection '%s'", con)
             self.initiate_sa(vcs=vcs, ike=con, child=con)
 
     def monitor_sa_events(self):
@@ -264,6 +271,7 @@ class VpncMonitor(threading.Thread):
             child_id = child_id.encode("utf-8")
         if child_id is not None:
             _filter.update({"child-id": child_id})
+
         logger.info("Terminating SA with parameters: '%s'", _filter)
         for i in vcs.terminate(_filter):
             logger.info(i)
