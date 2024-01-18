@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import Any, TypeAlias
 
 import vici
+import vici.exception
 
 IkeProperties: TypeAlias = MappingProxyType[str, Any]
 IkeData: TypeAlias = MappingProxyType[str, bytes | IkeProperties]
@@ -242,8 +243,11 @@ class VpncMonitor(threading.Thread):
             _filter.update({"child": child})
 
         logger.info("Initiating SA with parameters: '%s'", _filter)
-        for i in vcs.initiate(_filter):
-            logger.debug(i)
+        try:
+            for i in vcs.initiate(_filter):
+                logger.debug(i)
+        except vici.exception.CommandException:
+            logger.warning(("Initiation of SA '%s' failed.", _filter), exc_info=True)
 
     def terminate_sa(
         self,
@@ -275,8 +279,11 @@ class VpncMonitor(threading.Thread):
             _filter.update({"child-id": child_id})
 
         logger.info("Terminating SA with parameters: '%s'", _filter)
-        for i in vcs.terminate(_filter):
-            logger.debug(i)
+        try:
+            for i in vcs.terminate(_filter):
+                logger.debug(i)
+        except vici.exception.CommandException:
+            logger.warning(("Termination of SA '%s' failed.", _filter), exc_info=True)
 
 
 def main():
