@@ -124,7 +124,9 @@ def add_downlink_connection(path: pathlib.Path):
         if tunnel_config.ike_version and tunnel_config.ike_version != 2:
             t_config["ike_version"] = tunnel_config.ike_version
         t_config["ike_proposal"] = tunnel_config.ike_proposal
+        t_config["ike_lifetime"] = tunnel_config.ike_lifetime
         t_config["ipsec_proposal"] = tunnel_config.ipsec_proposal
+        t_config["ipsec_lifetime"] = tunnel_config.ipsec_lifetime
         t_config["initiation"] = tunnel_config.initiation.value
 
         t_config["local_id"] = config.VPNC_SERVICE_CONFIG.local_id
