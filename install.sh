@@ -55,12 +55,12 @@ endpoint|addon)
 esac
 
 # Create directories if not exist
-mkdir -p ${BASEDIR}/config
+mkdir -p ${BASEDIR}/config/vpnc
 mkdir -p ${INSTALLDIR}
 
 # Copy configuration files over to the configuration directories.
-cp -rf ${SCRIPTDIR}/etc/* /etc/
-cp -rf ${SCRIPTDIR}/config/* ${BASEDIR}/config/
+cp -rf ${SCRIPTDIR}/config/etc/* /etc/
+cp -rf ${SCRIPTDIR}/config/vpnc/* ${BASEDIR}/config/vpnc/
 
 # Remove old code if exist.
 rm -rf ${INSTALLDIR}/
@@ -122,7 +122,8 @@ cp -n ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example 
     ${BASEDIR}/config/${SERVICENAME}/active/service/config.yaml
 
 # Run migrations to current version
-${SCRIPTDIR}/setup/migrate.sh
+# ${SCRIPTDIR}/setup/migrate.sh
+${INSTALLDIR}/bin/python3 ${SCRIPTDIR}/setup/migrate.py
 
 # Enable the VPNC service
 /usr/bin/systemctl daemon-reload

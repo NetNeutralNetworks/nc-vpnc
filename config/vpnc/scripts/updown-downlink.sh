@@ -21,12 +21,12 @@ case "${PLUTO_VERB}" in
 up-client)
     printf "Creating VPN redistribution routes\n\n"
     # add routes
-    ip -n ${TRUSTED_NETNS} -6 route add ${V6_DOWNLINK_TUNNEL_SPACE}::/96 via ${V6_DOWNLINK_TUNNEL_SPACE}:1:0:1
+    ip -n ${TRUSTED_NETNS} -6 route add ${V6_DOWNLINK_TUNNEL_SPACE}::/96 via fe80::1 dev ${NETNS}_I
     ;;
 down-client)
     printf "Cleaning up VPN redistribution routes\n\n"
-    # remmove IPv6 route to VPN tunnel
-    ip -n ${TRUSTED_NETNS} -6 route del ${V6_DOWNLINK_TUNNEL_SPACE}::/96
+    # remove IPv6 route to VPN tunnel
+    ip -n ${TRUSTED_NETNS} -6 route del ${V6_DOWNLINK_TUNNEL_SPACE}::/96 dev ${NETNS}_I
     ;;
 up-client-v6) ;;
 

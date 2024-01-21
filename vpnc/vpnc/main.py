@@ -5,10 +5,11 @@ Starts the service and runs it in either endpoint or hub mode
 
 
 import logging
+import signal
 import sys
 from logging.handlers import RotatingFileHandler
 
-from . import config, helpers, vpnc_endpoint, vpnc_hub
+from . import config, core, helpers
 
 # LOGGER
 # Get logger
@@ -43,11 +44,13 @@ def main():
     # Load the global configuration from file.
     helpers.load_config(config.VPNC_A_SERVICE_CONFIG_PATH)
 
-    # Start the service
-    if config.VPNC_SERVICE_CONFIG.mode.name == "HUB":
-        vpnc_hub.main()
-    elif config.VPNC_SERVICE_CONFIG.mode.name == "ENDPOINT":
-        vpnc_endpoint.main()
+    # Used to gracefully shutdown, allows the atexit commands to run when a
+    # signal is received.
+    signal.signal(signal.SIGINT, helpers.kill_handler)
+    signal.signal(signal.SIGTERM, helpers.kill_handler)
+
+    # Start the concentrator
+    core.concentrator()
 
 
 if __name__ == "__main__":

@@ -77,7 +77,7 @@ def show(
     if full:
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
     else:
-        output["tunnel_count"] = len(output.pop("tunnels"))
+        output["tunnel_count"] = len(output.pop("connections"))
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
 
 
@@ -133,6 +133,7 @@ def add(
     Add a remote
     """
     all_args = {k: v for k, v in locals().items() if v}
+    all_args['version'] = "0.0.12"
     all_args.pop("ctx")
     id_: str = ctx.obj["id_"]
     path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")

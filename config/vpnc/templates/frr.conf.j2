@@ -8,75 +8,75 @@ agentx
 !
 vrf {{ trusted_netns }}
   netns /run/netns/{{ trusted_netns }}
-  router-id {{ bgp_router_id }}
+  router-id {{ router_id }}
 !
 vrf {{ untrusted_netns }}
   netns /run/netns/{{ untrusted_netns }}
 !
-router bgp {{ bgp_asn }} vrf {{ trusted_netns }}
-  neighbor MGMT-TRANSIT peer-group
-  neighbor MGMT-TRANSIT bfd
-  neighbor MGMT-TRANSIT advertisement-interval 0
-  neighbor MGMT-TRANSIT timers 10 30
+router bgp {{ asn }} vrf {{ trusted_netns }}
+  neighbor UPLINK peer-group
+  neighbor UPLINK bfd
+  neighbor UPLINK advertisement-interval 0
+  neighbor UPLINK timers 10 30
 {%- for uplink in uplinks %}
-  {%- if uplink.xfrm_ip %}
+  {%- if uplink.neighbor_ip %}
     {#- Normal BGP configuration #}
-    {%- set neigh = uplink.xfrm_ip %}
-    neighbor {{ neigh }} remote-as {{ uplink.asn }}
+    {%- set neigh = uplink.neighbor_ip %}
+  neighbor {{ neigh }} remote-as {{ uplink.neighbor_asn }}
   {%- else %}
     {#- BGP unnumbered configuration #}
-    {%- set neigh = uplink.xfrm_name %}
-    neighbor {{ neigh }} interface remote-as {{ uplink.asn }}
+    {%- set neigh = uplink.neighbor_interface_name %}
+  neighbor {{ neigh }} interface remote-as {{ uplink.neighbor_asn }}
   {%- endif %}
-  neighbor {{ neigh }} peer-group MGMT-TRANSIT
+  neighbor {{ neigh }} peer-group UPLINK
 {%- endfor %}
   address-family ipv6 unicast
     redistribute connected route-map REDIS-RM-STATIC-TO-BGP
     redistribute kernel route-map REDIS-RM-STATIC-TO-BGP
-    neighbor MGMT-TRANSIT activate
-    neighbor MGMT-TRANSIT soft-reconfiguration inbound
+    neighbor UPLINK activate
+    neighbor UPLINK soft-reconfiguration inbound
     {%- for uplink in uplinks %}
-    {%- if uplink.xfrm_ip %}
+    {%- if uplink.neighbor_ip %}
     {#- Normal BGP configuration #}
-    {%- set neigh = uplink.xfrm_ip %}
+    {%- set neigh = uplink.neighbor_ip %}
     {%- else %}
     {#- BGP unnumbered configuration #}
-    {%- set neigh = uplink.xfrm_name %}
+    {%- set neigh = uplink.neighbor_interface_name %}
     {%- endif %}
-    neighbor {{ neigh }} route-map MGMT-TRANSIT-RM-{{ neigh }}-IN in
-    neighbor {{ neigh }} route-map MGMT-TRANSIT-RM-{{ neigh }}-OUT out
+    neighbor {{ neigh }} route-map UPLINK-RM-{{ neigh }}-IN in
+    neighbor {{ neigh }} route-map UPLINK-RM-{{ neigh }}-OUT out
   {%- endfor %}
   exit-address-family
 exit
 !
-ipv6 prefix-list MGMT-TRANSIT-PL-IN seq 10 permit {{ prefix_uplink }} le 64
-ipv6 prefix-list MGMT-TRANSIT-PL-OUT seq 10 permit {{ prefix_downlink_v6 }} ge 96 le 96
+ipv6 prefix-list UPLINK-PL-IN seq 10 permit {{ prefix_uplink }} le 64
+ipv6 prefix-list UPLINK-PL-OUT seq 10 permit {{ prefix_downlink_v6 }} ge 96 le 96
 ipv6 prefix-list REDIS-PL-IN seq 10 permit {{ prefix_downlink_v6 }} ge 96 le 96
 !
 {%- for uplink in uplinks %}
-  {%- if uplink.xfrm_ip %}
+  {%- if uplink.neighbor_ip %}
     {#- Normal BGP configuration #}
-    {%- set neigh = uplink.xfrm_ip %}
+    {%- set neigh = uplink.neighbor_ip %}
   {%- else %}
     {#- BGP unnumbered configuration #}
-    {%- set neigh = uplink.xfrm_name %}
+    {%- set neigh = uplink.neighbor_interface_name %}
   {%- endif %}
-route-map MGMT-TRANSIT-RM-{{ neigh }}-IN permit 1
-  match ipv6 address prefix-list MGMT-TRANSIT-PL-IN
-  set local-preference {{ 100 - (10 * uplink.priority)}}
+route-map UPLINK-RM-{{ neigh }}-IN permit 1
+  match ipv6 address prefix-list UPLINK-PL-IN
+  set local-preference {{ 100 - (10 * uplink.neighbor_priority)}}
 exit
 !
-route-map MGMT-TRANSIT-RM-{{ neigh }}-IN deny 2
+route-map UPLINK-RM-{{ neigh }}-IN deny 2
 exit
 !
-route-map MGMT-TRANSIT-RM-{{ neigh }}-OUT permit 1
-  match ipv6 address prefix-list MGMT-TRANSIT-PL-OUT
+route-map UPLINK-RM-{{ neigh }}-OUT permit 1
+  match ipv6 address prefix-list UPLINK-PL-OUT
     {%- if uplink.prepend %}
   set as-path prepend {{ uplink.prepend }}
     {%- endif %}
 exit
 !
-route-map MGMT-TRANSIT-RM-{{ neigh }}-OUT deny 2
+route-map UPLINK-RM-{{ neigh }}-OUT deny 2
 exit
 !
 {%- endfor %}
@@ -86,12 +86,12 @@ exit
 !
 bfd
 {%- for uplink in uplinks %}
-  {%- if uplink.xfrm_ip %}
-  peer {{ uplink.xfrm_ip }} vrf {{ trusted_netns }}
+  {%- if uplink.neighbor_ip %}
+  peer {{ uplink.neighbor_ip }} vrf {{ trusted_netns }}
   {%- endif %}
 {%- endfor %}
- exit
- !
+  exit
+  !
 exit
 !
 end

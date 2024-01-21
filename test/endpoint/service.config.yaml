@@ -8,18 +8,18 @@ mode: endpoint
 # Network configuration
 network:
   untrust:
-    interface: eth1
+    interface: ens4
     addresses:
-    - 192.0.2.2/24
-    - 2001:DB8::1/64
+    - 192.0.2.7/24
+    - 2001:DB8::7/64
     routes:
     - to: default
       via: 192.0.2.1
   root:
-    interface: eth0
+    interface: ens3
     addresses:
-    - 192.168.0.2/24
-    - 2001:DB8:2::1/64
+    - 192.168.0.155/20
+    - 2001:DB8:1::155/64
     routes:
     - to: default
       via: 192.168.0.1

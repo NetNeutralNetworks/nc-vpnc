@@ -8,25 +8,25 @@ mode: hub
 # Network configuration
 network:
   untrust:
-    interface: eth1
+    interface: ens4
     addresses:
-    - 192.0.2.2/24
-    - 2001:DB8::1/64
+    - 192.0.2.5/24
+    - 2001:DB8::5/64
     routes:
     - to: default
       via: 192.0.2.1
   root:
-    interface: eth0
+    interface: ens3
     addresses:
-    - 192.168.0.2/24
-    - 2001:DB8:2::1/64
+    - 192.168.0.153/20
+    - 2001:DB8:1::153/64
     routes:
     - to: default
       via: 192.168.0.1
 
 # VPN CONFIG
 # Optional: IKE local identifier for VPNs
-# local_id: "192.168.0.150"
+# local_id: 192.0.2.5
 
 # Uplink VPNs
 connections:
@@ -37,41 +37,36 @@ connections:
     metadata: {}
     # Optional: IPv6 interface address for tunnel/BGP peering between this host and the provider
     # client VPN host. Not required if the remote is capable of BGP unnumbered.
-    interface_ip: "fd33:2:f:1::/127"
+    interface_ip: fd33:2:f::/127
     connection:
-      remote_peer_ip: 192.168.0.252
+      # remote_peer_ip: 192.0.2.3
+      remote_peer_ip: 2001:DB8::3
       # Optional: If not set, defaults to remote_peer_ip
-      remote_id: 192.168.0.252
+      # remote_id: 192.0.2.3
       # Optional: defaults to 2
-      ike_version: 2
+      # ike_version: 2
       # Optional: defaults to aes256gcm16-prfsha384-ecp384
-      ike_proposal: aes256gcm16-prfsha384-ecp384
+      # ike_proposal: aes256gcm16-prfsha384-ecp384
       # Optional: The IKE lifetime in seconds
-      ike_lifetime: 86400
+      ike_lifetime: 300
       # Optional: defaults to aes256gcm16-prfsha384-ecp384
-      ipsec_proposal: aes256gcm16-prfsha384-ecp384
+      # ipsec_proposal: aes256gcm16-prfsha384-ecp384
       # Optional: The IPsec lifetime in seconds
-      ipsec_lifetime: 3600
+      ipsec_lifetime: 90
       # Optional, defaults to start. Start means inititate and respond, none means respond only.
-      initiation: start
-      psk: secretpassword
+      # initiation: start
+      psk: ook een wachtwoord ofzo
       # Optional: mutually exclusive with traffic selectors
       # does not work in hub mode, defaults to 0.0.0.0/0,::/0
-      # routes:
-      # - 172.30.0.0/16
-      # - 172.31.0.0/16
+      # routes: []
       # Optional: mutually exclusive with routes.
       # traffic_selectors:
-      #   local:
-      #   - 10.20.0.0/16
-      #   - 10.21.0.0/16
-      #   remote:
-      #   - 172.30.0.0/16
-      #   - 172.31.0.0/16
+      #   local: []
+      #   remote: []
     # Customer side BGP ASN
-    asn: 4132357873
+    asn: 4255786769
     # Optional, lower is more preferred uplink for receiving traffic, defaults to 0, max is 9
-    priority: 0
+    # priority: 0
 
 # OVERLAY CONFIG
 # IPv6 prefix for provider client subnets initiating administration traffic to customers.
@@ -87,6 +82,6 @@ prefix_downlink_v6: "fdcc::/32"
 ## BGP config
 # ASN must be between 4.200.000.000 and 4.294.967.294 inclusive.
 bgp:
-  asn: 4255786768
-  router_id: "0.0.0.1"
+  asn: 4255786777
+  router_id: 1.1.1.2
 ...

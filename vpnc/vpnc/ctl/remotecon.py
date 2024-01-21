@@ -1,28 +1,31 @@
 #!/usr/bin/env python3
 
 import json
-from dataclasses import asdict
 from enum import Enum
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
     IPv4Network,
     IPv6Address,
+    IPv6Interface,
     IPv6Network,
     ip_address,
     ip_interface,
     ip_network,
 )
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 import yaml
 from typing_extensions import Annotated
 
 from .. import config, models
-from .helpers import ip_addr, ip_if, validate_ip_networks
 
 app = typer.Typer()
+
+IPAddress = Any
+IPInterface = Any
+IPNetwork = Any
 
 
 @app.callback(invoke_without_command=True)
@@ -60,7 +63,7 @@ def list_(ctx: typer.Context):
         return
 
     print("tunnel description\n------ -----------")
-    for k, v in remote.tunnels.items():
+    for k, v in remote.connections.items():
         print(f"{k:<6} {v.description}")
 
 
@@ -89,7 +92,7 @@ def show(
         return
     # print(remote)
     # print(remote.tunnels)
-    tunnel = remote.tunnels.get(tunnel_id)
+    tunnel = remote.connections.get(tunnel_id)
     if not tunnel:
         return
     output = {tunnel_id: tunnel.model_dump(mode="json")}
@@ -107,23 +110,21 @@ def add(
     ctx: typer.Context,
     # pylint: disable=unused-argument
     description: Annotated[str, typer.Option()],
-    ike_proposal: Annotated[str, typer.Option()],
-    ipsec_proposal: Annotated[str, typer.Option()],
+    remote_peer_ip: Annotated[IPAddress, typer.Option(parser=ip_address)],
     psk: Annotated[str, typer.Option("--pre-shared-key")],
-    remote_peer_ip: Annotated[
-        IPv4Address | IPv6Address, typer.Option(parser=ip_address)
-    ],
-    initiation: Annotated[Optional[models.Initiation], typer.Option()] = None,
-    ike_version: Annotated[Optional[IkeVersion], typer.Option()] = None,
-    ike_lifetime: Annotated[Optional[int], typer.Option()] = None,
-    ipsec_lifetime: Annotated[Optional[int], typer.Option()] = None,
-    remote_id: Annotated[Optional[str], typer.Option()] = None,
-    tunnel_ip: Annotated[
-        Optional[IPv4Interface], typer.Option(parser=IPv4Interface)
-    ] = None,
     metadata: Annotated[Optional[dict], typer.Option(parser=json.loads)] = None,
+    remote_id: Annotated[Optional[str], typer.Option()] = None,
+    ike_version: Annotated[Optional[IkeVersion], typer.Option()] = None,
+    ike_proposal: Annotated[str, typer.Option()] = None,
+    ike_lifetime: Annotated[Optional[int], typer.Option()] = None,
+    ipsec_proposal: Annotated[str, typer.Option()] = None,
+    ipsec_lifetime: Annotated[Optional[int], typer.Option()] = None,
+    initiation: Annotated[Optional[models.Initiation], typer.Option()] = None,
+    tunnel_ip: Annotated[
+        Optional[IPInterface], typer.Option(parser=ip_interface)
+    ] = None,
     routes: Annotated[
-        Optional[list[IPv4Network | IPv6Network]],
+        Optional[list[IPNetwork]],
         typer.Option(parser=ip_network),
     ] = None,
     # traffic_selectors_local: list[str] = typer.Option(
@@ -139,22 +140,24 @@ def add(
     all_args = {k: v for k, v in locals().items() if v}
     all_args.pop("ctx")
     id_: str = ctx.obj["id_"]
-    tunnel_id: int = int(ctx.obj["tunnel_id"])
     path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
+
     with open(path, "r", encoding="utf-8") as f:
         remote = models.Remote(**yaml.safe_load(f))
+
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
 
-    if remote.tunnels.get(int(tunnel_id)):
+    tunnel_id: int = ctx.obj["tunnel_id"]
+    if remote.connections.get(tunnel_id):
         print(f"Connection '{tunnel_id}' already exists'.")
         return
 
-    updated_tunnel = models.Tunnel(**all_args)
+    tunnel = models.Connection(**all_args)
     # if data.get("traffic_selectors_local") or data.get("traffic_selectors_remote"):
     #     data["traffic_selectors"] = {}
     #     data["traffic_selectors"]["local"] = set(data.pop("traffic_selectors_local"))
@@ -163,7 +166,7 @@ def add(
     #     data.pop("traffic_selectors_local")
     #     data.pop("traffic_selectors_remote")
     # tunnel = models.Tunnel(**data)
-    remote.tunnels[tunnel_id] = updated_tunnel
+    remote.connections[tunnel_id] = tunnel
 
     output = yaml.safe_dump(
         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
@@ -178,34 +181,34 @@ def add(
 def set_(
     ctx: typer.Context,
     # pylint: disable=unused-argument
+    description: Annotated[Optional[str], typer.Option()] = None,
+    metadata: Annotated[Optional[dict], typer.Option(parser=json.loads)] = None,
+    remote_peer_ip: Annotated[
+        Optional[IPAddress], typer.Option(parser=ip_address)
+    ] = None,
+    remote_id: Annotated[Optional[str], typer.Option()] = None,
+    ike_version: Annotated[Optional[IkeVersion], typer.Option()] = None,
     ike_proposal: Annotated[Optional[str], typer.Option()] = None,
     ike_lifetime: Annotated[Optional[int], typer.Option()] = None,
     ipsec_proposal: Annotated[Optional[str], typer.Option()] = None,
     ipsec_lifetime: Annotated[Optional[int], typer.Option()] = None,
-    psk: Annotated[Optional[str], typer.Option("--pre-shared-key")] = None,
     initiation: Annotated[Optional[models.Initiation], typer.Option()] = None,
-    remote_peer_ip: Annotated[
-        IPv4Address | IPv6Address | None, typer.Option(parser=ip_address)
-    ] = None,
-    remote_id: Annotated[Optional[str], typer.Option()] = None,
     tunnel_ip: Annotated[
-        Optional[IPv4Interface], typer.Option(parser=IPv4Interface)
+        Optional[IPInterface], typer.Option(parser=IPv4Interface)
     ] = None,
-    description: Annotated[Optional[str], typer.Option()] = None,
-    metadata: Annotated[Optional[dict], typer.Option(parser=json.loads)] = None,
+    psk: Annotated[Optional[str], typer.Option("--pre-shared-key")] = None,
     routes: Annotated[
-        Optional[list[IPv4Network | IPv6Network]],
+        Optional[list[IPNetwork]],
         typer.Option(parser=ip_network),
     ] = None,
     traffic_selectors_local: Annotated[
-        Optional[list[IPv4Network | IPv6Network]],
+        Optional[list[IPNetwork]],
         typer.Option(parser=ip_network),
     ] = None,
     traffic_selectors_remote: Annotated[
-        Optional[list[IPv4Network | IPv6Network]],
+        Optional[list[IPNetwork]],
         typer.Option(parser=ip_network),
     ] = None,
-    ike_version: Annotated[Optional[IkeVersion], typer.Option()] = None,
 ):
     """
     Set tunnel properties for a remote
@@ -217,37 +220,38 @@ def set_(
     all_ts_local = all_args.pop("traffic_selectors_local", set())
     all_ts_remote = all_args.pop("traffic_selectors_remote", set())
     id_: str = ctx.obj["id_"]
-    tunnel_id: int = ctx.obj["tunnel_id"]
     path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
+
     with open(path, "r", encoding="utf-8") as f:
         remote = models.Remote(**yaml.safe_load(f))
+
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
 
-    if not remote.tunnels.get(int(tunnel_id)):
+    tunnel_id: int = ctx.obj["tunnel_id"]
+    if not remote.connections.get(tunnel_id):
         print(f"Connection '{tunnel_id}' doesn't exists'.")
         return
 
-    tunnel = remote.tunnels[tunnel_id]
+    tunnel = remote.connections[tunnel_id]
     updated_tunnel = tunnel.model_copy(update=all_args)
     updated_tunnel.metadata.update(all_metadata)
     updated_tunnel.routes.update(all_routes)
     updated_tunnel.traffic_selectors.local.update(all_ts_local)
     updated_tunnel.traffic_selectors.remote.update(all_ts_remote)
 
-    updated_tunnel.model_validate(updated_tunnel)
-
-    remote.tunnels[tunnel_id] = updated_tunnel
+    remote.connections[tunnel_id] = updated_tunnel
 
     output = yaml.safe_dump(
         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
     )
     with open(path, "w+", encoding="utf-8") as f:
         f.write(output)
+
     show(ctx)
 
 
@@ -256,22 +260,24 @@ def unset(
     ctx: typer.Context,
     # pylint: disable=unused-argument
     metadata: Annotated[Optional[list[str]], typer.Option()] = None,
+    remote_id: Annotated[bool, typer.Option()] = False,
     ike_version: Annotated[bool, typer.Option()] = False,
+    ike_proposal: Annotated[bool, typer.Option()] = False,
     ike_lifetime: Annotated[bool, typer.Option()] = False,
+    ipsec_proposal: Annotated[bool, typer.Option()] = False,
     ipsec_lifetime: Annotated[bool, typer.Option()] = False,
     initiation: Annotated[bool, typer.Option()] = False,
     tunnel_ip: Annotated[bool, typer.Option()] = False,
-    remote_id: Annotated[bool, typer.Option()] = False,
     routes: Annotated[
-        Optional[list[IPv4Network | IPv6Network]],
+        Optional[list[IPNetwork]],
         typer.Option(parser=ip_network),
     ] = None,
     traffic_selectors_local: Annotated[
-        Optional[list[IPv4Network | IPv6Network]],
+        Optional[list[IPNetwork]],
         typer.Option(parser=ip_network),
     ] = None,
     traffic_selectors_remote: Annotated[
-        Optional[list[IPv4Network | IPv6Network]],
+        Optional[list[IPNetwork]],
         typer.Option(parser=ip_network),
     ] = None,
 ):
@@ -286,22 +292,24 @@ def unset(
     all_ts_remote = all_args.pop("traffic_selectors_remote", [])
 
     id_: str = ctx.obj["id_"]
-    tunnel_id: int = ctx.obj["tunnel_id"]
     path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
+
     with open(path, "r", encoding="utf-8") as f:
         remote = models.Remote(**yaml.safe_load(f))
+
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
 
-    if not remote.tunnels.get(int(tunnel_id)):
+    tunnel_id: int = ctx.obj["tunnel_id"]
+    if not remote.connections.get(tunnel_id):
         print(f"Connection '{tunnel_id}' doesn't exists'.")
         return
 
-    tunnel = remote.tunnels[int(tunnel_id)]
+    tunnel = remote.connections[int(tunnel_id)]
     tunnel_dict = tunnel.model_dump(mode="json")
 
     for k in all_args:
@@ -309,6 +317,7 @@ def unset(
 
     for k in all_metadata:
         tunnel_dict.get("metadata", {}).pop(k, None)
+
     set(tunnel_dict.get("routes", set())).symmetric_difference(all_routes)
     set(
         tunnel_dict.get("traffic_selectors", {}).get("local", set())
@@ -317,8 +326,8 @@ def unset(
         tunnel_dict.get("traffic_selectors", {}).get("remote", set())
     ).symmetric_difference(set(all_ts_remote))
 
-    updated_tunnel = models.Tunnel(**tunnel_dict)
-    remote.tunnels[tunnel_id] = updated_tunnel
+    updated_tunnel = models.Connection(**tunnel_dict)
+    remote.connections[tunnel_id] = updated_tunnel
 
     output = yaml.safe_dump(
         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
@@ -350,11 +359,11 @@ def delete(
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
 
-    tunnel = remote.tunnels.get(tunnel_id)
+    tunnel = remote.connections.get(tunnel_id)
     if not tunnel:
         print(f"Tunnel with id '{tunnel_id}' doesn't exist.")
         return
-    remote.tunnels.pop(tunnel_id)
+    remote.connections.pop(tunnel_id)
 
     output = yaml.safe_dump(
         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True

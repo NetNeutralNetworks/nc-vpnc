@@ -14,157 +14,35 @@ from ipaddress import (
 )
 from typing import Any, Literal
 
-import yaml
+from packaging.version import Version
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     ValidationInfo,
+    field_serializer,
     field_validator,
     model_validator,
 )
 from pydantic_core import PydanticCustomError
 
 
-def _represent_ipv4_address(dumper: yaml.SafeDumper, node: IPv4Address):
-    value = dumper.represent_scalar("tag:yaml.org,2002:str", str(node))
-    return value
-
-
-yaml.SafeDumper.add_representer(
-    IPv4Address,
-    _represent_ipv4_address,
-)
-
-
-# def _construct_ipv4_address(loader, node):
-#     value = loader.construct_scalar(node)
-#     return IPv4Address(value)
-
-
-# yaml.SafeLoader.add_constructor(
-#     "tag:yaml.org,2002:python/object/apply:ipaddress.IPv4Address",
-#     _construct_ipv4_address,
-# )
-
-
-def _represent_ipv4_network(dumper: yaml.SafeDumper, node: IPv4Network):
-    value = dumper.represent_scalar("tag:yaml.org,2002:str", str(node))
-    return value
-
-
-yaml.SafeDumper.add_representer(
-    IPv4Network,
-    _represent_ipv4_network,
-)
-
-
-# def _construct_ipv4_network(loader: yaml.SafeLoader, node):
-#     value = loader.construct_scalar(node)
-#     return IPv4Network(value)
-
-
-# yaml.SafeLoader.add_constructor(
-#     "tag:yaml.org,2002:python/object/apply:ipaddress.IPv4Network",
-#     _construct_ipv4_network,
-# )
-
-
-def _represent_ipv4_interface(dumper: yaml.SafeDumper, node: IPv4Interface):
-    value = dumper.represent_scalar("tag:yaml.org,2002:str", str(node))
-    return value
-
-
-yaml.SafeDumper.add_representer(
-    IPv4Interface,
-    _represent_ipv4_interface,
-)
-
-
-# def _construct_ipv4_interface(loader: yaml.SafeLoader, node):
-#     value = loader.construct_scalar(node)
-#     return IPv4Interface(value)
-
-
-# yaml.SafeLoader.add_constructor(
-#     "tag:yaml.org,2002:python/object/apply:ipaddress.IPv4Interface",
-#     _construct_ipv4_interface,
-# )
-
-
-def _represent_ipv6_address(dumper: yaml.SafeDumper, node: IPv6Address):
-    value = dumper.represent_scalar("tag:yaml.org,2002:str", str(node))
-    return value
-
-
-yaml.SafeDumper.add_representer(
-    IPv6Address,
-    _represent_ipv6_address,
-)
-
-
-# def _construct_ipv6_address(loader: yaml.SafeLoader, node):
-#     value = loader.construct_scalar(node)
-#     return IPv6Address(value)
-
-
-# yaml.SafeLoader.add_constructor(
-#     "tag:yaml.org,2002:python/object/apply:ipaddress.IPv6Address",
-#     _construct_ipv6_address,
-# )
-
-
-def _represent_ipv6_network(dumper: yaml.SafeDumper, node: IPv6Network):
-    value = dumper.represent_scalar("tag:yaml.org,2002:str", str(node))
-    return value
-
-
-yaml.SafeDumper.add_representer(
-    IPv6Network,
-    _represent_ipv6_network,
-)
-
-
-# def _construct_ipv6_network(loader: yaml.SafeLoader, node):
-#     value = loader.construct_scalar(node)
-#     return IPv6Network(value)
-
-
-# yaml.SafeLoader.add_constructor(
-#     "tag:yaml.org,2002:python/object/apply:ipaddress.IPv6Network",
-#     _construct_ipv6_network,
-# )
-
-
-def _represent_ipv6_interface(dumper: yaml.SafeDumper, node: IPv6Interface):
-    value = dumper.represent_scalar("tag:yaml.org,2002:str", str(node))
-    return value
-
-
-yaml.SafeDumper.add_representer(
-    IPv6Interface,
-    _represent_ipv6_interface,
-)
-
-
-# def _construct_ipv6_interface(loader: yaml.SafeLoader, node):
-#     value = loader.construct_scalar(node)
-#     return IPv6Interface(value)
-
-
-# yaml.SafeLoader.add_constructor(
-#     "tag:yaml.org,2002:python/object/apply:ipaddress.IPv6Interface",
-#     _construct_ipv6_interface,
-# )
-
-
 class Initiation(Enum):
     """
-    Defines the modes in which the service can run
+    Defines if the VPN connection automatically starts
     """
 
     INITIATOR = "start"
     RESPONDER = "none"
+
+
+class ConnectionType(Enum):
+    """
+    Defines the modes in which the connections can run
+    """
+
+    IPSEC = "ipsec"
+    LOCAL = "local"
 
 
 class ServiceMode(Enum):
@@ -192,29 +70,24 @@ class TrafficSelectors(BaseModel):
         return v
 
 
-class Tunnel(BaseModel):
+class ConnectionIPsec(BaseModel):
     """
-    Defines a tunnel data structure
+    Defines an IPsec data structure
     """
 
-    model_config = ConfigDict(validate_assignment=True)
-
-    description: str | None = None
-    metadata: dict = Field(default_factory=dict)
     remote_peer_ip: IPv4Address | IPv6Address
     remote_id: str | None = None
     ike_version: Literal[1, 2] = 2
-    ike_proposal: str
+    ike_proposal: str = "aes256gcm16-prfsha384-ecp384"
     ike_lifetime: int = 86400
-    ipsec_proposal: str
+    ipsec_proposal: str = "aes256gcm16-prfsha384-ecp384"
     ipsec_lifetime: int = 3600
-    psk: str
     initiation: Initiation = Initiation.INITIATOR
-    tunnel_ip: IPv4Interface | IPv6Interface | None = None
+    psk: str
     # Mutually exclusive with traffic selectors
-    routes: set[IPv4Network | IPv6Network]
+    routes: set[IPv4Network | IPv6Network] = Field(default_factory=set)
     # Mutually exclusive with routes
-    traffic_selectors: TrafficSelectors
+    traffic_selectors: TrafficSelectors = Field(default_factory=TrafficSelectors)
 
     @field_validator("ike_version", mode="before")
     @classmethod
@@ -226,17 +99,10 @@ class Tunnel(BaseModel):
             return int(v)
         return v
 
-    @field_validator("metadata", mode="before")
-    @classmethod
-    def _coerce_metadata(cls, v: Any):
-        if v is None:
-            return {}
-        return v
-
     @field_validator("routes", mode="before")
     @classmethod
     def _coerce_routes(cls, v: Any):
-        if not isinstance(v, set):
+        if not isinstance(v, (set, list)):
             return set()
         return v
 
@@ -248,7 +114,7 @@ class Tunnel(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def mutual_exclusive(self) -> "Tunnel":
+    def _mutual_exclusive(self) -> "ConnectionIPsec":
         if self.routes and (
             self.traffic_selectors.local or self.traffic_selectors.remote
         ):
@@ -256,17 +122,49 @@ class Tunnel(BaseModel):
         return self
 
 
+class Connection(BaseModel):
+    """
+    Defines a connection data structure
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    type: ConnectionType = ConnectionType.IPSEC
+    description: str | None = None
+    metadata: dict = Field(default_factory=dict)
+    interface_ip: IPv4Interface | IPv6Interface | None = None
+    connection: ConnectionIPsec
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _coerce_metadata(cls, v: Any):
+        if v is None:
+            return {}
+        return v
+
+
 class Remote(BaseModel):
     """
     Defines a remote side data structure
     """
 
-    model_config = ConfigDict(validate_assignment=True)
+    model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
+
+    version: Version
 
     id: str
     name: str
     metadata: dict = Field(default_factory=dict)
-    tunnels: dict[int, Tunnel] = Field(default_factory=dict)
+    connections: dict[int, Connection] = Field(default_factory=dict)
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _coerce_version(cls, v: Any):
+        return Version(v)
+
+    @field_serializer("version")
+    def _version_to_str(self, v: Version) -> str:
+        return str(v)
 
     @field_validator("metadata", mode="before")
     @classmethod
@@ -285,21 +183,41 @@ class BGP(BaseModel):
     router_id: IPv4Address = IPv4Address("1.0.0.1")
 
 
-class Uplink(BaseModel):
+class ConnectionUplink(Connection):
     """
     Defines an uplink data structure
     """
 
-    # VPN CONFIG
-    # Uplink VPNs
-    description: str | None = None
-    metadata: dict | None = Field(default_factory=dict)
-    remote_peer_ip: IPv4Address | IPv6Address
-    remote_id: str | None = None
-    psk: str
-    prefix_uplink_tunnel: IPv6Interface | None = None
     asn: int | None = None
     priority: int = Field(0, ge=0, le=9)
+
+
+class Routes(BaseModel):
+    """
+    Routes for a namespace
+    """
+
+    to: IPv4Network | IPv6Network | Literal["default"]
+    via: IPv4Address | IPv6Address | None = None
+
+
+class NamespaceConfig(BaseModel):
+    """
+    Network configuration for a specific namespace
+    """
+
+    interface: str
+    addresses: list[IPv4Interface | IPv6Interface]
+    routes: list[Routes] = Field(default_factory=list)
+
+
+class Network(BaseModel):
+    """
+    Defines network configurations
+    """
+
+    untrust: NamespaceConfig
+    root: NamespaceConfig | None = None
 
 
 class Service(BaseModel):
@@ -307,21 +225,19 @@ class Service(BaseModel):
     Defines a service data structure
     """
 
+    model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
+
     mode: ServiceMode = Field(frozen=True)
 
-    # UNTRUSTED INTERFACE CONFIG
-    # Untrusted/outside interface
-    untrusted_if_name: str
-    # IP address of untrusted/outside interface
-    untrusted_if_ip: IPv4Interface | IPv6Interface | None = None
-    # Default gateway of untrusted/outside interface
-    untrusted_if_gw: IPv4Address | IPv6Address | None = None
+    version: Version
+
+    network: Network
 
     # VPN CONFIG
     # IKE local identifier for VPNs
-    local_id: str
+    local_id: str = r"%any"
     # Uplink VPNs
-    uplinks: dict[int, Uplink] | None = None
+    connections: dict[int, ConnectionUplink] | None = None
 
     # OVERLAY CONFIG
     # IPv6 prefix for client initiating administration traffic.
@@ -335,8 +251,21 @@ class Service(BaseModel):
     # bgp_asn private range is between 4.200.000.000 and 4.294.967.294 inclusive.
     bgp: BGP | None = Field(default=None, validate_default=True)
 
+    @field_validator("version", mode="before")
+    @classmethod
+    def _coerce_version(cls, v: Any):
+        return Version(v)
+
+    @field_serializer("version")
+    def _version_to_str(self, v: Version) -> str:
+        return str(v)
+
     @field_validator(
-        "uplinks", "prefix_uplink", "prefix_downlink_v4", "prefix_downlink_v6", "bgp"
+        "connections",
+        "prefix_uplink",
+        "prefix_downlink_v4",
+        "prefix_downlink_v6",
+        "bgp",
     )
     @classmethod
     def check_endpoint_mode(cls, v: Any, info: ValidationInfo) -> Any:

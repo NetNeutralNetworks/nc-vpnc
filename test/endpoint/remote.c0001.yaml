@@ -2,23 +2,23 @@
 version: 0.0.12
 
 id: c0001
-name: SomeCustomer Co.
+name: Uplink to provider lab
 metadata:
-  location: Lab
+  type: remote connectivity
   environment: test
 connections:
   0:
-    type: ipsec # ipsec | local
-    description: ams-dc-01
+    type: ipsec
+    description: Provider connection
     # Optional
     metadata:
       primary: true
     # Optional: IPv4 interface address for tunnel NAT64
-    interface_ip: 172.16.31.1/24
+    # interface_ip: 172.16.31.1/24
     connection:
-      remote_peer_ip: 192.168.0.152
+      remote_peer_ip: 192.0.2.5
       # Optional: If not set, defaults to remote_peer_ip
-      remote_id: 192.168.0.252
+      # remote_id: 192.168.128.5
       # Optional: defaults to 2
       ike_version: 2
       # Optional: defaults to aes256gcm16-prfsha384-ecp384
@@ -29,21 +29,21 @@ connections:
       ipsec_proposal: aes128gcm16-prfsha384-ecp384
       # Optional: The IPsec lifetime in seconds
       ipsec_lifetime: 3600
-      # Optional, defaults to start. 'start' means inititate and respond, 'none' means respond only.
+      # optional, defaults to start. Start means inititate and respond, none means respond only.
       initiation: start
       psk: secretpassword
       # Optional: mutually exclusive with traffic selectors
       # mutually exclusive with traffic selectors
       # does not work in hub mode
       routes:
-      # - 172.30.0.0/16
+      - 172.16.31.0/24
       # - 172.31.0.0/16
       # Optional: mutually exclusive with routes.
-      traffic_selectors:
-        local:
+      # traffic_selectors:  # mutually exclusive with routes.
+      #   local:
       #   - 10.20.0.0/16
       #   - 10.21.0.0/16
-        remote:
+      #   remote:
       #   - 172.30.0.0/16
       #   - 172.31.0.0/16
 ...

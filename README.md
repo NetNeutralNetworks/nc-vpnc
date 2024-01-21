@@ -31,24 +31,28 @@ Below are a few examples on how to add remotes (customers) and connections (VPN 
 The configuration for a remote is just a YAML file with the following structure:
 
 ```yaml
+version:
+
 id: str                # required, ^[CD]\d{4}$
-metadata: {}           # optional, dictionary containing arbitrary k/v pairs
 name: str              # required
-tunnels:               # optional, dictionary containing connections
+metadata: {}           # optional, dictionary containing arbitrary k/v pairs
+connections:           # optional, dictionary containing connections
   0:                     # required, connection id, int between 0-255
-    description: str       # required
-    ike_proposal: str      # required, see the allowed values for strongswan
-    ike_version: int       # optional, 1 or 2, defaults to 2
-    ipsec_proposal:        # required, see the allowed values for strongswan
-    metadata: {}           # optional, dictionary containing arbitrary k/v pairs
-    psk: str               # required
-    remote_id: str         # optional, arbirary, defaults to remote_peer_ip
-    remote_peer_ip: ip     # required, IPv4 host address
-    routes: []             # optional, list of subnets, if defined, mutually exclusive with traffic_selectors
-    traffic_selectors:     # optional, if defined, mutually exclusive with routes
-      local: []              # required, list of subnets
-      remote: []             # required, list of subnets
-    tunnel_ip: ip_prefix   # optional, host IP + CIDR mask, defaults to value configured in the service.
+    type: ipsec | local      # required
+    description: str         # required
+    metadata: {}             # optional, dictionary containing arbitrary k/v pairs
+    interface_ip: ip_prefix  # optional, host IP + CIDR mask, defaults to value configured in the service.
+    connection:
+      ike_proposal: str        # required, see the allowed values for   strongswan
+      ike_version: int         # optional, 1 or 2, defaults to 2
+      ipsec_proposal:          # required, see the allowed values for   strongswan
+      psk: str                 # required
+      remote_id: str           # optional, arbirary, defaults to  remote_peer_ip
+      remote_peer_ip: ip       # required, IPv4 host address
+      routes: []               # optional, list of subnets, if defined,   mutually exclusive with traffic_selectors
+      traffic_selectors:       # optional, if defined, mutually exclusive   with routes
+        local: []                # required, list of subnets
+        remote: []               # required, list of subnets
 ```
 
 #### Remote configuration
@@ -74,7 +78,7 @@ Show a specific remote configuration:
 id: D0001
 metadata: {}
 name: Lab-test
-tunnel_count: 1
+connection_count: 1
 ...
 
 # full candidate configuration
@@ -85,22 +89,24 @@ tunnel_count: 1
 id: D0001
 metadata: {}
 name: Lab-test-1
-tunnels:
+connections:
   0:
+    type: ipsec
     description: lab endpoint
-    ike_proposal: aes128gcm16-prfsha384-ecp384
-    ike_version: 2
-    ipsec_proposal: aes128gcm16-ecp384
     metadata:
       primary: true
-    psk: superpassword
-    remote_id: 192.0.2.1
-    remote_peer_ip: 198.51.100.255
-    routes: []
-    traffic_selectors:
-      local: []
-      remote: []
-    tunnel_ip: null
+    interface_ip: null
+    connection:
+      ike_proposal: aes128gcm16-prfsha384-ecp384
+      ike_version: 2
+      ipsec_proposal: aes128gcm16-ecp384
+      psk: superpassword
+      remote_id: 192.0.2.1
+      remote_peer_ip: 198.51.100.255
+      routes: []
+      traffic_selectors:
+        local: []
+        remote: []
 ...
 ```
 
@@ -119,7 +125,7 @@ Add a new remote (requires sudo/root):
 id: D0010
 metadata: {}
 name: Customer Inc.
-tunnel_count: 0
+connection_count: 0
 ...
 ```
 
@@ -131,7 +137,7 @@ id: D0010
 metadata:
   location: Europe
 name: Lab-test
-tunnel_count: 1
+connection_count: 1
 ...
 ```
 
@@ -142,7 +148,7 @@ Delete a remote (requires sudo/root):
 id: D0010
 metadata: {}
 name: test
-tunnels: {}
+connections: {}
 ...
 
 Are you sure you want to delete remote 'D0010' [y/N]:
@@ -163,20 +169,22 @@ Show a connection configuration for a specific remote:
 ~$ vpnctl remote D0001 connection 0 show
 ---
 0:
+  type: ipsec
   description: lab endpoint
-  ike_proposal: aes128gcm16-prfsha384-ecp384
-  ike_version: 2
-  ipsec_proposal: aes128gcm16-ecp384
   metadata:
     primary: true
+  interface_ip: null
+  connection:
+    ike_proposal: aes128gcm16-prfsha384-ecp384
+    ike_version: 2
+    ipsec_proposal: aes128gcm16-ecp384
     psk: superpassword
     remote_id: 192.0.2.1
     remote_peer_ip: 198.51.100.255
-  routes: []
-  traffic_selectors:
-    local: []
-    remote: []
-  tunnel_ip: null
+    routes: []
+    traffic_selectors:
+      local: []
+      remote: []
 ...
 ```
 
@@ -189,18 +197,19 @@ Add a new connection to a remote (requires sudo/root):
 ---
 1:
   description: lab 1 connection test
-  ike_proposal: aes128gcm16-prfsha384-ecp384
-  ike_version: 2
-  ipsec_proposal: aes128gcm16-ecp384
   metadata: {}
-  psk: welcome01!
-  remote_id: 192.0.2.128
-  remote_peer_ip: 192.0.2.128
-  routes: []
-  traffic_selectors:
-    local: []
-    remote: []
-  tunnel_ip: null
+  interface_ip: null
+  connection:
+    ike_proposal: aes128gcm16-prfsha384-ecp384
+    ike_version: 2
+    ipsec_proposal: aes128gcm16-ecp384
+    psk: welcome01!
+    remote_id: 192.0.2.128
+    remote_peer_ip: 192.0.2.128
+    routes: []
+    traffic_selectors:
+      local: []
+      remote: []
 ...
 ```
 
@@ -210,20 +219,21 @@ Update the configuration of an existing connection on a remote (requires sudo/ro
 ---
 1:
   description: lab 1 connection test
-  ike_proposal: aes256gcm16-prfsha384-ecp384
-  ike_version: 2
-  ipsec_proposal: aes256gcm16-ecp384
   metadata: {}
-  psk: welcome01!
-  remote_id: 192.0.2.128
-  remote_peer_ip: 192.0.2.128
-  routes:
-  - 10.0.0.0/24
-  - 10.0.1.0/24
-  traffic_selectors:
-    local: []
-    remote: []
-  tunnel_ip: 172.16.0.1
+  interface_ip: 172.16.0.1
+  connection:
+    ike_proposal: aes256gcm16-prfsha384-ecp384
+    ike_version: 2
+    ipsec_proposal: aes256gcm16-ecp384
+    psk: welcome01!
+    remote_id: 192.0.2.128
+    remote_peer_ip: 192.0.2.128
+    routes:
+    - 10.0.0.0/24
+    - 10.0.1.0/24
+    traffic_selectors:
+      local: []
+      remote: []
 ...
 ```
 
@@ -233,18 +243,19 @@ Remove configuration from an existing connection on a remote (requires sudo/root
 ---
 1:
   description: lab 1 connection test
-  ike_proposal: aes256gcm16-prfsha384-ecp384
-  ike_version: 2
-  ipsec_proposal: aes256gcm16-ecp384
   metadata: {}
-  psk: welcome01!
-  remote_id: 192.0.2.128
-  remote_peer_ip: 192.0.2.128
-  routes: []
-  traffic_selectors:
-    local: []
-    remote: []
-  tunnel_ip: 172.16.0.1
+  interface_ip: 172.16.0.1
+  connection:
+    ike_proposal: aes256gcm16-prfsha384-ecp384
+    ike_version: 2
+    ipsec_proposal: aes256gcm16-ecp384
+    psk: welcome01!
+    remote_id: 192.0.2.128
+    remote_peer_ip: 192.0.2.128
+    routes: []
+    traffic_selectors:
+      local: []
+      remote: []
 ...
 ```
 
@@ -253,18 +264,19 @@ Delete a connection from a remote (requires sudo/root):
 ~$ sudo vpnctl remote D0001 connection 1 delete
 1:
   description: lab 1 connection test
-  ike_proposal: aes256gcm16-prfsha384-ecp384
-  ike_version: 2
-  ipsec_proposal: aes256gcm16-ecp384
   metadata: {}
-  psk: welcome01!
-  remote_id: 192.0.2.128
-  remote_peer_ip: 192.0.2.128
-  routes: []
-  traffic_selectors:
-    local: []
-    remote: []
-  tunnel_ip: 172.16.0.1
+  interface_ip: 172.16.0.1
+  connection:
+    ike_proposal: aes256gcm16-prfsha384-ecp384
+    ike_version: 2
+    ipsec_proposal: aes256gcm16-ecp384
+    psk: welcome01!
+    remote_id: 192.0.2.128
+    remote_peer_ip: 192.0.2.128
+    routes: []
+    traffic_selectors:
+      local: []
+      remote: []
 
 Are you sure you want to delete remote 'D0001' connection '1' [y/N]:
 ```

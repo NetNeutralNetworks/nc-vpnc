@@ -50,7 +50,7 @@ def show(
     if full:
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
     elif service.mode.name == "HUB":
-        output["uplink_count"] = len(output.pop("uplinks"))
+        output["uplink_count"] = len(output.pop("connections"))
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
     else:
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))

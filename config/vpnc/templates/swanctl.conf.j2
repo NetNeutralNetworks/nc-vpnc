@@ -45,9 +45,9 @@ connections {
                 remote_ts = {{ conn.ts.remote }}
     {%- else %}
                 # Local traffic selectors to include in CHILD_SA.
-                local_ts = 0.0.0.0/0
+                local_ts = 0.0.0.0/0,::/0
                 # Remote selectors to include in CHILD_SA.
-                remote_ts = 0.0.0.0/0
+                remote_ts = 0.0.0.0/0,::/0
     {%- endif %}
                 life_time = {{ (conn.ipsec_lifetime * 1.1) | round | int }}s
                 rekey_time = {{ conn.ipsec_lifetime }}s
