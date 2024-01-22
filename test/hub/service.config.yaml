@@ -39,6 +39,8 @@ connections:
     # client VPN host. Not required if the remote is capable of BGP unnumbered.
     interface_ip: fd33:2:f::/127
     connection:
+      # Optional: If not set, defaults to the default service local_id value.
+      # local_id: 192.0.2.5
       # remote_peer_ip: 192.0.2.3
       remote_peer_ip: 2001:DB8::3
       # Optional: If not set, defaults to remote_peer_ip

@@ -47,6 +47,7 @@ connections:           # optional, dictionary containing connections
       ike_version: int         # optional, 1 or 2, defaults to 2
       ipsec_proposal:          # required, see the allowed values for   strongswan
       psk: str                 # required
+      local_id: str            # optional, arbitratry, if defined overrides service local id.
       remote_id: str           # optional, arbirary, defaults to  remote_peer_ip
       remote_peer_ip: ip       # required, IPv4 host address
       routes: []               # optional, list of subnets, if defined,   mutually exclusive with traffic_selectors
@@ -101,6 +102,7 @@ connections:
       ike_version: 2
       ipsec_proposal: aes128gcm16-ecp384
       psk: superpassword
+      local_id: null
       remote_id: 192.0.2.1
       remote_peer_ip: 198.51.100.255
       routes: []
@@ -179,6 +181,7 @@ Show a connection configuration for a specific remote:
     ike_version: 2
     ipsec_proposal: aes128gcm16-ecp384
     psk: superpassword
+    local_id: null
     remote_id: 192.0.2.1
     remote_peer_ip: 198.51.100.255
     routes: []
@@ -204,6 +207,7 @@ Add a new connection to a remote (requires sudo/root):
     ike_version: 2
     ipsec_proposal: aes128gcm16-ecp384
     psk: welcome01!
+    local_id: null
     remote_id: 192.0.2.128
     remote_peer_ip: 192.0.2.128
     routes: []
@@ -226,6 +230,7 @@ Update the configuration of an existing connection on a remote (requires sudo/ro
     ike_version: 2
     ipsec_proposal: aes256gcm16-ecp384
     psk: welcome01!
+    local_id: null
     remote_id: 192.0.2.128
     remote_peer_ip: 192.0.2.128
     routes:
@@ -250,6 +255,7 @@ Remove configuration from an existing connection on a remote (requires sudo/root
     ike_version: 2
     ipsec_proposal: aes256gcm16-ecp384
     psk: welcome01!
+    local_id: null
     remote_id: 192.0.2.128
     remote_peer_ip: 192.0.2.128
     routes: []
@@ -271,6 +277,7 @@ Delete a connection from a remote (requires sudo/root):
     ike_version: 2
     ipsec_proposal: aes256gcm16-ecp384
     psk: welcome01!
+    local_id: null
     remote_id: 192.0.2.128
     remote_peer_ip: 192.0.2.128
     routes: []

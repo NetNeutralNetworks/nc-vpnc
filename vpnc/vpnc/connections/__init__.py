@@ -49,7 +49,7 @@ def gen_swanctl_cfg(
             "t_id": f"{connection_id:03}",
             "local_id": config.VPNC_SERVICE_CONFIG.local_id,
             "remote_peer_ip": connection_config.connection.remote_peer_ip,
-            "remote_id": connection_config.connection.remote_id,
+            "remote_id": connection_config.connection.remote_peer_ip,
             "xfrm_id": id_ * 1000 + connection_id,
             "ike_version": connection_config.connection.ike_version,
             "ike_proposal": connection_config.connection.ike_proposal,
@@ -59,10 +59,13 @@ def gen_swanctl_cfg(
             "initiation": connection_config.connection.initiation.value,
             "psk": connection_config.connection.psk,
         }
-        if connection_config.connection.remote_id:
+
+        # Check for the connection specific remote id
+        if connection_config.connection.remote_id is not None:
             swanctl_cfg["remote_id"] = connection_config.connection.remote_id
-        else:
-            swanctl_cfg["remote_id"] = connection_config.connection.remote_peer_ip
+        # Check for the connection specific local id
+        if connection_config.connection.local_id is not None:
+            swanctl_cfg["local_id"] = connection_config.connection.local_id
 
         if connection_config.connection.traffic_selectors:
             ts_loc = ",".join(

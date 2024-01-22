@@ -16,6 +16,8 @@ connections:
     # Optional: IPv4 interface address for tunnel NAT64
     interface_ip: 172.16.31.1/24
     connection:
+      # Optional: If not set, defaults to the default service local_id value.
+      # local_id: 192.0.2.5
       remote_peer_ip: 192.168.0.152
       # Optional: If not set, defaults to remote_peer_ip
       remote_id: 192.168.0.252
