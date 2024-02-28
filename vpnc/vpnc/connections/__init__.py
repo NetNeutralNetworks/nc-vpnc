@@ -26,10 +26,7 @@ logger = logging.getLogger("vpnc")
 
 
 def gen_swanctl_cfg(
-    name: str,
-    id_: int,
-    configs: dict[int, models.Connection | models.ConnectionUplink],
-    updown: bool = False,
+    name: str, id_: int, configs: dict[int, models.Connection | models.ConnectionUplink]
 ):
     """
     Generates swanctl configurations
@@ -78,7 +75,7 @@ def gen_swanctl_cfg(
 
         swanctl_cfgs.append(swanctl_cfg)
 
-    swanctl_render = swanctl_template.render(connections=swanctl_cfgs, updown=updown)
+    swanctl_render = swanctl_template.render(connections=swanctl_cfgs)
     swanctl_path = config.VPN_CONFIG_DIR.joinpath(f"{name}.conf")
 
     with open(swanctl_path, "w", encoding="utf-8") as f:
@@ -201,7 +198,6 @@ def update_uplink_connection():
         name="uplink",
         id_=9999,
         configs=config.VPNC_SERVICE_CONFIG.connections,
-        updown=False,
     )
 
     load_swanctl_all_config()
@@ -378,7 +374,6 @@ def add_downlink_connection(path: pathlib.Path):
         name=vpn_id,
         id_=vpn_id_int,
         configs=remote_config.connections,
-        updown=True,
     )
 
     load_swanctl_all_config()
@@ -537,7 +532,6 @@ def add_downlink_connection_endpoint(path: pathlib.Path):
         name=vpn_id,
         id_=vpn_id_int,
         configs=remote_config.connections,
-        updown=False,
     )
 
     load_swanctl_all_config()

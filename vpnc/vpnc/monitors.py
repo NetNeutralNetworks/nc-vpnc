@@ -7,13 +7,18 @@ import asyncio
 
 # import concurrent.futures
 import logging
+import queue
+import subprocess
 import threading
 import time
+from ipaddress import IPv6Address, IPv6Network
 from types import MappingProxyType
 from typing import Any, TypeAlias
 
 import vici
 import vici.exception
+
+from . import config
 
 IkeProperties: TypeAlias = MappingProxyType[str, Any]
 IkeData: TypeAlias = MappingProxyType[str, bytes | IkeProperties]
@@ -21,7 +26,7 @@ EventType: TypeAlias = bytes
 Event: TypeAlias = tuple[EventType, IkeData]
 
 
-logger = logging.getLogger("vpnc")
+logger = logging.getLogger("vpnc-monitor")
 
 
 class VpncMonitor(threading.Thread):
@@ -43,21 +48,35 @@ class VpncMonitor(threading.Thread):
         Test function
         """
 
+        # Wait for startup before starting to manage VPNs
+        await asyncio.sleep(30)
+
         loop = asyncio.get_running_loop()
         # executor = concurrent.futures.ThreadPoolExecutor()
         # loop.run_in_executor(executor, self.monitor_sa_events)
 
+        updown_q = queue.Queue()
+
         # Run the task to monitor the security associations for duplicates.
         logger.info("Starting SA monitor.")
-        t0 = threading.Thread(target=self.monitor_sa_events, daemon=True)
+        t0 = threading.Thread(
+            target=self.monitor_sa_events, args=[updown_q], daemon=True
+        )
         t0.start()
 
-        # Run the task to check for inactive connections every 5 minutes.
+        # Run the task to monitor the route advertisements.
+        logger.info("Starting route advertisement monitor.")
+        t1 = threading.Thread(
+            target=self.monitor_route_advertisements, args=[updown_q], daemon=True
+        )
+        t1.start()
+
+        # Run the task to check for inactive connections every interval.
         logger.info("Starting inactive connection monitor.")
-        t1 = loop.create_task(
+        t2 = loop.create_task(
             self.repeat(60, self.monitor_conn_inactive, init_wait=True)
         )
-        await t1
+        await t2
 
     async def repeat(self, interval, func, *args, init_wait=False, **kwargs):
         """Run func every interval seconds.
@@ -94,12 +113,11 @@ class VpncMonitor(threading.Thread):
             logger.info("Starting connection '%s'", con)
             self.initiate_sa(vcs=vcs, ike=con, child=con)
 
-    def monitor_sa_events(self):
+    def monitor_sa_events(self, q: queue.Queue):
         """
         Monitor for SA events and take action accordingly.
         """
-        # Wait for startup before starting to manage VPNs
-        time.sleep(60)
+
         vcs = self.connect()
         for event in vcs.listen(
             event_types=["ike-updown", "child-updown"]  # , timeout=0.05
@@ -109,9 +127,92 @@ class VpncMonitor(threading.Thread):
                 continue
             match event_type:
                 case b"ike-updown":
+                    q.put_nowait(event_data)
                     self.resolve_duplicate_ike_sa(event_data)
                 case b"child-updown":
+                    q.put_nowait(event_data)
                     self.resolve_duplicate_ipsec_sa(event_data)
+
+    def monitor_route_advertisements(self, q: queue.Queue) -> None:
+        """
+        Receives child updown events and tries to check if the route for the remote should be
+        advertised or retracted.
+        """
+
+        vcs = self.connect()
+
+        for i in vcs.list_sas():
+            self.resolve_route_advertisements(i)
+
+        while True:
+            ike_event = q.get()
+            time.sleep(0.1)
+            self.resolve_route_advertisements(ike_event)
+
+    def resolve_route_advertisements(self, ike_event: IkeData):
+        """
+        Resolver for monitor monitor_route_advertisements
+        """
+
+        ike_name: str
+        if len(keys := ike_event.keys()) == 2:
+            _, ike_name = list(keys)
+        else:
+            ike_name: str = list(keys)[0]
+
+        if ike_name.startswith("uplink"):
+            return
+
+        vcs = self.connect()
+
+        trusted_netns = config.TRUSTED_NETNS
+        interface = f"{ike_name}_I"
+        ipv6_prefix = config.VPNC_SERVICE_CONFIG.prefix_downlink_v6
+        ipv6_base = int(ipv6_prefix[0])
+
+        v6_seg_3 = ike_name[0]
+        v6_seg_4 = int(ike_name[1:5])
+        v6_seg_5 = int(ike_name[6:])
+
+        v6_offset = int(IPv6Address(f"0:0:{v6_seg_3}:{v6_seg_4}:{v6_seg_5}::"))
+        v6_address = IPv6Address(ipv6_base + v6_offset)
+        v6_network = IPv6Network(v6_address).supernet(new_prefix=96)
+
+        action = "Retracting"
+        cmd = f"ip -n {trusted_netns} -6 route del {v6_network} dev {interface}"
+
+        vpn: dict[str, Any] = {}
+        if v := list(vcs.list_sas({"ike": ike_name, "child": ike_name})):
+            vpn = v[0]
+        ike_data = vpn.get(ike_name, {})
+        # ike_data = ike_event[ike_name]
+        if list(ike_data.get("child-sas", {}).keys()):
+            child_id: str = list(ike_data.get("child-sas").keys())[0]
+        else:
+            child_id = ""
+        child_data = ike_data.get("child-sas", {}).get(child_id, {})
+        if (
+            ike_data.get("state") == b"ESTABLISHED"
+            and child_data.get("state") == b"INSTALLED"
+        ):
+            action = "Advertising"
+            cmd = f"ip -n {trusted_netns} -6 route add {v6_network} via fe80::1 dev {interface}"
+
+        logger.info(
+            "%s route for tunnel '%s'.\n%s",
+            action,
+            ike_name,
+            cmd,
+        )
+        sp = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=True,
+            check=False,
+        )
+        if sp.stdout.decode().strip() != "RTNETLINK answers: File exists":
+            logger.info(sp.stdout.decode())
 
     def resolve_duplicate_ike_sa(self, ike_event: IkeData) -> None:
         """
@@ -280,8 +381,12 @@ class VpncMonitor(threading.Thread):
 
         logger.info("Terminating SA with parameters: '%s'", _filter)
         try:
+            # if not vcs.list_sas(_filter):
+            #     logger.info("SA not found. It may already be deleted: '%s'", _filter)
+            #     return
             for i in vcs.terminate(_filter):
                 logger.debug(i)
+
         except vici.exception.CommandException:
             logger.warning(("Termination of SA '%s' failed.", _filter), exc_info=True)
 

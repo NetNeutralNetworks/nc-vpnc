@@ -57,9 +57,6 @@ connections {
                 dpd_action = restart
                 start_action = {{ conn.initiation }}
                 close_action = {{ conn.initiation }}
-    {%- if updown is defined and updown is sameas true %}
-                updown=/opt/ncubed/config/vpnc/scripts/updown-downlink.sh
-    {%- endif %}
             }
         }
     }
