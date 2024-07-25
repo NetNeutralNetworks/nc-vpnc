@@ -1,0 +1,85 @@
+{#- Configures FRR -#}
+frr defaults traditional
+service integrated-vtysh-config
+ip forwarding
+ipv6 forwarding
+agentx
+!
+vrf {{ core_ni }}
+  netns /run/netns/{{ core_ni }}
+  router-id {{ router_id }}
+!
+vrf {{ external_ni }}
+  netns /run/netns/{{ external_ni }}
+!
+router bgp {{ as }} vrf {{ core_ni }}
+  bgp router-id {{ router_id }}
+  neighbor UPLINK peer-group
+  neighbor UPLINK bfd
+  neighbor UPLINK advertisement-interval 0
+  neighbor UPLINK timers 10 30
+{%- for neighbor in neighbors %}
+  neighbor {{ neighbor.neighbor_ip }} remote-as {{ neighbor.neighbor_asn }}
+  neighbor {{ neighbor.neighbor_ip }} peer-group UPLINK
+{%- endfor %}
+  address-family ipv6 unicast
+    redistribute connected route-map REDIS-RM-STATIC-TO-BGP
+    redistribute kernel route-map REDIS-RM-STATIC-TO-BGP
+    neighbor UPLINK activate
+    neighbor UPLINK soft-reconfiguration inbound
+{%- for neighbor in neighbors %}
+    neighbor {{ neighbor.neighbor_ip }} route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-IN in
+    neighbor {{ neighbor.neighbor_ip }} route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-OUT out
+{%- endfor %}
+  exit-address-family
+exit
+!
+{%- for prefix in prefix_core %}
+ipv6 prefix-list UPLINK-PL-IN seq {{ 10 * loop.index }} permit {{ prefix }} le 64
+{%- endfor %}
+ipv6 prefix-list UPLINK-PL-OUT seq 10 permit 2000::/3 ge 32
+ipv6 prefix-list UPLINK-PL-OUT seq 20 permit {{ prefix_downlink_nat64 }} ge 96 le 96
+ipv6 prefix-list UPLINK-PL-OUT seq 30 permit {{ prefix_downlink_natpt }} ge 48 le 48
+ipv6 prefix-list REDIS-PL-IN seq 10 permit 2000::/3 ge 32
+ipv6 prefix-list REDIS-PL-IN seq 20 permit {{ prefix_downlink_nat64 }} ge 96 le 96
+ipv6 prefix-list REDIS-PL-IN seq 30 permit {{ prefix_downlink_natpt }} ge 48 le 48
+!
+{%- for neighbor in neighbors %}
+route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-IN permit 1
+  match ipv6 address prefix-list UPLINK-PL-IN
+  set local-preference {{ 100 - (10 * neighbor.neighbor_priority) }}
+exit
+!
+route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-IN deny 2
+exit
+!
+{#- If the route is black holed, make it unappealing #}
+route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-OUT permit 1
+  match ipv6 address prefix-list UPLINK-PL-OUT
+  match ipv6 next-hop type blackhole
+  set as-path prepend {{ (as ~ " ") * 10 }}
+exit
+route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-OUT permit 2
+  match ipv6 address prefix-list UPLINK-PL-OUT
+    {%- if neighbor.neighbor_priority %}
+  set as-path prepend {{ (as ~ " ") * neighbor.neighbor_priority }}
+    {%- endif %}
+exit
+!
+route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-OUT deny 3
+exit
+!
+{%- endfor %}
+route-map REDIS-RM-STATIC-TO-BGP permit 1
+  match ipv6 address prefix-list REDIS-PL-IN
+exit
+!
+bfd
+{%- for neighbor in neighbors %}
+  peer {{ neighbor.neighbor_ip }} vrf {{ core_ni }}
+{%- endfor %}
+  exit
+  !
+exit
+!
+end

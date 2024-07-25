@@ -41,7 +41,8 @@ connections:           # optional, dictionary containing connections
     type: ipsec | local      # required
     description: str         # required
     metadata: {}             # optional, dictionary containing arbitrary k/v pairs
-    interface_ip: ip_prefix  # optional, host IP + CIDR mask, defaults to value configured in the service.
+    interface_ipv4: ip_prefix  # optional, host IP + CIDR mask, defaults to value configured in the service.
+    interface_ipv6: ip_prefix  # optional, host IP + CIDR mask, defaults to value configured in the service.
     connection:
       ike_proposal: str        # required, see the allowed values for   strongswan
       ike_version: int         # optional, 1 or 2, defaults to 2
@@ -96,7 +97,8 @@ connections:
     description: lab endpoint
     metadata:
       primary: true
-    interface_ip: null
+    interface_ipv4: null
+    interface_ipv6: null
     connection:
       ike_proposal: aes128gcm16-prfsha384-ecp384
       ike_version: 2
@@ -175,7 +177,8 @@ Show a connection configuration for a specific remote:
   description: lab endpoint
   metadata:
     primary: true
-  interface_ip: null
+  interface_ipv4: null
+  interface_ipv6: null
   connection:
     ike_proposal: aes128gcm16-prfsha384-ecp384
     ike_version: 2
@@ -201,7 +204,8 @@ Add a new connection to a remote (requires sudo/root):
 1:
   description: lab 1 connection test
   metadata: {}
-  interface_ip: null
+  interface_ipv4: null
+  interface_ipv6: null
   connection:
     ike_proposal: aes128gcm16-prfsha384-ecp384
     ike_version: 2
@@ -224,7 +228,8 @@ Update the configuration of an existing connection on a remote (requires sudo/ro
 1:
   description: lab 1 connection test
   metadata: {}
-  interface_ip: 172.16.0.1
+  interface_ipv4: 172.16.0.1
+  interface_ipv6: null
   connection:
     ike_proposal: aes256gcm16-prfsha384-ecp384
     ike_version: 2
@@ -249,7 +254,8 @@ Remove configuration from an existing connection on a remote (requires sudo/root
 1:
   description: lab 1 connection test
   metadata: {}
-  interface_ip: 172.16.0.1
+  interface_ipv4: 172.16.0.1
+  interface_ipv6: null
   connection:
     ike_proposal: aes256gcm16-prfsha384-ecp384
     ike_version: 2
@@ -271,7 +277,8 @@ Delete a connection from a remote (requires sudo/root):
 1:
   description: lab 1 connection test
   metadata: {}
-  interface_ip: 172.16.0.1
+  interface_ipv4: 172.16.0.1
+  interface_ipv6: null
   connection:
     ike_proposal: aes256gcm16-prfsha384-ecp384
     ike_version: 2

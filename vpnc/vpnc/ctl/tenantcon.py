@@ -20,6 +20,7 @@ import yaml
 from typing_extensions import Annotated
 
 from .. import config, models
+from ..models import ipsec
 
 app = typer.Typer()
 
@@ -51,13 +52,13 @@ def list_(ctx: typer.Context):
     List all tunnels for a remote
     """
     id_: str = ctx.obj["id_"]
-    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        remote = models.Remote(**yaml.safe_load(f))
+        remote = models.Tenant(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -79,14 +80,14 @@ def show(
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
     if active:
-        path = config.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = config.VPNC_A_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
     else:
-        path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = models.Remote(**yaml.safe_load(f))
+        remote = models.Tenant(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -119,7 +120,7 @@ def add(
     ike_lifetime: Annotated[Optional[int], typer.Option()] = None,
     ipsec_proposal: Annotated[str, typer.Option()] = None,
     ipsec_lifetime: Annotated[Optional[int], typer.Option()] = None,
-    initiation: Annotated[Optional[models.Initiation], typer.Option()] = None,
+    initiation: Annotated[Optional[ipsec.Initiation], typer.Option()] = None,
     tunnel_ip: Annotated[
         Optional[IPInterface], typer.Option(parser=ip_interface)
     ] = None,
@@ -140,13 +141,13 @@ def add(
     all_args = {k: v for k, v in locals().items() if v}
     all_args.pop("ctx")
     id_: str = ctx.obj["id_"]
-    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        remote = models.Remote(**yaml.safe_load(f))
+        remote = models.Tenant(**yaml.safe_load(f))
 
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
@@ -157,7 +158,7 @@ def add(
         print(f"Connection '{tunnel_id}' already exists'.")
         return
 
-    tunnel = models.Connection(**all_args)
+    tunnel = models.NetworkInstance(**all_args)
     # if data.get("traffic_selectors_local") or data.get("traffic_selectors_remote"):
     #     data["traffic_selectors"] = {}
     #     data["traffic_selectors"]["local"] = set(data.pop("traffic_selectors_local"))
@@ -192,7 +193,7 @@ def set_(
     ike_lifetime: Annotated[Optional[int], typer.Option()] = None,
     ipsec_proposal: Annotated[Optional[str], typer.Option()] = None,
     ipsec_lifetime: Annotated[Optional[int], typer.Option()] = None,
-    initiation: Annotated[Optional[models.Initiation], typer.Option()] = None,
+    initiation: Annotated[Optional[ipsec.Initiation], typer.Option()] = None,
     tunnel_ip: Annotated[
         Optional[IPInterface], typer.Option(parser=IPv4Interface)
     ] = None,
@@ -220,13 +221,13 @@ def set_(
     all_ts_local = all_args.pop("traffic_selectors_local", set())
     all_ts_remote = all_args.pop("traffic_selectors_remote", set())
     id_: str = ctx.obj["id_"]
-    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        remote = models.Remote(**yaml.safe_load(f))
+        remote = models.Tenant(**yaml.safe_load(f))
 
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
@@ -292,13 +293,13 @@ def unset(
     all_ts_remote = all_args.pop("traffic_selectors_remote", [])
 
     id_: str = ctx.obj["id_"]
-    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        remote = models.Remote(**yaml.safe_load(f))
+        remote = models.Tenant(**yaml.safe_load(f))
 
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
@@ -326,7 +327,7 @@ def unset(
         tunnel_dict.get("traffic_selectors", {}).get("remote", set())
     ).symmetric_difference(set(all_ts_remote))
 
-    updated_tunnel = models.Connection(**tunnel_dict)
+    updated_tunnel = models.NetworkInstance(**tunnel_dict)
     remote.connections[tunnel_id] = updated_tunnel
 
     output = yaml.safe_dump(
@@ -349,12 +350,12 @@ def delete(
     """
     id_: str = ctx.obj["id_"]
     tunnel_id: int = ctx.obj["tunnel_id"]
-    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = models.Remote(**yaml.safe_load(f))
+        remote = models.Tenant(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return

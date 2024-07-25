@@ -14,10 +14,10 @@ from deepdiff import DeepDiff
 from typing_extensions import Annotated
 
 from .. import config, models
-from . import remotecon
+from . import tenantcon
 
 app = typer.Typer()
-app.add_typer(remotecon.app, name="connection")
+app.add_typer(tenantcon.app, name="connection")
 
 
 @app.callback(invoke_without_command=True)
@@ -40,10 +40,10 @@ def list_():
     """
 
     print(f"{'id':<6} name\n{'-'*6} {'-'*4}")
-    for i in config.VPNC_C_REMOTE_CONFIG_DIR.glob("*.yaml"):
+    for i in config.VPNC_C_TENANT_CONFIG_DIR.glob("*.yaml"):
         file_name = i.stem
         with open(i, "r", encoding="utf-8") as f:
-            remote = models.Remote(**yaml.safe_load(f))
+            remote = models.Tenant(**yaml.safe_load(f))
         if file_name != remote.id:
             print(f"Mismatch between file name '{file_name}' and id '{remote.id}'.")
         elif file_name == remote.id:
@@ -60,24 +60,26 @@ def show(
     Show a remote
     """
     id_: str = ctx.obj["id_"]
+    if not config.DOWNLINK_TEN_RE.match(id_):
+        print(f"Tenant name '{id_}' is invalid.")
     if active:
-        path = config.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = config.VPNC_A_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
     else:
-        path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+        path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = models.Remote(**yaml.safe_load(f))
-    if id_ != remote.id:
-        print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
+        tenant = models.Tenant(**yaml.safe_load(f))
+    if id_ != tenant.id:
+        print(f"Mismatch between file name '{id_}' and id '{tenant.id}'.")
         return
 
-    output = remote.model_dump(mode="json")
+    output = tenant.model_dump(mode="json")
     if full:
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
     else:
-        output["tunnel_count"] = len(output.pop("connections"))
+        output["tunnel_count"] = len(output.pop("network_instances"))
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
 
 
@@ -87,7 +89,7 @@ def edit(ctx: typer.Context):
     Edit a candidate config file
     """
     id_: str = ctx.obj["id_"]
-    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     editor = os.environ.get("EDITOR", "vim")
 
@@ -96,7 +98,7 @@ def edit(ctx: typer.Context):
 
     with open(path, "r", encoding="utf-8") as f:
         remote_content = f.read()
-        remote = models.Remote(**yaml.safe_load(remote_content))
+        remote = models.Tenant(**yaml.safe_load(remote_content))
 
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
@@ -110,7 +112,7 @@ def edit(ctx: typer.Context):
         tf.seek(0)
         edited_message = tf.read()
 
-    edited_remote = models.Remote(**yaml.safe_load(edited_message))
+    edited_remote = models.Tenant(**yaml.safe_load(edited_message))
     print("Edited file")
 
     output = yaml.safe_dump(
@@ -133,16 +135,16 @@ def add(
     Add a remote
     """
     all_args = {k: v for k, v in locals().items() if v}
-    all_args['version'] = "0.0.12"
+    all_args["version"] = "0.0.12"
     all_args.pop("ctx")
     id_: str = ctx.obj["id_"]
-    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
     if path.exists():
         print(f"Remote '{id_}' already exists.")
         return
 
     all_args.update({"id": id_, "tunnels": {}})
-    remote = models.Remote(**all_args)
+    remote = models.Tenant(**all_args)
 
     output = yaml.safe_dump(
         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
@@ -167,13 +169,13 @@ def set_(
     all_args.pop("ctx")
     all_metadata: list[str] = all_args.pop("metadata", {})
     id_: str = ctx.obj["id_"]
-    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        remote = models.Remote(**yaml.safe_load(f))
+        remote = models.Tenant(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -209,12 +211,12 @@ def unset(
     all_metadata: list[str] = all_args.pop("metadata", [])
 
     id_: str = ctx.obj["id_"]
-    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
 
     if not path.exists():
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = models.Remote(**yaml.safe_load(f))
+        remote = models.Tenant(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -226,7 +228,7 @@ def unset(
     for i in all_metadata:
         remote_dict["metadata"].pop(i, None)
 
-    updated_remote = models.Remote(**remote_dict)
+    updated_remote = models.Tenant(**remote_dict)
 
     output = yaml.safe_dump(
         updated_remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
@@ -247,12 +249,12 @@ def delete(
     Delete a remote side
     """
     id_: str = ctx.obj["id_"]
-    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
     if not path.exists():
         print(f"Remote '{id_}' doesn't exist.")
         return
     with open(path, "r", encoding="utf-8") as f:
-        remote = models.Remote(**yaml.safe_load(f))
+        remote = models.Tenant(**yaml.safe_load(f))
     if id_ != remote.id:
         print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
         return
@@ -282,26 +284,26 @@ def commit(
     Commit configuration
     """
     id_: str = ctx.obj["id_"]
-    path = config.VPNC_C_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
-    path_diff = config.VPNC_A_REMOTE_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
+    path_diff = config.VPNC_A_TENANT_CONFIG_DIR.joinpath(f"{id_}.yaml")
     if not path.exists():
         remote_yaml = ""
-        remote = models.Remote(id=id_, name="")
+        remote = models.Tenant(id=id_, name="")
     else:
         with open(path, "r", encoding="utf-8") as f:
             remote_yaml = f.read()
-            remote = models.Remote(**yaml.safe_load(remote_yaml))
+            remote = models.Tenant(**yaml.safe_load(remote_yaml))
         if id_ != remote.id:
             print(f"Mismatch between file name '{id_}' and id '{remote.id}'.")
             return
 
     if not path_diff.exists():
         remote_diff_yaml = ""
-        remote_diff = models.Remote(id=id_, name="")
+        remote_diff = models.Tenant(id=id_, name="")
     else:
         with open(path_diff, "r", encoding="utf-8") as f:
             remote_diff_yaml = f.read()
-            remote_diff = models.Remote(**yaml.safe_load(remote_diff_yaml))
+            remote_diff = models.Tenant(**yaml.safe_load(remote_diff_yaml))
         if id_ != remote_diff.id:
             print(f"Mismatch between diff file name '{id_}' and id '{remote_diff.id}'.")
             return

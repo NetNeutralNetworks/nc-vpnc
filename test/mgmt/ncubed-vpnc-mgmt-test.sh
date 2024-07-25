@@ -3,13 +3,12 @@
 curl -s https://deb.frrouting.org/frr/keys.asc | sudo apt-key add -
 FRRVER="frr-8"
 UNTRUST_IF="ens4"
-# UNTRUST_IP="192.168.128.4"
 UNTRUST_IF_IP4="192.0.2.3/24"
 UNTRUST_GW_IP4="192.0.2.1"
 UNTRUST_IF_IP6="2001:DB8::3/64"
 
-TUNNEL_IF_IP="fd33:2:f::1/127"
-LOOPBACK_IF_IP="fd33::1/128"
+TUNNEL_IF_IP="fd00:1:2::1/127"
+LOOPBACK_IF_IP="fd00::1/128"
 
 BGP_AS="4255786769"
 BGP_ROUTER_ID="1.1.1.1"
@@ -17,7 +16,8 @@ BGP_ROUTER_ID="1.1.1.1"
 VPN_PEER_IP4="192.0.2.5"
 VPN_PEER_IP6="2001:DB8::5"
 VPN_PEER_IP="${VPN_PEER_IP6}"
-BGP_PEER_IP="fd33:2:f::"
+VPN_PEER_PSK="secretpasswordcore"
+BGP_PEER_IP="fd00:1:2::"
 BGP_PEER_AS="4255786777"
 
 # Add FRR and other required services to the installation
@@ -112,7 +112,7 @@ secrets {
         # id-1a = \"\${UNTRUST_IP}\"
         # id-1b = \"\${VPN_PEER_IP}\"
         id-1 = \"${VPN_PEER_IP}\"
-        secret = \"ook een wachtwoord ofzo\"
+        secret = \"${VPN_PEER_PSK}\"
     }
 }
 " > /etc/swanctl/conf.d/uplink.conf
@@ -132,7 +132,7 @@ router bgp ${BGP_AS}
   neighbor ${BGP_PEER_IP} remote-as ${BGP_PEER_AS}
   neighbor ${BGP_PEER_IP} peer-group MGMT-TRANSIT
   address-family ipv6 unicast
-    aggregate-address fd33::/16 summary-only
+    aggregate-address fd00::/16 summary-only
     redistribute connected route-map REDIS-RM-STATIC-TO-BGP
     redistribute kernel route-map REDIS-RM-STATIC-TO-BGP
     neighbor MGMT-TRANSIT activate
@@ -143,8 +143,10 @@ router bgp ${BGP_AS}
 exit
 !
 ipv6 prefix-list MGMT-TRANSIT-PL-IN seq 10 permit fdcc:0:c::/48 le 96 ge 96
+ipv6 prefix-list MGMT-TRANSIT-PL-IN seq 20 permit fd60::/12 ge 48
+ipv6 prefix-list MGMT-TRANSIT-PL-IN seq 30 permit 2000::/3 ge 32
 ipv6 prefix-list MGMT-TRANSIT-PL-OUT seq 10 permit ::/0 ge 1
-ipv6 prefix-list REDIS-PL-IN seq 10 permit fd33::/16 ge 64
+ipv6 prefix-list REDIS-PL-IN seq 10 permit fd00::/16 ge 64
 !
 route-map MGMT-TRANSIT-RM-IN permit 1
   match ipv6 address prefix-list MGMT-TRANSIT-PL-IN
@@ -179,6 +181,7 @@ swanctl --list-sas
 
 while true;
 do
-    sleep 5
-    echo -n "."
+    ping -c 5 fdcc:0:c:1::172.16.31.254
+    ping -c 5 2001:DB8:c57::ffff
+    ping -c 5 fd6c:1::ffff
 done

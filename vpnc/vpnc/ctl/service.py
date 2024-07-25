@@ -49,8 +49,12 @@ def show(
     output = service.model_dump(mode="json")
     if full:
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
-    elif service.mode.name == "HUB":
-        output["uplink_count"] = len(output.pop("connections"))
+    elif service.mode == models.ServiceMode.HUB:
+        output["uplink_count"] = len(
+            output.get("network_instances", {})
+            .get(config.CORE_NI, {})
+            .pop("connections")
+        )
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
     else:
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
@@ -71,16 +75,31 @@ def edit():
     with open(path, "r", encoding="utf-8") as f:
         service_content = f.read()
 
+    correct = False
     with tempfile.NamedTemporaryFile(suffix=".tmp", mode="w+", encoding="utf-8") as tf:
         tf.write(service_content)
         tf.flush()
-        call([editor, tf.name])
+        edited_message = service_content
 
-        tf.seek(0)
-        edited_message = tf.read()
+        while correct is False:
 
-    edited_service = models.Service(**yaml.safe_load(edited_message))
-    print("Edited file")
+            call([editor, tf.name])
+            tf.seek(0)
+            edited_message = tf.read()
+            try:
+                edited_service = models.Service(**yaml.safe_load(edited_message))
+                correct = True
+            except ValueError:
+                tf.seek(0)
+                tf.write(edited_message)
+                tf.flush()
+    if correct:
+        edited_service = models.Service(**yaml.safe_load(edited_message))
+        print("Edited file")
+    else:
+        print("Didn't edit file")
+        show()
+        return
 
     output = yaml.safe_dump(
         edited_service.model_dump(mode="json"), explicit_start=True, explicit_end=True
@@ -102,13 +121,10 @@ def set_(
         Optional[IPv4Address], typer.Option(parser=ip_address)
     ] = None,
     local_id: Annotated[Optional[IPv4Address], typer.Option(parser=ip_address)] = None,
-    prefix_uplink: Annotated[
-        Optional[IPv6Network], typer.Option(parser=IPv6Network)
-    ] = None,
-    prefix_downlink_v4: Annotated[
+    prefix_downlink_interface_v4: Annotated[
         Optional[IPv4Network], typer.Option(parser=IPv4Network)
     ] = None,
-    prefix_downlink_v6: Annotated[
+    prefix_downlink_nat64: Annotated[
         Optional[IPv6Network], typer.Option(parser=IPv6Network)
     ] = None,
 ):

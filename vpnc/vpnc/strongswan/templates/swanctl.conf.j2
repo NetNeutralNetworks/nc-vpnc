@@ -2,7 +2,7 @@ connections {
     # Section for an IKE connection named <conn>.
 {%- for conn in connections %}
     {#- t_id is tunnel_id for downlink #}
-    {{ conn.remote }}-{{ conn.t_id }} {
+    {{ conn.connection }} {
     {%- if conn.ike_version %}
         # IKE major version to use for connection.
         version = {{ conn.ike_version }}
@@ -18,9 +18,9 @@ connections {
         # Tries to enforce unique connections, replaces old connection with new.
         unique = replace
         # Default inbound XFRM interface ID for children.
-        if_id_in = 0x{{ conn.xfrm_id }}
+        if_id_in = {{ conn.xfrm_id }}
         # Default outbound XFRM interface ID for children.
-        if_id_out = 0x{{ conn.xfrm_id }}
+        if_id_out = {{ conn.xfrm_id }}
         # Section for a local authentication round.
         local {
             id = {{ conn.local_id }}
@@ -37,7 +37,7 @@ connections {
         children {
             # CHILD_SA configuration sub-section.
     {#- ts are traffic selectors #}
-            {{ conn.remote }}-{{ conn.t_id }} {
+            {{ conn.connection }} {
     {%- if conn.ts is defined and conn.ts and conn.ts.remote is defined and conn.ts.local is defined and conn.ts.remote and conn.ts.local %}
                 # Local traffic selectors to include in CHILD_SA.
                 local_ts = {{ conn.ts.local }}
@@ -65,8 +65,8 @@ connections {
 
 secrets {
 {%- for conn in connections %}
-    ike-{{ conn.remote }}-{{ conn.t_id }} {
-        id-{{ conn.remote }}-{{ conn.t_id }} = {{ conn.remote_id }}
+    ike-{{ conn.connection }} {
+        id-{{ conn.connection }} = {{ conn.remote_id }}
         secret = {{ conn.psk }}
     }
 {%- endfor %}

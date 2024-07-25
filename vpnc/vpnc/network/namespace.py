@@ -1,10 +1,9 @@
 import atexit
-import signal
 
 from pyroute2 import netns
 
 
-def list() -> list[str]:
+def list_() -> list[str]:
     return netns.listnetns()
 
 

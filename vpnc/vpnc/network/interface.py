@@ -17,7 +17,7 @@ def get(
         query = {"ifname": name}  # , "kind": kind}
 
         if ns_name == "*":
-            ns_list = namespace.list()
+            ns_list = namespace.list_()
             ndb.sources.remove("localhost")
             for i in ns_list:
                 ndb.sources.add(netns=i)

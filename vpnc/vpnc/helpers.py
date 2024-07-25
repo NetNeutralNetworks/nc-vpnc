@@ -6,10 +6,10 @@ Miscellaneous functions used throughout the service
 
 import logging
 import pathlib
-import subprocess
 import sys
-import time
+from typing import Any
 
+import pydantic_core
 import yaml
 
 from . import config, models
@@ -37,62 +37,60 @@ def load_config(config_path: pathlib.Path):
                 exc_info=True,
             )
             sys.exit(1)
-
-    config.VPNC_SERVICE_CONFIG = models.Service(**new_cfg_dict)
+    try:
+        config.VPNC_SERVICE_CONFIG = models.Service(**new_cfg_dict)
+    except pydantic_core.ValidationError:
+        logger.critical(
+            "Configuration '%s' doesn't adhere to the schema",
+            config_path,
+            exc_info=True,
+        )
+        sys.exit(1)
 
     logger.info("Loaded new configuration.")
 
 
-def generate_frr_cfg(configs: dict[int, models.ConnectionUplink]):
+def parse_downlink_network_instance_connection_name(
+    connection_name: str,
+) -> dict[str, Any]:
     """
-    # Generate dictionaries for the FRR configuration
+    Parses a connection name into it's components
     """
-    routing_cfgs = []
-    for connection_id, connection_config in configs.items():
-        routing_cfg = {
-            "neighbor_interface_name": f"xfrm-uplink{connection_id:03}",
-            "neighbor_ip": connection_config.interface_ip.ip + 1,
-            "neighbor_asn": connection_config.asn,
-            "neighbor_priority": connection_config.priority,
-            "prepend": (
-                f"{config.VPNC_SERVICE_CONFIG.bgp.asn} " * connection_config.priority
-            ).strip(),
-        }
-        routing_cfgs.append(routing_cfg)
+    if not config.DOWNLINK_CON_RE.match(connection_name):
+        raise ValueError(
+            f"Invalid downlink connection name '{connection_name}'",
+        )
 
-    # FRR/BGP CONFIG
-    frr_template = config.VPNC_TEMPLATES_ENV.get_template("frr.conf.j2")
-    frr_cfg = {
-        "trusted_netns": config.TRUSTED_NETNS,
-        "untrusted_netns": config.UNTRUSTED_NETNS,
-        "router_id": config.VPNC_SERVICE_CONFIG.bgp.router_id,
-        "asn": config.VPNC_SERVICE_CONFIG.bgp.asn,
-        "uplinks": routing_cfgs,
-        "prefix_uplink": config.VPNC_SERVICE_CONFIG.prefix_uplink,
-        "prefix_downlink_v6": config.VPNC_SERVICE_CONFIG.prefix_downlink_v6,
+    return {
+        "tenant": connection_name[:5],
+        "tenant_ext": int(connection_name[0], 16),
+        "tenant_ext_str": connection_name[0],
+        "tenant_id": int(connection_name[1:5], 16),
+        "tenant_id_str": connection_name[1:5],
+        "network_instance": connection_name[:8],
+        "network_instance_id": int(connection_name[6:8], 16),
+        "connection": connection_name,
+        "connection_id": int(connection_name[-1], 16),
     }
 
-    frr_render = frr_template.render(**frr_cfg)
-    logger.info(frr_render)
-    frr_path = pathlib.Path("/etc/frr/frr.conf")
 
-    with open(frr_path, "w+", encoding="utf-8") as f:
-        f.write(frr_render)
-
-
-def load_frr_all_config():
+def parse_downlink_network_instance_name(
+    network_instance_name: str,
+) -> dict[str, Any]:
     """
-    Loads FRR config from file in an idempotent way
+    Parses a connection name into it's components
     """
-    # Wait to make sure the file is written
-    time.sleep(1)
-    output = subprocess.run(
-        "/usr/lib/frr/frr-reload.py /etc/frr/frr.conf --reload --stdout",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=True,
-        check=True,
-    ).stdout
-    logger.debug(output)
-    # Wait to make sure the configuration is applied
-    time.sleep(1)
+    if not config.DOWNLINK_NI_RE.match(network_instance_name):
+        raise ValueError(
+            f"Invalid downlink network instance name '{network_instance_name}'",
+        )
+
+    return {
+        "tenant": network_instance_name[:5],
+        "tenant_ext": int(network_instance_name[0], 16),
+        "tenant_ext_str": network_instance_name[0],
+        "tenant_id": int(network_instance_name[1:5], 16),
+        "tenant_id_str": network_instance_name[1:5],
+        "network_instance": network_instance_name[:8],
+        "network_instance_id": int(network_instance_name[6:8], 16),
+    }

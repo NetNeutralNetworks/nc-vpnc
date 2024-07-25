@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 61.0.0"]
+requires = ["setuptools >= 61.0.0", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -43,3 +43,6 @@ vpnctl = "vpnc.ctl.main:app"
 
 [tool.setuptools.dynamic]
 version = {attr = "vpnc.__version__"}
+
+[tool.setuptools.package-data]
+nc_sync_nods = ["*.j2"]

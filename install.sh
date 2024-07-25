@@ -123,7 +123,7 @@ cp -n ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example 
 
 # Run migrations to current version
 # ${SCRIPTDIR}/setup/migrate.sh
-${INSTALLDIR}/bin/python3 ${SCRIPTDIR}/setup/migrate.py
+# ${INSTALLDIR}/bin/python3 ${SCRIPTDIR}/setup/migrate.py
 
 # Enable the VPNC service
 /usr/bin/systemctl daemon-reload

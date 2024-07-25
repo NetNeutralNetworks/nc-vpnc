@@ -20,6 +20,7 @@ import yaml
 from typing_extensions import Annotated
 
 from .. import config, models
+from ..models import ipsec
 
 app = typer.Typer()
 
@@ -108,7 +109,7 @@ def add(
     ike_lifetime: Annotated[Optional[int], typer.Option()] = None,
     ipsec_proposal: Annotated[Optional[str], typer.Option()] = None,
     ipsec_lifetime: Annotated[Optional[int], typer.Option()] = None,
-    initiation: Annotated[Optional[models.Initiation], typer.Option()] = None,
+    initiation: Annotated[Optional[ipsec.Initiation], typer.Option()] = None,
     tunnel_ip: Annotated[
         Optional[IPInterface], typer.Option(parser=ip_interface)
     ] = None,
@@ -146,7 +147,7 @@ def add(
         print(f"Connection '{tunnel_id}' already exists'.")
         return
 
-    tunnel = models.ConnectionUplink(**all_args)
+    tunnel = models.ConnectionConfigIPsec(**all_args)
     # if data.get("traffic_selectors_local") or data.get("traffic_selectors_remote"):
     #     data["traffic_selectors"] = {}
     #     data["traffic_selectors"]["local"] = set(data.pop("traffic_selectors_local"))
@@ -181,7 +182,7 @@ def set_(
     ike_lifetime: Annotated[Optional[int], typer.Option()] = None,
     ipsec_proposal: Annotated[Optional[str], typer.Option()] = None,
     ipsec_lifetime: Annotated[Optional[int], typer.Option()] = None,
-    initiation: Annotated[Optional[models.Initiation], typer.Option()] = None,
+    initiation: Annotated[Optional[ipsec.Initiation], typer.Option()] = None,
     tunnel_ip: Annotated[
         Optional[IPInterface], typer.Option(parser=ip_interface)
     ] = None,
@@ -310,7 +311,7 @@ def unset(
         tunnel_dict.get("traffic_selectors", {}).get("remote", set())
     ).symmetric_difference(set(all_ts_remote))
 
-    updated_tunnel = models.ConnectionUplink(**tunnel_dict)
+    updated_tunnel = models.ConnectionConfigIPsec(**tunnel_dict)
     service.connections[tunnel_id] = updated_tunnel
 
     output = yaml.safe_dump(

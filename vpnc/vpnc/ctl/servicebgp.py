@@ -33,7 +33,7 @@ def show(active: Annotated[bool, typer.Option("--active/--candidate")] = False):
         return "BGP is inactive. Running in 'endpoint' mode."
 
     with open(path, "r", encoding="utf-8") as f:
-        bgp = models.BGP(**yaml.safe_load(f).get("bgp", {}))
+        bgp = models.BGPGlobal(**yaml.safe_load(f).get("bgp", {}))
 
     output = bgp.model_dump(mode="json")
     print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))

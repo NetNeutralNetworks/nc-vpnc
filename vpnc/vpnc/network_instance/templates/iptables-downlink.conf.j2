@@ -1,0 +1,58 @@
+{#- flush all old configuration and drop all IPv4 traffic by default #}
+ip netns exec {{ network_instance_name }} iptables -F
+ip netns exec {{ network_instance_name }} iptables -P INPUT DROP
+ip netns exec {{ network_instance_name }} iptables -P FORWARD DROP
+ip netns exec {{ network_instance_name }} iptables -P OUTPUT DROP
+
+{#- flush all old configuration and drop all IPv6 traffic by default #}
+{#- except traffic originating from the CORE network instance #}
+ip netns exec {{ network_instance_name }} ip6tables -F
+ip netns exec {{ network_instance_name }} ip6tables -P INPUT DROP
+ip netns exec {{ network_instance_name }} ip6tables -P FORWARD DROP
+ip netns exec {{ network_instance_name }} ip6tables -P OUTPUT DROP
+
+{%- if mode.name == "ENDPOINT" %}
+ip netns exec {{ network_instance_name }} iptables -A INPUT -p icmp -j ACCEPT
+ip netns exec {{ network_instance_name }} iptables -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+ip netns exec {{ network_instance_name }} ip6tables -A INPUT -p ipv6-icmp -j ACCEPT
+ip netns exec {{ network_instance_name }} ip6tables -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+{%- endif %}
+
+{#- allow forward for traffic from CORE and return traffic #}
+{%- for interface in core_interfaces %}
+ip netns exec {{ network_instance_name }} ip6tables -A FORWARD -i {{ interface }} -j ACCEPT
+  {%- if mode.name == "ENDPOINT" %}
+ip netns exec {{ network_instance_name }} iptables -A FORWARD -i {{ interface }} -j ACCEPT
+  {%- endif %}
+{%- endfor %}
+ip netns exec {{ network_instance_name }} ip6tables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+{%- if mode.name == "ENDPOINT" %}
+ip netns exec {{ network_instance_name }} iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+{%- endif %}
+
+{#- allow icmpv6 for PMTU #}
+{%- for interface in core_interfaces %}
+ip netns exec {{ network_instance_name }} ip6tables -A INPUT -i {{ interface }} -p ipv6-icmp -j ACCEPT
+ip netns exec {{ network_instance_name }} ip6tables -A OUTPUT -o {{ interface }} -p ipv6-icmp -j ACCEPT
+{%- endfor %}
+{%- if mode.name == "ENDPOINT" %}
+ip netns exec {{ network_instance_name }} ip6tables -A OUTPUT -o {{ interface }} -p ipv6-icmp -j ACCEPT
+{%- endif %}
+
+{%- if mode.name == "HUB" %}
+# NAT66 source IPv6 addresses
+ip netns exec {{ network_instance_name }} ip6tables -t nat -F
+{%- for interface in core_interfaces %}
+    {%- for network in natpt_networks %}
+ip netns exec {{ network_instance_name }} ip6tables -t nat -A PREROUTING -i {{ interface }} -d {{ network.local }} -j NETMAP --to {{ network.remote }}
+    {%- endfor %}
+{%- endfor %}
+{%- endif %}
+
+{#- Must be at the end as it is a terminating action. #}
+{%- for interface in downlink_interfaces %}
+ip netns exec {{ network_instance_name }} ip6tables -t nat -A POSTROUTING -o {{ interface }} -j MASQUERADE
+  {%- if mode.name == "ENDPOINT" %}
+ip netns exec {{ network_instance_name }} iptables -t nat -A POSTROUTING -o {{ interface }} -j MASQUERADE
+  {%- endif %}
+{%- endfor %}
