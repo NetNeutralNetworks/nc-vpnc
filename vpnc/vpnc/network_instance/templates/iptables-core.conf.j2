@@ -4,55 +4,33 @@ ip netns exec {{ network_instance_name }} iptables -P INPUT DROP
 ip netns exec {{ network_instance_name }} iptables -P FORWARD DROP
 ip netns exec {{ network_instance_name }} iptables -P OUTPUT DROP
 
-{#- flush all old configuration and drop almost all IPv6 traffic by default #}
-{#- except traffic originating from the CORE network instance #}
-ip netns exec {{ network_instance_name }} ip6tables -F
-ip netns exec {{ network_instance_name }} ip6tables -N icmpv6-input
-ip netns exec {{ network_instance_name }} ip6tables -N icmpv6-forward
-ip netns exec {{ network_instance_name }} ip6tables -P INPUT DROP
-ip netns exec {{ network_instance_name }} ip6tables -P FORWARD DROP
-ip netns exec {{ network_instance_name }} ip6tables -P OUTPUT ACCEPT
-
-{#- allow inbound traffic from the uplink interfaces (BGP) #}
-ip netns exec {{ network_instance_name }} ip6tables -A INPUT -p ipv6-icmp -j icmpv6-input
-{%- for interface in interfaces %}
-ip netns exec {{ network_instance_name }} ip6tables -A INPUT -i {{ interface }} -j ACCEPT
-{%- endfor %}
-
-{#- allow forward for traffic from the uplink interfaces (management) #}
-{%- for interface in interfaces %}
-ip netns exec {{ network_instance_name }} ip6tables -A FORWARD -i {{ interface }} -j icmpv6-forward
-ip netns exec {{ network_instance_name }} ip6tables -A FORWARD -i {{ interface }} -j ACCEPT
-  {%- if mode.name == "ENDPOINT" %}
-ip netns exec {{ network_instance_name }} iptables -A FORWARD -i {{ interface }} -j ACCEPT
-  {%- endif %}
-{%- endfor %}
-ip netns exec {{ network_instance_name }} ip6tables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+{#- allow forwarded IPv4 traffic from the uplink interfaces (management) and related return traffic #}
 {%- if mode.name == "ENDPOINT" %}
+  {%- for interface in interfaces %}
+ip netns exec {{ network_instance_name }} iptables -A FORWARD -i {{ interface }} -j ACCEPT
+  {%- endfor %}
 ip netns exec {{ network_instance_name }} iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
 {%- endif %}
 
 
-{#- create the chains for ICMPv6 allowed traffic #}
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type destination-unreachable -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type packet-too-big -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type time-exceeded -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type parameter-problem -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type echo-request -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type echo-reply -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type 130 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type 131 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type 132 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type router-solicitation -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type router-advertisement -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type neighbour-solicitation -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type neighbour-advertisement -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -j DROP
 
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type destination-unreachable -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type packet-too-big -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type time-exceeded -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type parameter-problem -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type echo-request -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type echo-reply -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -j DROP
+{#- flush all old configuration and drop almost all IPv6 traffic by default #}
+{#- except traffic originating from the CORE network instance #}
+ip netns exec {{ network_instance_name }} ip6tables -F
+ip netns exec {{ network_instance_name }} ip6tables -P INPUT DROP
+ip netns exec {{ network_instance_name }} ip6tables -P FORWARD DROP
+ip netns exec {{ network_instance_name }} ip6tables -P OUTPUT ACCEPT
+
+{% include 'iptables-icmpv6-in-out.conf.j2' %}
+{% include 'iptables-icmpv6-forward.conf.j2' %}
+
+{#- allow inbound traffic from the uplink interfaces (BGP) #}
+{%- for interface in interfaces %}
+ip netns exec {{ network_instance_name }} ip6tables -A INPUT -i {{ interface }} -j ACCEPT
+{%- endfor %}
+
+{#- allow forwarded IPv6 traffic from the uplink interfaces (management) and related return traffic #}
+{%- for interface in interfaces %}
+ip netns exec {{ network_instance_name }} ip6tables -A FORWARD -i {{ interface }} -j ACCEPT
+{%- endfor %}
+ip netns exec {{ network_instance_name }} ip6tables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT

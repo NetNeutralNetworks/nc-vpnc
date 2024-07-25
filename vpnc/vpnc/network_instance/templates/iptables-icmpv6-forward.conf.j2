@@ -1,0 +1,13 @@
+{#- create the chains to allow ICMPv6 to be forwarded as needed for IPv6 connectivity #}
+ip netns exec {{ network_instance_name }} ip6tables -N icmpv6-forward
+
+ip netns exec {{ network_instance_name }} ip6tables -A FORWARD -j icmpv6-forward
+
+{#- Allow ICMPv6 as needed for IPv6 connectivity #}
+ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type destination-unreachable -j ACCEPT
+ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type packet-too-big -j ACCEPT
+ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type time-exceeded -j ACCEPT
+ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type parameter-problem -j ACCEPT
+ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type echo-request -j ACCEPT
+ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -m icmp6 --icmpv6-type echo-reply -j ACCEPT
+ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-forward -p ipv6-icmp -j DROP

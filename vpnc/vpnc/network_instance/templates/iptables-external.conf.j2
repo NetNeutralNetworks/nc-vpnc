@@ -4,12 +4,13 @@ ip netns exec {{ network_instance_name }} iptables -P INPUT DROP
 ip netns exec {{ network_instance_name }} iptables -P FORWARD DROP
 ip netns exec {{ network_instance_name }} iptables -P OUTPUT DROP
 
-{#- flush all old configuration and drop almost all IPv6 traffic by default #}
+{#- flush all old configuration and drop all IPv6 traffic by default #}
 ip netns exec {{ network_instance_name }} ip6tables -F
-ip netns exec {{ network_instance_name }} ip6tables -N icmpv6-input
 ip netns exec {{ network_instance_name }} ip6tables -P INPUT DROP
 ip netns exec {{ network_instance_name }} ip6tables -P FORWARD DROP
 ip netns exec {{ network_instance_name }} ip6tables -P OUTPUT DROP
+
+{% include 'iptables-icmpv6-in-out.conf.j2' %}
 
 {#- Allow IPsec #}
 ip netns exec {{ network_instance_name }} iptables -A INPUT -p esp -j ACCEPT
@@ -19,27 +20,9 @@ ip netns exec {{ network_instance_name }} iptables -A OUTPUT -p esp -j ACCEPT
 ip netns exec {{ network_instance_name }} iptables -A OUTPUT -p udp --dport  500 --sport  500 -j ACCEPT
 ip netns exec {{ network_instance_name }} iptables -A OUTPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
 
-ip netns exec {{ network_instance_name }} ip6tables -A INPUT -p ipv6-icmp -j icmpv6-input
 ip netns exec {{ network_instance_name }} ip6tables -A INPUT -p esp -j ACCEPT
 ip netns exec {{ network_instance_name }} ip6tables -A INPUT -p udp --dport  500 --sport  500 -j ACCEPT
 ip netns exec {{ network_instance_name }} ip6tables -A INPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A OUTPUT -p ipv6-icmp -j icmpv6-input
 ip netns exec {{ network_instance_name }} ip6tables -A OUTPUT -p esp -j ACCEPT
 ip netns exec {{ network_instance_name }} ip6tables -A OUTPUT -p udp --dport  500 --sport  500 -j ACCEPT
 ip netns exec {{ network_instance_name }} ip6tables -A OUTPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
-
-{#- Allow ICMPv6 as needed for IPv6 connectivity #}
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type destination-unreachable -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type packet-too-big -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type time-exceeded -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type parameter-problem -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type echo-request -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type echo-reply -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type 130 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type 131 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type 132 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type router-solicitation -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type router-advertisement -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type neighbour-solicitation -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -m icmp6 --icmpv6-type neighbour-advertisement -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-input -p ipv6-icmp -j ACCEPT

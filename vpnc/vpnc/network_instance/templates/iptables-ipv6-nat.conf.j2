@@ -1,0 +1,17 @@
+{%- if mode.name == "HUB" %}
+# NAT66 source IPv6 addresses
+ip netns exec {{ network_instance_name }} ip6tables -t nat -F
+{%- for interface in core_interfaces %}
+    {%- for network in natpt_networks %}
+ip netns exec {{ network_instance_name }} ip6tables -t nat -A PREROUTING -i {{ interface }} -d {{ network.local }} -j NETMAP --to {{ network.remote }}
+    {%- endfor %}
+{%- endfor %}
+{%- endif %}
+
+{#- Must be at the end as it is a terminating action. #}
+{%- for interface in downlink_interfaces %}
+ip netns exec {{ network_instance_name }} ip6tables -t nat -A POSTROUTING -o {{ interface }} -j MASQUERADE
+  {%- if mode.name == "ENDPOINT" %}
+ip netns exec {{ network_instance_name }} iptables -t nat -A POSTROUTING -o {{ interface }} -j MASQUERADE
+  {%- endif %}
+{%- endfor %}
