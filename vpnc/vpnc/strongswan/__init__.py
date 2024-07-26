@@ -449,7 +449,7 @@ def gen_swanctl_cfg(
         vpn_id = int(f"0x{network_instance.name.replace('-', '')}0", 16)
 
     for idx, connection in enumerate(network_instance.connections):
-        if connection.type != models.ConnectionType.IPSEC:
+        if connection.config.type != models.ConnectionType.IPSEC:
             continue
         swanctl_cfg: dict[str, Any] = {
             "connection": f"{network_instance.name}-{idx}",

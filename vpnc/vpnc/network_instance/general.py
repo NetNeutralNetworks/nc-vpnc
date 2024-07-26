@@ -160,13 +160,13 @@ def add_network_instance_connection_route(
         """
 
     for route in connection.routes.ipv6:
-        if not route.via or connection.type in [models.ConnectionType.IPSEC]:
+        if not route.via or connection.config.type in [models.ConnectionType.IPSEC]:
             route_cmds += f"ip -n {network_instance.name} -6 route add {route.to} dev {interface}\n"
             continue
         route_cmds += f"ip -n {network_instance.name} -6 route add {route.to} via {route.via} dev {interface}\n"
 
     for route in connection.routes.ipv4:
-        if not route.via or connection.type in [models.ConnectionType.IPSEC]:
+        if not route.via or connection.config.type in [models.ConnectionType.IPSEC]:
             route_cmds += f"ip -n {network_instance.name} -4 route add {route.to} dev {interface}\n"
             continue
         route_cmds += f"ip -n {network_instance.name} -4 route add {route.to} via {route.via} dev {interface}\n"

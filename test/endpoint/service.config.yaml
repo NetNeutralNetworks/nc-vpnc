@@ -17,8 +17,7 @@ network_instances:
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
-    - type: physical # ipsec | physical
-      # Optional, arbitrary key-value pairs
+    - # Optional, arbitrary key-value pairs
       metadata: {}
       interface:
         ipv6:
@@ -34,6 +33,7 @@ network_instances:
           via: 192.0.2.1
       # Config of type physical
       config:
+        type: physical # ipsec | physical
         interface_name: ens4
   ROOT:
     name: ROOT
@@ -41,8 +41,7 @@ network_instances:
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
-    - type: physical # ipsec | physical
-      # Optional, arbitrary key-value pairs
+    - # Optional, arbitrary key-value pairs
       metadata: {}
       interface:
         ipv6:
@@ -57,6 +56,7 @@ network_instances:
         - to: default
           via: 192.168.0.1
       config:
+        type: physical # ipsec | physical
         interface_name: ens3
   TRUST:
     name: TRUST
@@ -64,8 +64,7 @@ network_instances:
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
-    - type: ipsec # ipsec | physical
-      # Optional, arbitrary key-value pairs
+    - # Optional, arbitrary key-value pairs
       metadata: {}
       interface:
         # Optional: IPv6 interface address, required for downlink in endpoint mode.
@@ -84,6 +83,7 @@ network_instances:
         ipv4:
         - to: 100.99.0.0/24
       config:
+        type: ipsec # ipsec | physical
         # Optional: If not set, defaults to the default service local_id value.
         # local_id: 192.0.2.5
         # IPv6 or IPv4 address

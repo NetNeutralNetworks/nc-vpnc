@@ -76,7 +76,11 @@ def update_core_network_instance():
         frr.generate_frr_cfg()
 
 
-def add_core_iptables(mode: models.ServiceMode, network_instance_name: str, interfaces):
+def add_core_iptables(
+    mode: models.ServiceMode,
+    network_instance_name: str,
+    interfaces,
+):
     """
     The CORE network instance blocks all traffic originating from the DOWNLINK network instance
     (Linux namespace), but does accept traffic originating from its uplink.

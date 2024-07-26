@@ -15,8 +15,7 @@ network_instances:
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
-    - type: physical # ipsec | physical
-      # Optional, arbitrary key-value pairs
+    - # Optional, arbitrary key-value pairs
       metadata: {}
       interface:
         # Optional: IPv6 interface address, required in endpoint mode. Used in hub mode for NAT66
@@ -37,5 +36,6 @@ network_instances:
         - to: default
           via: 172.16.31.1
       config:
+        type: physical # ipsec | physical
         interface_name: ens5
 ...

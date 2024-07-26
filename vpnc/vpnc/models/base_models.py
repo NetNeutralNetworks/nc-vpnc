@@ -3,7 +3,6 @@ Models used by the services.
 """
 
 import ipaddress
-from enum import Enum
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
@@ -28,37 +27,9 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from .. import config
+from .base_enums import NetworkInstanceType, ServiceMode
 from .ipsec import ConnectionConfigIPsec
 from .physical import ConnectionConfigLocal
-
-
-class ConnectionType(Enum):
-    """
-    Defines the modes in which the connections can run
-    """
-
-    IPSEC = "ipsec"
-    PHYSICAL = "physical"
-
-
-class ServiceMode(Enum):
-    """
-    Defines the modes in which the service can run
-    """
-
-    HUB = "hub"
-    ENDPOINT = "endpoint"
-
-
-class NetworkInstanceType(Enum):
-    """
-    Defines the modes in which the service can run
-    """
-
-    DEFAULT = "default"
-    EXTERNAL = "external"
-    CORE = "core"
-    DOWNLINK = "downlink"
 
 
 class RouteIPv6(BaseModel):
@@ -127,7 +98,6 @@ class Connection(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    type: ConnectionType = ConnectionType.IPSEC
     metadata: dict = Field(default_factory=dict)
     interface: Interface = Field(default_factory=Interface)
     routes: Routes = Field(default_factory=Routes)

@@ -9,7 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from .. import config
-from . import base_models
+from . import base_enums, base_models
 
 logger = logging.getLogger("vpnc")
 
@@ -44,6 +44,7 @@ class ConnectionConfigIPsec(BaseModel):
     Defines an IPsec connection data structure
     """
 
+    type: Literal[base_enums.ConnectionType.IPSEC] = base_enums.ConnectionType.IPSEC
     # Set a local id for the connection specifically.
     local_id: str | None = None
     remote_peer_ip: IPv4Address | IPv6Address
@@ -56,6 +57,11 @@ class ConnectionConfigIPsec(BaseModel):
     initiation: Initiation = Initiation.INITIATOR
     psk: str
     traffic_selectors: TrafficSelectors = Field(default_factory=TrafficSelectors)
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def _coerce_type(cls, v: Any):
+        return base_enums.ConnectionType(v)
 
     @field_validator("ike_version", mode="before")
     @classmethod
@@ -85,13 +91,13 @@ class ConnectionConfigIPsec(BaseModel):
         """
         xfrm = self.intf_name(connection_id)
         vpn_id = int(f"0x1000000{connection_id}", 16)
-        if network_instance.type == base_models.NetworkInstanceType.DOWNLINK:
+        if network_instance.type == base_enums.NetworkInstanceType.DOWNLINK:
             vpn_id = int(
                 f"0x{network_instance.name.replace('-', '')}{connection_id}", 16
             )
 
-        is_downlink = network_instance.type == base_models.NetworkInstanceType.DOWNLINK
-        is_hub = config.VPNC_SERVICE_CONFIG.mode == base_models.ServiceMode.HUB
+        is_downlink = network_instance.type == base_enums.NetworkInstanceType.DOWNLINK
+        is_hub = config.VPNC_SERVICE_CONFIG.mode == base_enums.ServiceMode.HUB
         if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
             connection_id, is_downlink, is_hub
         )

@@ -5,12 +5,13 @@ Code to configure the local connection
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .. import config
 from ..network import interface
-from . import base_models
+from . import base_enums, base_models
 
 logger = logging.getLogger("vpnc")
 
@@ -20,7 +21,15 @@ class ConnectionConfigLocal(BaseModel):
     Defines a local connection data structure
     """
 
+    type: Literal[base_enums.ConnectionType.PHYSICAL] = (
+        base_enums.ConnectionType.PHYSICAL
+    )
     interface_name: str
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def _coerce_type(cls, v: Any):
+        return base_enums.ConnectionType(v)
 
     def add(
         self,
@@ -48,8 +57,8 @@ class ConnectionConfigLocal(BaseModel):
             )
             raise ValueError
 
-        is_downlink = network_instance.type == base_models.NetworkInstanceType.DOWNLINK
-        is_hub = config.VPNC_SERVICE_CONFIG.mode == base_models.ServiceMode.HUB
+        is_downlink = network_instance.type == base_enums.NetworkInstanceType.DOWNLINK
+        is_hub = config.VPNC_SERVICE_CONFIG.mode == base_enums.ServiceMode.HUB
         if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
             connection_id, is_downlink, is_hub
         )
