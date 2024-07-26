@@ -6,11 +6,9 @@ ipv6 forwarding
 agentx
 !
 vrf {{ core_ni }}
-  netns /run/netns/{{ core_ni }}
   router-id {{ router_id }}
 !
 vrf {{ external_ni }}
-  netns /run/netns/{{ external_ni }}
 !
 router bgp {{ as }} vrf {{ core_ni }}
   bgp router-id {{ router_id }}
