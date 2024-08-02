@@ -15,33 +15,27 @@ topology:
   nodes:
     mgt00:
       kind: linux
-      # image: ubuntu:24.04
-      image: nc-vpnc:latest
+      image: ubuntu:24.04
       cmd: /nc-vpnc/test/env00/mgt00/install.sh
     mgt01:
       kind: linux
-      # image: ubuntu:24.04
-      image: nc-vpnc:latest
+      image: ubuntu:24.04
       cmd: /nc-vpnc/test/env00/mgt01/install.sh
     hub00:
       kind: linux
       # image: vrnetlab/vr-ubuntu:jammy
-      # image: ubuntu:24.04
       image: nc-vpnc:test
       cmd: /nc-vpnc/test/env00/hub00/install.sh
     hub01:
       kind: linux
-      # image: ubuntu:24.04
       image: nc-vpnc:test
       cmd: /nc-vpnc/test/env00/hub01/install.sh
     end00:
       kind: linux
-      # image: ubuntu:24.04
       image: nc-vpnc:test
       cmd: /nc-vpnc/test/env00/end00/install.sh
     end01:
       kind: linux
-      # image: ubuntu:24.04
       image: nc-vpnc:test
       cmd: /nc-vpnc/test/env00/end01/install.sh
     cli00:
