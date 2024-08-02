@@ -1,0 +1,9 @@
+# Ignore everything
+*
+
+# Include the below
+!config
+!setup
+!vpnc
+!vpncmangle
+!install.sh

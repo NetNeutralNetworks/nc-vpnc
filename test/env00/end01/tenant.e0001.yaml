@@ -20,8 +20,8 @@ network_instances:
       interface:
         # Optional: IPv6 interface address, required in endpoint mode. Used in hub mode for NAT66
         ipv6:
-         - fdff:1234:1234::ffff/64
-         - 2001:db8:c57::ffff/64
+         - fdff:db8:c58::ffff/64
+         - 2001:db8:c58::ffff/64
         # Optional: IPv4 interface address, required in endpoint mode. Used in hub mode for NAT64
         ipv4:
         - 172.16.31.254/24
@@ -30,12 +30,12 @@ network_instances:
       routes:
         ipv6:
         - to: default
-          via: fdff:1234:5678:1000::1 # Optional, ignored for tunnel interfaces
+          via: fdff:db8:c58::1 # Optional, ignored for tunnel interfaces
         # IPv4 prefixes are ignored for core and downlink in hub mode.
         ipv4:
         - to: default
           via: 172.16.31.1
       config:
         type: physical # ipsec | physical
-        interface_name: ens5
+        interface_name: eth2
 ...

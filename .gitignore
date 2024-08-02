@@ -1,4 +1,6 @@
 *.secret
+test/deploy/clab-vpnc/*
+*.clab.yaml.bak
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

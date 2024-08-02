@@ -1,22 +1,29 @@
 [build-system]
-requires = ["setuptools >= 61.0.0", "setuptools-scm"]
+requires = ["setuptools >= 64.0.0", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "vpnc"
-description = "Manages ncubed-vpnc configuration"
+description = "Manages vpnc configuration"
 readme = "README.md"
 authors = [{ name="Tony Fortes Ramos", email="tony.fortesramos@ncubed.nl" }]
 requires-python = ">=3.10"
 keywords = ["ncubed", "vpnc", "vpn"]
-license = {text = "GNU General Public License v3 (GPLv3)"}
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "Natural Language :: English",
     "Operating System :: Linux",
+
+    # Pick your license as you wish (see also "license" above)
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+
+    "Topic :: System :: Networking",
 ]
 dependencies = [
     "deepdiff~=6.2",
@@ -45,4 +52,4 @@ vpnctl = "vpnc.ctl.main:app"
 version = {attr = "vpnc.__version__"}
 
 [tool.setuptools.package-data]
-nc_sync_nods = ["*.j2"]
+"*" = ["*.j2"]

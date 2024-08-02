@@ -1,0 +1,67 @@
+name: vpnc
+
+# mgmt:
+#   network: custom_mgmt                # management network name
+#   ipv4-subnet: 172.100.100.0/24       # ipv4 range
+#   ipv6-subnet: 2001:172:100:100::/80  # ipv6 range (optional)
+
+topology:
+  kinds:
+    linux:
+      binds:
+        - ../../:/nc-vpnc/
+        - /lib/modules/:/lib/modules
+        # CLAB_MGMT_VRF: MGMT
+  nodes:
+    mgt00:
+      kind: linux
+      # image: ubuntu:24.04
+      image: nc-vpnc:latest
+      cmd: /nc-vpnc/test/env00/mgt00/install.sh
+    mgt01:
+      kind: linux
+      # image: ubuntu:24.04
+      image: nc-vpnc:latest
+      cmd: /nc-vpnc/test/env00/mgt01/install.sh
+    hub00:
+      kind: linux
+      # image: vrnetlab/vr-ubuntu:jammy
+      # image: ubuntu:24.04
+      image: nc-vpnc:test
+      cmd: /nc-vpnc/test/env00/hub00/install.sh
+    hub01:
+      kind: linux
+      # image: ubuntu:24.04
+      image: nc-vpnc:test
+      cmd: /nc-vpnc/test/env00/hub01/install.sh
+    end00:
+      kind: linux
+      # image: ubuntu:24.04
+      image: nc-vpnc:test
+      cmd: /nc-vpnc/test/env00/end00/install.sh
+    end01:
+      kind: linux
+      # image: ubuntu:24.04
+      image: nc-vpnc:test
+      cmd: /nc-vpnc/test/env00/end01/install.sh
+    cli00:
+      kind: linux
+      image: ubuntu:24.04
+      cmd: /nc-vpnc/test/env00/cli00/install.sh
+    cli01:
+      kind: linux
+      image: ubuntu:24.04
+      cmd: /nc-vpnc/test/env00/cli01/install.sh
+    br-nc-vpnc:
+      kind: bridge
+
+
+  links:
+    - endpoints: ["mgt00:eth1", "br-nc-vpnc:eth1"]
+    - endpoints: ["mgt01:eth1", "br-nc-vpnc:eth2"]
+    - endpoints: ["hub00:eth1", "br-nc-vpnc:eth3"]
+    - endpoints: ["hub01:eth1", "br-nc-vpnc:eth4"]
+    - endpoints: ["end00:eth1", "br-nc-vpnc:eth5"]
+    - endpoints: ["end01:eth1", "br-nc-vpnc:eth6"]
+    - endpoints: ["end00:eth2", "cli00:eth1"]
+    - endpoints: ["end01:eth2", "cli01:eth1"]

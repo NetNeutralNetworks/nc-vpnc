@@ -1,0 +1,8 @@
+[Unit]
+Description=Purely to test the VPN connectivity.
+
+[Service]
+ExecStart=/bin/bash /opt/ncubed/vpnc/ncubed-vpnc-mgt-test.sh
+
+[Install]
+WantedBy=multi-user.target

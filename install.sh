@@ -5,36 +5,109 @@ SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 BASEDIR=/opt/ncubed
 INSTALLDIR=${BASEDIR}/${SERVICENAME}
 
-# possible values for FRRVER: frr-8 frr-9 frr-10 frr-stable
-# frr-stable will be the latest official stable release
-FRRVER="frr-10"
+FRRVER="frr-stable"
 
-function install_apt {
+function install_apt_defaults () {
     # update and install general packages
-    apt update
-    apt install -y python3-pip python3-venv strongswan strongswan-swanctl
+
+    apt-get update
+    # If systemd is the init system
+    if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
+        apt-get upgrade -y
+    fi
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    iptables iproute2 \
+    strongswan strongswan-swanctl
+
+    # Remove cached apt list after install
+    if  [ -f /.dockerenv ]; then
+        rm -rf /var/lib/apt/lists/*
+    fi
+
+    # If systemd is the init system
+    if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
+        # Disable/Mask the IPsec service
+        /usr/bin/systemctl mask ipsec.service
+        /usr/bin/systemctl stop ipsec.service
+    fi
 }
 
-function install_apt_hub {
+function install_apt_python () {
+    # update and install python packages
 
-    # add FRR GPG key
-    curl -s https://deb.frrouting.org/frr/keys.asc | sudo apt-key add -
+    apt-get update
+    apt-get install -y python3 python3-pip python3-venv
 
+    # Remove cached apt list after install
+    if  [ -f /.dockerenv ]; then
+        rm -rf /var/lib/apt/lists/*
+    fi
 
-    echo deb https://deb.frrouting.org/frr $(lsb_release -s -c) $FRRVER | sudo tee /etc/apt/sources.list.d/frr.list
-
-    # update and install FRR and NAT64 (jool)
-    apt update
-    apt upgrade -y
-    apt install -y python3-dev build-essential libnetfilter-queue-dev jool-tools frr frr-pythontools frr-snmp
 }
 
-case $1 in
-hub)
-    echo "Installing in hub mode"
+function install_apt_build () {
+    # Install packages required to build the Python packages
+    apt-get update
+    apt-get install -y build-essential libnetfilter-queue-dev \
+        python3 python3-dev python3-pip python3-setuptools python3-wheel python3-venv
 
-    install_apt
-    install_apt_hub
+    # Remove cached apt list after install
+    if  [ -f /.dockerenv ]; then
+        rm -rf /var/lib/apt/lists/*
+    fi
+}
+
+function install_apt_hub () {
+    # Install hub defaults
+    apt-get update
+    apt-get install -y jool-tools kmod
+
+    # Remove cached apt list after install
+    if  [ -f /.dockerenv ]; then
+        rm -rf /var/lib/apt/lists/*
+    fi
+}
+
+function install_apt_snmpd () {
+    # Install and configure snmpd
+
+    apt-get install -y snmpd
+    # Configure SNMP daemon
+    sed -i -E 's/^rocommunity (.*)/#rocommunity \1/' /etc/snmp/snmpd.conf
+    sed -i -E 's/^rocommunity6 (.*)/#rocommunity6 \1/' /etc/snmp/snmpd.conf
+    sed -i -E 's/^agentaddress(.*)/#agentaddress\1/' /etc/snmp/snmpd.conf
+    sed -i 's/^rouser authPrivUser authpriv -V systemonly$/#rouser authPrivUser authpriv -V systemonly/' /etc/snmp/snmpd.conf
+
+    # If systemd is the init system
+    if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
+        # Enable the SNMP service
+        /usr/bin/systemctl enable snmpd.service
+        /usr/bin/systemctl restart snmpd.service
+    fi
+
+    echo "Configure SNMP with the following command (if not already configured) after stopping the snmpd service."
+    echo "The space in front of the command makes sure it isn't logged into the Bash history."
+    echo " net-snmp-create-v3-user -ro -a SHA -A <authpass> -x AES -X <privpass> nc-snmp"
+}
+
+function install_apt_frr () {
+    # Install and configure FRR service
+
+    # In docker the ADD directive is used.
+    apt-get update
+    apt-get install -y curl lsb-release
+    curl -s https://deb.frrouting.org/frr/keys.gpg | tee /usr/share/keyrings/frrouting.gpg > /dev/null
+    echo deb '[signed-by=/usr/share/keyrings/frrouting.gpg]' https://deb.frrouting.org/frr \
+        $(lsb_release -s -c) $FRRVER | tee -a /etc/apt/sources.list.d/frr.list
+    apt-get remove -y curl lsb-release
+
+    apt-get update
+    apt-get install -y frr frr-pythontools frr-snmp
+
+    # Remove cached apt list after install
+    if  [ -f /.dockerenv ]; then
+        rm -rf /var/lib/apt/lists/*
+    fi
 
     # Configure FRR daemon
     sed -i 's/^bgpd=no$/bgpd=yes/' /etc/frr/daemons
@@ -42,93 +115,156 @@ hub)
 
     sed -i 's/^zebra_options="  -A 127.0.0.1 -s 90000000.*"$/zebra_options="  -A 127.0.0.1 -s 90000000 -n -M snmp"/' /etc/frr/daemons
     sed -i 's/^bgpd_options="   -A 127.0.0.1.*"$/bgpd_options="   -A 127.0.0.1 -M snmp"/' /etc/frr/daemons
-    # Enable the FRR service
-    /usr/bin/systemctl enable frr.service
-    ;;
-endpoint|addon)
-    echo "Installing in ${1} mode"
 
-    install_apt
+    # If systemd is the init system
+    if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
+        # Disable/Mask the FRR service
+        /usr/bin/systemctl mask frr.service
+        /usr/bin/systemctl stop frr.service
+    fi
+}
 
-    ;;
-*)
-    echo "Argument should be either 'hub', 'endpoint' or 'addon'"
-    exit 1
-    ;;
-esac
+function create_dir_vpnc_config () {
+    # Create config directories if not exist
+    for i in {candidate,active};
+    do
+        mkdir -p ${BASEDIR}/config/${SERVICENAME}/${i}/service
+        mkdir -p ${BASEDIR}/config/${SERVICENAME}/${i}/tenant
+    done
 
-# Create directories if not exist
-mkdir -p ${BASEDIR}/config/vpnc
-mkdir -p ${INSTALLDIR}
+    mkdir -p /var/log/ncubed/vpnc
 
-# Copy configuration files over to the configuration directories.
-cp -rf ${SCRIPTDIR}/config/etc/* /etc/
-cp -rf ${SCRIPTDIR}/config/vpnc/* ${BASEDIR}/config/vpnc/
+    # Copy configuration files over to the configuration directories.
+    cp -rf ${SCRIPTDIR}/config/etc/* /etc/
+    # cp -rf ${SCRIPTDIR}/config/vpnc/* ${BASEDIR}/config/${SERVICENAME}/
 
-# Remove old code if exist.
-rm -rf ${INSTALLDIR}/
+    if [[ -z "${1}" ]]; then
+        MODE="hub"
+    else
+        MODE=${1}
+    fi
 
-# Install new code
-python3 -m venv ${INSTALLDIR}
-case $1 in
-hub)
-${INSTALLDIR}/bin/python3 -m pip install --upgrade pip setuptools wheel
-${INSTALLDIR}/bin/python3 -m pip install --upgrade ${SCRIPTDIR}/${SERVICENAME}
-${INSTALLDIR}/bin/python3 -m pip install --upgrade ${SCRIPTDIR}/vpncmangle
-    ;;
-endpoint|addon)
-${INSTALLDIR}/bin/python3 -m pip install --upgrade ${SCRIPTDIR}/${SERVICENAME}
-    ;;
-*)
-    ;;
-esac
+    # cp --update=none ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example \
+    cp -n ${SCRIPTDIR}/config/${SERVICENAME}/candidate/service/config-${MODE}.yaml.example \
+        ${BASEDIR}/config/${SERVICENAME}/candidate/service/config.yaml || true
+    # cp --update=none ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example \
+    cp -n ${SCRIPTDIR}/config/${SERVICENAME}/candidate/service/config-${MODE}.yaml.example \
+        ${BASEDIR}/config/${SERVICENAME}/active/service/config.yaml || true
+}
 
-# Add VPNCTL to path
-cp -s ${INSTALLDIR}/bin/vpnctl /usr/local/bin
+function create_dir_vpnc () {
+    # Create install directory if not exist
+    mkdir -p ${INSTALLDIR}
 
-# Disable/Mask the IPsec service
-/usr/bin/systemctl mask ipsec.service
-/usr/bin/systemctl stop ipsec.service
+    if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
+        # system-site packages fails on systemd
+        python3 -m venv --clear ${INSTALLDIR}
+    else
+        # Create Python virtual environment
+        python3 -m venv --clear --system-site-packages ${INSTALLDIR}
+    fi
 
-case $1 in
-addon)
-    ;;
-*)
-# Configure SNMP daemon
-sed -i -E 's/^rocommunity (.*)/#rocommunity \1/' /etc/snmp/snmpd.conf
-sed -i -E 's/^rocommunity6 (.*)/#rocommunity6 \1/' /etc/snmp/snmpd.conf
-sed -i -E 's/^agentaddress(.*)/#agentaddress\1/' /etc/snmp/snmpd.conf
-sed -i 's/^rouser authPrivUser authpriv -V systemonly$/#rouser authPrivUser authpriv -V systemonly/' /etc/snmp/snmpd.conf
+}
 
-# Enable the SNMP service
-/usr/bin/systemctl enable snmpd.service
-/usr/bin/systemctl restart snmpd.service
+function install_pip_vpnc () {
+    # Install requirements and vpnc
+    ${INSTALLDIR}/bin/python3 -m pip install --upgrade ${SCRIPTDIR}/${SERVICENAME}
+}
 
-echo "Configure SNMP with the following command (if not already configured) after stopping the snmpd service."
-echo "The space in front of the command makes sure it isn't logged into the Bash history."
-echo " net-snmp-create-v3-user -ro -a SHA -A <authpass> -x AES -X <privpass> nc-snmp"
+function install_pip_vpncmangle () {
+    # Install vpncmangle
+    ${INSTALLDIR}/bin/python3 -m pip install --upgrade ${SCRIPTDIR}/vpncmangle
+}
 
-# Add the default profile for the service
-cp ${SCRIPTDIR}/setup/profile-nc-vpn.sh /etc/profile.d/
-    ;;
-esac
+function start_service_vpnc () {
+    # If systemd is the init system
+    if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
+        # Enable the VPNC service
+        /usr/bin/systemctl restart ncubed-${SERVICENAME}
+    fi
+}
 
-# Make sure the newest unit file is loaded
-/usr/bin/systemctl stop ncubed-${SERVICENAME}.service
-/usr/bin/systemctl disable ncubed-${SERVICENAME}.service
+function register_service_vpnc () {
+    # If systemd is the init system
+    if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
+        # Enable the VPNC service
+        /usr/bin/systemctl link ${BASEDIR}/config/vpnc/units/ncubed-${SERVICENAME}.service
+        /usr/bin/systemctl daemon-reload
+        /usr/bin/systemctl enable ncubed-${SERVICENAME}
+    fi
+}
 
-/usr/bin/systemctl link ${BASEDIR}/config/vpnc/units/ncubed-${SERVICENAME}.service
+function unregister_service_vpnc () {
+    # If systemd is the init system
+    if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
+        # Make sure the newest unit file is loaded
+        /usr/bin/systemctl stop ncubed-${SERVICENAME}.service
+        /usr/bin/systemctl disable ncubed-${SERVICENAME}.service
+    fi
+}
 
-cp -n ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example \
-    ${BASEDIR}/config/${SERVICENAME}/candidate/service/config.yaml
-cp -n ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example \
-    ${BASEDIR}/config/${SERVICENAME}/active/service/config.yaml
+function install_vpnc () {
+    case $1 in
+    hub)
+        echo "Installing in ${1} mode"
+        unregister_service_vpnc
+
+        install_apt_defaults
+        install_apt_python
+        install_apt_build
+        install_apt_frr
+        install_apt_hub
+        install_apt_snmpd
+
+        create_dir_vpnc_config
+        create_dir_vpnc
+
+        install_pip_vpnc
+        install_pip_vpncmangle
+
+        register_service_vpnc
+        start_service_vpnc
+
+        ;;
+    endpoint)
+        echo "Installing in ${1} mode"
+        unregister_service_vpnc
+
+        install_apt_defaults
+        install_apt_python
+        install_apt_snmpd
+
+        create_dir_vpnc_config
+        create_dir_vpnc
+
+        install_pip_vpnc
+
+        register_service_vpnc
+        start_service_vpnc
+
+        ;;
+    addon)
+        echo "Installing in ${1} mode"
+        unregister_service_vpnc
+
+        install_apt_defaults
+        install_apt_python
+
+        create_dir_vpnc_config
+        create_dir_vpnc
+
+        install_pip_vpnc
+
+        register_service_vpnc
+        start_service_vpnc
+
+        ;;
+    *)
+        echo "Argument should be either 'hub', 'endpoint' or 'addon'"
+        ;;
+    esac
+}
 
 # Run migrations to current version
 # ${SCRIPTDIR}/setup/migrate.sh
 # ${INSTALLDIR}/bin/python3 ${SCRIPTDIR}/setup/migrate.py
-
-# Enable the VPNC service
-/usr/bin/systemctl daemon-reload
-/usr/bin/systemctl enable ncubed-${SERVICENAME}
-/usr/bin/systemctl restart ncubed-${SERVICENAME}

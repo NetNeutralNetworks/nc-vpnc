@@ -15,11 +15,8 @@ network_instances:
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
-    - type: ipsec # ipsec | physical
-      # Optional, arbitrary key-value pairs
-      metadata:
-        location: Customer lab
-        device_type: VPNC endpoint
+    - # Optional, arbitrary key-value pairs
+      metadata: {}
       interface:
         # Optional: IPv6 interface address, required for downlink in endpoint mode.
         # ipv6:
@@ -40,15 +37,16 @@ network_instances:
       # Downlink in hub mode only. List of IPv6 prefixes to perform NAT-PT on. Must fit into one /48 as per the service
       # prefix_downlink_natpt property. Ignored in endpoint mode as no translation is performed.
       natpt:
-      - remote: fd0c:1234:1234::/52
+      - remote: fdff:db8:c57::/52
         local: # Optional, configured by the service automatically.
-      - remote: fd0c:1234:1234:1000::/52
+      - remote: fdff:db8:c57:1000::/52
         local: # Optional, configured by the service automatically.
-      - remote: fd0c:1234:1234:2000::/56
+      - remote: fdff:db8:c57:2000::/56
         local: # Optional, configured by the service automatically.
-      - remote: fd0c:1234:1234:3000::/52
+      - remote: fdff:db8:c57:3000::/52
         local: # Optional, configured by the service automatically.
       config:
+        type: ipsec # ipsec | physical
         # Optional: If not set, defaults to the default service local_id value.
         # local_id: 192.0.2.5
         # IPv6 or IPv4 address
@@ -58,55 +56,61 @@ network_instances:
         # Optional: defaults to 2
         # ike_version: 2
         # Optional: defaults to aes256gcm16-prfsha384-ecp384
-        # ike_proposal: aes256gcm16-prfsha384-ecp384
+        ike_proposal: aes128gcm16-prfsha384-ecp384
         # Optional: The IKE lifetime in seconds
-        # ike_lifetime: 86400
+        ike_lifetime: 300
         # Optional: defaults to aes256gcm16-prfsha384-ecp384
-        # ipsec_proposal: aes256gcm16-prfsha384-ecp384
+        ipsec_proposal: aes128gcm16-prfsha384-ecp384
         # Optional: The IPsec lifetime in seconds
-        # ipsec_lifetime: 3600
+        ipsec_lifetime: 90
         # Optional, defaults to start. 'start' means inititate and respond, 'none' means respond only.
-        # initiation: start
+        initiation: none
         psk: secretpasswordendpoint
-        # Optional
-        # traffic_selectors:
-        #   local:
-        #   - 10.20.0.0/16
-        #   - 10.21.0.0/16
-        #   - fdcc:cbe::/64
-        #   remote:
-        #   - 172.30.0.0/16
-        #   - 172.31.0.0/16
-        #   - 2001:db8:c57::/48
-  # 1:
-  #   type: local # ipsec | local
-  #   description: Provider connection
-  #   # Optional, arbitrary key-value pairs
-  #   metadata:
-  #     primary: true
-  #   # Optional: IPv6 interface address, required in endpoint mode. Used in hub mode for NAT66
-  #   interface_ipv6: fd00:beef::/64
-  #   # Optional: IPv4 interface address, required in endpoint mode. Used in hub mode for NAT64
-  #   interface_ipv4: 172.16.31.1/24
-  #   # List of IPv4 and global unicast IPv6 networks natively reachable via this connection.
-  #   # IPv4 prefixes are ignored in hub mode.
-  #   routes:
-  #   - to: default
-  #     via: 172.16.31.254
-  #   - to: default
-  #     via: fd00:beef::1 # Optional, ignored for tunnel interfaces
-  #   # List of IPv6 prefixes to perform NAT-PT on. Must fit into one /48 as per the service
-  #   # prefix_downlink_natpt property. Ignored in endpoint mode as no translation is performed.
-  #   natpt:
-  #   - remote: fd0c:1234:1234::/52
-  #     local: # Configured by the service automatically.
-  #   - remote: fd0c:1234:1234:1000::/52
-  #     local: # Configured by the service automatically.
-  #   - remote: fd0c:1234:1234:2000::/56
-  #     local: # Configured by the service automatically.
-  #   - remote: fd0c:1234:1234:3000::/52
-  #     local: # Configured by the service automatically.
-  #   connection:
-  #     interface: eth4
+      # Optional
+      # traffic_selectors:
+      #   local:
+      #   - 10.20.0.0/16
+      #   - 10.21.0.0/16
+      #   - fdcc:cbe::/64
+      #   remote:
+      #   - 172.30.0.0/16
+      #   - 172.31.0.0/16
+      #   - 2001:db8:c57::/48
 
+  c0001-01:
+    name: c0001-01
+    type: downlink
+    metadata: {}
+    connections:
+    - metadata: {}
+      interface:
+      # List of IPv4 and IPv6 networks natively reachable via this connection.
+      # IPv4 prefixes are ignored for core and downlink in hub mode.
+      routes:
+        ipv6:
+        - to: 2001:db8:c58::/48
+          # via: # Optional, ignored for tunnel interfaces
+        ipv4:
+        - to: default
+          # via: # Optional, ignored for tunnel interfaces
+      # Downlink in hub mode only. List of IPv6 prefixes to perform NAT-PT on. Must fit into one /48 as per the service
+      # prefix_downlink_natpt property. Ignored in endpoint mode as no translation is performed.
+      natpt:
+      - remote: fdff:db8:c58::/52
+        local: # Optional, configured by the service automatically.
+      - remote: fdff:db8:c58:1000::/52
+        local: # Optional, configured by the service automatically.
+      - remote: fdff:db8:c58:2000::/56
+        local: # Optional, configured by the service automatically.
+      - remote: fdff:db8:c58:3000::/52
+        local: # Optional, configured by the service automatically.
+      config:
+        type: ipsec
+        remote_peer_ip: 192.0.2.8
+        ike_proposal: aes128gcm16-prfsha384-ecp384
+        ike_lifetime: 300
+        ipsec_proposal: aes128gcm16-prfsha384-ecp384
+        ipsec_lifetime: 90
+        initiation: none
+        psk: secretpasswordendpoint
 ...
