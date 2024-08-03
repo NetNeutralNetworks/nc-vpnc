@@ -37,8 +37,17 @@ class RouteIPv6(BaseModel):
     IPv6 routes
     """
 
-    to: IPv6Network | Literal["default"]
+    to: IPv6Network
     via: IPv6Address | None = None
+    natpt: bool = True
+    natpt_prefix: IPv6Network | None = None
+
+    @field_validator("to", mode="before")
+    @classmethod
+    def _coerce_next_hop(cls, v: Any):
+        if v == "default":
+            return "::/0"
+        return v
 
 
 class RouteIPv4(BaseModel):
@@ -46,8 +55,15 @@ class RouteIPv4(BaseModel):
     IPv4 routes
     """
 
-    to: IPv4Network | Literal["default"]
+    to: IPv4Network
     via: IPv4Address | None = None
+
+    @field_validator("to", mode="before")
+    @classmethod
+    def _coerce_next_hop(cls, v: Any):
+        if v == "default":
+            return "0.0.0.0/0"
+        return v
 
 
 class Routes(BaseModel):
@@ -64,15 +80,6 @@ class Routes(BaseModel):
         if v is None:
             return []
         return v
-
-
-class NatPrefixTranslation(BaseModel):
-    """
-    Routes
-    """
-
-    local: IPv6Network | None = None
-    remote: IPv6Network
 
 
 class Interface(BaseModel):
@@ -101,7 +108,6 @@ class Connection(BaseModel):
     metadata: dict = Field(default_factory=dict)
     interface: Interface = Field(default_factory=Interface)
     routes: Routes = Field(default_factory=Routes)
-    natpt: list[NatPrefixTranslation] = Field(default_factory=list)
     config: ConnectionConfigIPsec | ConnectionConfigLocal
 
     @field_validator("metadata", mode="before")
@@ -109,13 +115,6 @@ class Connection(BaseModel):
     def _coerce_metadata(cls, v: Any):
         if v is None:
             return {}
-        return v
-
-    @field_validator("natpt", mode="before")
-    @classmethod
-    def _coerce_natpt(cls, v: Any):
-        if not isinstance(v, (set, list)):
-            return list()
         return v
 
     @field_validator("interface", mode="before")

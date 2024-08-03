@@ -15,8 +15,7 @@ network_instances:
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
-    - type: ipsec # ipsec | physical
-      # Optional, arbitrary key-value pairs
+    - # Optional, arbitrary key-value pairs
       metadata:
         location: Customer lab
         device_type: VPNC endpoint
@@ -28,27 +27,37 @@ network_instances:
         # Ignored for core in hub mode.
         # ipv4:
         # - 100.99.0.0/24
-      # List of IPv4 and IPv6 networks natively reachable via this connection.
-      # IPv4 prefixes are ignored for core and downlink in hub mode.
+      # List of IPv4 and IPv6 networks reachable via this connection.
+      # IPv6 NAT-PT can be performed for DOWNLINKs in hub mode.
+      # Only global IPv6 unicast are accepted without NAT-PT
+      # IPv4 prefixes are ignored for CORE in hub mode.
       routes:
         ipv6:
         - to: 2001:db8:c57::/48
           # via: # Optional, ignored for tunnel interfaces
+          natpt: false # Optional, configured by the service automatically.
+          # natpt_prefix: null
+        - to: fdff:db8:c57::/52
+          # via: # Optional, ignored for tunnel interfaces
+          natpt: true # Optional, configured by the service automatically.
+          # natpt_prefix: null
+        - to: fdff:db8:c57:1000::/52
+          # via: # Optional, ignored for tunnel interfaces
+          natpt: true # Optional, configured by the service automatically.
+          # natpt_prefix: null
+        - to: fdff:db8:c57:2000::/56
+          # via: # Optional, ignored for tunnel interfaces
+          natpt: true # Optional, configured by the service automatically.
+          # natpt_prefix: null
+        - to: fdff:db8:c57:3000::/52
+          # via: # Optional, ignored for tunnel interfaces
+          natpt: true # Optional, configured by the service automatically.
+          # natpt_prefix: null
         ipv4:
         - to: default
           # via: # Optional, ignored for tunnel interfaces
-      # Downlink in hub mode only. List of IPv6 prefixes to perform NAT-PT on. Must fit into one /48 as per the service
-      # prefix_downlink_natpt property. Ignored in endpoint mode as no translation is performed.
-      natpt:
-      - remote: fd0c:1234:1234::/52
-        local: # Optional, configured by the service automatically.
-      - remote: fd0c:1234:1234:1000::/52
-        local: # Optional, configured by the service automatically.
-      - remote: fd0c:1234:1234:2000::/56
-        local: # Optional, configured by the service automatically.
-      - remote: fd0c:1234:1234:3000::/52
-        local: # Optional, configured by the service automatically.
       config:
+        type: ipsec # ipsec | physical
         # Optional: If not set, defaults to the default service local_id value.
         # local_id: 192.0.2.5
         # IPv6 or IPv4 address
@@ -78,35 +87,32 @@ network_instances:
         #   - 172.30.0.0/16
         #   - 172.31.0.0/16
         #   - 2001:db8:c57::/48
-  # 1:
-  #   type: local # ipsec | local
-  #   description: Provider connection
-  #   # Optional, arbitrary key-value pairs
-  #   metadata:
-  #     primary: true
-  #   # Optional: IPv6 interface address, required in endpoint mode. Used in hub mode for NAT66
-  #   interface_ipv6: fd00:beef::/64
-  #   # Optional: IPv4 interface address, required in endpoint mode. Used in hub mode for NAT64
-  #   interface_ipv4: 172.16.31.1/24
-  #   # List of IPv4 and global unicast IPv6 networks natively reachable via this connection.
-  #   # IPv4 prefixes are ignored in hub mode.
-  #   routes:
-  #   - to: default
-  #     via: 172.16.31.254
-  #   - to: default
-  #     via: fd00:beef::1 # Optional, ignored for tunnel interfaces
-  #   # List of IPv6 prefixes to perform NAT-PT on. Must fit into one /48 as per the service
-  #   # prefix_downlink_natpt property. Ignored in endpoint mode as no translation is performed.
-  #   natpt:
-  #   - remote: fd0c:1234:1234::/52
-  #     local: # Configured by the service automatically.
-  #   - remote: fd0c:1234:1234:1000::/52
-  #     local: # Configured by the service automatically.
-  #   - remote: fd0c:1234:1234:2000::/56
-  #     local: # Configured by the service automatically.
-  #   - remote: fd0c:1234:1234:3000::/52
-  #     local: # Configured by the service automatically.
-  #   connection:
-  #     interface: eth4
 
+  c0001-01:
+    name: c0001-01
+    type: downlink
+    connections:
+    - routes:
+        ipv6:
+        - to: 2001:db8:c58::/48
+          natpt: false
+        - to: fdff:db8:c58::/52
+          natpt: true
+        - to: fdff:db8:c58:1000::/52
+          natpt: true
+        - to: fdff:db8:c58:2000::/56
+          natpt: true
+        - to: fdff:db8:c58:3000::/52
+          natpt: true
+        ipv4:
+        - to: default
+      config:
+        type: ipsec
+        remote_peer_ip: 192.0.2.8
+        ike_proposal: aes128gcm16-prfsha384-ecp384
+        ike_lifetime: 300
+        ipsec_proposal: aes128gcm16-prfsha384-ecp384
+        ipsec_lifetime: 90
+        initiation: none
+        psk: secretpasswordendpoint
 ...

@@ -25,26 +25,35 @@ network_instances:
         # Ignored for core in hub mode.
         # ipv4:
         # - 100.99.0.0/24
-      # List of IPv4 and IPv6 networks natively reachable via this connection.
-      # IPv4 prefixes are ignored for core and downlink in hub mode.
+      # List of IPv4 and IPv6 networks reachable via this connection.
+      # IPv6 NAT-PT can be performed for DOWNLINKs in hub mode.
+      # Only global IPv6 unicast are accepted without NAT-PT
+      # IPv4 prefixes are ignored for CORE in hub mode.
       routes:
         ipv6:
         - to: 2001:db8:c57::/48
           # via: # Optional, ignored for tunnel interfaces
+          natpt: false # Optional, configured by the service automatically.
+          # natpt_prefix: null
+        - to: fdff:db8:c57::/52
+          # via: # Optional, ignored for tunnel interfaces
+          natpt: true # Optional, configured by the service automatically.
+          # natpt_prefix: null
+        - to: fdff:db8:c57:1000::/52
+          # via: # Optional, ignored for tunnel interfaces
+          natpt: true # Optional, configured by the service automatically.
+          # natpt_prefix: null
+        - to: fdff:db8:c57:2000::/56
+          # via: # Optional, ignored for tunnel interfaces
+          natpt: true # Optional, configured by the service automatically.
+          # natpt_prefix: null
+        - to: fdff:db8:c57:3000::/52
+          # via: # Optional, ignored for tunnel interfaces
+          natpt: true # Optional, configured by the service automatically.
+          # natpt_prefix: null
         ipv4:
         - to: default
           # via: # Optional, ignored for tunnel interfaces
-      # Downlink in hub mode only. List of IPv6 prefixes to perform NAT-PT on. Must fit into one /48 as per the service
-      # prefix_downlink_natpt property. Ignored in endpoint mode as no translation is performed.
-      natpt:
-      - remote: fdff:db8:c57::/52
-        local: # Optional, configured by the service automatically.
-      - remote: fdff:db8:c57:1000::/52
-        local: # Optional, configured by the service automatically.
-      - remote: fdff:db8:c57:2000::/56
-        local: # Optional, configured by the service automatically.
-      - remote: fdff:db8:c57:3000::/52
-        local: # Optional, configured by the service automatically.
       config:
         type: ipsec # ipsec | physical
         # Optional: If not set, defaults to the default service local_id value.
@@ -66,44 +75,35 @@ network_instances:
         # Optional, defaults to start. 'start' means inititate and respond, 'none' means respond only.
         initiation: none
         psk: secretpasswordendpoint
-      # Optional
-      # traffic_selectors:
-      #   local:
-      #   - 10.20.0.0/16
-      #   - 10.21.0.0/16
-      #   - fdcc:cbe::/64
-      #   remote:
-      #   - 172.30.0.0/16
-      #   - 172.31.0.0/16
-      #   - 2001:db8:c57::/48
+        # Optional
+        # traffic_selectors:
+        #   local:
+        #   - 10.20.0.0/16
+        #   - 10.21.0.0/16
+        #   - fdcc:cbe::/64
+        #   remote:
+        #   - 172.30.0.0/16
+        #   - 172.31.0.0/16
+        #   - 2001:db8:c57::/48
 
   c0001-01:
     name: c0001-01
     type: downlink
-    metadata: {}
     connections:
-    - metadata: {}
-      interface:
-      # List of IPv4 and IPv6 networks natively reachable via this connection.
-      # IPv4 prefixes are ignored for core and downlink in hub mode.
-      routes:
+    - routes:
         ipv6:
         - to: 2001:db8:c58::/48
-          # via: # Optional, ignored for tunnel interfaces
+          natpt: false
+        - to: fdff:db8:c58::/52
+          natpt: true
+        - to: fdff:db8:c58:1000::/52
+          natpt: true
+        - to: fdff:db8:c58:2000::/56
+          natpt: true
+        - to: fdff:db8:c58:3000::/52
+          natpt: true
         ipv4:
         - to: default
-          # via: # Optional, ignored for tunnel interfaces
-      # Downlink in hub mode only. List of IPv6 prefixes to perform NAT-PT on. Must fit into one /48 as per the service
-      # prefix_downlink_natpt property. Ignored in endpoint mode as no translation is performed.
-      natpt:
-      - remote: fdff:db8:c58::/52
-        local: # Optional, configured by the service automatically.
-      - remote: fdff:db8:c58:1000::/52
-        local: # Optional, configured by the service automatically.
-      - remote: fdff:db8:c58:2000::/56
-        local: # Optional, configured by the service automatically.
-      - remote: fdff:db8:c58:3000::/52
-        local: # Optional, configured by the service automatically.
       config:
         type: ipsec
         remote_peer_ip: 192.0.2.8

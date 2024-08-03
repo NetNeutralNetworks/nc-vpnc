@@ -287,6 +287,8 @@ class Monitor(threading.Thread):
             for route in remote_config.network_instances[network_instance_name]
             .connections[int(connection_id)]
             .routes.ipv6
+            # Only advertise non NAT-PT routes, and only if those routes are global unicast.
+            if route.natpt is False
         }
         v6_networks.update([nat64_network, natpt_network])
 

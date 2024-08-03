@@ -170,23 +170,22 @@ def add_network_instance_connection_route(
     logger.info(flush_output.args)
     logger.info(flush_output.stdout.decode())
     route_cmds = ""
-    if network_instance.type == models.NetworkInstanceType.DOWNLINK:
-        route_cmds += f"""
-            ip -n {network_instance.name} -4 route add default dev {interface}
-            ip -n {network_instance.name} -6 route add default dev {interface}
-        """
 
-    for route in connection.routes.ipv6:
-        if not route.via or connection.config.type in [models.ConnectionType.IPSEC]:
-            route_cmds += f"ip -n {network_instance.name} -6 route add {route.to} dev {interface}\n"
-            continue
-        route_cmds += f"ip -n {network_instance.name} -6 route add {route.to} via {route.via} dev {interface}\n"
+    if (
+        config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB
+        or network_instance.type != models.NetworkInstanceType.CORE
+    ):
+        for route in connection.routes.ipv6:
+            if not route.via or connection.config.type in [models.ConnectionType.IPSEC]:
+                route_cmds += f"ip -n {network_instance.name} -6 route add {route.to} dev {interface}\n"
+                continue
+            route_cmds += f"ip -n {network_instance.name} -6 route add {route.to} via {route.via} dev {interface}\n"
 
-    for route in connection.routes.ipv4:
-        if not route.via or connection.config.type in [models.ConnectionType.IPSEC]:
-            route_cmds += f"ip -n {network_instance.name} -4 route add {route.to} dev {interface}\n"
-            continue
-        route_cmds += f"ip -n {network_instance.name} -4 route add {route.to} via {route.via} dev {interface}\n"
+        for route in connection.routes.ipv4:
+            if not route.via or connection.config.type in [models.ConnectionType.IPSEC]:
+                route_cmds += f"ip -n {network_instance.name} -4 route add {route.to} dev {interface}\n"
+                continue
+            route_cmds += f"ip -n {network_instance.name} -4 route add {route.to} via {route.via} dev {interface}\n"
 
     output = subprocess.run(
         route_cmds,
@@ -203,10 +202,10 @@ def add_network_instance_nat64(network_instance: models.NetworkInstance) -> None
     """
     Add NAT64 rules to a network instance (Linux namespace).
     """
-    # Configure NAT-PT and NAT64
     if config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB:
         return
 
+    # Configure NAT64
     ni_info = helpers.parse_downlink_network_instance_name(network_instance.name)
 
     pdn64 = config.VPNC_SERVICE_CONFIG.prefix_downlink_nat64
@@ -237,14 +236,16 @@ def add_network_instance_nat64(network_instance: models.NetworkInstance) -> None
 
 def get_network_instance_natpt_networks(
     network_instance: models.NetworkInstance,
-) -> tuple[bool, list[models.NatPrefixTranslation]]:
+) -> tuple[bool, list[models.RouteIPv6]]:
     """
     Calculates the NAT-PT translations to perform for a network instance (Linux namespace).
     """
 
-    natpt_list: list[models.NatPrefixTranslation] = []
     updated = False
+    natpt_list: list[models.RouteIPv6] = []
     if config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB:
+        return updated, natpt_list
+    if network_instance.type != models.NetworkInstanceType.DOWNLINK:
         return updated, natpt_list
 
     # Get NAT-PT prefix for this network instance
@@ -261,32 +262,60 @@ def get_network_instance_natpt_networks(
     natpt_scope = IPv6Network(natpt_address).supernet(new_prefix=48)
 
     for connection in network_instance.connections:
-        natpt_list.extend(connection.natpt)
+        natpt_list.extend(
+            [route for route in connection.routes.ipv6 if route.natpt is True]
+        )
 
     # Calculate how to perform the NAT-PT translation.
     for configured_natpt in natpt_list:
-        natpt_prefix = configured_natpt.remote.prefixlen
+        natpt_prefix = configured_natpt.to.prefixlen
         # Check if the translation is possibly correct. This is a basic check
         if (
-            configured_natpt.local
-            and configured_natpt.remote.netmask == configured_natpt.local.netmask
+            configured_natpt.natpt_prefix
+            and configured_natpt.to.prefixlen == configured_natpt.natpt_prefix.prefixlen
         ):
-            if configured_natpt.local.subnet_of(natpt_scope):
+            if configured_natpt.natpt_prefix.subnet_of(natpt_scope):
+                logger.debug(
+                    "Route '%s' already has NAT-PT prefix '%s'",
+                    configured_natpt.to,
+                    configured_natpt.natpt_prefix,
+                )
                 continue
+            logger.warning(
+                "Route '%s' has invalid NAT-PT prefix '%s' applied. Not part of assigned scope '%s'. Recalculating",
+                configured_natpt.to,
+                configured_natpt.natpt_prefix,
+                natpt_scope,
+            )
+            configured_natpt.natpt_prefix = None
+        if (
+            configured_natpt.natpt_prefix
+            and configured_natpt.to.prefixlen < natpt_scope.prefixlen
+        ):
+            logger.warning(
+                "Route '%s' is too big for NAT-PT scope '%s'. Ignoring",
+                configured_natpt.to,
+                natpt_scope,
+            )
+            continue
 
         for candidate_natpt_prefix in natpt_scope.subnets(new_prefix=natpt_prefix):
             # if the highest IP of the subnet is lower than the most recently added network
             free = True
             for npt in natpt_list:
-                if not npt.local:
+                if not npt.natpt_prefix:
                     continue
                 # Check to be sure that the subnet isn't a supernet. That would break it
                 # otherwise.
-                if not npt.local.subnet_of(natpt_scope):
+                if not npt.natpt_prefix.subnet_of(natpt_scope):
                     continue
                 if (
-                    npt.local[0] >= candidate_natpt_prefix[-1] >= npt.local[-1]
-                    or npt.local[0] <= candidate_natpt_prefix[0] <= npt.local[-1]
+                    npt.natpt_prefix[0]
+                    >= candidate_natpt_prefix[-1]
+                    >= npt.natpt_prefix[-1]
+                    or npt.natpt_prefix[0]
+                    <= candidate_natpt_prefix[0]
+                    <= npt.natpt_prefix[-1]
                 ):
                     free = False
                     break
@@ -294,13 +323,14 @@ def get_network_instance_natpt_networks(
             if not free:
                 continue
 
-            configured_natpt.local = candidate_natpt_prefix
+            configured_natpt.natpt_prefix = candidate_natpt_prefix
             updated = True
             break
 
-    for connection in network_instance.connections:
-        natpt_list.extend(connection.natpt)
-    return updated, natpt_list
+    # TODO: this is probably not needed.
+    # for connection in network_instance.connections:
+    #     natpt_list.extend(connection.natpt)
+    return updated, [x for x in natpt_list if x.natpt_prefix]
 
 
 def add_network_instance_link(

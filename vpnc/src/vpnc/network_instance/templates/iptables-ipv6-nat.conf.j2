@@ -3,7 +3,7 @@
 ip netns exec {{ network_instance_name }} ip6tables -t nat -F
 {%- for interface in core_interfaces %}
     {%- for network in natpt_networks %}
-ip netns exec {{ network_instance_name }} ip6tables -t nat -A PREROUTING -i {{ interface }} -d {{ network.local }} -j NETMAP --to {{ network.remote }}
+ip netns exec {{ network_instance_name }} ip6tables -t nat -A PREROUTING -i {{ interface }} -d {{ network.natpt_prefix }} -j NETMAP --to {{ network.to }}
     {%- endfor %}
 {%- endfor %}
 {%- endif %}
