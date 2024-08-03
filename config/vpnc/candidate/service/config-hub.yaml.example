@@ -124,9 +124,9 @@ network_instances:
 # IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
 # The prefix is the same for all tenants. Tenants will see traffic originating from this prefix.
 prefix_downlink_interface_v4: 100.99.0.0/16
-# IP prefix for downlinks. Must be a /48, will get subnetted into /64s per downlink tunnel.
+# IP prefix for downlinks. Must be a /32, will get subnetted into /64s per downlink tunnel.
 # The prefix is the same for all tenants. Tenants will see traffic originating from this prefix.
-prefix_downlink_interface_v6: fdcc:cbe::/48
+prefix_downlink_interface_v6: fdcc:cbe::/32
 # NAT64 IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
 # This is the prefix by which each tenant will be uniquely identified.
 # Tenant c0001 will use fdcc:0:c:1::/64 and tenant with identifier d0002 will use fdcc:0:d:2::/64.

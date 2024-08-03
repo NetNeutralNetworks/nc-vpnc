@@ -82,7 +82,7 @@ network_instances:
         #   via: "fdcc:cbe::" # Optional, ignored for tunnel interfaces
         # IPv4 prefixes are ignored for core and downlink in hub mode.
         ipv4:
-        - to: 100.99.0.0/24
+        - to: 100.99.0.0/28
       config:
         type: ipsec # ipsec | physical
         # Optional: If not set, defaults to the default service local_id value.
@@ -118,9 +118,9 @@ network_instances:
       # IPv4 prefixes are ignored for core and downlink in hub mode.
       routes:
         ipv6:
-        - to: fdcc:cbe:1::/64
+        - to: fdcc:cbf::/64
         ipv4:
-        - to: 100.100.0.0/24
+        - to: 100.100.0.0/28
       config:
         type: ipsec # ipsec | physical
         # IPv6 or IPv4 address

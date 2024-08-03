@@ -87,6 +87,11 @@ def add_network_instance_connection(
             )
             interfaces.append(interface)
         except ValueError:
+            logger.error(
+                "Failed to set up connection '%s' interface(s)",
+                connection,
+                exc_info=True,
+            )
             continue
         add_network_instance_connection_route(network_instance, interface, connection)
 

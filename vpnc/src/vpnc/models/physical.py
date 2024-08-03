@@ -60,7 +60,7 @@ class ConnectionConfigLocal(BaseModel):
         is_downlink = network_instance.type == base_enums.NetworkInstanceType.DOWNLINK
         is_hub = config.VPNC_SERVICE_CONFIG.mode == base_enums.ServiceMode.HUB
         if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
-            connection_id, is_downlink, is_hub
+            network_instance, connection_id, is_downlink, is_hub
         )
         addresses = if_ipv6 + if_ipv4
         interface.set(

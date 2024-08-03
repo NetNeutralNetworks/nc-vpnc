@@ -2,15 +2,17 @@ FROM ubuntu:jammy-20240627.1 as build
 
 SHELL ["/bin/bash", "-c"]
 
-COPY ./ /tmp/repo/
-
-RUN echo "Install APT build packages"                                   && \
+RUN --mount=type=bind,source=install.sh,target=/tmp/repo/install.sh        \
+    echo "Install APT build packages"                                   && \
     source /tmp/repo/install.sh                                         && \
     install_apt_build
 
-RUN echo "Preparing configuration files"                                && \
+RUN --mount=type=bind,source=./,target=/tmp/repo/                          \
+    echo "Preparing configuration files"                                && \
     source /tmp/repo/install.sh                                         && \
     create_dir_vpnc_config && create_dir_vpnc
+
+COPY ./ /tmp/repo/
 
 RUN echo "Compile required modules"                                     && \
     source /tmp/repo/install.sh                                         && \

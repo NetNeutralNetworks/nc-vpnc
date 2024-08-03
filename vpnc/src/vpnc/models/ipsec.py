@@ -99,7 +99,7 @@ class ConnectionConfigIPsec(BaseModel):
         is_downlink = network_instance.type == base_enums.NetworkInstanceType.DOWNLINK
         is_hub = config.VPNC_SERVICE_CONFIG.mode == base_enums.ServiceMode.HUB
         if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
-            connection_id, is_downlink, is_hub
+            network_instance, connection_id, is_downlink, is_hub
         )
 
         # TODO: check if it is OK to always attach to the same external interface.

@@ -26,7 +26,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
-from .. import config
+from .. import config, helpers
 from .base_enums import NetworkInstanceType, ServiceMode
 from .ipsec import ConnectionConfigIPsec
 from .physical import ConnectionConfigLocal
@@ -133,16 +133,30 @@ class Connection(BaseModel):
         return v
 
     def calculate_ip_addresses(
-        self, connection_id: int, is_downlink=False, is_hub=False
+        self,
+        network_instance: "NetworkInstance",
+        connection_id: int,
+        is_downlink=False,
+        is_hub=False,
     ):
         """
         Calculates Interface IP addresses for a DOWNLINK network instance if not configured
         """
+
+        if is_downlink:
+            parsed_ni = helpers.parse_downlink_network_instance_name(
+                network_instance.name
+            )
         if not self.interface.ipv4 and is_downlink and is_hub:
             pdi4 = config.VPNC_SERVICE_CONFIG.prefix_downlink_interface_v4
-            interface_ipv4_network = list(pdi4.subnets(new_prefix=24))[connection_id]
+            ipv4_ni_network = list(pdi4.subnets(new_prefix=24))[
+                parsed_ni["network_instance_id"]
+            ]
+            ipv4_con_network = list(ipv4_ni_network.subnets(new_prefix=28))[
+                connection_id
+            ]
             interface_ipv4_address = [
-                ipaddress.IPv4Interface(f"{interface_ipv4_network[1]}/24")
+                ipaddress.IPv4Interface(f"{ipv4_con_network[1]}/28")
             ]
 
         elif self.interface.ipv4 is None:
@@ -152,9 +166,12 @@ class Connection(BaseModel):
 
         if not self.interface.ipv6 and is_downlink and is_hub:
             pdi6 = config.VPNC_SERVICE_CONFIG.prefix_downlink_interface_v6
+            ipv6_ni_network = list(pdi6.subnets(new_prefix=48))[
+                parsed_ni["network_instance_id"]
+            ]
             interface_ipv6_address = [
                 ipaddress.IPv6Interface(
-                    list(pdi6.subnets(new_prefix=64))[connection_id]
+                    list(ipv6_ni_network.subnets(new_prefix=64))[connection_id]
                 )
             ]
         elif self.interface.ipv6 is None:
@@ -315,9 +332,9 @@ class Service(Tenant):
         Set the default value based on mode.
         """
         mode: ServiceMode = info.data["mode"]
-        if isinstance(v, IPv6Network) and v.prefixlen > 48:
+        if isinstance(v, IPv6Network) and v.prefixlen > 32:
             raise NetmaskValueError(
-                "'prefix_downlink_interface_v6' prefix length must be '48' or lower."
+                "'prefix_downlink_interface_v6' prefix length must be '32' or lower."
             )
         if mode == ServiceMode.HUB and v is None:
             # IP prefix for downlinks. Must be a /48 or larger, will get subnetted into /64s per downlink tunnel.
@@ -327,7 +344,7 @@ class Service(Tenant):
 
         return v
 
-    @field_validator("prefix_downlink_interface_v6")
+    @field_validator("prefix_downlink_interface_v4")
     @classmethod
     def set_default_prefix_downlink_interface_v4(
         cls, v: IPv4Network | None, info: ValidationInfo

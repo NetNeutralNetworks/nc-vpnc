@@ -15,11 +15,11 @@ topology:
   nodes:
     mgt00:
       kind: linux
-      image: ubuntu:24.04
+      image: nc-vpnc:test
       cmd: /nc-vpnc/test/env00/mgt00/install.sh
     mgt01:
       kind: linux
-      image: ubuntu:24.04
+      image: nc-vpnc:test
       cmd: /nc-vpnc/test/env00/mgt01/install.sh
     hub00:
       kind: linux
