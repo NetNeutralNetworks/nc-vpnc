@@ -26,31 +26,31 @@ network_instances:
         # ipv4:
         # - 100.99.0.0/24
       # List of IPv4 and IPv6 networks reachable via this connection.
-      # IPv6 NAT-PT can be performed for DOWNLINKs in hub mode.
-      # Only global IPv6 unicast are accepted without NAT-PT
+      # IPv6 NPTv6 can be performed for DOWNLINKs in hub mode.
+      # Only global IPv6 unicast are accepted without NPTv6
       # IPv4 prefixes are ignored for CORE in hub mode.
       routes:
         ipv6:
         - to: 2001:db8:c57::/48
           # via: # Optional, ignored for tunnel interfaces
-          natpt: false # Optional, configured by the service automatically.
-          # natpt_prefix: null
+          nptv6: false # Optional, configured by the service automatically.
+          # nptv6_prefix: null
         - to: fdff:db8:c57::/52
           # via: # Optional, ignored for tunnel interfaces
-          natpt: true # Optional, configured by the service automatically.
-          # natpt_prefix: null
+          nptv6: true # Optional, configured by the service automatically.
+          # nptv6_prefix: null
         - to: fdff:db8:c57:1000::/52
           # via: # Optional, ignored for tunnel interfaces
-          natpt: true # Optional, configured by the service automatically.
-          # natpt_prefix: null
+          nptv6: true # Optional, configured by the service automatically.
+          # nptv6_prefix: null
         - to: fdff:db8:c57:2000::/56
           # via: # Optional, ignored for tunnel interfaces
-          natpt: true # Optional, configured by the service automatically.
-          # natpt_prefix: null
+          nptv6: true # Optional, configured by the service automatically.
+          # nptv6_prefix: null
         - to: fdff:db8:c57:3000::/52
           # via: # Optional, ignored for tunnel interfaces
-          natpt: true # Optional, configured by the service automatically.
-          # natpt_prefix: null
+          nptv6: true # Optional, configured by the service automatically.
+          # nptv6_prefix: null
         ipv4:
         - to: default
           # via: # Optional, ignored for tunnel interfaces
@@ -93,15 +93,15 @@ network_instances:
     - routes:
         ipv6:
         - to: 2001:db8:c58::/48
-          natpt: false
+          nptv6: false
         - to: fdff:db8:c58::/52
-          natpt: true
+          nptv6: true
         - to: fdff:db8:c58:1000::/52
-          natpt: true
+          nptv6: true
         - to: fdff:db8:c58:2000::/56
-          natpt: true
+          nptv6: true
         - to: fdff:db8:c58:3000::/52
-          natpt: true
+          nptv6: true
         ipv4:
         - to: default
       config:

@@ -39,8 +39,8 @@ class RouteIPv6(BaseModel):
 
     to: IPv6Network
     via: IPv6Address | None = None
-    natpt: bool = True
-    natpt_prefix: IPv6Network | None = None
+    nptv6: bool = True
+    nptv6_prefix: IPv6Network | None = None
 
     @field_validator("to", mode="before")
     @classmethod
@@ -291,8 +291,8 @@ class Service(Tenant):
     prefix_downlink_nat64: IPv6Network | None = Field(
         default=None, validate_default=True
     )
-    # IPv6 prefix for NAT-PT. Must be a /16. Will be subnetted into /48s per downlink per tunnel.
-    prefix_downlink_natpt: IPv6Network | None = Field(
+    # IPv6 prefix for NPTv6. Must be a /16. Will be subnetted into /48s per downlink per tunnel.
+    prefix_downlink_nptv6: IPv6Network | None = Field(
         default=None, validate_default=True
     )
 
@@ -304,7 +304,7 @@ class Service(Tenant):
         "prefix_downlink_interface_v4",
         "prefix_downlink_interface_v6",
         "prefix_downlink_nat64",
-        "prefix_downlink_natpt",
+        "prefix_downlink_nptv6",
         "bgp",
     )
     @classmethod
@@ -385,9 +385,9 @@ class Service(Tenant):
 
         return v
 
-    @field_validator("prefix_downlink_natpt")
+    @field_validator("prefix_downlink_nptv6")
     @classmethod
-    def set_default_prefix_downlink_natpt(
+    def set_default_prefix_downlink_nptv6(
         cls, v: IPv6Network | None, info: ValidationInfo
     ) -> IPv6Network | None:
         """
@@ -396,7 +396,7 @@ class Service(Tenant):
         mode: ServiceMode = info.data["mode"]
         if isinstance(v, IPv6Network) and v.prefixlen > 16:
             raise NetmaskValueError(
-                "'prefix_downlink_natpt' prefix length must be '16' or lower."
+                "'prefix_downlink_nptv6' prefix length must be '16' or lower."
             )
         if mode == ServiceMode.HUB and v is None:
             # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.

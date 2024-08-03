@@ -148,11 +148,11 @@ prefix_downlink_interface_v6: fdcc:cbe::/32
 # This is the prefix by which each tenant will be uniquely identified.
 # Tenant c0001 will use fdcc:0:c:1::/64 and tenant with identifier d0002 will use fdcc:0:d:2::/64.
 prefix_downlink_nat64: fdcc:0::/32
-# NAT-PT IPv6 prefix for downlinks. Must be a /12. Will be subnetted into /48s per downlink per tunnel.
+# NPTv6 IPv6 prefix for downlinks. Must be a /12. Will be subnetted into /48s per downlink per tunnel.
 # This is the prefix by which each tenant will be uniquely identified.
 # Tenant c0001 with tunnel 0 will use fd6c:1::/48 and tenant with identifier d0002 and tunnel
 # 9 will use fd6d:2:9::/48.
-prefix_downlink_natpt: fd60::/12
+prefix_downlink_nptv6: fd60::/12
 
 ## BGP config
 # ASN must be between 4.200.000.000 and 4.294.967.294 inclusive.

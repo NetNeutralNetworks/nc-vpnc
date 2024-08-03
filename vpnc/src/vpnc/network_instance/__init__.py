@@ -244,7 +244,7 @@ def add_downlink_network_instance(path: pathlib.Path):
         # Configure NAT64
         general.add_network_instance_nat64(network_instance)
 
-        # IP(6)TABLES RULES including NAT-PT
+        # IP(6)TABLES RULES including NPTv6
         updated, _ = add_downlink_iptables(
             config.VPNC_SERVICE_CONFIG.mode,
             network_instance,
@@ -314,7 +314,7 @@ def add_downlink_iptables(
     ICMPv6
     """
     iptables_template = TEMPLATES_ENV.get_template("iptables-downlink.conf.j2")
-    updated, natpt_networks = general.get_network_instance_natpt_networks(
+    updated, nptv6_networks = general.get_network_instance_nptv6_networks(
         network_instance
     )
     iptables_configs = {
@@ -322,7 +322,7 @@ def add_downlink_iptables(
         "network_instance_name": network_instance.name,
         "core_interfaces": core_interfaces,
         "downlink_interfaces": downlink_interfaces,
-        "natpt_networks": natpt_networks,
+        "nptv6_networks": nptv6_networks,
     }
     iptables_render = iptables_template.render(**iptables_configs)
     logger.info(iptables_render)
@@ -334,7 +334,7 @@ def add_downlink_iptables(
         check=True,
     )
 
-    return updated, natpt_networks
+    return updated, nptv6_networks
 
 
 def observe_downlink() -> BaseObserver:

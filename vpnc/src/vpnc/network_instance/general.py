@@ -234,88 +234,88 @@ def add_network_instance_nat64(network_instance: models.NetworkInstance) -> None
     logger.info(output_nat64.stdout.decode())
 
 
-def get_network_instance_natpt_networks(
+def get_network_instance_nptv6_networks(
     network_instance: models.NetworkInstance,
 ) -> tuple[bool, list[models.RouteIPv6]]:
     """
-    Calculates the NAT-PT translations to perform for a network instance (Linux namespace).
+    Calculates the NPTv6 translations to perform for a network instance (Linux namespace).
     """
 
     updated = False
-    natpt_list: list[models.RouteIPv6] = []
+    nptv6_list: list[models.RouteIPv6] = []
     if config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB:
-        return updated, natpt_list
+        return updated, nptv6_list
     if network_instance.type != models.NetworkInstanceType.DOWNLINK:
-        return updated, natpt_list
+        return updated, nptv6_list
 
-    # Get NAT-PT prefix for this network instance
-    natpt_superscope = config.VPNC_SERVICE_CONFIG.prefix_downlink_natpt
+    # Get NPTv6 prefix for this network instance
+    nptv6_superscope = config.VPNC_SERVICE_CONFIG.prefix_downlink_nptv6
     ni_info = helpers.parse_downlink_network_instance_name(network_instance.name)
 
     tenant_ext = ni_info["tenant_ext_str"]
     tenant_id = ni_info["tenant_id"]
     network_instance_id = ni_info["network_instance_id"]
 
-    natpt_network_address = int(natpt_superscope[0])
-    natpt_offset = int(IPv6Address(f"{tenant_ext}:{tenant_id}:{network_instance_id}::"))
-    natpt_address = IPv6Address(natpt_network_address + natpt_offset)
-    natpt_scope = IPv6Network(natpt_address).supernet(new_prefix=48)
+    nptv6_network_address = int(nptv6_superscope[0])
+    nptv6_offset = int(IPv6Address(f"{tenant_ext}:{tenant_id}:{network_instance_id}::"))
+    nptv6_address = IPv6Address(nptv6_network_address + nptv6_offset)
+    nptv6_scope = IPv6Network(nptv6_address).supernet(new_prefix=48)
 
     for connection in network_instance.connections:
-        natpt_list.extend(
-            [route for route in connection.routes.ipv6 if route.natpt is True]
+        nptv6_list.extend(
+            [route for route in connection.routes.ipv6 if route.nptv6 is True]
         )
 
-    # Calculate how to perform the NAT-PT translation.
-    for configured_natpt in natpt_list:
-        natpt_prefix = configured_natpt.to.prefixlen
+    # Calculate how to perform the NPTv6 translation.
+    for configured_nptv6 in nptv6_list:
+        nptv6_prefix = configured_nptv6.to.prefixlen
         # Check if the translation is possibly correct. This is a basic check
         if (
-            configured_natpt.natpt_prefix
-            and configured_natpt.to.prefixlen == configured_natpt.natpt_prefix.prefixlen
+            configured_nptv6.nptv6_prefix
+            and configured_nptv6.to.prefixlen == configured_nptv6.nptv6_prefix.prefixlen
         ):
-            if configured_natpt.natpt_prefix.subnet_of(natpt_scope):
+            if configured_nptv6.nptv6_prefix.subnet_of(nptv6_scope):
                 logger.debug(
-                    "Route '%s' already has NAT-PT prefix '%s'",
-                    configured_natpt.to,
-                    configured_natpt.natpt_prefix,
+                    "Route '%s' already has NPTv6 prefix '%s'",
+                    configured_nptv6.to,
+                    configured_nptv6.nptv6_prefix,
                 )
                 continue
             logger.warning(
-                "Route '%s' has invalid NAT-PT prefix '%s' applied. Not part of assigned scope '%s'. Recalculating",
-                configured_natpt.to,
-                configured_natpt.natpt_prefix,
-                natpt_scope,
+                "Route '%s' has invalid NPTv6 prefix '%s' applied. Not part of assigned scope '%s'. Recalculating",
+                configured_nptv6.to,
+                configured_nptv6.nptv6_prefix,
+                nptv6_scope,
             )
-            configured_natpt.natpt_prefix = None
+            configured_nptv6.nptv6_prefix = None
         if (
-            configured_natpt.natpt_prefix
-            and configured_natpt.to.prefixlen < natpt_scope.prefixlen
+            configured_nptv6.nptv6_prefix
+            and configured_nptv6.to.prefixlen < nptv6_scope.prefixlen
         ):
             logger.warning(
-                "Route '%s' is too big for NAT-PT scope '%s'. Ignoring",
-                configured_natpt.to,
-                natpt_scope,
+                "Route '%s' is too big for NPTv6 scope '%s'. Ignoring",
+                configured_nptv6.to,
+                nptv6_scope,
             )
             continue
 
-        for candidate_natpt_prefix in natpt_scope.subnets(new_prefix=natpt_prefix):
+        for candidate_nptv6_prefix in nptv6_scope.subnets(new_prefix=nptv6_prefix):
             # if the highest IP of the subnet is lower than the most recently added network
             free = True
-            for npt in natpt_list:
-                if not npt.natpt_prefix:
+            for npt in nptv6_list:
+                if not npt.nptv6_prefix:
                     continue
                 # Check to be sure that the subnet isn't a supernet. That would break it
                 # otherwise.
-                if not npt.natpt_prefix.subnet_of(natpt_scope):
+                if not npt.nptv6_prefix.subnet_of(nptv6_scope):
                     continue
                 if (
-                    npt.natpt_prefix[0]
-                    >= candidate_natpt_prefix[-1]
-                    >= npt.natpt_prefix[-1]
-                    or npt.natpt_prefix[0]
-                    <= candidate_natpt_prefix[0]
-                    <= npt.natpt_prefix[-1]
+                    npt.nptv6_prefix[0]
+                    >= candidate_nptv6_prefix[-1]
+                    >= npt.nptv6_prefix[-1]
+                    or npt.nptv6_prefix[0]
+                    <= candidate_nptv6_prefix[0]
+                    <= npt.nptv6_prefix[-1]
                 ):
                     free = False
                     break
@@ -323,14 +323,14 @@ def get_network_instance_natpt_networks(
             if not free:
                 continue
 
-            configured_natpt.natpt_prefix = candidate_natpt_prefix
+            configured_nptv6.nptv6_prefix = candidate_nptv6_prefix
             updated = True
             break
 
     # TODO: this is probably not needed.
     # for connection in network_instance.connections:
-    #     natpt_list.extend(connection.natpt)
-    return updated, [x for x in natpt_list if x.natpt_prefix]
+    #     nptv6_list.extend(connection.nptv6)
+    return updated, [x for x in nptv6_list if x.nptv6_prefix]
 
 
 def add_network_instance_link(

@@ -110,7 +110,7 @@ def generate_frr_cfg():
         "neighbors": neighbors,
         "prefix_core": prefix_core,
         "prefix_downlink_nat64": config.VPNC_SERVICE_CONFIG.prefix_downlink_nat64,
-        "prefix_downlink_natpt": config.VPNC_SERVICE_CONFIG.prefix_downlink_natpt,
+        "prefix_downlink_nptv6": config.VPNC_SERVICE_CONFIG.prefix_downlink_nptv6,
     }
 
     frr_render = frr_template.render(**frr_cfg)

@@ -116,13 +116,14 @@ class Monitor(threading.Thread):
         """
 
         # Wait for startup before starting to manage VPNs
-        await asyncio.sleep(30)
+        await asyncio.sleep(10)
 
         # Get the current event loop for the thread.
         loop = asyncio.get_running_loop()
         # executor = concurrent.futures.ThreadPoolExecutor()
         # loop.run_in_executor(executor, self.monitor_sa_events)
 
+        # Queue to exchange up/down VPN events with.
         updown_q = queue.Queue()
 
         # Run the task to monitor the security associations for duplicates.
@@ -273,12 +274,12 @@ class Monitor(threading.Thread):
         nat64_address = IPv6Address(nat64_network_address + nat64_offset)
         nat64_network = IPv6Network(nat64_address).supernet(new_prefix=96)
 
-        # Get NAT-PT prefix for this connection
-        natpt_prefix = config.VPNC_SERVICE_CONFIG.prefix_downlink_natpt
-        natpt_network_address = int(natpt_prefix[0])
-        natpt_offset = int(IPv6Address(f"{nat_t_ext}:{nat_t_id}:{nat_ni_id}::"))
-        natpt_address = IPv6Address(natpt_network_address + natpt_offset)
-        natpt_network = IPv6Network(natpt_address).supernet(new_prefix=48)
+        # Get NPTv6 prefix for this connection
+        nptv6_prefix = config.VPNC_SERVICE_CONFIG.prefix_downlink_nptv6
+        nptv6_network_address = int(nptv6_prefix[0])
+        nptv6_offset = int(IPv6Address(f"{nat_t_ext}:{nat_t_id}:{nat_ni_id}::"))
+        nptv6_address = IPv6Address(nptv6_network_address + nptv6_offset)
+        nptv6_network = IPv6Network(nptv6_address).supernet(new_prefix=48)
 
         remote_config_file_handle = remote_config_file.open(encoding="utf-8")
         remote_config = models.Tenant(**yaml.safe_load(remote_config_file_handle))
@@ -287,10 +288,10 @@ class Monitor(threading.Thread):
             for route in remote_config.network_instances[network_instance_name]
             .connections[int(connection_id)]
             .routes.ipv6
-            # Only advertise non NAT-PT routes, and only if those routes are global unicast.
-            if route.natpt is False
+            # Only advertise non NPTv6 routes, and only if those routes are global unicast.
+            if route.nptv6 is False
         }
-        v6_networks.update([nat64_network, natpt_network])
+        v6_networks.update([nat64_network, nptv6_network])
 
         # Get VPN state
         vpn: dict[str, Any] = {}
