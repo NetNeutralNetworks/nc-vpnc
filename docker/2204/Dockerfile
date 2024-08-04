@@ -1,4 +1,4 @@
-FROM ubuntu:jammy-20240627.1 as build
+FROM ubuntu:jammy-20240627.1 AS build
 
 SHELL ["/bin/bash", "-c"]
 

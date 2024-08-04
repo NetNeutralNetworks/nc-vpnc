@@ -1,4 +1,4 @@
-FROM ubuntu:noble-20240605 as build
+FROM ubuntu:noble-20240605 AS build
 
 SHELL ["/bin/bash", "-c"]
 
