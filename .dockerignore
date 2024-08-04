@@ -11,3 +11,5 @@
 
 **/build
 **/*.egg-info
+**/clab-*
+**/*.clab.yaml.bak

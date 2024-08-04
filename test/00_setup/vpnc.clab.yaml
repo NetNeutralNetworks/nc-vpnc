@@ -16,36 +16,36 @@ topology:
     mgt00:
       kind: linux
       image: nc-vpnc:test
-      cmd: /nc-vpnc/test/env00/mgt00/install.sh
+      cmd: /nc-vpnc/test/01_base_config/mgt00/config.sh
     mgt01:
       kind: linux
       image: nc-vpnc:test
-      cmd: /nc-vpnc/test/env00/mgt01/install.sh
+      cmd: /nc-vpnc/test/01_base_config/mgt01/config.sh
     hub00:
       kind: linux
       # image: vrnetlab/vr-ubuntu:jammy
       image: nc-vpnc:test
-      cmd: /nc-vpnc/test/env00/hub00/install.sh
+      cmd: /nc-vpnc/test/01_base_config/hub00/config.sh
     hub01:
       kind: linux
       image: nc-vpnc:test
-      cmd: /nc-vpnc/test/env00/hub01/install.sh
+      cmd: /nc-vpnc/test/01_base_config/hub01/config.sh
     end00:
       kind: linux
       image: nc-vpnc:test
-      cmd: /nc-vpnc/test/env00/end00/install.sh
+      cmd: /nc-vpnc/test/01_base_config/end00/config.sh
     end01:
       kind: linux
       image: nc-vpnc:test
-      cmd: /nc-vpnc/test/env00/end01/install.sh
+      cmd: /nc-vpnc/test/01_base_config/end01/config.sh
     cli00:
       kind: linux
       image: ubuntu:24.04
-      cmd: /nc-vpnc/test/env00/cli00/install.sh
+      cmd: /nc-vpnc/test/01_base_config/cli00/config.sh
     cli01:
       kind: linux
       image: ubuntu:24.04
-      cmd: /nc-vpnc/test/env00/cli01/install.sh
+      cmd: /nc-vpnc/test/01_base_config/cli01/config.sh
     br-nc-vpnc:
       kind: bridge
 
