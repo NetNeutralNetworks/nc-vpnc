@@ -143,7 +143,7 @@ class Monitor(threading.Thread):
         # Run the task to check for inactive and active connections every interval.
         logger.info("Starting inactive/active connection monitor.")
         inactives = loop.create_task(
-            self.repeat(30, self.monitor_connections, init_wait=True)
+            self.repeat(30, self.monitor_connections, init_wait=False)
         )
         await inactives
 

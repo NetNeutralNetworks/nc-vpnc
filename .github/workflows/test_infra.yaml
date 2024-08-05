@@ -1,0 +1,32 @@
+name: test-infrastructure
+run-name: Test infrastructure
+on:
+  pull_request:
+  # push:
+  #   branches: main
+jobs:
+  install-containerlab:
+    strategy:
+      matrix:
+        # version: ["22.04", "24.04"]
+        version: ["24.04"]
+    runs-on: ubuntu-${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runner dependencies (Jool, containerlab)
+        run: sudo test/00_setup/install.sh
+      - name: Set up Docker CLI
+        uses: docker/setup-buildx-action@v3
+      - name: Build and cache Docker images/layers
+        uses: docker/build-push-action@v6
+        with:
+          load: true
+          context: .
+          file: docker/${{ matrix.version }}/Dockerfile
+          tags: nc-vpnc:latest
+          cache-from: type=gha,scope=$GITHUB_REF_NAME-${{ matrix.version }}
+          cache-to: type=gha,scope=$GITHUB_REF_NAME-${{ matrix.version }},mode=max
+      - name: Run containerlab test environment
+        run: cd test/00_setup && sudo containerlab deploy && cd $OLDPWD && sudo test/00_setup/healthcheck.sh
+      - name: Run tests
+        run: sudo python3 -m pytest -v
