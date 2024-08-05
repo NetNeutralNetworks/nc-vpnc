@@ -4,6 +4,7 @@ Functions to make connections easier.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import subprocess
@@ -198,139 +199,50 @@ def add_network_instance_connection_route(
     logger.info(output.stdout.decode())
 
 
-def add_network_instance_nat64(network_instance: models.NetworkInstance) -> None:
+def get_network_instance_nat64_scope(
+    network_instance_name: str,
+) -> ipaddress.IPv6Network:
     """
-    Add NAT64 rules to a network instance (Linux namespace).
-    """
-    if config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB:
-        return
-
-    # Configure NAT64
-    ni_info = helpers.parse_downlink_network_instance_name(network_instance.name)
-
-    pdn64 = config.VPNC_SERVICE_CONFIG.prefix_downlink_nat64
-    # outputs fdcc:0:c::/48
-    pdn64_3 = list(pdn64.subnets(new_prefix=48))[ni_info["tenant_ext"]]
-    # outputs fdcc:0:c:1::/64
-    pdn64_4 = list(pdn64_3.subnets(new_prefix=64))[ni_info["tenant_id"]]
-    # outputs fdcc:0:c:1:1::/80
-    pdn64_5 = list(pdn64_4.subnets(new_prefix=80))[ni_info["network_instance_id"]]
-    # outputs fdcc:0:c:1:1::/96
-    downlink_nat64_space = list(pdn64_5.subnets(new_prefix=96))[0]
-
-    # configure NAT64 for the DOWNLINK network instance
-    output_nat64 = subprocess.run(
-        f"""
-        # start NAT64
-        ip netns exec {network_instance.name} jool instance flush
-        ip netns exec {network_instance.name} jool instance add {network_instance.name} --netfilter --pool6 {downlink_nat64_space}
-        """,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=True,
-        check=False,
-    )
-    logger.info(output_nat64.args)
-    logger.info(output_nat64.stdout.decode())
-
-
-def get_network_instance_nptv6_networks(
-    network_instance: models.NetworkInstance,
-) -> tuple[bool, list[models.RouteIPv6]]:
-    """
-    Calculates the NPTv6 translations to perform for a network instance (Linux namespace).
+    Returns the IPv6 NPTv6 scope for a network instance. This is always a /48.
     """
 
-    updated = False
-    nptv6_list: list[models.RouteIPv6] = []
-    if config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB:
-        return updated, nptv6_list
-    if network_instance.type != models.NetworkInstanceType.DOWNLINK:
-        return updated, nptv6_list
+    ni_info = helpers.parse_downlink_network_instance_name(network_instance_name)
 
-    # Get NPTv6 prefix for this network instance
-    nptv6_superscope = config.VPNC_SERVICE_CONFIG.prefix_downlink_nptv6
-    ni_info = helpers.parse_downlink_network_instance_name(network_instance.name)
+    tenant_ext = ni_info["tenant_ext_str"]  # c, d, e, f
+    tenant_id = ni_info["tenant_id"]  # remote identifier
+    network_instance_id = ni_info["network_instance_id"]  # connection number
+
+    nat64_prefix = config.VPNC_SERVICE_CONFIG.prefix_downlink_nat64
+    nat64_network_address = int(nat64_prefix[0])
+    offset = f"0:0:{tenant_ext}:{tenant_id}:{network_instance_id}::"
+    nat64_offset = int(IPv6Address(offset))
+    nat64_address = IPv6Address(nat64_network_address + nat64_offset)
+    nat64_scope = IPv6Network(nat64_address).supernet(new_prefix=96)
+
+    return nat64_scope
+
+
+def get_network_instance_nptv6_scope(
+    network_instance_name: str,
+) -> ipaddress.IPv6Network:
+    """
+    Returns the IPv6 NPTv6 scope for a network instance. This is always a /48.
+    """
+
+    ni_info = helpers.parse_downlink_network_instance_name(network_instance_name)
 
     tenant_ext = ni_info["tenant_ext_str"]
     tenant_id = ni_info["tenant_id"]
     network_instance_id = ni_info["network_instance_id"]
 
+    nptv6_superscope = config.VPNC_SERVICE_CONFIG.prefix_downlink_nptv6
     nptv6_network_address = int(nptv6_superscope[0])
-    nptv6_offset = int(IPv6Address(f"{tenant_ext}:{tenant_id}:{network_instance_id}::"))
+    offset = f"{tenant_ext}:{tenant_id}:{network_instance_id}::"
+    nptv6_offset = int(IPv6Address(offset))
     nptv6_address = IPv6Address(nptv6_network_address + nptv6_offset)
     nptv6_scope = IPv6Network(nptv6_address).supernet(new_prefix=48)
 
-    for connection in network_instance.connections:
-        nptv6_list.extend(
-            [route for route in connection.routes.ipv6 if route.nptv6 is True]
-        )
-
-    # Calculate how to perform the NPTv6 translation.
-    for configured_nptv6 in nptv6_list:
-        nptv6_prefix = configured_nptv6.to.prefixlen
-        # Check if the translation is possibly correct. This is a basic check
-        if (
-            configured_nptv6.nptv6_prefix
-            and configured_nptv6.to.prefixlen == configured_nptv6.nptv6_prefix.prefixlen
-        ):
-            if configured_nptv6.nptv6_prefix.subnet_of(nptv6_scope):
-                logger.debug(
-                    "Route '%s' already has NPTv6 prefix '%s'",
-                    configured_nptv6.to,
-                    configured_nptv6.nptv6_prefix,
-                )
-                continue
-            logger.warning(
-                "Route '%s' has invalid NPTv6 prefix '%s' applied. Not part of assigned scope '%s'. Recalculating",
-                configured_nptv6.to,
-                configured_nptv6.nptv6_prefix,
-                nptv6_scope,
-            )
-            configured_nptv6.nptv6_prefix = None
-        if (
-            configured_nptv6.nptv6_prefix
-            and configured_nptv6.to.prefixlen < nptv6_scope.prefixlen
-        ):
-            logger.warning(
-                "Route '%s' is too big for NPTv6 scope '%s'. Ignoring",
-                configured_nptv6.to,
-                nptv6_scope,
-            )
-            continue
-
-        for candidate_nptv6_prefix in nptv6_scope.subnets(new_prefix=nptv6_prefix):
-            # if the highest IP of the subnet is lower than the most recently added network
-            free = True
-            for npt in nptv6_list:
-                if not npt.nptv6_prefix:
-                    continue
-                # Check to be sure that the subnet isn't a supernet. That would break it
-                # otherwise.
-                if not npt.nptv6_prefix.subnet_of(nptv6_scope):
-                    continue
-                if (
-                    npt.nptv6_prefix[0]
-                    >= candidate_nptv6_prefix[-1]
-                    >= npt.nptv6_prefix[-1]
-                    or npt.nptv6_prefix[0]
-                    <= candidate_nptv6_prefix[0]
-                    <= npt.nptv6_prefix[-1]
-                ):
-                    free = False
-                    break
-
-            if not free:
-                continue
-
-            configured_nptv6.nptv6_prefix = candidate_nptv6_prefix
-            updated = True
-            break
-
-    # TODO: this is probably not needed.
-    # for connection in network_instance.connections:
-    #     nptv6_list.extend(connection.nptv6)
-    return updated, [x for x in nptv6_list if x.nptv6_prefix]
+    return nptv6_scope
 
 
 def add_network_instance_link(

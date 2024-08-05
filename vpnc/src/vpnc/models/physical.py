@@ -11,7 +11,7 @@ from pydantic import BaseModel, field_validator
 
 from .. import config
 from ..network import interface
-from . import base_enums, base_models
+from . import enums, models
 
 logger = logging.getLogger("vpnc")
 
@@ -21,27 +21,25 @@ class ConnectionConfigLocal(BaseModel):
     Defines a local connection data structure
     """
 
-    type: Literal[base_enums.ConnectionType.PHYSICAL] = (
-        base_enums.ConnectionType.PHYSICAL
-    )
+    type: Literal[enums.ConnectionType.PHYSICAL] = enums.ConnectionType.PHYSICAL
     interface_name: str
 
     @field_validator("type", mode="before")
     @classmethod
     def _coerce_type(cls, v: Any):
-        return base_enums.ConnectionType(v)
+        return enums.ConnectionType(v)
 
     def add(
         self,
-        network_instance: base_models.NetworkInstance,
+        network_instance: models.NetworkInstance,
         connection_id: int,
-        connection: base_models.Connection,
+        connection: models.Connection,
     ) -> str:
         """
         Creates a local connection
         """
 
-        if not isinstance(connection.config, base_models.ConnectionConfigLocal):
+        if not isinstance(connection.config, models.ConnectionConfigLocal):
             logger.critical(
                 "Wrong connection configuration provided for %s",
                 network_instance.name,
@@ -57,8 +55,8 @@ class ConnectionConfigLocal(BaseModel):
             )
             raise ValueError
 
-        is_downlink = network_instance.type == base_enums.NetworkInstanceType.DOWNLINK
-        is_hub = config.VPNC_SERVICE_CONFIG.mode == base_enums.ServiceMode.HUB
+        is_downlink = network_instance.type == models.NetworkInstanceType.DOWNLINK
+        is_hub = config.VPNC_SERVICE_CONFIG.mode == enums.ServiceMode.HUB
         if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
             network_instance, connection_id, is_downlink, is_hub
         )

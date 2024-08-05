@@ -50,47 +50,38 @@ def load_config(config_path: pathlib.Path):
     logger.info("Loaded new configuration.")
 
 
-def parse_downlink_network_instance_connection_name(
-    connection_name: str,
-) -> dict[str, Any]:
-    """
-    Parses a connection name into it's components
-    """
-    if not config.DOWNLINK_CON_RE.match(connection_name):
-        raise ValueError(
-            f"Invalid downlink connection name '{connection_name}'",
-        )
-
-    return {
-        "tenant": connection_name[:5],
-        "tenant_ext": int(connection_name[0], 16),
-        "tenant_ext_str": connection_name[0],
-        "tenant_id": int(connection_name[1:5], 16),
-        "tenant_id_str": connection_name[1:5],
-        "network_instance": connection_name[:8],
-        "network_instance_id": int(connection_name[6:8], 16),
-        "connection": connection_name,
-        "connection_id": int(connection_name[-1], 16),
-    }
-
-
 def parse_downlink_network_instance_name(
-    network_instance_name: str,
+    name: str,
 ) -> dict[str, Any]:
     """
     Parses a connection name into it's components
     """
-    if not config.DOWNLINK_NI_RE.match(network_instance_name):
-        raise ValueError(
-            f"Invalid downlink network instance name '{network_instance_name}'",
-        )
+    if config.DOWNLINK_CON_RE.match(name):
+        return {
+            "tenant": name[:5],
+            "tenant_ext": int(name[0], 16),
+            "tenant_ext_str": name[0],
+            "tenant_id": int(name[1:5], 16),
+            "tenant_id_str": name[1:5],
+            "network_instance": name[:8],
+            "network_instance_id": int(name[6:8], 16),
+            "connection": name,
+            "connection_id": int(name[-1], 16),
+        }
 
-    return {
-        "tenant": network_instance_name[:5],
-        "tenant_ext": int(network_instance_name[0], 16),
-        "tenant_ext_str": network_instance_name[0],
-        "tenant_id": int(network_instance_name[1:5], 16),
-        "tenant_id_str": network_instance_name[1:5],
-        "network_instance": network_instance_name[:8],
-        "network_instance_id": int(network_instance_name[6:8], 16),
-    }
+    elif config.DOWNLINK_NI_RE.match(name):
+        return {
+            "tenant": name[:5],
+            "tenant_ext": int(name[0], 16),
+            "tenant_ext_str": name[0],
+            "tenant_id": int(name[1:5], 16),
+            "tenant_id_str": name[1:5],
+            "network_instance": name[:8],
+            "network_instance_id": int(name[6:8], 16),
+            "connection": None,
+            "connection_id": None,
+        }
+
+    raise ValueError(
+        f"Invalid downlink network instance/connection name '{name}'",
+    )

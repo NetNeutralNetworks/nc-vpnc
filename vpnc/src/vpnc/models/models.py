@@ -12,7 +12,7 @@ from ipaddress import (
     IPv6Network,
     NetmaskValueError,
 )
-from typing import Any, Literal
+from typing import Any
 
 from packaging.version import Version
 from pydantic import (
@@ -27,7 +27,7 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from .. import config, helpers
-from .base_enums import NetworkInstanceType, ServiceMode
+from .enums import NetworkInstanceType, ServiceMode
 from .ipsec import ConnectionConfigIPsec
 from .physical import ConnectionConfigLocal
 

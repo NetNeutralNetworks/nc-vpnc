@@ -2,6 +2,7 @@
 Monitors FRR routing changes
 """
 
+import atexit
 import logging
 import pathlib
 import subprocess
@@ -11,6 +12,7 @@ from ipaddress import IPv4Network, IPv6Network
 from jinja2 import Environment, FileSystemLoader
 from watchdog.events import (
     FileCreatedEvent,
+    FileDeletedEvent,
     FileModifiedEvent,
     PatternMatchingEventHandler,
 )
@@ -47,6 +49,11 @@ def observe() -> BaseObserver:
             time.sleep(0.1)
             self.reload_config()
 
+        def on_deleted(self, event: FileDeletedEvent):
+            logger.info("File %s: %s", event.event_type, event.src_path)
+            time.sleep(0.1)
+            self.reload_config()
+
         def reload_config(self):
             """
             Loads FRR config from file in an idempotent way
@@ -71,13 +78,13 @@ def observe() -> BaseObserver:
         path=config.FRR_CONFIG_PATH.parent,
         recursive=False,
     )
-    # The handler will not be running as a thread.
-    observer.daemon = False
+    # The handler should exit on main thread close
+    observer.daemon = True
 
     return observer
 
 
-def generate_frr_cfg():
+def generate_config():
     """
     Generate dictionaries for the FRR configuration
     """
@@ -118,3 +125,39 @@ def generate_frr_cfg():
 
     with open(config.FRR_CONFIG_PATH, "w+", encoding="utf-8") as f:
         f.write(frr_render)
+
+
+def stop():
+    """
+    Shut down IPsec when terminating the program
+    """
+    proc = subprocess.Popen(
+        ["/usr/lib/frr/frrinit.sh", "stop"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=False,
+    )
+    logger.info(proc.args)
+    logger.debug(proc.stdout)
+
+
+def start():
+    """
+    Start the IPSec service in the EXTERNAL network instance.
+    """
+
+    # Remove old frr config files
+    logger.debug("Unlinking FRR config file %s at startup", config.FRR_CONFIG_PATH)
+    config.FRR_CONFIG_PATH.unlink(missing_ok=True)
+
+    proc = subprocess.Popen(
+        ["/usr/lib/frr/frrinit.sh", "start"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=False,
+    )
+    logger.info(proc.args)
+    time.sleep(5)
+    logger.debug(proc.stdout)
+
+    atexit.register(stop)

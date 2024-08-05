@@ -2,10 +2,11 @@
 Runs the core of the application which sets up the network and starts the monitors and observers.
 """
 
-import atexit
 import logging
 import subprocess
+import sys
 import time
+from multiprocessing import Value
 
 from . import config, frr, models, network_instance, strongswan
 
@@ -18,16 +19,10 @@ def concentrator():
     instace.
     """
     logger.info("#" * 100)
-    logger.info("Starting ncubed VPNC strongSwan daemon in hub mode.")
-
-    # Remove old strongswan/swanctl config files
-    for file in config.VPN_CONFIG_DIR.iterdir():
-        logger.debug("Unlinking swanctl config file %s at startup", file)
-        file.unlink(missing_ok=True)
-
-    # Remove old frr config files
-    logger.debug("Unlinking FRR config file %s at startup", config.FRR_CONFIG_PATH)
-    config.FRR_CONFIG_PATH.unlink(missing_ok=True)
+    logger.info(
+        "Starting ncubed VPNC strongSwan daemon in %s mode.",
+        config.VPNC_SERVICE_CONFIG.mode.name,
+    )
 
     # Mount the DEFAULT network instance with it's alias. This makes for consistent operation
     # between all network instances
@@ -48,16 +43,24 @@ def concentrator():
     # This provides VPN connectivity
     logger.info("Setting up %s network instance", config.EXTERNAL_NI)
     external_ni = config.VPNC_SERVICE_CONFIG.network_instances[config.EXTERNAL_NI]
-    network_instance.general.add_network_instance(external_ni)
+    try:
+        network_instance.add_network_instance(external_ni)
+    except ValueError:
+        logger.critical("Setting up the EXTERNAL network instance failed.")
+        sys.exit(1)
     network_instance.add_external_iptables(external_ni)
 
     # Create and mount the CORE network instance. This provides the management connectivity
     # The CORE namespace has no internet connectivity.
     core_ni = config.VPNC_SERVICE_CONFIG.network_instances[config.CORE_NI]
-    network_instance.general.add_network_instance(core_ni)
+    try:
+        network_instance.add_network_instance(core_ni)
+    except ValueError:
+        logger.critical("Setting up the CORE network instance failed.")
+        sys.exit(1)
 
     # The IPSec process must be started in the EXTERNAL network instance.
-    strongswan.start_ipsec()
+    strongswan.start()
 
     logger.info("Monitoring swantcl config changes.")
     swan_obs = strongswan.observe()
@@ -82,20 +85,6 @@ def concentrator():
             check=True,
         )
 
-        def unload_jool():
-            subprocess.run(
-                """
-                # Load the NAT64 kernel module (jool).
-                modprobe -r jool
-                """,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                shell=True,
-                check=False,
-            )
-
-        # atexit.register(unload_jool)
-
         # VPNC in hub mode doctors DNS responses so requests are sent via the tunnel.
         # Start the VPNC mangle process in the CORE network instance.
         # This process mangles DNS responses to translate A responses to AAAA responses.
@@ -116,25 +105,7 @@ def concentrator():
         # VPNC in hub mode uses FRR to exchange routes. Start FRR to make sure it can load the
         # CORE and EXTERNAL network instances
         logger.info("Start FRR.")
-
-        def stop_frr():
-            sp = subprocess.Popen(
-                ["/usr/lib/frr/frrinit.sh", "stop"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                shell=False,
-            )
-            logger.info(sp.args)
-
-        sp = subprocess.Popen(
-            ["/usr/lib/frr/frrinit.sh", "start"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            shell=False,
-        )
-        logger.info(sp.args)
-        atexit.register(stop_frr)
-        time.sleep(5)
+        frr.start()
 
         logger.info("Monitoring frr config changes.")
         frr_obs = frr.observe()
@@ -152,3 +123,6 @@ def concentrator():
 
     network_instance.update_core_network_instance()
     network_instance.update_downlink_network_instance()
+
+    while True:
+        time.sleep(0.1)
