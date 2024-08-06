@@ -172,7 +172,7 @@ class Monitor(threading.Thread):
         if len(keys := ike_event.keys()) == 2:
             _, ike_name = list(keys)
         else:
-            ike_name: str = list(keys)[0]
+            ike_name = list(keys)[0]
 
         if ike_name.startswith(config.CORE_NI):
             return

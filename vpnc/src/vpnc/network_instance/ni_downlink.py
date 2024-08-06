@@ -1,3 +1,7 @@
+"""
+Code to manage DOWNLINK network instances.
+"""
+
 import json
 import logging
 import pathlib
@@ -6,12 +10,7 @@ import time
 
 import yaml
 from jinja2 import Environment, FileSystemLoader
-from watchdog.events import (
-    FileCreatedEvent,
-    FileDeletedEvent,
-    FileModifiedEvent,
-    PatternMatchingEventHandler,
-)
+from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
@@ -36,19 +35,19 @@ def observe_downlink() -> BaseObserver:
         Handler for the event monitoring.
         """
 
-        def on_created(self, event: FileCreatedEvent):
+        def on_created(self, event: FileSystemEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             downlink_config = pathlib.Path(event.src_path)
             time.sleep(0.1)
             add_downlink_network_instance(downlink_config)
 
-        def on_modified(self, event: FileModifiedEvent):
+        def on_modified(self, event: FileSystemEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             downlink_config = pathlib.Path(event.src_path)
             time.sleep(0.1)
             add_downlink_network_instance(downlink_config)
 
-        def on_deleted(self, event: FileDeletedEvent):
+        def on_deleted(self, event: FileSystemEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             downlink_config = pathlib.Path(event.src_path).stem
             time.sleep(0.1)
@@ -137,7 +136,7 @@ def add_downlink_network_instance(path: pathlib.Path):
     ni_diff = {x["name"] for x in ip_ni if x["name"].startswith(tenant.id)}
     ni_ref = {
         x.name
-        for _, x in tenant.network_instances.items()
+        for _, x in tenant.network_instances.items()  # pylint: disable=no-member
         if x.name.startswith(tenant.id)
     }
 
@@ -151,7 +150,10 @@ def add_downlink_network_instance(path: pathlib.Path):
 
     logger.info("Setting up tenant %s netns.", tenant.id)
     update_check: list[bool] = []
-    for key, network_instance in tenant.network_instances.items():
+    for (
+        key,
+        network_instance,
+    ) in tenant.network_instances.items():  # pylint: disable=no-member
         if not key.startswith(tenant.id):
             logger.warning(
                 "Invalid network instance '%s' found for tenant '%s'.", key, tenant.id
@@ -359,8 +361,8 @@ def add_downlink_iptables(
     downlink_interfaces: list[str],
 ):
     """
-    The DOWNLINK network instance blocks all traffic except for traffic from the CORE network instance and
-    ICMPv6
+    The DOWNLINK network instance blocks all traffic except for traffic from the CORE network
+    instance and ICMPv6
     """
     iptables_template = TEMPLATES_ENV.get_template("iptables-downlink.conf.j2")
     updated, nptv6_networks = get_network_instance_nptv6_networks(network_instance)

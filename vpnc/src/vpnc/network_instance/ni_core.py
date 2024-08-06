@@ -1,10 +1,14 @@
+"""
+Code to manage the CORE network instance specifically.
+"""
+
 import logging
 import pathlib
 import subprocess
 import time
 
 from jinja2 import Environment, FileSystemLoader
-from watchdog.events import FileModifiedEvent, FileSystemEventHandler
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
@@ -29,7 +33,7 @@ def observe_core() -> BaseObserver:
         Handler for the event monitoring.
         """
 
-        def on_modified(self, event: FileModifiedEvent):
+        def on_modified(self, event: FileSystemEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             helpers.load_config(config.VPNC_A_SERVICE_CONFIG_PATH)
             time.sleep(0.1)

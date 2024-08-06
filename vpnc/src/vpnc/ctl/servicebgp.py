@@ -27,7 +27,7 @@ def show(active: Annotated[bool, typer.Option("--active/--candidate")] = False):
         return
 
     with open(config.VPNC_A_SERVICE_CONFIG_PATH, "r", encoding="utf-8") as f:
-        service = models.Service(**yaml.safe_load(f))
+        service = models.ServiceEndpoint(**yaml.safe_load(f))
 
     if service.mode.name == "ENDPOINT":
         return "BGP is inactive. Running in 'endpoint' mode."
@@ -58,7 +58,7 @@ def set_(
         return
 
     with open(config.VPNC_A_SERVICE_CONFIG_PATH, "r", encoding="utf-8") as f:
-        service = models.Service(**yaml.safe_load(f))
+        service = models.ServiceEndpoint(**yaml.safe_load(f))
 
     if service.mode.name == "ENDPOINT":
         return "BGP is inactive. Running in 'endpoint' mode."

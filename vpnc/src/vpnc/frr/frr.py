@@ -10,16 +10,11 @@ import time
 from ipaddress import IPv4Network, IPv6Network
 
 from jinja2 import Environment, FileSystemLoader
-from watchdog.events import (
-    FileCreatedEvent,
-    FileDeletedEvent,
-    FileModifiedEvent,
-    PatternMatchingEventHandler,
-)
+from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from .. import config
+from .. import config, models
 
 logger = logging.getLogger("vpnc")
 
@@ -39,17 +34,17 @@ def observe() -> BaseObserver:
         Handler for the event monitoring.
         """
 
-        def on_created(self, event: FileCreatedEvent):
+        def on_created(self, event: FileSystemEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             time.sleep(0.1)
             self.reload_config()
 
-        def on_modified(self, event: FileModifiedEvent):
+        def on_modified(self, event: FileSystemEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             time.sleep(0.1)
             self.reload_config()
 
-        def on_deleted(self, event: FileDeletedEvent):
+        def on_deleted(self, event: FileSystemEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
             time.sleep(0.1)
             self.reload_config()
@@ -88,6 +83,9 @@ def generate_config():
     """
     Generate dictionaries for the FRR configuration
     """
+
+    assert isinstance(config.VPNC_SERVICE_CONFIG, models.ServiceHub)
+
     neighbors = []
     net_instance = config.VPNC_SERVICE_CONFIG.network_instances[config.CORE_NI]
     for neighbor in config.VPNC_SERVICE_CONFIG.bgp.neighbors:

@@ -57,7 +57,7 @@ def list_(ctx: typer.Context):
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        service = models.Service(**yaml.safe_load(f))
+        service = models.ServiceEndpoint(**yaml.safe_load(f))
 
     print("tunnel description\n------ -----------")
     for k, v in service.connections.items():
@@ -71,7 +71,7 @@ def show(ctx: typer.Context):
     """
     path = config.VPNC_C_SERVICE_CONFIG_PATH
     with open(path, "r", encoding="utf-8") as f:
-        service = models.Service(**yaml.safe_load(f))
+        service = models.ServiceEndpoint(**yaml.safe_load(f))
 
     if service.mode.name != "HUB":
         print("Service is not running in hub mode")
@@ -136,7 +136,7 @@ def add(
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        service = models.Service(**yaml.safe_load(f))
+        service = models.ServiceEndpoint(**yaml.safe_load(f))
 
     if service.mode.name != "HUB":
         print("Service is not running in hub mode")
@@ -217,7 +217,7 @@ def set_(
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        service = models.Service(**yaml.safe_load(f))
+        service = models.ServiceEndpoint(**yaml.safe_load(f))
 
     if service.mode.name != "HUB":
         print("Service is not running in hub mode")
@@ -287,7 +287,7 @@ def unset(
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        service = models.Service(**yaml.safe_load(f))
+        service = models.ServiceEndpoint(**yaml.safe_load(f))
 
     tunnel_id = ctx.obj["tunnel_id"]
     if not service.connections.get(tunnel_id):
@@ -335,7 +335,7 @@ def delete(
     """
     path = config.VPNC_C_SERVICE_CONFIG_PATH
     with open(path, "r", encoding="utf-8") as f:
-        service = models.Service(**yaml.safe_load(f))
+        service = models.ServiceEndpoint(**yaml.safe_load(f))
 
     if service.mode.name != "HUB":
         print("Service is not running in hub mode")

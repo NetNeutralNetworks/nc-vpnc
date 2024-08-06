@@ -38,7 +38,7 @@ def load_config(config_path: pathlib.Path):
             )
             sys.exit(1)
     try:
-        config.VPNC_SERVICE_CONFIG = models.Service(**new_cfg_dict)
+        config.VPNC_SERVICE_CONFIG = models.Service(**{"service": new_cfg_dict}).service
     except pydantic_core.ValidationError:
         logger.critical(
             "Configuration '%s' doesn't adhere to the schema",

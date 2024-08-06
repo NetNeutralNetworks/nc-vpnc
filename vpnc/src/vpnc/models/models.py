@@ -12,7 +12,7 @@ from ipaddress import (
     IPv6Network,
     NetmaskValueError,
 )
-from typing import Any
+from typing import Any, Literal
 
 from packaging.version import Version
 from pydantic import (
@@ -22,9 +22,7 @@ from pydantic import (
     ValidationInfo,
     field_serializer,
     field_validator,
-    model_validator,
 )
-from pydantic_core import PydanticCustomError
 
 from .. import config, helpers
 from .enums import NetworkInstanceType, ServiceMode
@@ -135,18 +133,21 @@ class Connection(BaseModel):
         self,
         network_instance: "NetworkInstance",
         connection_id: int,
-        is_downlink=False,
-        is_hub=False,
-    ):
+    ) -> tuple[list[IPv4Interface], list[IPv6Interface]]:
         """
         Calculates Interface IP addresses for a DOWNLINK network instance if not configured
         """
 
+        is_downlink: bool = network_instance.type == NetworkInstanceType.DOWNLINK
         if is_downlink:
             parsed_ni = helpers.parse_downlink_network_instance_name(
                 network_instance.name
             )
-        if not self.interface.ipv4 and is_downlink and is_hub:
+        if (
+            not self.interface.ipv4  # pylint: disable=no-member
+            and is_downlink
+            and isinstance(config.VPNC_SERVICE_CONFIG, ServiceHub)
+        ):
             pdi4 = config.VPNC_SERVICE_CONFIG.prefix_downlink_interface_v4
             ipv4_ni_network = list(pdi4.subnets(new_prefix=24))[
                 parsed_ni["network_instance_id"]
@@ -158,12 +159,16 @@ class Connection(BaseModel):
                 ipaddress.IPv4Interface(f"{ipv4_con_network[1]}/28")
             ]
 
-        elif self.interface.ipv4 is None:
+        elif self.interface.ipv4 is None:  # pylint: disable=no-member
             interface_ipv4_address = []
         else:
-            interface_ipv4_address = self.interface.ipv4
+            interface_ipv4_address = self.interface.ipv4  # pylint: disable=no-member
 
-        if not self.interface.ipv6 and is_downlink and is_hub:
+        if (
+            not self.interface.ipv6  # pylint: disable=no-member
+            and is_downlink
+            and isinstance(config.VPNC_SERVICE_CONFIG, ServiceHub)
+        ):
             pdi6 = config.VPNC_SERVICE_CONFIG.prefix_downlink_interface_v6
             ipv6_ni_network = list(pdi6.subnets(new_prefix=48))[
                 parsed_ni["network_instance_id"]
@@ -173,10 +178,10 @@ class Connection(BaseModel):
                     list(ipv6_ni_network.subnets(new_prefix=64))[connection_id]
                 )
             ]
-        elif self.interface.ipv6 is None:
+        elif self.interface.ipv6 is None:  # pylint: disable=no-member
             interface_ipv6_address = []
         else:
-            interface_ipv6_address = self.interface.ipv6
+            interface_ipv6_address = self.interface.ipv6  # pylint: disable=no-member
 
         return interface_ipv4_address, interface_ipv6_address
 
@@ -225,13 +230,6 @@ class Tenant(BaseModel):
     def _version_to_str(self, v: Version) -> str:
         return str(v)
 
-    @field_validator("metadata", mode="before")
-    @classmethod
-    def _coerce_metadata(cls, v: Any):
-        if v is None:
-            return {}
-        return v
-
 
 class BGPGlobal(BaseModel):
     """
@@ -262,7 +260,7 @@ class BGP(BaseModel):
     globals: BGPGlobal
 
 
-class Service(Tenant):
+class ServiceEndpoint(Tenant):
     """
     Defines a service data structure
     """
@@ -271,53 +269,67 @@ class Service(Tenant):
 
     id: str = "service"
     name: str = "Service"
-    metadata: dict = Field(default_factory=dict)
-    mode: ServiceMode = Field(frozen=True)
+    mode: Literal[ServiceMode.ENDPOINT] = ServiceMode.ENDPOINT
+
+    # VPN CONFIG
+    # IKE local identifier for VPNs
+    local_id: str = r"%any"
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _coerce_type(cls, v: Any):
+        return ServiceMode(v)
+
+
+class ServiceHub(Tenant):
+    """
+    Defines a service data structure
+    """
+
+    model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
+
+    id: str = "service"
+    name: str = "Service"
+    mode: Literal[ServiceMode.HUB] = ServiceMode.HUB
 
     # VPN CONFIG
     # IKE local identifier for VPNs
     local_id: str = r"%any"
 
     # OVERLAY CONFIG
-    # IPv4 prefix for downlink interfaces. Must be a /16, will get subnetted into /24s per downlink interface per tunnel.
-    prefix_downlink_interface_v4: IPv4Network | None = Field(
-        default=None, validate_default=True
-    )
-    # IPv6 prefix for downlink interfaces. Must be a /48 or larger, will get subnetted into /64s per downlink interface per tunnel.
-    prefix_downlink_interface_v6: IPv6Network | None = Field(
-        default=None, validate_default=True
-    )
-    # IPv6 prefix for NAT64. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
-    prefix_downlink_nat64: IPv6Network | None = Field(
-        default=None, validate_default=True
-    )
-    # IPv6 prefix for NPTv6. Must be a /16. Will be subnetted into /48s per downlink per tunnel.
-    prefix_downlink_nptv6: IPv6Network | None = Field(
-        default=None, validate_default=True
-    )
+    # IPv4 prefix for downlink interfaces. Must be a /16, will get subnetted into /24s per downlink
+    # interface per tunnel.
+    prefix_downlink_interface_v4: IPv4Network = IPv4Network("100.64.0.0/10")
+    # IPv6 prefix for downlink interfaces. Must be a /48 or larger, will get subnetted into /64s per
+    # downlink interface per tunnel.
+    prefix_downlink_interface_v6: IPv6Network = IPv6Network("fdcc:cbe::/32")
+    # The below are used on the provider side to uniquely adress tenant environments
+    # IPv6 prefix for NAT64. Must be a /32 or larger. Will be subnetted into /96s per downlink per
+    # tunnel.
+    prefix_downlink_nat64: IPv6Network = IPv6Network("64:ff9b::/32")
+    # IPv6 prefix for NPTv6. Must be a /12 or larger. Will be subnetted into /48s per downlink per
+    # tunnel.
+    prefix_downlink_nptv6: IPv6Network = IPv6Network("660::/12")
 
     ## BGP config
-    # bgp_as private range is between 4.200.000.000 and 4.294.967.294 inclusive.
-    bgp: BGP | None = Field(default=None, validate_default=True)
+    bgp: BGP
 
-    @field_validator(
-        "prefix_downlink_interface_v4",
-        "prefix_downlink_interface_v6",
-        "prefix_downlink_nat64",
-        "prefix_downlink_nptv6",
-        "bgp",
-    )
+    @field_validator("mode", mode="before")
     @classmethod
-    def check_endpoint_mode(cls, v: Any, info: ValidationInfo) -> Any:
+    def _coerce_type(cls, v: Any):
+        return ServiceMode(v)
+
+    @field_validator("prefix_downlink_interface_v4")
+    @classmethod
+    def set_default_prefix_downlink_interface_v4(
+        cls, v: IPv4Network, _: ValidationInfo
+    ) -> IPv4Network:
         """
-        Performs checks for specific items if running in endpoint mode.
+        Check if the value adheres to the limits.
         """
-        mode: ServiceMode = info.data["mode"]
-        if mode == ServiceMode.ENDPOINT and v is not None:
-            raise PydanticCustomError(
-                "service mode error",
-                "value must be None or unset",
-                {"prop": v},
+        if isinstance(v, IPv4Network) and v.prefixlen > 16:
+            raise NetmaskValueError(
+                "'prefix_downlink_interface_v4' prefix length must be '16' or lower."
             )
 
         return v
@@ -325,83 +337,52 @@ class Service(Tenant):
     @field_validator("prefix_downlink_interface_v6")
     @classmethod
     def set_default_prefix_downlink_interface_v6(
-        cls, v: IPv6Network | None, info: ValidationInfo
-    ) -> IPv6Network | None:
+        cls, v: IPv6Network, _: ValidationInfo
+    ) -> IPv6Network:
         """
-        Set the default value based on mode.
+        Check if the value adheres to the limits.
         """
-        mode: ServiceMode = info.data["mode"]
         if isinstance(v, IPv6Network) and v.prefixlen > 32:
             raise NetmaskValueError(
                 "'prefix_downlink_interface_v6' prefix length must be '32' or lower."
             )
-        if mode == ServiceMode.HUB and v is None:
-            # IP prefix for downlinks. Must be a /48 or larger, will get subnetted into /64s per downlink tunnel.
-            return IPv6Network("fdcc:cbe::/48")
-        if mode == ServiceMode.ENDPOINT:
-            return None
-
-        return v
-
-    @field_validator("prefix_downlink_interface_v4")
-    @classmethod
-    def set_default_prefix_downlink_interface_v4(
-        cls, v: IPv4Network | None, info: ValidationInfo
-    ) -> IPv4Network | None:
-        """
-        Set the default value based on mode.
-        """
-        mode: ServiceMode = info.data["mode"]
-        if isinstance(v, IPv4Network) and v.prefixlen > 16:
-            raise NetmaskValueError(
-                "'prefix_downlink_interface_v4' prefix length must be '16' or lower."
-            )
-        if mode == ServiceMode.HUB and v is None:
-            # IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
-            return IPv4Network("100.99.0.0/16")
-        if mode == ServiceMode.ENDPOINT:
-            return None
 
         return v
 
     @field_validator("prefix_downlink_nat64")
     @classmethod
     def set_default_prefix_downlink_nat64(
-        cls, v: IPv6Network | None, info: ValidationInfo
-    ) -> IPv6Network | None:
+        cls, v: IPv6Network, _: ValidationInfo
+    ) -> IPv6Network:
         """
-        Set the default value based on mode.
+        Check if the value adheres to the limits.
         """
-        mode: ServiceMode = info.data["mode"]
         if isinstance(v, IPv6Network) and v.prefixlen > 32:
             raise NetmaskValueError(
                 "'prefix_downlink_nat64' prefix length must be '32' or lower."
             )
-        if mode == ServiceMode.HUB and v is None:
-            # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
-            return IPv6Network("fdcc::/32")
-        if mode == ServiceMode.ENDPOINT:
-            return None
 
         return v
 
     @field_validator("prefix_downlink_nptv6")
     @classmethod
     def set_default_prefix_downlink_nptv6(
-        cls, v: IPv6Network | None, info: ValidationInfo
-    ) -> IPv6Network | None:
+        cls, v: IPv6Network, _: ValidationInfo
+    ) -> IPv6Network:
         """
-        Set the default value based on mode.
+        Check if the value adheres to the limits.
         """
-        mode: ServiceMode = info.data["mode"]
-        if isinstance(v, IPv6Network) and v.prefixlen > 16:
+        if isinstance(v, IPv6Network) and v.prefixlen > 12:
             raise NetmaskValueError(
-                "'prefix_downlink_nptv6' prefix length must be '16' or lower."
+                "'prefix_downlink_nptv6' prefix length must be '12' or lower."
             )
-        if mode == ServiceMode.HUB and v is None:
-            # IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
-            return IPv6Network("fdc6::/16")
-        if mode == ServiceMode.ENDPOINT:
-            return None
 
         return v
+
+
+class Service(BaseModel):
+    """
+    Union type to help with loading config
+    """
+
+    service: ServiceHub | ServiceEndpoint

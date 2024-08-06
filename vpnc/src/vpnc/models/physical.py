@@ -1,15 +1,14 @@
 """
-Code to configure the local connection
+Code to configure PHYSICAL connections
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator
 
-from .. import config
 from ..network import interface
 from . import enums, models
 
@@ -55,10 +54,8 @@ class ConnectionConfigLocal(BaseModel):
             )
             raise ValueError
 
-        is_downlink = network_instance.type == models.NetworkInstanceType.DOWNLINK
-        is_hub = config.VPNC_SERVICE_CONFIG.mode == enums.ServiceMode.HUB
         if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
-            network_instance, connection_id, is_downlink, is_hub
+            network_instance, connection_id
         )
         addresses = if_ipv6 + if_ipv4
         interface.set(
@@ -70,7 +67,7 @@ class ConnectionConfigLocal(BaseModel):
 
         return connection.config.interface_name
 
-    def intf_name(self, connection_id: int):
+    def intf_name(self, _: int):
         """
         Returns the name of the connection interface
         """

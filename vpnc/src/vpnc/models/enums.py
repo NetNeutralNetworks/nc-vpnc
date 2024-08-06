@@ -1,3 +1,7 @@
+"""
+Various enums used throughout the package
+"""
+
 from enum import Enum
 
 

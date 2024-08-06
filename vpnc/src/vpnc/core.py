@@ -6,7 +6,6 @@ import logging
 import subprocess
 import sys
 import time
-from multiprocessing import Value
 
 from . import config, frr, models, network_instance, strongswan
 

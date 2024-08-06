@@ -176,17 +176,21 @@ def add_network_instance_connection_route(
         config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB
         or network_instance.type != models.NetworkInstanceType.CORE
     ):
-        for route in connection.routes.ipv6:
-            if not route.via or connection.config.type in [models.ConnectionType.IPSEC]:
-                route_cmds += f"ip -n {network_instance.name} -6 route add {route.to} dev {interface}\n"
+        for route6 in connection.routes.ipv6:
+            if not route6.via or connection.config.type in [
+                models.ConnectionType.IPSEC
+            ]:
+                route_cmds += f"ip -n {network_instance.name} -6 route add {route6.to} dev {interface}\n"
                 continue
-            route_cmds += f"ip -n {network_instance.name} -6 route add {route.to} via {route.via} dev {interface}\n"
+            route_cmds += f"ip -n {network_instance.name} -6 route add {route6.to} via {route6.via} dev {interface}\n"
 
-        for route in connection.routes.ipv4:
-            if not route.via or connection.config.type in [models.ConnectionType.IPSEC]:
-                route_cmds += f"ip -n {network_instance.name} -4 route add {route.to} dev {interface}\n"
+        for route4 in connection.routes.ipv4:
+            if not route4.via or connection.config.type in [
+                models.ConnectionType.IPSEC
+            ]:
+                route_cmds += f"ip -n {network_instance.name} -4 route add {route4.to} dev {interface}\n"
                 continue
-            route_cmds += f"ip -n {network_instance.name} -4 route add {route.to} via {route.via} dev {interface}\n"
+            route_cmds += f"ip -n {network_instance.name} -4 route add {route4.to} via {route4.via} dev {interface}\n"
 
     output = subprocess.run(
         route_cmds,
@@ -205,6 +209,8 @@ def get_network_instance_nat64_scope(
     """
     Returns the IPv6 NPTv6 scope for a network instance. This is always a /48.
     """
+
+    assert isinstance(config.VPNC_SERVICE_CONFIG, models.ServiceHub)
 
     ni_info = helpers.parse_downlink_network_instance_name(network_instance_name)
 
@@ -228,6 +234,8 @@ def get_network_instance_nptv6_scope(
     """
     Returns the IPv6 NPTv6 scope for a network instance. This is always a /48.
     """
+
+    assert isinstance(config.VPNC_SERVICE_CONFIG, models.ServiceHub)
 
     ni_info = helpers.parse_downlink_network_instance_name(network_instance_name)
 

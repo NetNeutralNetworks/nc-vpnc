@@ -44,7 +44,7 @@ def show(
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        service = models.Service(**yaml.safe_load(f))
+        service = models.ServiceEndpoint(**yaml.safe_load(f))
 
     output = service.model_dump(mode="json")
     if full:
@@ -87,14 +87,16 @@ def edit():
             tf.seek(0)
             edited_message = tf.read()
             try:
-                edited_service = models.Service(**yaml.safe_load(edited_message))
+                edited_service = models.ServiceEndpoint(
+                    **yaml.safe_load(edited_message)
+                )
                 correct = True
             except ValueError:
                 tf.seek(0)
                 tf.write(edited_message)
                 tf.flush()
     if correct:
-        edited_service = models.Service(**yaml.safe_load(edited_message))
+        edited_service = models.ServiceEndpoint(**yaml.safe_load(edited_message))
         print("Edited file")
     else:
         print("Didn't edit file")
@@ -139,7 +141,7 @@ def set_(
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        service = models.Service(**yaml.safe_load(f))
+        service = models.ServiceEndpoint(**yaml.safe_load(f))
 
     updated_service = service.model_copy(update=all_args)
 
@@ -168,13 +170,13 @@ def commit(
         return "Candidate configuration file doesn't exist. Generate a blank one with the 'service generate' command."
     with open(path, "r", encoding="utf-8") as f:
         service_yaml = f.read()
-        service = models.Service(**yaml.safe_load(service_yaml))
+        service = models.ServiceEndpoint(**yaml.safe_load(service_yaml))
 
     if not path_diff.exists():
         return "Active configuration file doesn't exist. Generate a blank one with the 'service generate --active' command."
     with open(path_diff, "r", encoding="utf-8") as f:
         service_diff_yaml = f.read()
-        service_diff = models.Service(**yaml.safe_load(service_diff_yaml))
+        service_diff = models.ServiceEndpoint(**yaml.safe_load(service_diff_yaml))
 
     if service_yaml == service_diff_yaml:
         print("No changes.")

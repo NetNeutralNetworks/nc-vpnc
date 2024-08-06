@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+"""
+Stores global configuration
+"""
+
 import ipaddress
 import logging
 import re
@@ -48,4 +52,4 @@ EXTERNAL_NI = "UNTRUST"  # name of the EXTERNAL untrusted network instance
 DEFAULT_NI = "ROOT"  # name of the DEFAULT network instance
 
 # Variables used for shared configuration
-VPNC_SERVICE_CONFIG: models.Service
+VPNC_SERVICE_CONFIG: models.ServiceEndpoint | models.ServiceHub

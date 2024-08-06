@@ -1,3 +1,7 @@
+"""
+Code to configure IPSEC connections
+"""
+
 from __future__ import annotations
 
 import logging
@@ -96,10 +100,8 @@ class ConnectionConfigIPsec(BaseModel):
                 f"0x{network_instance.name.replace('-', '')}{connection_id}", 16
             )
 
-        is_downlink = network_instance.type == enums.NetworkInstanceType.DOWNLINK
-        is_hub = config.VPNC_SERVICE_CONFIG.mode == enums.ServiceMode.HUB
         if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
-            network_instance, connection_id, is_downlink, is_hub
+            network_instance, connection_id
         )
 
         # TODO: check if it is OK to always attach to the same external interface.

@@ -1,5 +1,5 @@
 """
-Manages VPN connections and observers used to monitor file changes
+Manages network instances, connections and observers used to monitor file changes
 """
 
 from .general import *
