@@ -13,17 +13,17 @@ from netfilterqueue import NetfilterQueue, Packet
 logger = logging.getLogger("vpncmangle")
 
 
-def setup_ip6tables():
+def setup_ip6tables(queue_number: int):
     """
     Configure ip6tables to capture DNS responses.
     """
 
     sp = subprocess.run(
-        """
+        f"""
         # Configure DNS64 mangle
         ip6tables -t mangle -F
-        ip6tables -t mangle -A POSTROUTING -p udp -m udp --sport 53 -j NFQUEUE --queue-num 1
-        # ip6tables -t mangle -A POSTROUTING -p tcp -m tcp --sport 53 -j NFQUEUE --queue-num 1
+        ip6tables -t mangle -A POSTROUTING -p udp -m udp --sport 53 -j NFQUEUE --queue-num {queue_number}
+        # ip6tables -t mangle -A POSTROUTING -p tcp -m tcp --sport 53 -j NFQUEUE --queue-num {queue_number}
         """,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -193,11 +193,22 @@ def main():
     logger.addHandler(rothandler)
     logger.addHandler(logging.StreamHandler(sys.stdout))
 
-    setup_ip6tables()
-
     nfqueue = NetfilterQueue()
+    retries = 10
+
     while True:
-        nfqueue.bind(1, mangle_dns)
+        for queue_number in range(retries):
+            try:
+                nfqueue.bind(queue_number, mangle_dns)
+                setup_ip6tables(queue_number)
+                break
+            except ImportError:
+                logger.debug(
+                    "Attaching to netfilter queue %s failed, retrying.", queue_number
+                )
+            if queue_number >= retries - 1:
+                logger.critical("Could not find an available netfilter queue.")
+                sys.exit(1)
         try:
             logger.info("Starting mangle process.")
             nfqueue.run()

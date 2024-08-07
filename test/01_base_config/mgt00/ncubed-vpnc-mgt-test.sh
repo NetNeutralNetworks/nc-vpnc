@@ -32,7 +32,7 @@ BGP_PEER_AS_1="4266666666"
 
 # Add FRR and other required services to the installation
 echo deb https://deb.frrouting.org/frr $(lsb_release -s -c) $FRRVER | tee /etc/apt/sources.list.d/frr.list
-DEBIAN_FRONTEND=noninteractive apt install -y iproute2 iputils-ping strongswan strongswan-swanctl frr frr-pythontools frr-snmp
+DEBIAN_FRONTEND=noninteractive apt install -y dnsutils iproute2 iputils-ping strongswan strongswan-swanctl frr frr-pythontools frr-snmp
 # If systemd is the init system
 if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
   # Disable the strongswan service, as we will be starting it in another namespace.
@@ -269,16 +269,16 @@ swanctl --list-sas
 
 while true;
 do
-    ping -c 5 fdcc:0:c:1::172.16.30.254
-    ping -c 5 fdcc:0:c:1::172.16.30.10
+    ping -c 5 fdcc:0:c:1:0::172.16.30.254
+    ping -c 5 fdcc:0:c:1:1::172.17.30.254
+    ping -c 5 fdcc:0:c:1:0::172.16.30.1
+    ping -c 5 fdcc:0:c:1:1::172.17.30.1
     ping -c 5 2001:db8:c57::ffff
-    ping -c 5 2001:db8:c57::10
-    ping -c 5 fd6c:1::ffff
-    ping -c 5 fd6c:1::10
-    ping -c 5 fdcc:0:c:1:1::172.16.31.254
-    ping -c 5 fdcc:0:c:1:1::172.16.31.10
     ping -c 5 2001:db8:c58::ffff
-    ping -c 5 2001:db8:c58::10
+    ping -c 5 2001:db8:c57::1
+    ping -c 5 2001:db8:c58::1
+    ping -c 5 fd6c:1:0::ffff
     ping -c 5 fd6c:1:1::ffff
-    ping -c 5 fd6c:1:1::10
+    ping -c 5 fd6c:1:0::1
+    ping -c 5 fd6c:1:1::1
 done

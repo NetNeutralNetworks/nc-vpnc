@@ -16,8 +16,8 @@ while [[ $count -ne 0 ]] ; do
     docker exec clab-vpnc-mgt01 ping -c 1 -q 2001:db8:c57::ffff > /dev/null && \
     docker exec clab-vpnc-mgt00 ping -c 1 -q fd6c:1::ffff > /dev/null && \
     docker exec clab-vpnc-mgt01 ping -c 1 -q fd6c:1::ffff > /dev/null && \
-    docker exec clab-vpnc-mgt00 ping -c 1 -q fdcc:0:c:1:1::172.16.31.254 > /dev/null && \
-    docker exec clab-vpnc-mgt01 ping -c 1 -q fdcc:0:c:1:1::172.16.31.254 > /dev/null && \
+    docker exec clab-vpnc-mgt00 ping -c 1 -q fdcc:0:c:1:1::172.17.31.254 > /dev/null && \
+    docker exec clab-vpnc-mgt01 ping -c 1 -q fdcc:0:c:1:1::172.17.31.254 > /dev/null && \
     docker exec clab-vpnc-mgt00 ping -c 1 -q 2001:db8:c58::ffff > /dev/null && \
     docker exec clab-vpnc-mgt01 ping -c 1 -q 2001:db8:c58::ffff > /dev/null && \
     docker exec clab-vpnc-mgt00 ping -c 1 -q fd6c:1:1::ffff > /dev/null && \

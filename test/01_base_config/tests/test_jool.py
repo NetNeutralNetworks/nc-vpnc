@@ -1,7 +1,8 @@
 import re
-from typing import Any
-import pytest
 import subprocess
+from typing import Any
+
+import pytest
 
 
 def run_cmd(host: str, command: str) -> str:

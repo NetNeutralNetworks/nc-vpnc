@@ -60,7 +60,7 @@ function install_apt_build () {
 function install_apt_hub () {
     # Install hub defaults
     apt-get update
-    apt-get install -y jool-tools kmod
+    apt-get install -y jool-tools kmod libnetfilter-queue-dev
 
     # Remove cached apt list after install
     if  [ -f /.dockerenv ]; then

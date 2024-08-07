@@ -1,8 +1,9 @@
 import ipaddress
 import json
-from typing import Any
-import pytest
 import subprocess
+from typing import Any
+
+import pytest
 
 
 def run_cmd(host: str, command: str) -> str:
@@ -255,7 +256,7 @@ class TestInterfaces:
                     "state": "UP",
                     "address": set(
                         [
-                            "172.16.31.254/24",
+                            "172.17.30.254/24",
                             "2001:db8:c58::ffff/64",
                             "fdff:db8:c58::ffff/64",
                         ]
@@ -485,7 +486,7 @@ class TestRoutes:
                     ("fdcc:cbe:1::/64", "fe80::", "e0001-00_D", None),
                     ("fdcc:cbf:1::/64", "fe80::", "e0001-00_D", None),
                     # IPv4 routes
-                    ("default", "172.16.31.1", "eth2", None),
+                    ("default", "172.17.30.1", "eth2", None),
                     # IPv6 routes
                     ("default", "fdff:db8:c58::1", "eth2", None),
                 ]
