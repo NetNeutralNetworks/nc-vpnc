@@ -98,12 +98,20 @@ def add_downlink_network_instance(path: pathlib.Path):
         return
 
     # Open the configuration file and check if it's valid YAML.
-    with open(path, "r", encoding="utf-8") as f:
-        try:
-            config_yaml = yaml.safe_load(f)
-        except yaml.YAMLError:
-            logger.error("Invalid YAML found in %s. Skipping.", path, exc_info=True)
-            return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            try:
+                config_yaml = yaml.safe_load(f)
+            except yaml.YAMLError:
+                logger.error("Invalid YAML found in %s. Skipping.", path, exc_info=True)
+                return
+    except FileNotFoundError:
+        logger.error(
+            "Configuration file could not be found at '%s'. Skipping",
+            path,
+            exc_info=True,
+        )
+        return
 
     # Parse the YAML file to a DOWNLINK object and validate the input.
     try:
