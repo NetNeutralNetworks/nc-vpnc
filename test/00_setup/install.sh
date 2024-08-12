@@ -3,13 +3,13 @@ SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 
 apt-get update
 # Don't update in GitHub actions as it saves a lot of time
-if [[ -z "GITHUB_ACTIONS" ]]; then
+if [[ -z "${GITHUB_ACTIONS}" ]]; then
 apt-get upgrade -y
 fi
 apt-get install -y bridge-utils python3-pytest
 # jool-tools
 
-if [[ -z "GITHUB_ACTIONS" ]]; then
+if [[ -z "${GITHUB_ACTIONS}" ]]; then
 apt-get install -y docker-compose-v2 docker-buildx
 fi
 
