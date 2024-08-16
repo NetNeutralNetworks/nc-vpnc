@@ -81,7 +81,7 @@ def observe() -> BaseObserver:
 
 def generate_config():
     """
-    Generate dictionaries for the FRR configuration
+    Generate FRR configuration
     """
 
     assert isinstance(config.VPNC_SERVICE_CONFIG, models.ServiceHub)

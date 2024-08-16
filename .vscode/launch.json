@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "Python: Current File",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
@@ -15,7 +15,7 @@
         },
         {
             "name": "Python: Module - main",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "vpnc.main",
             "console": "integratedTerminal",
@@ -24,8 +24,18 @@
             "cwd": "${workspaceFolder}/vpnc/"
         },
         {
+   33         "name": "Python: Module - vpncmangle",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "vpncmangle.main",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "sudo": true,
+            "cwd": "${workspaceFolder}/vpnc/"
+        },
+        {
             "name": "Python: Module - vpnctl",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "vpnc.ctl.main",
             "console": "integratedTerminal",

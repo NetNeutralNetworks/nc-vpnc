@@ -35,7 +35,7 @@ def observe_core() -> BaseObserver:
 
         def on_modified(self, event: FileSystemEvent):
             logger.info("File %s: %s", event.event_type, event.src_path)
-            helpers.load_config(config.VPNC_A_SERVICE_CONFIG_PATH)
+            helpers.load_service_config(config.VPNC_A_SERVICE_CONFIG_PATH)
             time.sleep(0.1)
             update_core_network_instance()
 

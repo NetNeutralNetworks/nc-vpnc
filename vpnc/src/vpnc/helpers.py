@@ -39,23 +39,37 @@ def check_system_requirements():
         logger.critical("Couldn't get the list of enabled modules. Exiting.")
         sys.exit(1)
 
-    module_list = ["xfrm_interface", "xt_MASQUERADE", "xt_nat", "xt_NETMAP", "veth"]
+    module_list: list[str] = ["xfrm_interface", "xt_MASQUERADE", "xt_nat", "veth"]
     for module in module_list:
-        if module not in enabled_modules:
+        try:
+            enabled_module = subprocess.run(
+                ["modinfo", module],
+                stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                check=True,
+            ).stdout.decode()
+        except subprocess.CalledProcessError:
             logger.critical("The '%s' kernel module isn't loaded. Exiting.", module)
             sys.exit(1)
 
     if config.VPNC_SERVICE_CONFIG.mode.value != "hub":
         return
 
-    hub_module_list = ["nfnetlink_queue"]
+    hub_module_list: list[str] = []
     for module in hub_module_list:
-        if module not in enabled_modules:
+        try:
+            enabled_module = subprocess.run(
+                ["modinfo", module],
+                stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                check=True,
+            ).stdout.decode()
+        except subprocess.CalledProcessError:
             logger.critical("The '%s' kernel module isn't loaded. Exiting.", module)
             sys.exit(1)
 
 
-def load_config(config_path: pathlib.Path):
+def load_service_config(config_path: pathlib.Path):
     """
     Load the global configuration.
     """
@@ -80,7 +94,7 @@ def load_config(config_path: pathlib.Path):
         sys.exit(1)
 
     try:
-        config.VPNC_SERVICE_CONFIG = models.Service(**{"service": new_cfg_dict}).service
+        config.VPNC_SERVICE_CONFIG = models.Service(**{"config": new_cfg_dict}).config
     except pydantic_core.ValidationError:
         logger.critical(
             "Configuration '%s' doesn't adhere to the schema",
@@ -139,3 +153,50 @@ def parse_downlink_network_instance_name(
     raise ValueError(
         f"Invalid downlink network instance/connection name '{name}'",
     )
+
+
+def load_tenant_config(path: pathlib.Path):
+    """
+    Load tenant configuration
+    """
+
+    if not config.DOWNLINK_TEN_RE.match(path.stem):
+        logger.error("Invalid filename found in %s. Skipping.", path, exc_info=True)
+        return None
+
+    # Open the configuration file and check if it's valid YAML.
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            try:
+                config_yaml = yaml.safe_load(f)
+            except yaml.YAMLError:
+                logger.error("Invalid YAML found in %s. Skipping.", path, exc_info=True)
+                return None
+    except FileNotFoundError:
+        logger.error(
+            "Configuration file could not be found at '%s'. Skipping",
+            path,
+            exc_info=True,
+        )
+        return None
+
+    # Parse the YAML file to a DOWNLINK object and validate the input.
+    try:
+        tenant = models.Tenant(**config_yaml)
+    except (TypeError, ValueError):
+        logger.error(
+            "Invalid configuration found in '%s'. Skipping.", path, exc_info=True
+        )
+        return None
+
+    if tenant.id != path.stem:
+        logger.error(
+            "VPN identifier '%s' and configuration file name '%s' do not match. Skipping.",
+            tenant.id,
+            path.stem,
+        )
+        return None
+
+    config.VPNC_TENANT_CONFIG[tenant.name] = tenant
+
+    return tenant

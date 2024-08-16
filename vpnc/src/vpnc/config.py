@@ -53,3 +53,4 @@ DEFAULT_NI = "ROOT"  # name of the DEFAULT network instance
 
 # Variables used for shared configuration
 VPNC_SERVICE_CONFIG: models.ServiceEndpoint | models.ServiceHub
+VPNC_TENANT_CONFIG: dict[str, models.Tenant] = {}

@@ -10,6 +10,8 @@ from time import sleep
 import scapy.all as sc
 from netfilterqueue import NetfilterQueue, Packet
 
+from . import config, helpers, observers
+
 logger = logging.getLogger("vpncmangle")
 
 
@@ -72,7 +74,7 @@ def mangle_dns(pkt: Packet):
         return
     # If return code is not ok.
     if pkt_sc[sc.DNS].rcode != 0:
-        logger.debug("Packet response indicates error.")
+        logger.debug("Packet response indicates error.\n%s", pkt_sc[sc.DNS])
         pkt.accept()
         return
     # If no answers in DNS.
@@ -82,13 +84,38 @@ def mangle_dns(pkt: Packet):
         return
 
     # IPv6 address to perform DNS64 mangling with.
-    ipv6_net = IPv6Network(pkt_sc.src).supernet(new_prefix=96)[0]
+    # ipv6_net = IPv6Network(pkt_sc.src).supernet(new_prefix=96)[0]
+
+    # The source address of the response (basically the DNS resolver). This IP is most likely
+    # translated by NAT64 or NPTv6
+    ipv6_src_addr = IPv6Address(pkt_sc.src)
+
+    # vpncmangle has no idea where the response comes from. It requires the mapping configuration
+    # to know this.
+
+    if not config.CONFIG:
+        logger.error("No configuration loaded.")
+        pkt.drop()
+        return
+    network_instance_name: str | None = None
+    for local_network, ni_name in config.ACL_MATCH:
+        if ipv6_src_addr in local_network:
+            network_instance_name = ni_name
+            break
+
+    if network_instance_name is None:
+        logger.error(
+            "IPv6 source address '%s' doesn't seem to match any configured address/network instance",
+            ipv6_src_addr,
+        )
+        pkt.drop()
+        return
 
     # Temporary list to store all desired DNS responses.
     temp_list = []
     temp_v4_list = []
     rrname = pkt_sc[sc.DNS].an.rrname
-    for i in pkt_sc[sc.DNS].an.iterpayloads():
+    for dns_query in pkt_sc[sc.DNS].an.iterpayloads():
         # # If AAAA record response, don't include it.
         # if i.type == 28:
         #     logger.debug("DNS response answer is 'AAAA'. Ignoring.")
@@ -98,9 +125,43 @@ def mangle_dns(pkt: Packet):
         #     logger.debug("DNS response answer is 'CNAME'. Ignoring.")
         #     continue
         # If not A record response, then include unedited
-        if i.type != 1:
-            logger.debug("DNS response answer is not 'A'. Ignoring.")
-            # temp_list.append(i)
+        # if i.type != 1:
+        #     logger.debug("DNS response answer is not 'A'. Ignoring.")
+        #     # temp_list.append(i)
+        #     continue
+
+        dns_response_doctored: IPv6Address | None = None
+        if dns_query.type == 1:
+            logger.debug("DNS response '%s' answer is 'A'.", dns_query.rdata)
+            ipv6_local_network, _ = config.CONFIG[network_instance_name].dns64[0]
+            # Calculate address.
+            dns_response = IPv4Address(dns_query.rdata)
+            dns_response_doctored = IPv6Address(
+                int(ipv6_local_network.network_address) + int(dns_response)
+            )
+        elif dns_query.type == 28:
+            logger.debug("DNS response '%s' answer is 'AAAA'.", dns_query.rdata)
+            for ipv6_local_network, ipv6_remote_network in config.CONFIG[
+                network_instance_name
+            ].dns66:
+                dns_response = IPv6Address(dns_query.rdata)
+                if dns_response in ipv6_remote_network:
+                    # Quit early if it is a network that isn't translated.
+                    if ipv6_remote_network == ipv6_local_network:
+                        dns_response_doctored = dns_response
+                        break
+                    host_part = int(dns_response) - int(
+                        ipv6_remote_network.network_address
+                    )
+                    dns_response_doctored = IPv6Address(
+                        int(ipv6_local_network.network_address) + host_part
+                    )
+                    break
+        else:
+            logger.debug(
+                "DNS response answer type '%s' is not of a configured type. Ignoring.",
+                dns_query.type,
+            )
             continue
 
         # # Include an invalid IPv4 address just to make sure that Windows caches it correctly.
@@ -115,22 +176,27 @@ def mangle_dns(pkt: Packet):
         #     }
         #     temp_v4_list.append(temp_v4_dict)
 
-        # Calculate address.
-        ipv4_addr = IPv4Address(i.rdata)
-        ipv6_addr = IPv6Address(int(ipv6_net) + int(ipv4_addr))
+        if not dns_response_doctored:
+            logger.error(
+                "DNS response answer type '%s' with response '%s' couldn't be mangled. Ignorting",
+                dns_query.type,
+                dns_query.rdata,
+            )
+            continue
+
         logger.debug(
             "DNS response answer for '%s' translated from '%s' to '%s'.",
-            i.rrname.decode(),
-            ipv4_addr,
-            ipv6_addr,
+            dns_query.rrname.decode(),
+            dns_response,
+            dns_response_doctored,
         )
         # Change the response type and answer.
         temp_dict = {
             "rrname": rrname,
             "type": "AAAA",
-            "rclass": i.rclass,
-            "ttl": i.ttl,
-            "rdata": str(ipv6_addr),
+            "rclass": dns_query.rclass,
+            "ttl": dns_query.ttl,
+            "rdata": str(dns_response_doctored),
         }
 
         # Append the result to the list.
@@ -138,15 +204,15 @@ def mangle_dns(pkt: Packet):
 
     temp_list.extend(temp_v4_list)
     dns_mangle = sc.DNSRR()
-    for i, val in enumerate(temp_list):
+    for dns_query, val in enumerate(temp_list):
         # pdb.set_trace()
-        if i > 0:
+        if dns_query > 0:
             dns_mangle = dns_mangle / sc.DNSRR()
-        dns_mangle[i].rrname = val["rrname"]
-        dns_mangle[i].type = val["type"]
-        dns_mangle[i].rclass = val["rclass"]
-        dns_mangle[i].ttl = val["ttl"]
-        dns_mangle[i].rdata = val["rdata"]
+        dns_mangle[dns_query].rrname = val["rrname"]
+        dns_mangle[dns_query].type = val["type"]
+        dns_mangle[dns_query].rclass = val["rclass"]
+        dns_mangle[dns_query].ttl = val["ttl"]
+        dns_mangle[dns_query].rdata = val["rdata"]
 
     # If there are no valid responses (can happen if only AAAA records are returned and
     # discarded), return NXDOMAIN.
@@ -195,6 +261,11 @@ def main():
 
     nfqueue = NetfilterQueue()
     retries = 10
+
+    helpers.load_config()
+
+    mangle_obs = observers.observe()
+    mangle_obs.start()
 
     while True:
         for queue_number in range(retries):

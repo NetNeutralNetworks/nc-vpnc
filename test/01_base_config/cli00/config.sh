@@ -15,8 +15,17 @@ ip -6 address add 2001:db8:c57::1/64 dev eth1
 
 # Configure loopback IPs on host
 ip -4 address add 172.16.31.1/24 dev lo
+ip -4 address add 172.16.31.4/24 dev lo
+ip -4 address add 172.16.31.6/24 dev lo
+ip -4 address add 172.16.31.64/24 dev lo
 ip -6 address add 2001:db8:c57:31::1/64 dev lo
 ip -6 address add fdff:db8:c57:31::1/64 dev lo
+ip -6 address add 2001:db8:c57:31::4/64 dev lo
+ip -6 address add fdff:db8:c57:31::4/64 dev lo
+ip -6 address add 2001:db8:c57:31::6/64 dev lo
+ip -6 address add fdff:db8:c57:31::6/64 dev lo
+ip -6 address add 2001:db8:c57:31::64/64 dev lo
+ip -6 address add fdff:db8:c57:31::64/64 dev lo
 
 cp -f ${SCRIPTDIR}/db.example.com /etc/bind/
 cp -f ${SCRIPTDIR}/named.conf.local /etc/bind/

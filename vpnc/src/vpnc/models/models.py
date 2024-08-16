@@ -385,4 +385,12 @@ class Service(BaseModel):
     Union type to help with loading config
     """
 
-    service: ServiceHub | ServiceEndpoint
+    config: ServiceHub | ServiceEndpoint
+
+
+class Tenants(BaseModel):
+    """
+    Union type to help with loading config
+    """
+
+    config: dict[str, Tenant]

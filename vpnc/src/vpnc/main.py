@@ -42,7 +42,7 @@ def main():
         sys.exit(1)
 
     # Load the global configuration from file and check for required kernel modules.
-    helpers.load_config(config.VPNC_A_SERVICE_CONFIG_PATH)
+    helpers.load_service_config(config.VPNC_A_SERVICE_CONFIG_PATH)
     helpers.check_system_requirements()
 
     # Used to gracefully shutdown, allows the atexit commands to run when a

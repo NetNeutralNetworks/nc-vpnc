@@ -14,7 +14,7 @@ from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from .. import config, models, strongswan
+from .. import config, helpers, models, strongswan, vpncmangle
 from . import general
 
 logger = logging.getLogger("vpnc")
@@ -93,41 +93,7 @@ def add_downlink_network_instance(path: pathlib.Path):
     Configures DOWNLINK connections.
     """
 
-    if not config.DOWNLINK_TEN_RE.match(path.stem):
-        logger.error("Invalid filename found in %s. Skipping.", path, exc_info=True)
-        return
-
-    # Open the configuration file and check if it's valid YAML.
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            try:
-                config_yaml = yaml.safe_load(f)
-            except yaml.YAMLError:
-                logger.error("Invalid YAML found in %s. Skipping.", path, exc_info=True)
-                return
-    except FileNotFoundError:
-        logger.error(
-            "Configuration file could not be found at '%s'. Skipping",
-            path,
-            exc_info=True,
-        )
-        return
-
-    # Parse the YAML file to a DOWNLINK object and validate the input.
-    try:
-        tenant = models.Tenant(**config_yaml)
-    except (TypeError, ValueError):
-        logger.error(
-            "Invalid configuration found in '%s'. Skipping.", path, exc_info=True
-        )
-        return
-
-    if tenant.id != path.stem:
-        logger.error(
-            "VPN identifier '%s' and configuration file name '%s' do not match. Skipping.",
-            tenant.id,
-            path.stem,
-        )
+    if not (tenant := helpers.load_tenant_config(path)):
         return
 
     # NETWORK INSTANCES AND INTERFACES
@@ -203,6 +169,10 @@ def add_downlink_network_instance(path: pathlib.Path):
         logger.info("Setting up VPN tunnels.")
         strongswan.generate_config(network_instance)
 
+    if config.VPNC_SERVICE_CONFIG.mode == models.ServiceMode.HUB:
+        # FRR
+        vpncmangle.generate_config()
+
     if any(update_check):
         # Check if the configuration file needs to be updated.
         # TODO: check if there is a way to make it so that the file isn't reloaded.
@@ -224,6 +194,7 @@ def delete_downlink_network_instance(vpn_id: str):
         logger.error("Invalid filename found in %s. Skipping.", vpn_id, exc_info=True)
         return
 
+    config.VPNC_TENANT_CONFIG.pop(vpn_id, None)
     # NETWORK INSTANCES
     ip_ni_str = subprocess.run(
         "ip -j netns",

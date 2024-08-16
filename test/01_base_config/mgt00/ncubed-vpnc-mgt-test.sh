@@ -269,16 +269,22 @@ swanctl --list-sas
 
 while true;
 do
-    ping -c 5 fdcc:0:c:1:0::172.16.30.254
-    ping -c 5 fdcc:0:c:1:1::172.17.30.254
-    ping -c 5 fdcc:0:c:1:0::172.16.30.1
-    ping -c 5 fdcc:0:c:1:1::172.17.30.1
-    ping -c 5 2001:db8:c57::ffff
-    ping -c 5 2001:db8:c58::ffff
-    ping -c 5 2001:db8:c57::1
-    ping -c 5 2001:db8:c58::1
-    ping -c 5 fd6c:1:0::ffff
-    ping -c 5 fd6c:1:1::ffff
-    ping -c 5 fd6c:1:0::1
-    ping -c 5 fd6c:1:1::1
+    ping -c 3 fdcc:0:c:1:0::172.16.30.254
+    ping -c 3 fdcc:0:c:1:1::172.17.30.254
+    ping -c 3 fdcc:0:c:1:0::172.16.30.1
+    ping -c 3 fdcc:0:c:1:1::172.17.30.1
+    ping -c 3 2001:db8:c57::ffff
+    ping -c 3 2001:db8:c58::ffff
+    ping -c 3 2001:db8:c57::1
+    ping -c 3 2001:db8:c58::1
+    ping -c 3 fd6c:1:0::ffff
+    ping -c 3 fd6c:1:1::ffff
+    ping -c 3 fd6c:1:0::1
+    ping -c 3 fd6c:1:1::1
+    dig +short v6gonly.example.com AAAA @fdcc:0:c:1::172.16.31.1
+    dig +short v6gonly.example.com AAAA @fdcc:0:c:1:1::172.17.31.1
+    dig +short v6lonly.example.com AAAA @2001:db8:c57:31::1
+    dig +short v6lonly.example.com AAAA @2001:db8:c58:31::1
+    dig +short v4lonly.example.com @fd6c:1:0:31::1
+    dig +short v4lonly.example.com @fd6c:1:1:31::1
 done

@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from . import config, frr, models, network_instance, strongswan
+from . import config, frr, models, network_instance, strongswan, vpncmangle
 
 logger = logging.getLogger("vpnc")
 
@@ -87,19 +87,8 @@ def concentrator():
         # VPNC in hub mode doctors DNS responses so requests are sent via the tunnel.
         # Start the VPNC mangle process in the CORE network instance.
         # This process mangles DNS responses to translate A responses to AAAA responses.
-        sp = subprocess.Popen(  # pylint: disable=consider-using-with
-            [
-                "ip",
-                "netns",
-                "exec",
-                config.CORE_NI,
-                f"{config.VPNC_INSTALL_DIR}/bin/vpncmangle",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            shell=False,
-        )
-        logger.info(sp.args)
+        logger.info("Start vpncmangle.")
+        vpncmangle.start()
 
         # VPNC in hub mode uses FRR to exchange routes. Start FRR to make sure it can load the
         # CORE and EXTERNAL network instances

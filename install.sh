@@ -66,6 +66,8 @@ function install_apt_hub () {
     if  [ -f /.dockerenv ]; then
         rm -rf /var/lib/apt/lists/*
     fi
+
+    mkdir -p ${BASEDIR}/config/vpncmangle
 }
 
 function install_apt_snmpd () {
