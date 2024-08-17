@@ -91,7 +91,7 @@ network_instances:
         # Optional: If not set, defaults to the default service local_id value.
         # local_id: 192.0.2.5
         # IPv6 or IPv4 address
-        remote_peer_ip: 2001:db8::3
+        remote_addrs: [2001:db8::3]
         # Optional: If not set, defaults to remote_peer_ip
         # remote_id: 192.0.2.3
         # Optional: defaults to 2

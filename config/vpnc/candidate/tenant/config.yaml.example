@@ -61,7 +61,7 @@ network_instances:
         # Optional: If not set, defaults to the default service local_id value.
         # local_id: 192.0.2.5
         # IPv6 or IPv4 address
-        remote_peer_ip: 192.0.2.7
+        remote_addrs: [192.0.2.7]
         # Optional: If not set, defaults to remote_peer_ip
         # remote_id: 192.0.2.7
         # Optional: defaults to 2
@@ -108,7 +108,7 @@ network_instances:
         - to: default
       config:
         type: ipsec
-        remote_peer_ip: 192.0.2.8
+        remote_addrs: [192.0.2.8]
         ike_proposal: aes128gcm16-prfsha384-ecp384
         ike_lifetime: 300
         ipsec_proposal: aes128gcm16-prfsha384-ecp384

@@ -51,7 +51,7 @@ class ConnectionConfigIPsec(BaseModel):
     type: Literal[enums.ConnectionType.IPSEC] = enums.ConnectionType.IPSEC
     # Set a local id for the connection specifically.
     local_id: str | None = None
-    remote_peer_ip: IPv4Address | IPv6Address
+    remote_addrs: list[IPv4Address | IPv6Address]
     remote_id: str | None = None
     ike_version: Literal[1, 2] = 2
     ike_proposal: str = "aes256gcm16-prfsha384-ecp384"

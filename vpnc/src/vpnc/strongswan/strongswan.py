@@ -80,11 +80,11 @@ def generate_config(
     network_instance: models.NetworkInstance,
 ):
     """
-    Generates swanctl configurations
+    Generates swanctl configurations.
     """
 
     swanctl_template = TEMPLATES_ENV.get_template("swanctl.conf.j2")
-    swanctl_cfgs = []
+    swanctl_cfgs: list[dict[str, Any]] = []
     vpn_id = int("0x10000000", 16)
     if network_instance.type == models.NetworkInstanceType.DOWNLINK:
         vpn_id = int(f"0x{network_instance.name.replace('-', '')}0", 16)
@@ -95,8 +95,10 @@ def generate_config(
         swanctl_cfg: dict[str, Any] = {
             "connection": f"{network_instance.name}-{idx}",
             "local_id": config.VPNC_SERVICE_CONFIG.local_id,
-            "remote_peer_ip": connection.config.remote_peer_ip,
-            "remote_id": connection.config.remote_peer_ip,
+            "remote_peer_ip": ",".join(
+                [str(x) for x in connection.config.remote_addrs]
+            ),
+            "remote_id": connection.config.remote_addrs[0],
             "xfrm_id": hex(vpn_id + idx),
             "ike_version": connection.config.ike_version,
             "ike_proposal": connection.config.ike_proposal,
@@ -125,11 +127,13 @@ def generate_config(
 
         swanctl_cfgs.append(swanctl_cfg)
 
+    swanctl_path = config.VPN_CONFIG_DIR.joinpath(f"{network_instance.name}.conf")
+    # Remove the configuration file if it exists and there is no IPSec connection configured.
     if not swanctl_cfgs:
+        swanctl_path.unlink(missing_ok=True)
         return
 
     swanctl_render = swanctl_template.render(connections=swanctl_cfgs)
-    swanctl_path = config.VPN_CONFIG_DIR.joinpath(f"{network_instance.name}.conf")
 
     with open(swanctl_path, "w", encoding="utf-8") as f:
         f.write(swanctl_render)
