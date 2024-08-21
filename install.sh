@@ -126,7 +126,15 @@ function install_apt_frr () {
     fi
 }
 
-function create_dir_vpnc_config () {
+function create_misc_config () {
+    # Create config for various services
+
+    # Copy configuration files over to the configuration directories.
+    cp -rf ${SCRIPTDIR}/config/snmp/vpnc.conf /etc/snmp/snmpd.conf.d/
+    cp -rf ${SCRIPTDIR}/config/strongswan/vpnc.conf /etc/strongswan.d/charon/
+}
+
+function create_vpnc_config () {
     # Create config directories if not exist
     for i in {candidate,active};
     do
@@ -137,7 +145,8 @@ function create_dir_vpnc_config () {
     mkdir -p /var/log/ncubed/vpnc
 
     # Copy configuration files over to the configuration directories.
-    cp -rf ${SCRIPTDIR}/config/etc/* /etc/
+    cp -rf ${SCRIPTDIR}/config/snmpd/vpnc.conf /etc/snmp/snmpd.conf.d/
+    cp -rf ${SCRIPTDIR}/config/strongswan/vpnc.conf /etc/strongswan.d/charon/
     # cp -rf ${SCRIPTDIR}/config/vpnc/* ${BASEDIR}/config/${SERVICENAME}/
 
     if [[ -z "${1}" ]]; then
@@ -218,8 +227,9 @@ function install_vpnc () {
         install_apt_hub
         install_apt_snmpd
 
-        create_dir_vpnc_config
+        create_vpnc_config
         create_dir_vpnc
+        create_misc_config
 
         install_pip_vpnc
         install_pip_vpncmangle
@@ -236,8 +246,9 @@ function install_vpnc () {
         install_apt_python
         install_apt_snmpd
 
-        create_dir_vpnc_config
+        create_vpnc_config
         create_dir_vpnc
+        create_misc_config
 
         install_pip_vpnc
 
@@ -252,8 +263,9 @@ function install_vpnc () {
         install_apt_defaults
         install_apt_python
 
-        create_dir_vpnc_config
+        create_vpnc_config
         create_dir_vpnc
+        create_misc_config
 
         install_pip_vpnc
 

@@ -10,7 +10,7 @@ RUN --mount=type=bind,source=install.sh,target=/tmp/repo/install.sh        \
 RUN --mount=type=bind,source=./,target=/tmp/repo/                          \
     echo "Preparing configuration files"                                && \
     source /tmp/repo/install.sh                                         && \
-    create_dir_vpnc_config && create_dir_vpnc
+    create_dir_vpnc
 
 COPY ./ /tmp/repo/
 
@@ -31,11 +31,13 @@ SHELL ["/bin/bash", "-c"]
 # ADD https://deb.frrouting.org/frr/keys.gpg /usr/share/keyrings/frrouting.gpg
 
 RUN --mount=type=bind,source=install.sh,target=/tmp/repo/install.sh        \
+    --mount=type=bind,source=./config/,target=/tmp/repo/config/            \
     echo "Install APT packages"                                         && \
     source /tmp/repo/install.sh                                         && \
     install_apt_defaults                                                && \
     install_apt_hub                                                     && \
-    install_apt_frr
+    install_apt_frr                                                     && \
+    create_misc_config && create_vpnc_config
 
 COPY --from=build /opt/ncubed/ /opt/ncubed/
 
