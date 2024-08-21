@@ -4,12 +4,14 @@ Code to configure IPSEC connections
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 from enum import Enum
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Any, Literal
 
+import vici
 from pydantic import BaseModel, Field, field_validator
 
 from .. import config
@@ -163,3 +165,48 @@ class ConnectionConfigIPsec(BaseModel):
         Returns the name of the connection interface
         """
         return f"xfrm{connection_id}"
+
+    def status_summary(
+        self, network_instance: models.NetworkInstance, connection_id: int
+    ):
+        """
+        Get the connection status.
+        """
+
+        vcs = vici.Session()
+        sa = list(vcs.list_sas({"ike": f"{network_instance.name}-{connection_id}"}))[0]
+
+        if_name = self.intf_name(connection_id)
+        output = json.loads(
+            subprocess.run(
+                [
+                    "ip",
+                    "--json",
+                    "--netns",
+                    network_instance.name,
+                    "address",
+                    "show",
+                    "dev",
+                    if_name,
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+            ).stdout.decode()
+        )[0]
+
+        output_dict: dict[str, Any] = {
+            "tenant": f"{network_instance.name.split('-')[0]}",
+            "network-instance": network_instance.name,
+            "connection": connection_id,
+            "type": self.type.name,
+            "status": sa[f"{network_instance.name}-{connection_id}"]["state"].decode(),
+            "interface-name": if_name,
+            "interface-ip": [
+                f"{x['local']}/{x['prefixlen']}" for x in output["addr_info"]
+            ],
+            "remote-addr": sa[f"{network_instance.name}-{connection_id}"][
+                "remote-host"
+            ].decode(),
+        }
+
+        return output_dict

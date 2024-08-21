@@ -103,7 +103,7 @@ class Connection(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    metadata: dict = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     interface: Interface = Field(default_factory=Interface)
     routes: Routes = Field(default_factory=Routes)
     config: ConnectionConfigIPsec | ConnectionConfigLocal
@@ -195,7 +195,7 @@ class NetworkInstance(BaseModel):
 
     name: str
     type: NetworkInstanceType
-    metadata: dict = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     connections: list[Connection]
 
@@ -216,9 +216,9 @@ class Tenant(BaseModel):
 
     version: Version
 
-    id: str
+    id: str = Field(pattern=r"^[2-9a-fA-F]\d{4}$")
     name: str
-    metadata: dict = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     network_instances: dict[str, NetworkInstance] = Field(default_factory=dict)
 
     @field_validator("version", mode="before")

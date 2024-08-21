@@ -176,10 +176,25 @@ def add_downlink_network_instance(path: pathlib.Path):
     if any(update_check):
         # Check if the configuration file needs to be updated.
         # TODO: check if there is a way to make it so that the file isn't reloaded.
-        with open(path, "w", encoding="utf-8") as f:
+        file_name = path.name
+        candidate_config = path.parent.parent.parent.joinpath(
+            "candidate", "tenant", file_name
+        )
+        with open(path, "w", encoding="utf-8") as fha, open(
+            candidate_config, "w", encoding="utf-8"
+        ) as fhb:
             output = tenant.model_dump(mode="json")
             try:
-                f.write(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
+                fha.write(
+                    yaml.safe_dump(output, explicit_start=True, explicit_end=True)
+                )
+            except yaml.YAMLError:
+                logger.error("Invalid YAML found in %s. Skipping.", path, exc_info=True)
+                return
+            try:
+                fhb.write(
+                    yaml.safe_dump(output, explicit_start=True, explicit_end=True)
+                )
             except yaml.YAMLError:
                 logger.error("Invalid YAML found in %s. Skipping.", path, exc_info=True)
                 return

@@ -4,7 +4,9 @@ Code to configure PHYSICAL connections
 
 from __future__ import annotations
 
+import json
 import logging
+import subprocess
 from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator
@@ -72,3 +74,43 @@ class ConnectionConfigLocal(BaseModel):
         Returns the name of the connection interface
         """
         return self.interface_name
+
+    def status_summary(
+        self, network_instance: models.NetworkInstance, connection_id: int
+    ):
+        """
+        Get the connection status.
+        """
+
+        if_name = self.intf_name(connection_id)
+        output = json.loads(
+            subprocess.run(
+                [
+                    "ip",
+                    "--json",
+                    "--netns",
+                    network_instance.name,
+                    "address",
+                    "show",
+                    "dev",
+                    if_name,
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+            ).stdout.decode()
+        )[0]
+
+        output_dict: dict[str, Any] = {
+            "tenant": f"{network_instance.name.split('-')[0]}",
+            "network-instance": network_instance.name,
+            "connection": connection_id,
+            "type": self.type.name,
+            "status": output["operstate"],
+            "interface-name": if_name,
+            "interface-ip": [
+                f"{x['local']}/{x['prefixlen']}" for x in output["addr_info"]
+            ],
+            "remote-addr": None,
+        }
+
+        return output_dict
