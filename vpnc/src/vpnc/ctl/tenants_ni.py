@@ -28,7 +28,7 @@ def complete_network_instance(
     assert ctx.parent is not None
 
     active: bool = ctx.parent.params.get("active", False)
-    tenant_id = ctx.parent.params.get("tenant_id")
+    tenant_id: str = ctx.parent.params["tenant_id"]
 
     path = helpers.get_tenant_config_path(ctx, active)
 
@@ -99,7 +99,7 @@ def show(
     assert ctx.parent.parent is not None
 
     tenant_id: str = ctx.parent.parent.params["tenant_id"]
-    instance_id: int = ctx.parent.params["instance_id"]
+    instance_id: str = ctx.parent.params["instance_id"]
 
     path = helpers.get_tenant_config_path(ctx, active)
 
@@ -125,13 +125,13 @@ def summary(
     assert ctx.parent.parent is not None
 
     tenant_id: str = ctx.parent.parent.params["tenant_id"]
-    instance_id: int = ctx.parent.params["instance_id"]
+    instance_id: str = ctx.parent.params["instance_id"]
 
     path = helpers.get_tenant_config_path(ctx, True)
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
-    output = []
+    output: list[dict[str, Any]] = []
     for idx, connection in enumerate(tenant.network_instances[instance_id].connections):
         output.append(
             connection.config.status_summary(tenant.network_instances[instance_id], idx)

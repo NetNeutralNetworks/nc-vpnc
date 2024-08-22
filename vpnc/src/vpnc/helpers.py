@@ -18,7 +18,7 @@ from . import config, models
 logger = logging.getLogger("vpnc")
 
 
-def kill_handler(*_):
+def kill_handler(*_) -> None:
     """Used to gracefully shut down"""
     sys.exit(0)
 
@@ -29,12 +29,12 @@ def check_system_requirements():
     """
 
     try:
-        enabled_modules = subprocess.run(
+        subprocess.run(
             ["lsmod"],
             stderr=subprocess.PIPE,
             stdout=subprocess.PIPE,
             check=True,
-        ).stdout.decode()
+        )
     except subprocess.CalledProcessError:
         logger.critical("Couldn't get the list of enabled modules. Exiting.")
         sys.exit(1)
@@ -42,12 +42,12 @@ def check_system_requirements():
     module_list: list[str] = ["xfrm_interface", "xt_MASQUERADE", "xt_nat", "veth"]
     for module in module_list:
         try:
-            enabled_module = subprocess.run(
+            subprocess.run(
                 ["modinfo", module],
                 stderr=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 check=True,
-            ).stdout.decode()
+            )
         except subprocess.CalledProcessError:
             logger.critical("The '%s' kernel module isn't loaded. Exiting.", module)
             sys.exit(1)
@@ -58,12 +58,12 @@ def check_system_requirements():
     hub_module_list: list[str] = []
     for module in hub_module_list:
         try:
-            enabled_module = subprocess.run(
+            subprocess.run(
                 ["modinfo", module],
                 stderr=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 check=True,
-            ).stdout.decode()
+            )
         except subprocess.CalledProcessError:
             logger.critical("The '%s' kernel module isn't loaded. Exiting.", module)
             sys.exit(1)

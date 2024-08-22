@@ -12,7 +12,8 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from .. import config, frr, helpers, models, strongswan
+from .. import config, helpers, models
+from ..services import frr, strongswan
 from . import general
 
 logger = logging.getLogger("vpnc")

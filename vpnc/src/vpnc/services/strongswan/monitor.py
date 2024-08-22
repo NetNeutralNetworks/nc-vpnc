@@ -10,13 +10,13 @@ import subprocess
 import threading
 import time
 from types import MappingProxyType
-from typing import Any, TypeAlias
+from typing import Any, Awaitable, Callable, TypeAlias
 
 import vici
 import vici.exception
 import yaml
 
-from .. import config, helpers, models, network_instance
+from ... import config, helpers, models, network_instance
 
 logger = logging.getLogger("vpnc")
 
@@ -56,7 +56,7 @@ class Monitor(threading.Thread):
         # loop.run_in_executor(executor, self.monitor_sa_events)
 
         # Queue to exchange up/down VPN events with.
-        updown_q = queue.Queue()
+        updown_q: queue.Queue[dict[str, Any]] = queue.Queue()
 
         # Run the task to monitor the security associations for duplicates.
         logger.info("Starting duplicate SA monitor.")
@@ -79,7 +79,14 @@ class Monitor(threading.Thread):
         )
         await inactives
 
-    async def repeat(self, interval, func, *args, init_wait=False, **kwargs):
+    async def repeat(
+        self,
+        interval: int,
+        func: Callable[[], Awaitable[None]],
+        *args: Any,
+        init_wait: bool = False,
+        **kwargs: Any,
+    ):
         """Run func every interval seconds.
 
         If func has not finished before *interval*, will run again
@@ -102,8 +109,8 @@ class Monitor(threading.Thread):
         Also checks for SAs that aren't configured and removes these
         """
         vcs = self.connect()
-        conns = [i.decode() for i in vcs.get_conns()["conns"]]
-        sas = [list(i.keys())[0] for i in vcs.list_sas()]
+        conns: list[str] = [x.decode() for x in vcs.get_conns()["conns"]]
+        sas: list[str] = [list(i.keys())[0] for i in vcs.list_sas()]
         logger.debug("Configured connections: %s", conns)
         logger.debug("Active connections: %s", sas)
 
@@ -123,7 +130,7 @@ class Monitor(threading.Thread):
             logger.info("Terminating connection '%s'", sa)
             self.terminate_sa(vcs=vcs, ike=sa)
 
-    def monitor_duplicate_sa_events(self, q: queue.Queue):
+    def monitor_duplicate_sa_events(self, q: queue.Queue[dict[str, Any]]):
         """
         Monitor for SA events, check if there are duplicates and take action accordingly.
         """
@@ -145,7 +152,7 @@ class Monitor(threading.Thread):
                     q.put_nowait(event_data)
                     self.resolve_duplicate_ipsec_sa(event_data)
 
-    def monitor_route_advertisements(self, q: queue.Queue) -> None:
+    def monitor_route_advertisements(self, q: queue.Queue[dict[str, Any]]) -> None:
         """
         Receives child updown events and tries to check if the route for the remote should be
         advertised or retracted.
@@ -220,21 +227,22 @@ class Monitor(threading.Thread):
         vpn: dict[str, Any] = {}
         if v := list(vcs.list_sas({"ike": ike_name, "child": ike_name})):
             vpn = v[0]
-        ike_data = vpn.get(ike_name, {})
+        ike_data: dict[str, Any] = vpn.get(ike_name, {})
         # ike_data = ike_event[ike_name]
-        if list(ike_data.get("child-sas", {}).keys()):
-            child_id: str = list(ike_data.get("child-sas").keys())[0]
+        list_child_sas: list[str]
+        if list_child_sas := list(ike_data.get("child-sas", {}).keys()):
+            child_id: str = list_child_sas[0]
         else:
             child_id = ""
         child_data = ike_data.get("child-sas", {}).get(child_id, {})
 
         if (
-            ike_data.get("state") == b"ESTABLISHED"
-            and child_data.get("state") == b"INSTALLED"
+            ike_data.get("state", b"") == b"ESTABLISHED"
+            and child_data.get("state", b"") == b"INSTALLED"
         ):
             # Remove the NAT64 and native IPv6 routes from the CORE network instance
             action = "Advertising"
-            cmds = []
+            cmds: list[str] = []
 
             for route in v6_networks:
                 cmd = f"ip -n {core_ni} -6 route del blackhole {route}"

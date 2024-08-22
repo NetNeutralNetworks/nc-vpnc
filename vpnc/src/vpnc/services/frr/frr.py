@@ -8,13 +8,14 @@ import pathlib
 import subprocess
 import time
 from ipaddress import IPv4Network, IPv6Network
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from .. import config, models
+from ... import config, models
 
 logger = logging.getLogger("vpnc")
 
@@ -86,10 +87,10 @@ def generate_config():
 
     assert isinstance(config.VPNC_SERVICE_CONFIG, models.ServiceHub)
 
-    neighbors = []
+    neighbors: list[dict[str, Any]] = []
     net_instance = config.VPNC_SERVICE_CONFIG.network_instances[config.CORE_NI]
     for neighbor in config.VPNC_SERVICE_CONFIG.bgp.neighbors:
-        neighbor_cfg = {
+        neighbor_cfg: dict[str, Any] = {
             "neighbor_ip": neighbor.neighbor_address,
             "neighbor_asn": neighbor.neighbor_asn,
             "neighbor_priority": neighbor.priority,
@@ -101,11 +102,7 @@ def generate_config():
     # Subnets expected on the CORE side
     prefix_core: list[IPv4Network | IPv6Network] = []
     for connection in net_instance.connections:
-        prefix_core = [
-            route.to
-            for route in connection.routes.ipv6
-            if isinstance(route.to, IPv6Network)
-        ]
+        prefix_core = [route.to for route in connection.routes.ipv6]
 
     frr_cfg = {
         "core_ni": config.CORE_NI,
@@ -157,5 +154,10 @@ def start():
     logger.info(proc.args)
     time.sleep(5)
     logger.debug(proc.stdout)
-
     atexit.register(stop)
+
+    # FRR doesn't monitor for file config changes directly, so a file observer is used to auto
+    # reload the configuration.
+    logger.info("Monitoring frr config changes.")
+    obs = observe()
+    obs.start()

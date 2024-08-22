@@ -3,14 +3,9 @@ vpncmangle observers to load ACLs
 """
 
 import logging
-import pathlib
 import time
 
-from watchdog.events import (
-    FileSystemEvent,
-    FileSystemEventHandler,
-    PatternMatchingEventHandler,
-)
+from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 

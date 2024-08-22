@@ -74,7 +74,7 @@ class Routes(BaseModel):
 
     @field_validator("ipv6", "ipv4", mode="before")
     @classmethod
-    def _coerce_addresses(cls, v: Any):
+    def _coerce_addresses(cls, v: Any) -> list[RouteIPv4 | RouteIPv6]:
         if v is None:
             return []
         return v
@@ -90,7 +90,7 @@ class Interface(BaseModel):
 
     @field_validator("ipv6", "ipv4", mode="before")
     @classmethod
-    def _coerce_addresses(cls, v: Any):
+    def _coerce_addresses(cls, v: Any) -> list[IPv4Interface | IPv6Interface]:
         if v is None:
             return []
         return v
@@ -110,7 +110,7 @@ class Connection(BaseModel):
 
     @field_validator("metadata", mode="before")
     @classmethod
-    def _coerce_metadata(cls, v: Any):
+    def _coerce_metadata(cls, v: Any) -> dict[str, Any]:
         if v is None:
             return {}
         return v
@@ -139,6 +139,7 @@ class Connection(BaseModel):
         """
 
         is_downlink: bool = network_instance.type == NetworkInstanceType.DOWNLINK
+        parsed_ni: dict[str, Any] = {}
         if is_downlink:
             parsed_ni = helpers.parse_downlink_network_instance_name(
                 network_instance.name
@@ -149,7 +150,8 @@ class Connection(BaseModel):
             and isinstance(config.VPNC_SERVICE_CONFIG, ServiceHub)
         ):
             pdi4 = config.VPNC_SERVICE_CONFIG.prefix_downlink_interface_v4
-            ipv4_ni_network = list(pdi4.subnets(new_prefix=24))[
+            assert isinstance(parsed_ni["network_instance_id"], int)
+            ipv4_ni_network: IPv4Network = list(pdi4.subnets(new_prefix=24))[
                 parsed_ni["network_instance_id"]
             ]
             ipv4_con_network = list(ipv4_ni_network.subnets(new_prefix=28))[
@@ -158,9 +160,6 @@ class Connection(BaseModel):
             interface_ipv4_address = [
                 ipaddress.IPv4Interface(f"{ipv4_con_network[1]}/28")
             ]
-
-        elif self.interface.ipv4 is None:  # pylint: disable=no-member
-            interface_ipv4_address = []
         else:
             interface_ipv4_address = self.interface.ipv4  # pylint: disable=no-member
 
@@ -178,8 +177,6 @@ class Connection(BaseModel):
                     list(ipv6_ni_network.subnets(new_prefix=64))[connection_id]
                 )
             ]
-        elif self.interface.ipv6 is None:  # pylint: disable=no-member
-            interface_ipv6_address = []
         else:
             interface_ipv6_address = self.interface.ipv6  # pylint: disable=no-member
 
@@ -201,7 +198,7 @@ class NetworkInstance(BaseModel):
 
     @field_validator("metadata", mode="before")
     @classmethod
-    def _coerce_metadata(cls, v: Any):
+    def _coerce_metadata(cls, v: Any) -> dict[str, Any] | Any:
         if v is None:
             return {}
         return v
@@ -327,7 +324,7 @@ class ServiceHub(Tenant):
         """
         Check if the value adheres to the limits.
         """
-        if isinstance(v, IPv4Network) and v.prefixlen > 16:
+        if v.prefixlen > 16:
             raise NetmaskValueError(
                 "'prefix_downlink_interface_v4' prefix length must be '16' or lower."
             )
@@ -342,7 +339,7 @@ class ServiceHub(Tenant):
         """
         Check if the value adheres to the limits.
         """
-        if isinstance(v, IPv6Network) and v.prefixlen > 32:
+        if v.prefixlen > 32:
             raise NetmaskValueError(
                 "'prefix_downlink_interface_v6' prefix length must be '32' or lower."
             )
@@ -357,7 +354,7 @@ class ServiceHub(Tenant):
         """
         Check if the value adheres to the limits.
         """
-        if isinstance(v, IPv6Network) and v.prefixlen > 32:
+        if v.prefixlen > 32:
             raise NetmaskValueError(
                 "'prefix_downlink_nat64' prefix length must be '32' or lower."
             )
@@ -372,7 +369,7 @@ class ServiceHub(Tenant):
         """
         Check if the value adheres to the limits.
         """
-        if isinstance(v, IPv6Network) and v.prefixlen > 12:
+        if v.prefixlen > 12:
             raise NetmaskValueError(
                 "'prefix_downlink_nptv6' prefix length must be '12' or lower."
             )

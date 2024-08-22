@@ -1,6 +1,6 @@
 import atexit
 from ipaddress import IPv4Interface, IPv6Interface
-from typing import Literal
+from typing import Any, Literal
 
 from pyroute2 import IPDB, NDB, NetNS
 from pyroute2.ndb.objects import interface
@@ -34,7 +34,7 @@ def get(
             if kind:
                 gm_query["IFLA_INFO_KIND"] = kind
 
-            infs = list(ndb.interfaces.getmany(gm_query))
+            infs: list[dict[str, Any]] = list(ndb.interfaces.getmany(gm_query))
             if len(infs) != 1:
                 return None
 

@@ -46,6 +46,8 @@ def main(
     Entrypoint for service network-instance commands
     """
 
+    _ = active
+
     if ctx.invoked_subcommand is None and instance_id is not None:
         ctx.fail("Missing command.")
     if ctx.invoked_subcommand is None:
@@ -86,7 +88,7 @@ def show(
     """
     # service_network_instance.main
     assert ctx.parent is not None
-    instance_id: int = ctx.parent.params["instance_id"]
+    instance_id: str = ctx.parent.params["instance_id"]
 
     path = helpers.get_service_config_path(ctx, active)
 
@@ -113,13 +115,13 @@ def summary(
 
     assert ctx.parent is not None
 
-    instance_id = ctx.parent.params.get("instance_id")
+    instance_id: str = ctx.parent.params["instance_id"]
 
     path = helpers.get_service_config_path(ctx, True)
 
     service = helpers.get_service_config(ctx, path)
 
-    output = []
+    output: list[dict[str, Any]] = []
     for idx, connection in enumerate(
         service.network_instances[instance_id].connections
     ):

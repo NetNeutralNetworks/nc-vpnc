@@ -14,7 +14,8 @@ from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from .. import config, helpers, models, strongswan, vpncmangle
+from .. import config, helpers, models
+from ..services import strongswan, vpncmangle
 from . import general
 
 logger = logging.getLogger("vpnc")

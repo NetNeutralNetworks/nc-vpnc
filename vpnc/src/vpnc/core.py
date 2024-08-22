@@ -7,7 +7,8 @@ import subprocess
 import sys
 import time
 
-from . import config, frr, models, network_instance, strongswan, vpncmangle
+from . import config, models, network_instance
+from .services import frr, strongswan, vpncmangle
 
 logger = logging.getLogger("vpnc")
 
@@ -61,10 +62,6 @@ def concentrator():
     # The IPSec process must be started in the EXTERNAL network instance.
     strongswan.start()
 
-    logger.info("Monitoring swantcl config changes.")
-    swan_obs = strongswan.observe()
-    swan_obs.start()
-
     # Start the VPNC Security Association monitor to fix duplicate connections.
     logger.info("Monitoring IKE/IPsec security associations for errors.")
     sa_mon = strongswan.Monitor(daemon=True)
@@ -94,10 +91,6 @@ def concentrator():
         # CORE and EXTERNAL network instances
         logger.info("Start FRR.")
         frr.start()
-
-        logger.info("Monitoring frr config changes.")
-        frr_obs = frr.observe()
-        frr_obs.start()
 
     # Start the event handler.
     logger.info("Monitoring CORE config changes.")

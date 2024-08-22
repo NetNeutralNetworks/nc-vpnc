@@ -14,7 +14,7 @@ from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from .. import config, models
+from ... import config, models
 
 logger = logging.getLogger("vpnc")
 
@@ -181,3 +181,9 @@ def start():
     logger.debug(proc.stdout)
 
     atexit.register(stop)
+
+    # Strongswan doesn't monitor it's configuration files automatically, so a file observer is used
+    # to reload the configuration.
+    logger.info("Monitoring swantcl config changes.")
+    obs = observe()
+    obs.start()

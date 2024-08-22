@@ -18,7 +18,7 @@ logger = logging.getLogger("vpnc")
 
 
 def add_network_instance(
-    network_instance: models.NetworkInstance, cleanup=False
+    network_instance: models.NetworkInstance, cleanup: bool = False
 ) -> None:
     """
     Add a network instance (Linux namespace) and enable forwarding if needed.
@@ -114,7 +114,7 @@ def delete_network_instance_connection(
         shell=True,
         check=True,
     ).stdout.decode()
-    active_interfaces_ni: dict = json.loads(output_active_interfaces)
+    active_interfaces_ni: list[dict[str, Any]] = json.loads(output_active_interfaces)
 
     # Active interfaces connected to the provider not of type veth or loopback.
     active_interfaces: list[dict[str, Any]] = [

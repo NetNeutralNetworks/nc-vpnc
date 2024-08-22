@@ -14,10 +14,8 @@ from deepdiff import DeepDiff
 from pydantic import ValidationError
 from typing_extensions import Annotated
 
-from vpnc.ctl import helpers
-
 from .. import config, models
-from . import tenants_ni
+from . import helpers, tenants_ni
 
 app = typer.Typer()
 app.add_typer(tenants_ni.app, name="network-instances")
@@ -52,6 +50,7 @@ def main(
     """
     Entrypoint for tenant commands
     """
+    _ = active
     if ctx.invoked_subcommand is None and tenant_id is not None and tenant_id != "list":
         ctx.fail("Missing command.")
     list_(ctx)
@@ -124,7 +123,7 @@ def summary(
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
-    output = []
+    output: list[dict[str, Any]] = []
     for _, network_instance in tenant.network_instances.items():
         for idx, connection in enumerate(
             tenant.network_instances[network_instance.name].connections
@@ -215,7 +214,7 @@ def add(
     all_args.pop("ctx")
 
     tenant_id: str = ctx.parent.params["tenant_id"]
-    path = helpers.get_tenant_config_path(ctx, active)
+    path = helpers.get_tenant_config_path(ctx, False)
     tenant_path = path.joinpath(f"{tenant_id}.yaml")
     if tenant_path.exists():
         print(f"Tenant '{tenant_id}' already exists.")

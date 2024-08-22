@@ -21,16 +21,14 @@ def complete_connection(ctx: typer.Context) -> Generator[tuple[str, str], Any, N
     assert ctx.parent.parent is not None
 
     active: bool = ctx.parent.params.get("active", False)
-    tenant_id = ctx.parent.parent.params.get("tenant_id")
-    instance_id = ctx.parent.params.get("instance_id")
+    tenant_id: str = ctx.parent.parent.params["tenant_id"]
+    instance_id: str = ctx.parent.params["instance_id"]
 
     path = helpers.get_tenant_config_path(ctx, active)
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
-    for idx, connection in enumerate(
-        tenant.network_instances.get(instance_id).connections
-    ):
+    for idx, connection in enumerate(tenant.network_instances[instance_id].connections):
         yield (str(idx), connection.metadata.get("description", ""))
 
     # return output
@@ -48,10 +46,12 @@ def main(
     Entrypoint for tenant network-instance connection commands
     """
 
+    _ = active
+
     if (
         ctx.invoked_subcommand is None
         and connection_id is not None
-        and connection_id != "list"
+        # and connection_id != "list"
     ):
         ctx.fail("Missing command.")
     list_(ctx)
@@ -65,17 +65,15 @@ def list_(ctx: typer.Context):
     assert ctx.parent.parent is not None
 
     active: bool = ctx.params.get("active", False)
-    tenant_id = ctx.parent.parent.params.get("tenant_id")
-    instance_id = ctx.parent.params.get("instance_id")
+    tenant_id: str = ctx.parent.parent.params["tenant_id"]
+    instance_id: str = ctx.parent.params["instance_id"]
 
     path = helpers.get_tenant_config_path(ctx, active)
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
     output: list[dict[str, Any]] = []
-    for idx, connection in enumerate(
-        tenant.network_instances.get(instance_id).connections
-    ):
+    for idx, connection in enumerate(tenant.network_instances[instance_id].connections):
         output.append(
             {
                 "connection": idx,
@@ -102,7 +100,7 @@ def show(
 
     tenant_id: str = ctx.parent.parent.parent.params["tenant_id"]
     instance_id: str = ctx.parent.parent.params["instance_id"]
-    connection_id: str = ctx.parent.params["connection_id"]
+    connection_id: int = ctx.parent.params["connection_id"]
 
     path = helpers.get_tenant_config_path(ctx, active)
 
@@ -134,9 +132,11 @@ def summary(
     assert ctx.parent is not None
     assert ctx.parent.parent is not None
 
+    _ = active
+
     tenant_id: str = ctx.parent.parent.parent.params["tenant_id"]
     instance_id: str = ctx.parent.parent.params["instance_id"]
-    connection_id: str = ctx.parent.params["connection_id"]
+    connection_id: int = ctx.parent.params["connection_id"]
 
     path = helpers.get_tenant_config_path(ctx, True)
 

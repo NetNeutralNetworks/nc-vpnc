@@ -48,7 +48,7 @@ def show(
 
 
 @app.command()
-def edit():
+def edit(ctx: typer.Context):
     """
     Edit a candidate config file
     """
@@ -105,7 +105,7 @@ def edit():
     with open(path, mode="w", encoding="utf-8") as f:
         f.write(output)
 
-    show()
+    show(ctx)
 
 
 # @app.command(name="set")

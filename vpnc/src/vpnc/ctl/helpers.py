@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""
+Shared functions used throughout the vpnctl CLI tool.
+"""
 
 import pathlib
 from ipaddress import (
@@ -17,9 +20,7 @@ import typer
 import yaml
 from pydantic import ValidationError
 
-from vpnc.models import models
-
-from .. import config
+from .. import config, models
 
 
 def ip_addr(x: str) -> IPv4Address | IPv6Address | None:
@@ -28,9 +29,10 @@ def ip_addr(x: str) -> IPv4Address | IPv6Address | None:
     """
     if not x:
         return None
+    output: str | int = x
     if x.isdigit():
-        x = int(x)
-    return ip_address(x)
+        output = int(x)
+    return ip_address(output)
 
 
 def ip_if(x: str) -> IPv4Interface | IPv6Interface | None:
@@ -57,7 +59,9 @@ def validate_ip_networks(x: list[str]) -> list[IPv4Network | IPv6Network]:
     """
     output: list[IPv4Network | IPv6Network] = []
     for i in x:
-        output.append(ip_net(i))
+        if network := ip_net(i):
+            output.append(network)
+    assert output is not None
     return output
 
 

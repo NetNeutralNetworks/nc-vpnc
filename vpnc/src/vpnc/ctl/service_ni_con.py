@@ -21,14 +21,14 @@ def complete_connection(ctx: typer.Context) -> Generator[tuple[str, str], Any, N
     assert ctx.parent.parent is not None
 
     active: bool = ctx.parent.params.get("active", False)
-    instance_id = ctx.parent.params.get("instance_id")
+    instance_id = ctx.parent.params["instance_id"]
 
     path = helpers.get_service_config_path(ctx, active)
 
     service = helpers.get_service_config(ctx, path)
 
     for idx, connection in enumerate(
-        service.network_instances.get(instance_id).connections
+        service.network_instances[instance_id].connections
     ):
         yield (str(idx), connection.metadata.get("description", ""))
 
@@ -48,7 +48,7 @@ def main(
     if (
         ctx.invoked_subcommand is None
         and connection_id is not None
-        and connection_id != "list"
+        # and connection_id != "list"
     ):
         ctx.fail("Missing command.")
     list_(ctx)
@@ -63,7 +63,7 @@ def list_(ctx: typer.Context):
     assert ctx.parent.parent is not None
 
     active: bool = ctx.params.get("active", False)
-    instance_id = ctx.parent.params.get("instance_id")
+    instance_id = ctx.parent.params["instance_id"]
 
     path = helpers.get_service_config_path(ctx, active)
 
@@ -71,7 +71,7 @@ def list_(ctx: typer.Context):
 
     output: list[dict[str, Any]] = []
     for idx, connection in enumerate(
-        service.network_instances.get(instance_id).connections
+        service.network_instances[instance_id].connections
     ):
         output.append(
             {
@@ -97,7 +97,7 @@ def show(
     assert ctx.parent.parent is not None
 
     instance_id: str = ctx.parent.parent.params["instance_id"]
-    connection_id: str = ctx.parent.params["connection_id"]
+    connection_id: int = ctx.parent.params["connection_id"]
 
     path = helpers.get_service_config_path(ctx, active)
 
@@ -130,7 +130,7 @@ def summary(
 
     # tenant_id: str = ctx.parent.parent.parent.params["tenant_id"]
     instance_id: str = ctx.parent.parent.params["instance_id"]
-    connection_id: str = ctx.parent.params["connection_id"]
+    connection_id: int = ctx.parent.params["connection_id"]
 
     path = helpers.get_service_config_path(ctx, True)
 

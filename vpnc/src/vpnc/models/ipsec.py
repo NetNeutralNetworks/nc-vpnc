@@ -39,7 +39,7 @@ class TrafficSelectors(BaseModel):
 
     @field_validator("local", "remote", mode="before")
     @classmethod
-    def _coerce_traffic_selectors(cls, v: Any):
+    def _coerce_traffic_selectors(cls, v: Any) -> set[IPv4Network | IPv6Network]:
         if v is None:
             return set()
         return v
@@ -174,7 +174,9 @@ class ConnectionConfigIPsec(BaseModel):
         """
 
         vcs = vici.Session()
-        sa = list(vcs.list_sas({"ike": f"{network_instance.name}-{connection_id}"}))[0]
+        sa: dict[str, Any] = list(
+            vcs.list_sas({"ike": f"{network_instance.name}-{connection_id}"})
+        )[0]
 
         if_name = self.intf_name(connection_id)
         output = json.loads(
@@ -194,19 +196,21 @@ class ConnectionConfigIPsec(BaseModel):
             ).stdout.decode()
         )[0]
 
+        status: str = sa[f"{network_instance.name}-{connection_id}"]["state"].decode()
+        remote_addr: str = sa[f"{network_instance.name}-{connection_id}"][
+            "remote-host"
+        ].decode()
         output_dict: dict[str, Any] = {
             "tenant": f"{network_instance.name.split('-')[0]}",
             "network-instance": network_instance.name,
             "connection": connection_id,
             "type": self.type.name,
-            "status": sa[f"{network_instance.name}-{connection_id}"]["state"].decode(),
+            "status": status,
             "interface-name": if_name,
             "interface-ip": [
                 f"{x['local']}/{x['prefixlen']}" for x in output["addr_info"]
             ],
-            "remote-addr": sa[f"{network_instance.name}-{connection_id}"][
-                "remote-host"
-            ].decode(),
+            "remote-addr": remote_addr,
         }
 
         return output_dict

@@ -7,9 +7,9 @@ import json
 import logging
 import pathlib
 import subprocess
-from ipaddress import IPv4Network, IPv6Network
+from ipaddress import IPv4Network
 
-from .. import config, network_instance
+from ... import config, network_instance
 
 logger = logging.getLogger("vpnc")
 
