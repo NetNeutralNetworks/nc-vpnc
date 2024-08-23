@@ -1,4 +1,6 @@
-#!/usr/bin/env python3
+"""Manage servicenetwork instances."""
+
+from __future__ import annotations
 
 from enum import Enum
 from typing import Any, Optional
@@ -6,9 +8,10 @@ from typing import Any, Optional
 import tabulate
 import typer
 import yaml
+from rich import print
 from typing_extensions import Annotated
 
-from . import helpers, service_ni_con
+from vpnc.ctl import helpers, service_ni_con
 
 app = typer.Typer()
 app.add_typer(service_ni_con.app, name="connections")
@@ -19,9 +22,7 @@ IPNetwork = Any
 
 
 def complete_network_instance(ctx: typer.Context) -> list[str]:
-    """
-    Autocompletes network-instance identifiers
-    """
+    """Autocompletes network-instance identifiers."""
     # service.main
     assert ctx.parent is not None
 
@@ -38,14 +39,12 @@ def complete_network_instance(ctx: typer.Context) -> list[str]:
 def main(
     ctx: typer.Context,
     instance_id: Annotated[
-        Optional[str], typer.Argument(autocompletion=complete_network_instance)
+        Optional[str],  # noqa: UP007
+        typer.Argument(autocompletion=complete_network_instance),
     ] = None,
-    active: Annotated[bool, typer.Option("--active")] = False,
-):
-    """
-    Entrypoint for service network-instance commands
-    """
-
+    active: Annotated[bool, typer.Option("--active")] = False,  # noqa: FBT002
+) -> None:
+    """Entrypoint for service network-instance commands."""
     _ = active
 
     if ctx.invoked_subcommand is None and instance_id is not None:
@@ -54,10 +53,8 @@ def main(
         list_(ctx)
 
 
-def list_(ctx: typer.Context):
-    """
-    List all network-instances
-    """
+def list_(ctx: typer.Context) -> None:
+    """List all network-instances."""
     assert ctx.parent is not None
 
     active: bool = ctx.params.get("active", False)
@@ -66,14 +63,13 @@ def list_(ctx: typer.Context):
 
     service = helpers.get_service_config(ctx, path)
 
-    output: list[dict[str, Any]] = []
-    for _, network_instance in service.network_instances.items():
-        output.append(
-            {
-                "network-instance": network_instance.name,
-                "description": network_instance.metadata.get("description", ""),
-            }
-        )
+    output: list[dict[str, Any]] = [
+        {
+            "network-instance": network_instance.name,
+            "description": network_instance.metadata.get("description", ""),
+        }
+        for network_instance in service.network_instances.values()
+    ]
 
     print(tabulate.tabulate(output, headers="keys"))
 
@@ -81,11 +77,9 @@ def list_(ctx: typer.Context):
 @app.command()
 def show(
     ctx: typer.Context,
-    active: Annotated[bool, typer.Option("--active")] = False,
-):
-    """
-    Show a network-instance configuration
-    """
+    active: Annotated[bool, typer.Option("--active")] = False,  # noqa: FBT002
+) -> None:
+    """Show a network-instance configuration."""
     # service_network_instance.main
     assert ctx.parent is not None
     instance_id: str = ctx.parent.params["instance_id"]
@@ -93,10 +87,6 @@ def show(
     path = helpers.get_service_config_path(ctx, active)
 
     service = helpers.get_service_config(ctx, path)
-
-    # if service.mode.name != "HUB":
-    #     print("Service is not running in hub mode")
-    #     return
 
     network_instance = service.network_instances.get(instance_id)
     if not network_instance:
@@ -108,34 +98,33 @@ def show(
 @app.command()
 def summary(
     ctx: typer.Context,
-):
-    """
-    Show a network-instance's connectivity status
-    """
-
+) -> None:
+    """Show a network-instance's connectivity status."""
     assert ctx.parent is not None
 
     instance_id: str = ctx.parent.params["instance_id"]
 
-    path = helpers.get_service_config_path(ctx, True)
+    path = helpers.get_service_config_path(ctx, active=True)
 
     service = helpers.get_service_config(ctx, path)
 
     output: list[dict[str, Any]] = []
     for idx, connection in enumerate(
-        service.network_instances[instance_id].connections
+        service.network_instances[instance_id].connections,
     ):
         output.append(
             connection.config.status_summary(
-                service.network_instances[instance_id], idx
-            )
+                service.network_instances[instance_id],
+                idx,
+            ),
         )
 
     print(tabulate.tabulate(output, headers="keys"))
 
 
 class IkeVersion(str, Enum):
-    "IKE versions"
+    """IKE versions."""
+
     ONE = 1
     TWO = 2
 

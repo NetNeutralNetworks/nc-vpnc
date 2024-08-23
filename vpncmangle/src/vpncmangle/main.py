@@ -3,7 +3,7 @@
 import logging
 import subprocess
 import sys
-from ipaddress import IPv4Address, IPv6Address, IPv6Network
+from ipaddress import IPv4Address, IPv6Address
 from logging.handlers import RotatingFileHandler
 from time import sleep
 
@@ -15,12 +15,9 @@ from . import config, helpers, observers
 logger = logging.getLogger("vpncmangle")
 
 
-def setup_ip6tables(queue_number: int):
-    """
-    Configure ip6tables to capture DNS responses.
-    """
-
-    sp = subprocess.run(
+def setup_ip6tables(queue_number: int) -> None:
+    """Configure ip6tables to capture DNS responses."""
+    proc = subprocess.run(  # noqa: S602
         f"""
         # Configure DNS64 mangle
         ip6tables -t mangle -F
@@ -28,37 +25,27 @@ def setup_ip6tables(queue_number: int):
         # ip6tables -t mangle -A POSTROUTING -p tcp -m tcp --sport 53 -j NFQUEUE --queue-num {queue_number}
         """,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
         shell=True,
         check=True,
     )
-    logger.info(sp.args)
-    logger.info(sp.stdout.decode())
+    logger.info(proc.args)
+    logger.debug(proc.stdout)
 
 
-def clean_ip6tables():
-    """
-    Remove ip6tables rules.
-    """
-
-    sp = subprocess.run(
-        """
-        # Configure DNS64 mangle
-        ip6tables -t mangle -F
-        """,
+def clean_ip6tables() -> None:
+    """Remove ip6tables rules."""
+    # Configure DNS64 mangle iptable rules
+    proc = subprocess.run(  # noqa: S603
+        ["/usr/sbin/ip6tables", "-t", "mangle", "-F"],
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=True,
         check=True,
     )
-    logger.info(sp.args)
-    logger.info(sp.stdout.decode())
+    logger.info(proc.args)
+    logger.debug(proc.stdout)
 
 
-def mangle_dns(pkt: Packet):
-    """
-    Mangle DNS responses of the 'A' type.
-    """
+def mangle_dns(pkt: Packet) -> None:
+    """Mangle DNS responses of the 'A' type."""
     pkt_sc = sc.IPv6(pkt.get_payload())
 
     # If not DNS record.
@@ -83,15 +70,12 @@ def mangle_dns(pkt: Packet):
         pkt.accept()
         return
 
-    # IPv6 address to perform DNS64 mangling with.
-    # ipv6_net = IPv6Network(pkt_sc.src).supernet(new_prefix=96)[0]
-
-    # The source address of the response (basically the DNS resolver). This IP is most likely
-    # translated by NAT64 or NPTv6
+    # The source address of the response (basically the DNS resolver). This IP is
+    # most likely translated by NAT64 or NPTv6
     ipv6_src_addr = IPv6Address(pkt_sc.src)
 
-    # vpncmangle has no idea where the response comes from. It requires the mapping configuration
-    # to know this.
+    # vpncmangle has no idea where the response comes from. It requires the mapping
+    # configuration to know this.
 
     if not config.CONFIG:
         logger.error("No configuration loaded.")
@@ -137,7 +121,7 @@ def mangle_dns(pkt: Packet):
             # Calculate address.
             dns_response = IPv4Address(dns_query.rdata)
             dns_response_doctored = IPv6Address(
-                int(ipv6_local_network.network_address) + int(dns_response)
+                int(ipv6_local_network.network_address) + int(dns_response),
             )
         elif dns_query.type == 28:
             logger.debug("DNS response '%s' answer is 'AAAA'.", dns_query.rdata)
@@ -151,10 +135,10 @@ def mangle_dns(pkt: Packet):
                         dns_response_doctored = dns_response
                         break
                     host_part = int(dns_response) - int(
-                        ipv6_remote_network.network_address
+                        ipv6_remote_network.network_address,
                     )
                     dns_response_doctored = IPv6Address(
-                        int(ipv6_local_network.network_address) + host_part
+                        int(ipv6_local_network.network_address) + host_part,
                     )
                     break
         else:
@@ -178,7 +162,7 @@ def mangle_dns(pkt: Packet):
 
         if not dns_response_doctored:
             logger.error(
-                "DNS response answer type '%s' with response '%s' couldn't be mangled. Ignorting",
+                "DNS response answer type '%s' with response '%s' couldn't be mangled. Ignoring",
                 dns_query.type,
                 dns_query.rdata,
             )
@@ -241,10 +225,7 @@ def mangle_dns(pkt: Packet):
 
 
 def main():
-    """
-    Main function. Binds to netfilter.
-    """
-
+    """Main function. Binds to netfilter."""
     # LOGGER
     # Configure logging
     logger.setLevel(level=logging.INFO)
@@ -253,7 +234,9 @@ def main():
         datefmt="%m/%d/%Y %H:%M:%S %p",
     )
     rothandler = RotatingFileHandler(
-        "/var/log/ncubed/vpnc/vpncmangle.log", maxBytes=100000, backupCount=5
+        "/var/log/ncubed/vpnc/vpncmangle.log",
+        maxBytes=100000,
+        backupCount=5,
     )
     rothandler.setFormatter(formatter)
     logger.addHandler(rothandler)
@@ -275,7 +258,8 @@ def main():
                 break
             except ImportError:
                 logger.debug(
-                    "Attaching to netfilter queue %s failed, retrying.", queue_number
+                    "Attaching to netfilter queue %s failed, retrying.",
+                    queue_number,
                 )
             if queue_number >= retries - 1:
                 logger.critical("Could not find an available netfilter queue.")
@@ -288,7 +272,8 @@ def main():
             sys.exit(0)
         except Exception:
             logger.critical(
-                "Mangle process ended prematurely. Restarting.", exc_info=True
+                "Mangle process ended prematurely. Restarting.",
+                exc_info=True,
             )
         finally:
             clean_ip6tables()

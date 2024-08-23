@@ -1,6 +1,4 @@
-"""
-Code to configure IPSEC connections
-"""
+"""Code to configure IPSEC connections."""
 
 from __future__ import annotations
 
@@ -8,47 +6,46 @@ import json
 import logging
 import subprocess
 from enum import Enum
-from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import vici
 from pydantic import BaseModel, Field, field_validator
 
-from .. import config
-from . import enums, models
+from vpnc import config
+from vpnc.models import enums, models
+
+if TYPE_CHECKING:
+    from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 
 logger = logging.getLogger("vpnc")
 
 
 class Initiation(Enum):
-    """
-    Defines if the VPN connection automatically starts
-    """
+    """Define if the VPN connection automatically starts."""
 
     INITIATOR = "start"
     RESPONDER = "none"
 
 
 class TrafficSelectors(BaseModel):
-    """
-    Defines a traffic selector data structure
-    """
+    """Define a traffic selector data structure."""
 
     local: set[IPv4Network | IPv6Network] = Field(default_factory=set)
     remote: set[IPv4Network | IPv6Network] = Field(default_factory=set)
 
     @field_validator("local", "remote", mode="before")
     @classmethod
-    def _coerce_traffic_selectors(cls, v: Any) -> set[IPv4Network | IPv6Network]:
+    def _coerce_traffic_selectors(
+        cls,
+        v: set[IPv4Network | IPv6Network] | None,
+    ) -> set[IPv4Network | IPv6Network]:
         if v is None:
             return set()
         return v
 
 
 class ConnectionConfigIPsec(BaseModel):
-    """
-    Defines an IPsec connection data structure
-    """
+    """Defines an IPsec connection data structure."""
 
     type: Literal[enums.ConnectionType.IPSEC] = enums.ConnectionType.IPSEC
     # Set a local id for the connection specifically.
@@ -66,22 +63,20 @@ class ConnectionConfigIPsec(BaseModel):
 
     @field_validator("type", mode="before")
     @classmethod
-    def _coerce_type(cls, v: Any):
+    def _coerce_type(cls, v: str) -> enums.ConnectionType:
         return enums.ConnectionType(v)
 
     @field_validator("ike_version", mode="before")
     @classmethod
-    def coerce_ike_version(cls, v: Any):
-        """
-        Coerces strings to integers
-        """
+    def coerce_ike_version(cls, v: str | int) -> int | str:
+        """Coerces strings to integers."""
         if isinstance(v, str) and v.isdigit():
             return int(v)
         return v
 
     @field_validator("traffic_selectors", mode="before")
     @classmethod
-    def _coerce_traffic_selectors(cls, v: Any):
+    def _coerce_traffic_selectors(cls, v: TrafficSelectors | None) -> TrafficSelectors:
         if v is None:
             return TrafficSelectors(local=set(), remote=set())
         return v
@@ -92,21 +87,21 @@ class ConnectionConfigIPsec(BaseModel):
         connection_id: int,
         connection: models.Connection,
     ) -> str:
-        """
-        Creates an XFRM interface
-        """
+        """Create an XFRM interface."""
         xfrm = self.intf_name(connection_id)
         vpn_id = int(f"0x1000000{connection_id}", 16)
         if network_instance.type == enums.NetworkInstanceType.DOWNLINK:
             vpn_id = int(
-                f"0x{network_instance.name.replace('-', '')}{connection_id}", 16
+                f"0x{network_instance.name.replace('-', '')}{connection_id}",
+                16,
             )
 
         if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
-            network_instance, connection_id
+            network_instance,
+            connection_id,
         )
 
-        # TODO: check if it is OK to always attach to the same external interface.
+        # TODO@draggeta: check if it is OK to always attach to the same external interface.
         external_if_name = (
             config.VPNC_SERVICE_CONFIG.network_instances[config.EXTERNAL_NI]
             .connections[0]
@@ -116,30 +111,28 @@ class ConnectionConfigIPsec(BaseModel):
             # configure XFRM interfaces
             ip -n {config.EXTERNAL_NI} link add {xfrm} type xfrm dev {external_if_name} if_id {hex(vpn_id)}
             ip -n {config.EXTERNAL_NI} link set {xfrm} netns {network_instance.name}
-        """
-        sp = subprocess.run(
+        """  # noqa: E501
+        proc = subprocess.run(  # noqa: S602
             cmds,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            capture_output=True,
             shell=True,
             check=False,
         )
-        logger.info(sp.args)
-        logger.info(sp.stdout.decode())
+        logger.info(proc.args)
+        logger.debug(proc.stdout, proc.stderr)
 
-        sp = subprocess.run(
+        proc = subprocess.run(  # noqa: S602
             f"""
             ip -n {network_instance.name} link set dev {xfrm} up
             ip -n {network_instance.name} -4 address flush dev {xfrm} scope global
             ip -n {network_instance.name} -6 address flush dev {xfrm} scope global
             """,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            capture_output=True,
             shell=True,
             check=False,
         )
-        logger.info(sp.args)
-        logger.info(sp.stdout.decode())
+        logger.info(proc.args)
+        logger.debug(proc.stdout, proc.stderr)
 
         cmds = ""
         for ipv4 in if_ipv4:
@@ -148,41 +141,37 @@ class ConnectionConfigIPsec(BaseModel):
         for ipv6 in if_ipv6:
             cmds += f"ip -n {network_instance.name} address add {ipv6} dev {xfrm}\n"
 
-        sp = subprocess.run(
+        proc = subprocess.run(  # noqa: S602
             cmds,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            capture_output=True,
             shell=True,
             check=False,
         )
-        logger.info(sp.args)
-        logger.info(sp.stdout.decode())
+        logger.info(proc.args)
+        logger.debug(proc.stdout, proc.stderr)
 
         return xfrm
 
-    def intf_name(self, connection_id: int):
-        """
-        Returns the name of the connection interface
-        """
+    def intf_name(self, connection_id: int) -> str:
+        """Return the name of the connection interface."""
         return f"xfrm{connection_id}"
 
     def status_summary(
-        self, network_instance: models.NetworkInstance, connection_id: int
-    ):
-        """
-        Get the connection status.
-        """
-
+        self,
+        network_instance: models.NetworkInstance,
+        connection_id: int,
+    ) -> dict[str, Any]:
+        """Get the connection status."""
         vcs = vici.Session()
-        sa: dict[str, Any] = list(
-            vcs.list_sas({"ike": f"{network_instance.name}-{connection_id}"})
-        )[0]
+        sa: dict[str, Any] = next(
+            iter(vcs.list_sas({"ike": f"{network_instance.name}-{connection_id}"})),
+        )
 
         if_name = self.intf_name(connection_id)
         output = json.loads(
-            subprocess.run(
+            subprocess.run(  # noqa: S603
                 [
-                    "ip",
+                    "/usr/sbin/ip",
                     "--json",
                     "--netns",
                     network_instance.name,
@@ -191,9 +180,9 @@ class ConnectionConfigIPsec(BaseModel):
                     "dev",
                     if_name,
                 ],
-                check=True,
                 stdout=subprocess.PIPE,
-            ).stdout.decode()
+                check=True,
+            ).stdout,
         )[0]
 
         status: str = sa[f"{network_instance.name}-{connection_id}"]["state"].decode()

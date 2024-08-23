@@ -1,18 +1,19 @@
-#!/usr/bin/env python3
+"""Manage service configuration."""
 
 import os
+import subprocess
 import tempfile
-from pprint import pprint
-from subprocess import call
 from typing import Any
 
 import typer
 import yaml
 from deepdiff import DeepDiff
 from pydantic import ValidationError
+from rich import print
 from typing_extensions import Annotated
 
-from .. import config, models
+from vpnc import config, models
+
 from . import helpers, service_ni, servicebgp
 
 app = typer.Typer()
@@ -23,12 +24,10 @@ app.add_typer(servicebgp.app, name="bgp")
 @app.command()
 def show(
     ctx: typer.Context,
-    full: Annotated[bool, typer.Option("--full")] = False,
-    active: Annotated[bool, typer.Option("--active")] = False,
-):
-    """
-    Show the service configuration
-    """
+    full: Annotated[bool, typer.Option("--full")] = False,  # noqa: FBT002
+    active: Annotated[bool, typer.Option("--active")] = False,  # noqa: FBT002
+) -> None:
+    """Show the service configuration."""
     path = helpers.get_service_config_path(ctx, active)
 
     service = helpers.get_service_config(ctx, path)
@@ -40,7 +39,7 @@ def show(
         output["uplink_count"] = len(
             output.get("network_instances", {})
             .get(config.CORE_NI, {})
-            .pop("connections")
+            .pop("connections"),
         )
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
     else:
@@ -48,17 +47,15 @@ def show(
 
 
 @app.command()
-def edit(ctx: typer.Context):
-    """
-    Edit a candidate config file
-    """
+def edit(ctx: typer.Context) -> None:
+    """Edit a candidate config file."""
     path = config.VPNC_C_SERVICE_CONFIG_PATH
     if not path.exists():
         return
 
     editor = os.environ.get("EDITOR", "vim")
 
-    with open(path, "r", encoding="utf-8") as f:
+    with path.open("r", encoding="utf-8") as f:
         service_content = f.read()
 
     with tempfile.NamedTemporaryFile(suffix=".tmp", mode="w+", encoding="utf-8") as tf:
@@ -68,17 +65,17 @@ def edit(ctx: typer.Context):
         edited_config: models.ServiceEndpoint | models.ServiceHub
         while True:
             try:
-                call([editor, tf.name])
+                subprocess.call([editor, tf.name])  # noqa: S603
 
                 tf.seek(0)
                 edited_config_str = tf.read()
                 try:
                     edited_config = models.ServiceEndpoint(
-                        **yaml.safe_load(edited_config_str)
+                        **yaml.safe_load(edited_config_str),
                     )
                 except ValidationError:
                     edited_config = models.ServiceHub(
-                        **yaml.safe_load(edited_config_str)
+                        **yaml.safe_load(edited_config_str),
                     )
             except (ValidationError, yaml.YAMLError) as err:
                 print(f"Error: {err}")
@@ -100,9 +97,11 @@ def edit(ctx: typer.Context):
     print("Edited file")
 
     output = yaml.safe_dump(
-        edited_config.model_dump(mode="json"), explicit_start=True, explicit_end=True
+        edited_config.model_dump(mode="json"),
+        explicit_start=True,
+        explicit_end=True,
     )
-    with open(path, mode="w", encoding="utf-8") as f:
+    with path.open(mode="w", encoding="utf-8") as f:
         f.write(output)
 
     show(ctx)
@@ -152,42 +151,51 @@ def edit(ctx: typer.Context):
 
 @app.command()
 def commit(
-    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
-    revert: bool = False,
-    diff: bool = False,
-):
-    """
-    Commit configuration
-    """
+    ctx: typer.Context,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,  # noqa: FBT002
+    revert: bool = False,  # noqa: FBT001, FBT002
+    diff: bool = False,  # noqa: FBT001, FBT002
+) -> None:
+    """Commit configuration."""
     path_candidate = config.VPNC_C_SERVICE_CONFIG_PATH
     path_active = config.VPNC_A_SERVICE_CONFIG_PATH
 
     service_config_candidate: models.ServiceEndpoint | models.ServiceHub
     if not path_candidate.exists():
-        return "Candidate configuration file doesn't exist. Generate a blank one with the 'service generate' command."
-    with open(path_candidate, "r", encoding="utf-8") as f:
+        ctx.fail(
+            (
+                "Candidate configuration file doesn't exist."
+                " Generate a blank one with the 'service generate' command."
+            ),
+        )
+    with path_candidate.open(encoding="utf-8") as f:
         service_config_candidate_str = f.read()
         try:
             service_config_candidate = models.ServiceEndpoint(
-                **yaml.safe_load(service_config_candidate_str)
+                **yaml.safe_load(service_config_candidate_str),
             )
         except ValidationError:
             service_config_candidate = models.ServiceHub(
-                **yaml.safe_load(service_config_candidate_str)
+                **yaml.safe_load(service_config_candidate_str),
             )
 
     service_config_active: models.ServiceEndpoint | models.ServiceHub
     if not path_active.exists():
-        return "Active configuration file doesn't exist. Generate a blank one with the 'service generate --active' command."
-    with open(path_active, "r", encoding="utf-8") as f:
+        ctx.fail(
+            (
+                "Active configuration file doesn't exist."
+                " Generate a blank one with the 'service generate --active' command."
+            ),
+        )
+    with path_active.open(encoding="utf-8") as f:
         service_config_active_str = f.read()
         try:
             service_config_active = models.ServiceEndpoint(
-                **yaml.safe_load(service_config_active_str)
+                **yaml.safe_load(service_config_active_str),
             )
         except ValidationError:
             service_config_active = models.ServiceHub(
-                **yaml.safe_load(service_config_active_str)
+                **yaml.safe_load(service_config_active_str),
             )
 
     if service_config_candidate_str == service_config_active_str:
@@ -202,7 +210,7 @@ def commit(
                 verbose_level=2,
                 ignore_type_in_groups=config.DEEPDIFF_IGNORE,
             ).to_dict()
-            pprint(diff_output)
+            print(diff_output)
         if dry_run:
             print("(Simulated) Revert succeeded.")
             return
@@ -211,7 +219,7 @@ def commit(
             print("Revert succeeded.")
             return
 
-        with open(path_candidate, "w", encoding="utf-8") as f:
+        with path_candidate.open("w", encoding="utf-8") as f:
             f.write(service_config_active_str)
         print("Revert succeeded.")
         return
@@ -223,13 +231,13 @@ def commit(
             verbose_level=2,
             ignore_type_in_groups=config.DEEPDIFF_IGNORE,
         ).to_dict()
-        pprint(diff_output)
+        print(diff_output)
 
     if dry_run:
         print("(Simulated) Commit succeeded.")
         return
 
-    with open(path_active, "w", encoding="utf-8") as f:
+    with path_active.open("w", encoding="utf-8") as f:
         f.write(service_config_candidate_str)
     print("Commit succeeded.")
 

@@ -1,4 +1,6 @@
-#!/usr/bin/env python3
+"""Manage tenant network instances."""
+
+from __future__ import annotations
 
 from enum import Enum
 from typing import Any, Generator, Optional
@@ -6,6 +8,7 @@ from typing import Any, Generator, Optional
 import tabulate
 import typer
 import yaml
+from rich import print
 from typing_extensions import Annotated
 
 from . import helpers, tenant_ni_con
@@ -21,9 +24,7 @@ IPNetwork = Any
 def complete_network_instance(
     ctx: typer.Context,
 ) -> Generator[tuple[str, str], Any, None]:
-    """
-    Autocompletes network-instance identifiers
-    """
+    """Autocompletes network-instance identifiers."""
     # tenants.main
     assert ctx.parent is not None
 
@@ -42,13 +43,13 @@ def complete_network_instance(
 def main(
     ctx: typer.Context,
     instance_id: Annotated[
-        Optional[str], typer.Argument(autocompletion=complete_network_instance)
+        Optional[str],  # noqa: UP007
+        typer.Argument(autocompletion=complete_network_instance),
     ] = None,
-    active: Annotated[bool, typer.Option("--active")] = False,
-):
-    """
-    Entrypoint for tenant network-instance commands
-    """
+    active: Annotated[bool, typer.Option("--active")] = False,  # noqa: FBT002
+) -> None:
+    """Entrypoint for tenant network-instance commands."""
+    _ = active
 
     if (
         ctx.invoked_subcommand is None
@@ -59,10 +60,8 @@ def main(
     list_(ctx)
 
 
-def list_(ctx: typer.Context):
-    """
-    List all network-instances
-    """
+def list_(ctx: typer.Context) -> None:
+    """List all network-instances."""
     # tenant.main
     assert ctx.parent is not None
 
@@ -73,14 +72,13 @@ def list_(ctx: typer.Context):
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
-    output: list[dict[str, Any]] = []
-    for _, network_instance in tenant.network_instances.items():
-        output.append(
-            {
-                "network-instance": network_instance.name,
-                "description": network_instance.metadata.get("description", ""),
-            }
-        )
+    output: list[dict[str, Any]] = [
+        {
+            "network-instance": network_instance.name,
+            "description": network_instance.metadata.get("description", ""),
+        }
+        for network_instance in tenant.network_instances.values()
+    ]
 
     print(tabulate.tabulate(output, headers="keys"))
 
@@ -88,11 +86,9 @@ def list_(ctx: typer.Context):
 @app.command()
 def show(
     ctx: typer.Context,
-    active: Annotated[bool, typer.Option("--active")] = False,
-):
-    """
-    Show a network-instance configuration
-    """
+    active: Annotated[bool, typer.Option("--active")] = False,  # noqa: FBT002
+) -> None:
+    """Show a network-instance configuration."""
     # tenant_network_instance.main
     assert ctx.parent is not None
     # tenant.main
@@ -115,10 +111,8 @@ def show(
 @app.command()
 def summary(
     ctx: typer.Context,
-):
-    """
-    Show a network-instance's connectivity status
-    """
+) -> None:
+    """Show a network-instance's connectivity status."""
     # tenant_network_instance.main
     assert ctx.parent is not None
     # tenant.main
@@ -127,21 +121,25 @@ def summary(
     tenant_id: str = ctx.parent.parent.params["tenant_id"]
     instance_id: str = ctx.parent.params["instance_id"]
 
-    path = helpers.get_tenant_config_path(ctx, True)
+    path = helpers.get_tenant_config_path(ctx, active=True)
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
     output: list[dict[str, Any]] = []
     for idx, connection in enumerate(tenant.network_instances[instance_id].connections):
         output.append(
-            connection.config.status_summary(tenant.network_instances[instance_id], idx)
+            connection.config.status_summary(
+                tenant.network_instances[instance_id],
+                idx,
+            ),
         )
 
     print(tabulate.tabulate(output, headers="keys"))
 
 
 class IkeVersion(str, Enum):
-    "IKE versions"
+    """IKE versions."""
+
     ONE = 1
     TWO = 2
 

@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
-"""
-Shared functions used throughout the vpnctl CLI tool.
-"""
+"""Shared functions used throughout the vpnctl CLI tool."""
 
-import pathlib
+from __future__ import annotations
+
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
@@ -15,18 +13,21 @@ from ipaddress import (
     ip_interface,
     ip_network,
 )
+from typing import TYPE_CHECKING
 
-import typer
 import yaml
 from pydantic import ValidationError
 
-from .. import config, models
+from vpnc import config, models
+
+if TYPE_CHECKING:
+    import pathlib
+
+    import typer
 
 
 def ip_addr(x: str) -> IPv4Address | IPv6Address | None:
-    """
-    Validates if an object is an IP address.
-    """
+    """Validate if an object is an IP address."""
     if not x:
         return None
     output: str | int = x
@@ -36,39 +37,30 @@ def ip_addr(x: str) -> IPv4Address | IPv6Address | None:
 
 
 def ip_if(x: str) -> IPv4Interface | IPv6Interface | None:
-    """
-    Validates if an object is an IP interface.
-    """
+    """Validate if an object is an IP interface."""
     if not x:
         return None
     return ip_interface(x)
 
 
 def ip_net(x: str) -> IPv4Network | IPv6Network | None:
-    """
-    Validates if an object is an IP network.
-    """
+    """Validate if an object is an IP network."""
     if not x:
         return None
     return ip_network(x)
 
 
 def validate_ip_networks(x: list[str]) -> list[IPv4Network | IPv6Network]:
-    """
-    Validates if an object is a list of IP networks.
-    """
-    output: list[IPv4Network | IPv6Network] = []
-    for i in x:
-        if network := ip_net(i):
-            output.append(network)
-    assert output is not None
+    """Validate if an object is a list of IP networks."""
+    output: list[IPv4Network | IPv6Network] = [
+        network for i in x if (network := ip_net(i))
+    ]
+
     return output
 
 
-def get_service_config_path(ctx: typer.Context, active: bool) -> pathlib.Path:
-    """
-    Get the correct service path
-    """
+def get_service_config_path(ctx: typer.Context, active: bool) -> pathlib.Path:  # noqa: FBT001
+    """Get the correct service path."""
     path = config.VPNC_C_SERVICE_CONFIG_PATH
     if active:
         path = config.VPNC_A_SERVICE_CONFIG_PATH
@@ -79,14 +71,12 @@ def get_service_config_path(ctx: typer.Context, active: bool) -> pathlib.Path:
 
 
 def get_service_config(
-    ctx: typer.Context, path: pathlib.Path
+    _: typer.Context,
+    path: pathlib.Path,
 ) -> models.ServiceEndpoint | models.ServiceHub:
-    """
-    Get the service configuration from a file
-    """
-
+    """Get the service configuration from a file."""
     service: models.ServiceEndpoint | models.ServiceHub
-    with open(path, "r", encoding="utf-8") as f:
+    with path.open(encoding="utf-8") as f:
         try:
             service = models.ServiceEndpoint(**yaml.safe_load(f))
         except ValidationError:
@@ -96,10 +86,8 @@ def get_service_config(
     return service
 
 
-def get_tenant_config_path(ctx: typer.Context, active: bool) -> pathlib.Path:
-    """
-    Get the correct tenant path
-    """
+def get_tenant_config_path(ctx: typer.Context, active: bool) -> pathlib.Path:  # noqa: FBT001
+    """Get the correct tenant path."""
     path = config.VPNC_C_TENANT_CONFIG_DIR
     if active:
         path = config.VPNC_A_TENANT_CONFIG_DIR
@@ -110,17 +98,16 @@ def get_tenant_config_path(ctx: typer.Context, active: bool) -> pathlib.Path:
 
 
 def get_tenant_config(
-    ctx: typer.Context, tenant_id: str, path: pathlib.Path
+    ctx: typer.Context,
+    tenant_id: str,
+    path: pathlib.Path,
 ) -> models.Tenant:
-    """
-    Get the tenant configuration from a file
-    """
-
+    """Get the tenant configuration from a file."""
     if not config.DOWNLINK_TEN_RE.match(tenant_id):
         ctx.fail(f"Tenant name '{tenant_id}' is invalid.")
 
     config_path = path.joinpath(f"{tenant_id}.yaml")
-    with open(config_path, "r", encoding="utf-8") as fh:
+    with config_path.open(encoding="utf-8") as fh:
         tenant = models.Tenant(**yaml.safe_load(fh))
     if tenant_id != tenant.id:
         ctx.fail(f"Mismatch between file name '{tenant_id}' and id '{tenant.id}'.")

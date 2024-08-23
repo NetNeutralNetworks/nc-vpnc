@@ -1,74 +1,72 @@
-"""
-Monitors FRR routing changes
-"""
+"""Monitors FRR routing changes."""
 
 import atexit
 import logging
 import pathlib
 import subprocess
 import time
-from ipaddress import IPv4Network, IPv6Network
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, FileSystemLoader
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from ... import config, models
+from vpnc import config, models
+
+if TYPE_CHECKING:
+    from ipaddress import IPv4Network, IPv6Network
 
 logger = logging.getLogger("vpnc")
 
 BASE_DIR = pathlib.Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR.joinpath("templates")
-TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR))
+TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True)
 
 
 def observe() -> BaseObserver:
-    """
-    Create the observer for FRR configuration changes
-    """
+    """Create the observer for FRR configuration changes."""
 
     # Define what should happen when the config file with CORE data is modified.
     class FRRHandler(PatternMatchingEventHandler):
-        """
-        Handler for the event monitoring.
-        """
+        """Handler for the event monitoring."""
 
-        def on_created(self, event: FileSystemEvent):
+        def on_created(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
             time.sleep(0.1)
             self.reload_config()
 
-        def on_modified(self, event: FileSystemEvent):
+        def on_modified(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
             time.sleep(0.1)
             self.reload_config()
 
-        def on_deleted(self, event: FileSystemEvent):
+        def on_deleted(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
             time.sleep(0.1)
             self.reload_config()
 
-        def reload_config(self):
-            """
-            Loads FRR config from file in an idempotent way
-            """
+        def reload_config(self) -> None:
+            """Load FRR config from file in an idempotent way."""
             # Wait to make sure the file is written
-            output = subprocess.run(
-                "/usr/lib/frr/frr-reload.py /etc/frr/frr.conf --reload --stdout",
+            proc = subprocess.run(  # noqa: S603
+                [
+                    "/usr/lib/frr/frr-reload.py",
+                    "/etc/frr/frr.conf",
+                    "--reload",
+                    "--stdout",
+                ],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                shell=True,
                 check=True,
-            ).stdout
-            logger.debug(output)
+            )
+            logger.debug(proc.stdout)
             # Wait to make sure the configuration is applied
             time.sleep(1)
 
     # Create the observer object. This doesn't start the handler.
     observer: BaseObserver = Observer()
-    # Configure the event handler that watches directories. This doesn't start the handler.
+    # Configure the event handler that watches directories.
+    # This doesn't start the handler.
     observer.schedule(
         event_handler=FRRHandler(patterns=["frr.conf"], ignore_directories=True),
         path=config.FRR_CONFIG_PATH.parent,
@@ -80,11 +78,8 @@ def observe() -> BaseObserver:
     return observer
 
 
-def generate_config():
-    """
-    Generate FRR configuration
-    """
-
+def generate_config() -> None:
+    """Generate FRR configuration."""
     assert isinstance(config.VPNC_SERVICE_CONFIG, models.ServiceHub)
 
     neighbors: list[dict[str, Any]] = []
@@ -118,34 +113,28 @@ def generate_config():
     frr_render = frr_template.render(**frr_cfg)
     logger.info(frr_render)
 
-    with open(config.FRR_CONFIG_PATH, "w+", encoding="utf-8") as f:
+    with config.FRR_CONFIG_PATH.open("w+", encoding="utf-8") as f:
         f.write(frr_render)
 
 
-def stop():
-    """
-    Shut down IPsec when terminating the program
-    """
-    proc = subprocess.Popen(
+def stop() -> None:
+    """Shut down IPsec when terminating the program."""
+    proc = subprocess.Popen(  # noqa: S603
         ["/usr/lib/frr/frrinit.sh", "stop"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=False,
     )
     logger.info(proc.args)
-    logger.debug(proc.stdout)
 
 
-def start():
-    """
-    Start the IPSec service in the EXTERNAL network instance.
-    """
-
+def start() -> None:
+    """Start the IPSec service in the EXTERNAL network instance."""
     # Remove old frr config files
     logger.debug("Unlinking FRR config file %s at startup", config.FRR_CONFIG_PATH)
     config.FRR_CONFIG_PATH.unlink(missing_ok=True)
 
-    proc = subprocess.Popen(
+    proc = subprocess.Popen(  # noqa: S603
         ["/usr/lib/frr/frrinit.sh", "start"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -153,11 +142,10 @@ def start():
     )
     logger.info(proc.args)
     time.sleep(5)
-    logger.debug(proc.stdout)
     atexit.register(stop)
 
-    # FRR doesn't monitor for file config changes directly, so a file observer is used to auto
-    # reload the configuration.
+    # FRR doesn't monitor for file config changes directly, so a file observer is
+    # used to auto reload the configuration.
     logger.info("Monitoring frr config changes.")
     obs = observe()
     obs.start()

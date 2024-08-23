@@ -1,7 +1,6 @@
-"""
-Monitors the strongswan service and components. This is blocking and as such, runs in separate
-threads.
-"""
+"""Manage the strongswan service."""
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -16,7 +15,7 @@ import vici
 import vici.exception
 import yaml
 
-from ... import config, helpers, models, network_instance
+from vpnc import config, helpers, models, network_instance
 
 logger = logging.getLogger("vpnc")
 
@@ -28,32 +27,28 @@ Event: TypeAlias = tuple[EventType, IkeData]
 
 
 class Monitor(threading.Thread):
-    """
-    Monitors the strongswan service and components. This is blocking and as such, runs in separate
-    threads.
+    """Monitors the strongswan service and components.
+
+    This is blocking and as such, runs in separate threads.
     """
 
-    def run(self):
+    def run(self) -> None:
+        """Override and entrypoint of the threading.Thread class."""
         while True:
             try:
                 logger.info("Starting VPNC Monitors")
                 asyncio.run(self.monitor())
-            except Exception:
+            except Exception:  # noqa: BLE001, PERF203
                 logger.warning("VPNC Monitors crashed", exc_info=True)
                 time.sleep(1)
 
-    async def monitor(self):
-        """
-        Test function
-        """
-
+    async def monitor(self) -> None:
+        """Test function."""
         # Wait for startup before starting to manage VPNs
         await asyncio.sleep(10)
 
         # Get the current event loop for the thread.
         loop = asyncio.get_running_loop()
-        # executor = concurrent.futures.ThreadPoolExecutor()
-        # loop.run_in_executor(executor, self.monitor_sa_events)
 
         # Queue to exchange up/down VPN events with.
         updown_q: queue.Queue[dict[str, Any]] = queue.Queue()
@@ -61,21 +56,25 @@ class Monitor(threading.Thread):
         # Run the task to monitor the security associations for duplicates.
         logger.info("Starting duplicate SA monitor.")
         duplicates = threading.Thread(
-            target=self.monitor_duplicate_sa_events, args=[updown_q], daemon=True
+            target=self.monitor_duplicate_sa_events,
+            args=[updown_q],
+            daemon=True,
         )
         duplicates.start()
 
         # Run the task to monitor the route advertisements.
         logger.info("Starting route advertisement monitor.")
         routes = threading.Thread(
-            target=self.monitor_route_advertisements, args=[updown_q], daemon=True
+            target=self.monitor_route_advertisements,
+            args=[updown_q],
+            daemon=True,
         )
         routes.start()
 
         # Run the task to check for inactive and active connections every interval.
         logger.info("Starting inactive/active connection monitor.")
         inactives = loop.create_task(
-            self.repeat(30, self.monitor_connections, init_wait=False)
+            self.repeat(30, self.monitor_connections, init_wait=False),
         )
         await inactives
 
@@ -83,10 +82,10 @@ class Monitor(threading.Thread):
         self,
         interval: int,
         func: Callable[[], Awaitable[None]],
-        *args: Any,
+        *args: Any,  # noqa: ANN401
         init_wait: bool = False,
-        **kwargs: Any,
-    ):
+        **kwargs: Any,  # noqa: ANN401
+    ) -> None:
         """Run func every interval seconds.
 
         If func has not finished before *interval*, will run again
@@ -102,42 +101,46 @@ class Monitor(threading.Thread):
                 asyncio.sleep(interval),
             )
 
-    async def monitor_connections(self):
-        """
-        Monitors for inactive connection definitions where the connection is set to initiate/start.
+    async def monitor_connections(self) -> None:
+        """Monitor for inactive connections.
+
+        Monitor for inactive connection definitions where the connection is set to
+        initiate/start.
         This doesn't check for IKE SAs without IPsec SAs.
         Also checks for SAs that aren't configured and removes these
         """
         vcs = self.connect()
         conns: list[str] = [x.decode() for x in vcs.get_conns()["conns"]]
-        sas: list[str] = [list(i.keys())[0] for i in vcs.list_sas()]
+        sas: list[str] = [next(iter(i.keys())) for i in vcs.list_sas()]
         logger.debug("Configured connections: %s", conns)
         logger.debug("Active connections: %s", sas)
 
-        # TODO: Implement IKE SA without IPsec SAs check?
+        # TODO@draggeta: Implement IKE SA without IPsec SAs check?
 
-        # For each configured connection, check if there is a SA. If not, start the connection.
+        # For each configured connection, check if there is a SA. If not, start
+        # the connection.
         for con in conns:
             if con in sas:
                 continue
             logger.info("Initiating connection '%s'", con)
             self.initiate_sa(vcs=vcs, ike=con, child=con)
 
-        # For each SA, check if there is a configured connection. If not, delete the connection.
+        # For each SA, check if there is a configured connection. If not, delete
+        # the connection.
         for sa in sas:
             if sa in conns:
                 continue
             logger.info("Terminating connection '%s'", sa)
             self.terminate_sa(vcs=vcs, ike=sa)
 
-    def monitor_duplicate_sa_events(self, q: queue.Queue[dict[str, Any]]):
-        """
-        Monitor for SA events, check if there are duplicates and take action accordingly.
-        """
+    def monitor_duplicate_sa_events(self, q: queue.Queue[dict[str, Any]]) -> None:
+        """Monitor for SA events.
 
+        check if there are duplicates and take action accordingly.
+        """
         vcs = self.connect()
         for event in vcs.listen(
-            event_types=["ike-updown", "child-updown"]  # , timeout=0.05
+            event_types=["ike-updown", "child-updown"],  # , timeout=0.05
         ):
             event_type, event_data = event
             if event_type is None or event_data is None:
@@ -153,11 +156,11 @@ class Monitor(threading.Thread):
                     self.resolve_duplicate_ipsec_sa(event_data)
 
     def monitor_route_advertisements(self, q: queue.Queue[dict[str, Any]]) -> None:
-        """
-        Receives child updown events and tries to check if the route for the remote should be
-        advertised or retracted.
-        """
+        """Monitor route advertisements.
 
+        Receives child updown events and tries to check if the route for the remote
+        should be advertised or retracted.
+        """
         vcs = self.connect()
 
         # At startup check for routes
@@ -170,11 +173,14 @@ class Monitor(threading.Thread):
             time.sleep(0.1)
             self.resolve_route_advertisements(ike_event)
 
-    def resolve_route_advertisements(self, ike_event: IkeData):
-        """
-        Resolver for monitor monitor_route_advertisements
-        """
+    def resolve_route_advertisements(self, ike_event: IkeData) -> None:
+        """Resolve route advertisement statuses.
 
+        Used by monitor monitor_route_advertisements.
+
+        Tries to resolve the current routes as in the FDB and what should be advertised.
+        If the connection is down, the advertisements should be retracted.
+        """
         ike_name: str
         if len(keys := ike_event.keys()) == 2:
             _, ike_name = list(keys)
@@ -189,9 +195,10 @@ class Monitor(threading.Thread):
         network_instance_name = ni_info["network_instance"]
         connection_id = ni_info["connection_id"]
         remote_config_file = config.VPNC_A_TENANT_CONFIG_DIR.joinpath(f"{tenant}.yaml")
-        # When a connection configuration is deleted, the SA is deleted when the monitor_connection
-        # function runs. Before this happens however, there is a chance it rekeys or switches state.
-        # To prevent errors, we check if the file exists.
+        # When a connection configuration is deleted, the SA is deleted when the
+        # monitor_connection function runs. Before this happens however, there is a
+        # chance  it rekeys or switches state. To prevent errors, we check if the file
+        # exists.
         if not remote_config_file.exists():
             logger.info("No configuration file found for '%s'", tenant)
             return
@@ -203,12 +210,12 @@ class Monitor(threading.Thread):
 
         # Get NAT64 prefix for this connection
         nat64_scope = network_instance.get_network_instance_nat64_scope(
-            network_instance_name
+            network_instance_name,
         )
 
         # Get NPTv6 prefix for this connection
         nptv6_scope = network_instance.get_network_instance_nptv6_scope(
-            network_instance_name
+            network_instance_name,
         )
 
         remote_config_file_handle = remote_config_file.open(encoding="utf-8")
@@ -218,7 +225,8 @@ class Monitor(threading.Thread):
             for route in remote_config.network_instances[network_instance_name]
             .connections[int(connection_id)]
             .routes.ipv6
-            # Only advertise non NPTv6 routes, and only if those routes are global unicast.
+            # Only advertise non NPTv6 routes, and only if those routes are
+            # global unicast.
             if route.nptv6 is False
         }
         v6_networks.update([nat64_scope, nptv6_scope])
@@ -228,7 +236,6 @@ class Monitor(threading.Thread):
         if v := list(vcs.list_sas({"ike": ike_name, "child": ike_name})):
             vpn = v[0]
         ike_data: dict[str, Any] = vpn.get(ike_name, {})
-        # ike_data = ike_event[ike_name]
         list_child_sas: list[str]
         if list_child_sas := list(ike_data.get("child-sas", {}).keys()):
             child_id: str = list_child_sas[0]
@@ -267,26 +274,26 @@ class Monitor(threading.Thread):
             ike_name,
             cmds,
         )
-        sp = subprocess.run(
+        proc = subprocess.run(  # noqa: S602
             "\n".join(cmds),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            capture_output=True,
+            text=True,
             shell=True,
             check=False,
         )
-        if sp.stdout.decode().strip() != "RTNETLINK answers: File exists":
-            logger.info(sp.stdout.decode())
+        if proc.stderr.strip() != "RTNETLINK answers: File exists":
+            logger.debug(proc.stdout)
 
     def resolve_duplicate_ike_sa(self, ike_event: IkeData) -> None:
-        """
-        Checks for duplicate IPsec security associations and if these need to be removed.
+        """Check for duplicate IPsec security associations.
+
         If SAs need be removed, the older ones are removed in favor of the youngest.
         """
-        vcs = self.connect()
+        vcs: vici.Session = self.connect()
         if len(keys := ike_event.keys()) == 2:
-            _, ike_name = list(keys)
+            ike_name = list(keys)[1]
         else:
-            ike_name = list(keys)[0]
+            ike_name = next(iter(keys))
 
         logger.debug("IKE event received for SA '%s'", ike_name)
 
@@ -294,7 +301,8 @@ class Monitor(threading.Thread):
 
         if len(ike_sas) <= 1:
             logger.debug(
-                "Skipping IKE event for SA '%s'. Two or fewer SAs active.", ike_name
+                "Skipping IKE event for SA '%s'. Two or fewer SAs active.",
+                ike_name,
             )
             return
 
@@ -311,7 +319,7 @@ class Monitor(threading.Thread):
                 try:
                     ike_sa_established = int(ike_sa["established"])
                     best_sa_established = int(
-                        best_ike_sa_event[ike_name]["established"]
+                        best_ike_sa_event[ike_name]["established"],
                     )
                 except TypeError:
                     continue
@@ -320,15 +328,15 @@ class Monitor(threading.Thread):
 
                 if ike_sa_established <= best_sa_established:
                     self.terminate_sa(
-                        vcs=vcs, ike_id=best_ike_sa_event[ike_name]["uniqueid"]
+                        vcs=vcs,
+                        ike_id=best_ike_sa_event[ike_name]["uniqueid"],
                     )
                     best_ike_sa_event = ike_sa_event
                 else:
                     self.terminate_sa(vcs=vcs, ike_id=ike_sa["uniqueid"])
 
     def resolve_duplicate_ipsec_sa(self, ike_event: IkeData):
-        """
-        Checks for duplicate IPsec security associations and if these need to be removed.
+        """Checks for duplicate IPsec security associations and if these need to be removed.
         If SAs need be removed, the older ones are removed in favor of the youngest.
         """
         vcs = self.connect()
@@ -368,19 +376,18 @@ class Monitor(threading.Thread):
                 else:
                     self.terminate_sa(vcs=vcs, child_id=ipsec_sa["uniqueid"])
 
-    def connect(self, tries: int = 10, delay: int = 2):
-        """
-        Tries to connect to the VICI socket
-        """
+    def connect(self, tries: int = 10, delay: int = 2) -> vici.Session:
+        """Try to connect to the VICI socket."""
         for i in range(tries):
             try:
                 return vici.Session()
-            except ConnectionRefusedError as err:
+            except ConnectionRefusedError as err:  # noqa: PERF203
                 if i >= tries:
                     logger.warning(
-                        "VICI socket not available after %s tries. Exiting.", tries
+                        "VICI socket not available after %s tries. Exiting.",
+                        tries,
                     )
-                    raise err
+                    raise ConnectionError from err
                 logger.info("VICI socket is not yet available. Retrying.")
                 time.sleep(delay)
 
@@ -391,11 +398,8 @@ class Monitor(threading.Thread):
         vcs: vici.Session,
         ike: str | bytes | None = None,
         child: str | bytes | None = None,
-    ):
-        """
-        Initiates IKE/IPsec security associations.
-        """
-
+    ) -> None:
+        """Initiate IKE/IPsec security associations."""
         _filter: dict[str, bytes] = {}
         if isinstance(ike, str):
             ike = ike.encode("utf-8")
@@ -420,10 +424,8 @@ class Monitor(threading.Thread):
         ike_id: str | bytes | None = None,
         child: str | bytes | None = None,
         child_id: str | bytes | None = None,
-    ):
-        """
-        Terminates IKE/IPsec security associations.
-        """
+    ) -> None:
+        """Terminates IKE/IPsec security associations."""
         _filter: dict[str, bytes] = {}
         if isinstance(ike, str):
             ike = ike.encode("utf-8")
@@ -444,15 +446,13 @@ class Monitor(threading.Thread):
 
         logger.info("Terminating SA with parameters: '%s'", _filter)
         try:
-            # if not vcs.list_sas(_filter):
-            #     logger.info("SA not found. It may already be deleted: '%s'", _filter)
-            #     return
             for i in vcs.terminate(_filter):
                 logger.debug(i)
 
         except vici.exception.SessionException:
             logger.warning(
-                ("Termination of SA '%s' may have failed.", _filter), exc_info=True
+                ("Termination of SA '%s' may have failed.", _filter),
+                exc_info=True,
             )
         except vici.exception.CommandException:
             logger.warning(("Termination of SA '%s' failed.", _filter), exc_info=True)

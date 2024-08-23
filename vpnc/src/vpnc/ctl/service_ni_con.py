@@ -1,21 +1,22 @@
-#!/usr/bin/env python3
+"""Manage service network instance connections."""
+
+from __future__ import annotations
 
 from typing import Any, Generator, Optional
 
 import tabulate
 import typer
 import yaml
+from rich import print
 from typing_extensions import Annotated
 
-from . import helpers
+from vpnc.ctl import helpers
 
 app = typer.Typer()
 
 
 def complete_connection(ctx: typer.Context) -> Generator[tuple[str, str], Any, None]:
-    """
-    Autocompletes connection identifiers
-    """
+    """Autocomplete connection identifiers."""
     # tenant.main
     assert ctx.parent is not None
     assert ctx.parent.parent is not None
@@ -28,7 +29,7 @@ def complete_connection(ctx: typer.Context) -> Generator[tuple[str, str], Any, N
     service = helpers.get_service_config(ctx, path)
 
     for idx, connection in enumerate(
-        service.network_instances[instance_id].connections
+        service.network_instances[instance_id].connections,
     ):
         yield (str(idx), connection.metadata.get("description", ""))
 
@@ -37,27 +38,21 @@ def complete_connection(ctx: typer.Context) -> Generator[tuple[str, str], Any, N
 def main(
     ctx: typer.Context,
     connection_id: Annotated[
-        Optional[int],
+        Optional[int],  # noqa: UP007
         typer.Argument(autocompletion=complete_connection),
     ] = None,
-):
-    """
-    Entrypoint for service  network-instance connection commands
-    """
-
+) -> None:
+    """Entrypoint for service  network-instance connection commands."""
     if (
-        ctx.invoked_subcommand is None
-        and connection_id is not None
+        ctx.invoked_subcommand is None and connection_id is not None
         # and connection_id != "list"
     ):
         ctx.fail("Missing command.")
     list_(ctx)
 
 
-def list_(ctx: typer.Context):
-    """
-    List all connections
-    """
+def list_(ctx: typer.Context) -> None:
+    """List all connections."""
     # tenant.main
     assert ctx.parent is not None
     assert ctx.parent.parent is not None
@@ -71,14 +66,14 @@ def list_(ctx: typer.Context):
 
     output: list[dict[str, Any]] = []
     for idx, connection in enumerate(
-        service.network_instances[instance_id].connections
+        service.network_instances[instance_id].connections,
     ):
         output.append(
             {
                 "connection": idx,
                 "type": connection.config.type.name,
                 "description": connection.metadata.get("description", ""),
-            }
+            },
         )
 
     print(tabulate.tabulate(output, headers="keys"))
@@ -87,12 +82,9 @@ def list_(ctx: typer.Context):
 @app.command()
 def show(
     ctx: typer.Context,
-    # full: Annotated[bool, typer.Option("--full")] = False,
-    active: Annotated[bool, typer.Option("--active")] = False,
-):
-    """
-    Show a connection configuration
-    """
+    active: Annotated[bool, typer.Option("--active")] = False,  # noqa: FBT002
+) -> None:
+    """Show a connection configuration."""
     assert ctx.parent is not None
     assert ctx.parent.parent is not None
 
@@ -113,26 +105,25 @@ def show(
 
     print(
         yaml.safe_dump(
-            connection.model_dump(mode="json"), explicit_start=True, explicit_end=True
-        )
+            connection.model_dump(mode="json"),
+            explicit_start=True,
+            explicit_end=True,
+        ),
     )
 
 
 @app.command()
 def summary(
     ctx: typer.Context,
-):
-    """
-    Show a connection's connectivity status
-    """
+) -> None:
+    """Show a connection's connectivity status."""
     assert ctx.parent is not None
     assert ctx.parent.parent is not None
 
-    # tenant_id: str = ctx.parent.parent.parent.params["tenant_id"]
     instance_id: str = ctx.parent.parent.params["instance_id"]
     connection_id: int = ctx.parent.params["connection_id"]
 
-    path = helpers.get_service_config_path(ctx, True)
+    path = helpers.get_service_config_path(ctx, active=True)
 
     service = helpers.get_service_config(ctx, path)
 
@@ -145,7 +136,8 @@ def summary(
         return
 
     connection_status_summary = connection.config.status_summary(
-        network_instance, connection_id
+        network_instance,
+        connection_id,
     )
 
     print(tabulate.tabulate([connection_status_summary], headers="keys"))
