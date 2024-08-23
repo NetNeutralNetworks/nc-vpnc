@@ -103,9 +103,9 @@ def add_downlink_network_instance(path: pathlib.Path) -> None:
 
     ni_diff = {x["name"] for x in ip_ni if x["name"].startswith(tenant.id)}
     ni_ref = {
-        x.name
+        x.id
         for _, x in tenant.network_instances.items()  # pylint: disable=no-member
-        if x.name.startswith(tenant.id)
+        if x.id.startswith(tenant.id)
     }
 
     # Calculate network instances that need to be removed and remove them.
@@ -129,15 +129,15 @@ def add_downlink_network_instance(path: pathlib.Path) -> None:
                 tenant.id,
             )
             continue
-        if network_instance.name != key:
+        if network_instance.id != key:
             logger.warning(
                 "Network instance name '%s' must be the same as key  '%s'.",
-                network_instance.name,
+                network_instance.id,
                 key,
             )
             continue
 
-        core_interfaces = [f"{network_instance.name}_D"]
+        core_interfaces = [f"{network_instance.id}_D"]
         downlink_interfaces = general.get_network_instance_connections(network_instance)
 
         # Create the network instance
@@ -235,14 +235,14 @@ def add_downlink_nat64(network_instance: models.NetworkInstance) -> None:
     if config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB:
         return
 
-    nat64_scope = general.get_network_instance_nat64_scope(network_instance.name)
+    nat64_scope = general.get_network_instance_nat64_scope(network_instance.id)
 
     # configure NAT64 for the DOWNLINK network instance
     proc = subprocess.run(  # noqa: S602
         f"""
         # start NAT64
-        ip netns exec {network_instance.name} jool instance flush
-        ip netns exec {network_instance.name} jool instance add {network_instance.name} --netfilter --pool6 {nat64_scope}
+        /usr/sbin/ip netns exec {network_instance.id} jool instance flush
+        /usr/sbin/ip netns exec {network_instance.id} jool instance add {network_instance.id} --netfilter --pool6 {nat64_scope}
         """,  # noqa: E501
         capture_output=True,
         shell=True,
@@ -264,9 +264,9 @@ def get_network_instance_nptv6_networks(
         return updated, nptv6_list
 
     # Get NPTv6 prefix for this network instance
-    nptv6_scope = general.get_network_instance_nptv6_scope(network_instance.name)
+    nptv6_scope = general.get_network_instance_nptv6_scope(network_instance.id)
 
-    for connection in network_instance.connections:
+    for connection in network_instance.connections.values():
         nptv6_list.extend(
             [route for route in connection.routes.ipv6 if route.nptv6 is True],
         )
@@ -353,7 +353,7 @@ def add_downlink_iptables(
     updated, nptv6_networks = get_network_instance_nptv6_networks(network_instance)
     iptables_configs = {
         "mode": mode,
-        "network_instance_name": network_instance.name,
+        "network_instance_name": network_instance.id,
         "core_interfaces": core_interfaces,
         "downlink_interfaces": downlink_interfaces,
         "nptv6_networks": nptv6_networks,

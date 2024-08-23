@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
+"""Manage tenants."""
 
 import json
 import os
 import tempfile
-from pprint import pprint
 from subprocess import call
 from typing import Any, Generator, Optional
 
@@ -12,10 +11,11 @@ import typer
 import yaml
 from deepdiff import DeepDiff
 from pydantic import ValidationError
+from rich import print
 from typing_extensions import Annotated
 
-from .. import config, models
-from . import helpers, tenants_ni
+from vpnc import config, models
+from vpnc.ctl import helpers, tenants_ni
 
 app = typer.Typer()
 app.add_typer(tenants_ni.app, name="network-instances")
@@ -24,9 +24,7 @@ app.add_typer(tenants_ni.app, name="network-instances")
 def complete_tenant_id(
     ctx: typer.Context,
 ) -> Generator[tuple[str, str], Any, None]:
-    """
-    Autocompletes tenant identifiers
-    """
+    """Autocomplete tenant identifiers."""
     assert ctx.parent is not None
 
     active: bool = ctx.parent.params.get("active", False)
@@ -43,13 +41,12 @@ def complete_tenant_id(
 def main(
     ctx: typer.Context,
     tenant_id: Annotated[
-        Optional[str], typer.Argument(autocompletion=complete_tenant_id)
+        Optional[str],
+        typer.Argument(autocompletion=complete_tenant_id),
     ] = None,
     active: Annotated[bool, typer.Option("--active")] = False,
-):
-    """
-    Entrypoint for tenant commands
-    """
+) -> None:
+    """Entrypoint for tenant commands."""
     _ = active
     if ctx.invoked_subcommand is None and tenant_id is not None and tenant_id != "list":
         ctx.fail("Missing command.")
@@ -63,7 +60,6 @@ def list_(
     """s
     List all tenants
     """
-
     active: bool = ctx.params.get("active", False)
 
     path = helpers.get_tenant_config_path(ctx, active)
@@ -77,7 +73,7 @@ def list_(
                 "tenant": tenant.id,
                 "tenant-name": tenant.name,
                 "description": tenant.metadata.get("description", ""),
-            }
+            },
         )
 
     print(tabulate.tabulate(output, headers="keys"))
@@ -86,12 +82,10 @@ def list_(
 @app.command()
 def show(
     ctx: typer.Context,
-    full: Annotated[bool, typer.Option("--full")] = False,
-    active: Annotated[bool, typer.Option("--active")] = False,
-):
-    """
-    Show a tenant configuration
-    """
+    full: Annotated[bool, typer.Option("--full")] = False,  # noqa: FBT002
+    active: Annotated[bool, typer.Option("--active")] = False,  # noqa: FBT002
+) -> None:
+    """Show a tenant configuration."""
     assert ctx.parent is not None
 
     tenant_id: str = ctx.parent.params["tenant_id"]
@@ -111,33 +105,29 @@ def show(
 @app.command()
 def summary(
     ctx: typer.Context,
-):
-    """
-    Show a tenant's connectivity status
-    """
+) -> None:
+    """Show a tenant's connectivity status."""
     assert ctx.parent is not None
 
     tenant_id: str = ctx.parent.params["tenant_id"]
 
-    path = helpers.get_tenant_config_path(ctx, True)
+    path = helpers.get_tenant_config_path(ctx, active=True)
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
     output: list[dict[str, Any]] = []
-    for _, network_instance in tenant.network_instances.items():
-        for idx, connection in enumerate(
-            tenant.network_instances[network_instance.name].connections
-        ):
-            output.append(connection.config.status_summary(network_instance, idx))
+    for network_instance in tenant.network_instances.values():
+        for connection in tenant.network_instances[
+            network_instance.id
+        ].connections.values():
+            output.append(connection.status_summary(network_instance))
 
     print(tabulate.tabulate(output, headers="keys"))
 
 
 @app.command()
-def edit(ctx: typer.Context):
-    """
-    Edit a candidate config file
-    """
+def edit(ctx: typer.Context) -> None:
+    """Edit a candidate config file."""
     assert ctx.parent is not None
 
     editor = os.environ.get("EDITOR", "vim")
@@ -147,13 +137,13 @@ def edit(ctx: typer.Context):
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
-    # tenant_config_str = yaml.safe_dump(tenant_config.model_dump(mode="json"))
-
     with tempfile.NamedTemporaryFile(suffix=".tmp", mode="w+", encoding="utf-8") as tf:
         tf.write(
             yaml.safe_dump(
-                tenant.model_dump(mode="json"), explicit_start=True, explicit_end=True
-            )
+                tenant.model_dump(mode="json"),
+                explicit_start=True,
+                explicit_end=True,
+            ),
         )
         tf.flush()
         while True:
@@ -164,8 +154,9 @@ def edit(ctx: typer.Context):
                 edited_config_str = tf.read()
                 edited_config = models.Tenant(**yaml.safe_load(edited_config_str))
                 if tenant_id != edited_config.id:
+                    msg = f"Mismatch between file name '{tenant_id}' and id '{edited_config.id}'"
                     raise ValueError(
-                        f"Mismatch between file name '{tenant_id}' and id '{edited_config.id}'"
+                        msg,
                     )
             except (ValidationError, ValueError, yaml.YAMLError) as err:
                 print(f"Error: {err}")
@@ -187,9 +178,11 @@ def edit(ctx: typer.Context):
     print("Edited file")
 
     output = yaml.safe_dump(
-        edited_config.model_dump(mode="json"), explicit_start=True, explicit_end=True
+        edited_config.model_dump(mode="json"),
+        explicit_start=True,
+        explicit_end=True,
     )
-    with open(path.joinpath(f"{tenant_id}.yaml"), mode="w", encoding="utf-8") as f:
+    with path.joinpath(f"{tenant_id}.yaml").open(mode="w", encoding="utf-8") as f:
         f.write(output)
 
     show(ctx)
@@ -201,12 +194,11 @@ def add(
     # pylint: disable=unused-argument
     name: Annotated[str, typer.Option()],
     metadata: Annotated[
-        Optional[dict[str, Any]], typer.Option(parser=json.loads)
+        Optional[dict[str, Any]],
+        typer.Option(parser=json.loads),
     ] = None,
-):
-    """
-    Add a tenant configuration
-    """
+) -> None:
+    """Add a tenant configuration."""
     assert ctx.parent is not None
 
     all_args = {k: v for k, v in locals().items() if v}
@@ -224,9 +216,11 @@ def add(
     tenant = models.Tenant(**all_args)
 
     output = yaml.safe_dump(
-        tenant.model_dump(mode="json"), explicit_start=True, explicit_end=True
+        tenant.model_dump(mode="json"),
+        explicit_start=True,
+        explicit_end=True,
     )
-    with open(path, "w+", encoding="utf-8") as f:
+    with path.open("w+", encoding="utf-8") as f:
         f.write(output)
 
     show(ctx)
@@ -319,12 +313,10 @@ def add(
 @app.command()
 def delete(
     ctx: typer.Context,
-    dry_run: bool = typer.Option(False, "--dry-run"),
-    force: bool = typer.Option(False, "--force"),
-):
-    """
-    Delete a tenant configuration
-    """
+    dry_run: bool = typer.Option(False, "--dry-run"),  # noqa: FBT001, FBT003
+    force: bool = typer.Option(False, "--force"),  # noqa: FBT001, FBT003
+) -> None:
+    """Delete a tenant configuration."""
     assert ctx.parent is not None
 
     tenant_id: str = ctx.parent.params["tenant_id"]
@@ -332,23 +324,23 @@ def delete(
     if not path.exists():
         print(f"Tenant '{tenant_id}' doesn't exist.")
         return
-    with open(path, "r", encoding="utf-8") as f:
+    with path.open(encoding="utf-8") as f:
         tenant = models.Tenant(**yaml.safe_load(f))
     if tenant_id != tenant.id:
         print(f"Mismatch between file name '{tenant_id}' and id '{tenant.id}'.")
         return
 
     output = yaml.safe_dump(
-        tenant.model_dump(mode="json"), explicit_start=True, explicit_end=True
+        tenant.model_dump(mode="json"),
+        explicit_start=True,
+        explicit_end=True,
     )
     print(output)
     if dry_run:
         print(f"(Simulated) Deleted tenant '{tenant_id}'")
-    elif force:
-        path.unlink()
-        print(f"Deleted tenant '{tenant_id}'")
-    elif typer.confirm(
-        f"Are you sure you want to delete tenant '{tenant_id}'", abort=True
+    elif force or typer.confirm(
+        f"Are you sure you want to delete tenant '{tenant_id}'",
+        abort=True,
     ):
         path.unlink()
         print(f"Deleted tenant '{tenant_id}'")
@@ -357,13 +349,11 @@ def delete(
 @app.command()
 def commit(
     ctx: typer.Context,
-    dry_run: bool = typer.Option(False, "--dry-run"),
-    revert: bool = False,
-    diff: bool = False,
-):
-    """
-    Commit a tenant configuration
-    """
+    dry_run: bool = typer.Option(False, "--dry-run"),  # noqa: FBT001, FBT003
+    revert: bool = False,  # noqa: FBT001, FBT002
+    diff: bool = False,  # noqa: FBT001, FBT002
+) -> None:
+    """Commit a tenant configuration."""
     assert ctx.parent is not None
 
     tenant_id: str = ctx.parent.params["tenant_id"]
@@ -374,14 +364,14 @@ def commit(
         tenant_config_candidate_str = ""
         tenant_config_candidate = models.Tenant(id=tenant_id, name="", version="0.0.12")
     else:
-        with open(path_candidate, "r", encoding="utf-8") as f:
+        with path_candidate.open(encoding="utf-8") as f:
             tenant_config_candidate_str = f.read()
             tenant_config_candidate = models.Tenant(
-                **yaml.safe_load(tenant_config_candidate_str)
+                **yaml.safe_load(tenant_config_candidate_str),
             )
         if tenant_id != tenant_config_candidate.id:
             print(
-                f"Mismatch between file name '{tenant_id}' and id '{tenant_config_candidate.id}'."
+                f"Mismatch between file name '{tenant_id}' and id '{tenant_config_candidate.id}'.",
             )
             return
 
@@ -389,14 +379,14 @@ def commit(
         tenant_config_active_str = ""
         tenant_config_active = models.Tenant(id=tenant_id, name="", version="0.0.12")
     else:
-        with open(path_active, "r", encoding="utf-8") as f:
+        with path_active.open(encoding="utf-8") as f:
             tenant_config_active_str = f.read()
             tenant_config_active = models.Tenant(
-                **yaml.safe_load(tenant_config_active_str)
+                **yaml.safe_load(tenant_config_active_str),
             )
         if tenant_id != tenant_config_active.id:
             print(
-                f"Mismatch between diff file name '{tenant_id}' and id '{tenant_config_active.id}'."
+                f"Mismatch between diff file name '{tenant_id}' and id '{tenant_config_active.id}'.",
             )
             return
 
@@ -412,7 +402,7 @@ def commit(
                 verbose_level=1,
                 ignore_type_in_groups=config.DEEPDIFF_IGNORE,
             ).to_dict()
-            pprint(diff_output)
+            print(diff_output)
         if dry_run:
             print("(Simulated) Revert succeeded.")
             return
@@ -421,7 +411,7 @@ def commit(
             print("Revert succeeded.")
             return
 
-        with open(path_candidate, "w", encoding="utf-8") as f:
+        with path_candidate.open("w", encoding="utf-8") as f:
             f.write(tenant_config_active_str)
         print("Revert succeeded.")
         return
@@ -433,7 +423,7 @@ def commit(
             verbose_level=2,
             ignore_type_in_groups=config.DEEPDIFF_IGNORE,
         ).to_dict()
-        pprint(diff_output)
+        print(diff_output)
 
     if dry_run:
         print("(Simulated) Commit succeeded.")
@@ -443,7 +433,7 @@ def commit(
         print("Commit succeeded.")
         return
 
-    with open(path_active, "w", encoding="utf-8") as f:
+    with path_active.open("w", encoding="utf-8") as f:
         f.write(tenant_config_candidate_str)
     print("Commit succeeded.")
 

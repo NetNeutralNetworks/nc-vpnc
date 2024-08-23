@@ -96,7 +96,7 @@ def generate_config() -> None:
     frr_template = TEMPLATES_ENV.get_template("frr.conf.j2")
     # Subnets expected on the CORE side
     prefix_core: list[IPv4Network | IPv6Network] = []
-    for connection in net_instance.connections:
+    for connection in net_instance.connections.values():
         prefix_core = [route.to for route in connection.routes.ipv6]
 
     frr_cfg = {

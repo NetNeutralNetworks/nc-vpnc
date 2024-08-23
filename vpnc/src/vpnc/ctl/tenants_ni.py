@@ -36,7 +36,7 @@ def complete_network_instance(
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
     for network_instance in tenant.network_instances.values():
-        yield (network_instance.name, network_instance.metadata.get("description", ""))
+        yield (network_instance.id, network_instance.metadata.get("description", ""))
 
 
 @app.callback(invoke_without_command=True)
@@ -74,7 +74,7 @@ def list_(ctx: typer.Context) -> None:
 
     output: list[dict[str, Any]] = [
         {
-            "network-instance": network_instance.name,
+            "network-instance": network_instance.id,
             "description": network_instance.metadata.get("description", ""),
         }
         for network_instance in tenant.network_instances.values()
@@ -125,14 +125,10 @@ def summary(
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
-    output: list[dict[str, Any]] = []
-    for idx, connection in enumerate(tenant.network_instances[instance_id].connections):
-        output.append(
-            connection.config.status_summary(
-                tenant.network_instances[instance_id],
-                idx,
-            ),
-        )
+    output: list[dict[str, Any]] = [
+        connection.status_summary(tenant.network_instances[instance_id])
+        for connection in tenant.network_instances[instance_id].connections.values()
+    ]
 
     print(tabulate.tabulate(output, headers="keys"))
 

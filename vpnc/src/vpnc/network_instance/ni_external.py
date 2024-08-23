@@ -22,7 +22,7 @@ def add_external_iptables(network_instance: models.NetworkInstance) -> None:
     """
     iptables_template = TEMPLATES_ENV.get_template("iptables-external.conf.j2")
     iptables_configs = {
-        "network_instance_name": network_instance.name,
+        "network_instance_name": network_instance.id,
     }
     iptables_render = iptables_template.render(**iptables_configs)
     logger.info(iptables_render)

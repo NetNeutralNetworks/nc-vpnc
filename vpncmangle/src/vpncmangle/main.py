@@ -22,12 +22,13 @@ QUERY_AAAA = 28
 
 def setup_ip6tables(queue_number: int) -> None:
     """Configure ip6tables to capture DNS responses."""
+    # TODO@draggeta: fix DNS over TCP
     proc = subprocess.run(  # noqa: S602
         f"""
         # Configure DNS64 mangle
-        ip6tables -t mangle -F
-        ip6tables -t mangle -A POSTROUTING -p udp -m udp --sport 53 -j NFQUEUE --queue-num {queue_number}
-        # ip6tables -t mangle -A POSTROUTING -p tcp -m tcp --sport 53 -j NFQUEUE --queue-num {queue_number}
+        /usr/sbin/ip6tables -t mangle -F
+        /usr/sbin/ip6tables -t mangle -A POSTROUTING -p udp -m udp --sport 53 -j NFQUEUE --queue-num {queue_number}
+        # /usr/sbin/ip6tables -t mangle -A POSTROUTING -p tcp -m tcp --sport 53 -j NFQUEUE --queue-num {queue_number}
         """,
         stdout=subprocess.PIPE,
         shell=True,

@@ -20,8 +20,8 @@ def add_network_instance(
     cleanup: bool = False,  # noqa: FBT001, FBT002
 ) -> None:
     """Add a network instance (Linux namespace) and enable forwarding if needed."""
-    logger.info("Setting up %s network instance.", network_instance.name)
-    namespace.add(name=network_instance.name, cleanup=cleanup)
+    logger.info("Setting up %s network instance.", network_instance.id)
+    namespace.add(name=network_instance.id, cleanup=cleanup)
 
     # IPv6 and IPv4 routing is enabled on the network instance only for CORE
     # and DOWNLINK.
@@ -32,8 +32,8 @@ def add_network_instance(
         proc = subprocess.run(  # noqa: S602
             f"""
             # enable routing
-            /usr/sbin/ip netns exec {network_instance.name} sysctl -w net.ipv6.conf.all.forwarding=1
-            /usr/sbin/ip netns exec {network_instance.name} sysctl -w net.ipv4.conf.all.forwarding=1
+            /usr/sbin/ip netns exec {network_instance.id} sysctl -w net.ipv6.conf.all.forwarding=1
+            /usr/sbin/ip netns exec {network_instance.id} sysctl -w net.ipv4.conf.all.forwarding=1
             """,  # noqa: E501
             stdout=subprocess.PIPE,
             shell=True,
@@ -57,8 +57,7 @@ def get_network_instance_connections(
     """Get all configured connections (interfaces)."""
     # Configured XFRM interfaces for provider connections.
     configured_interfaces: set[str] = {
-        connection.config.intf_name(connection_id)
-        for connection_id, connection in enumerate(network_instance.connections)
+        connection.intf_name() for connection in network_instance.connections.values()
     }
 
     return list(configured_interfaces)
@@ -72,14 +71,12 @@ def add_network_instance_connection(
     Adds connections to the network instance (Linux namespace).
     """
     interfaces: list[str] = []
-    for idx, connection in enumerate(network_instance.connections):
+    for connection in network_instance.connections.values():
         # Add connection
         # TODO@draggeta: delete unused connections as well!!
         try:
-            interface = connection.config.add(
+            interface = connection.add(
                 network_instance=network_instance,
-                connection_id=idx,
-                connection=connection,
             )
             interfaces.append(interface)
         except ValueError:
@@ -103,7 +100,7 @@ def delete_network_instance_connection(
     # INTERFACES
     # Get all interfaces in the network instance.
     proc = subprocess.run(  # noqa: S603
-        ["/usr/sbin/ip", "-json", "-details", "-netns", network_instance.name, "link"],
+        ["/usr/sbin/ip", "-json", "-details", "-netns", network_instance.id, "link"],
         stdout=subprocess.PIPE,
         check=True,
     )
@@ -125,11 +122,9 @@ def delete_network_instance_connection(
             continue
         if not active_intf.get("linkinfo"):
             # Move physical interfaces back to the DEFAULT network instance.
-            remove_cmds += f"ip -n {network_instance.name} link set dev {active_intf.get('ifname')} netns 1\n"  # noqa: E501
+            remove_cmds += f"/usr/sbin/ip -netns {network_instance.id} link set dev {active_intf.get('ifname')} netns 1\n"  # noqa: E501
             continue
-        remove_cmds += (
-            f"ip -n {network_instance.name} link del dev {active_intf.get('ifname')}\n"
-        )
+        remove_cmds += f"/usr/sbin/ip -netns {network_instance.id} link del dev {active_intf.get('ifname')}\n"
 
     if remove_cmds:
         # run the commands
@@ -155,8 +150,8 @@ def add_network_instance_connection_route(
     # Remove all statically configured routes.
     proc = subprocess.run(  # noqa: S602
         f"""
-        ip -n {network_instance.name} -4 route flush dev {interface} protocol static
-        ip -n {network_instance.name} -6 route flush dev {interface} protocol static
+        /usr/sbin/ip -netns {network_instance.id} -4 route flush dev {interface} protocol static
+        /usr/sbin/ip -netns {network_instance.id} -6 route flush dev {interface} protocol static
         """,
         capture_output=True,
         shell=True,
@@ -174,17 +169,17 @@ def add_network_instance_connection_route(
             if not route6.via or connection.config.type in [
                 models.ConnectionType.IPSEC,
             ]:
-                route_cmds += f"ip -n {network_instance.name} -6 route add {route6.to} dev {interface}\n"
+                route_cmds += f"/usr/sbin/ip -netns {network_instance.id} -6 route add {route6.to} dev {interface}\n"
                 continue
-            route_cmds += f"ip -n {network_instance.name} -6 route add {route6.to} via {route6.via} dev {interface}\n"
+            route_cmds += f"/usr/sbin/ip -netns {network_instance.id} -6 route add {route6.to} via {route6.via} dev {interface}\n"
 
         for route4 in connection.routes.ipv4:
             if not route4.via or connection.config.type in [
                 models.ConnectionType.IPSEC,
             ]:
-                route_cmds += f"ip -n {network_instance.name} -4 route add {route4.to} dev {interface}\n"
+                route_cmds += f"/usr/sbin/ip -netns {network_instance.id} -4 route add {route4.to} dev {interface}\n"
                 continue
-            route_cmds += f"ip -n {network_instance.name} -4 route add {route4.to} via {route4.via} dev {interface}\n"
+            route_cmds += f"/usr/sbin/ip -netns {network_instance.id} -4 route add {route4.to} via {route4.via} dev {interface}\n"
 
     proc = subprocess.run(  # noqa: S602
         route_cmds,
@@ -243,26 +238,26 @@ def add_network_instance_link(
     network_instance: models.NetworkInstance,
 ) -> None:
     """Create a link and routes between a DOWNLINK and the CORE network instance."""
-    veth_c = f"{network_instance.name}_C"
-    veth_d = f"{network_instance.name}_D"
+    veth_c = f"{network_instance.id}_C"
+    veth_d = f"{network_instance.id}_D"
 
     cmds_ns_link = f"""
     # add veth interfaces between CORE and DOWNLINK network instance
-    ip -n {config.CORE_NI} link add {veth_c} type veth peer name {veth_d} netns {network_instance.name}
+    /usr/sbin/ip -netns {config.CORE_NI} link add {veth_c} type veth peer name {veth_d} netns {network_instance.id}
     # bring veth interfaces up
-    ip -n {config.CORE_NI} link set dev {veth_c} up
-    ip -n {network_instance.name} link set dev {veth_d} up
+    /usr/sbin/ip -netns {config.CORE_NI} link set dev {veth_c} up
+    /usr/sbin/ip -netns {network_instance.id} link set dev {veth_d} up
     # assign IP addresses to veth interfaces
-    ip -n {config.CORE_NI} -6 address add fe80::/64 dev {veth_c}
-    ip -n {network_instance.name} -6 address add fe80::1/64 dev {veth_d}
+    /usr/sbin/ip -netns {config.CORE_NI} -6 address add fe80::/64 dev {veth_c}
+    /usr/sbin/ip -netns {network_instance.id} -6 address add fe80::1/64 dev {veth_d}
     """  # noqa: E501
 
     if config.VPNC_SERVICE_CONFIG.mode == models.ServiceMode.ENDPOINT:
         cmds_ns_link += f"""
-        ip -n {config.CORE_NI} address add 169.254.0.1/30 dev {veth_c}
-        ip -n {network_instance.name} address add 169.254.0.2/30 dev {veth_d}
-        ip -n {config.CORE_NI} -4 route add default via 169.254.0.2 dev {veth_c}
-        ip -n {config.CORE_NI} -6 route add default via fe80::1 dev {veth_c}
+        /usr/sbin/ip -netns {config.CORE_NI} address add 169.254.0.1/30 dev {veth_c}
+        /usr/sbin/ip -netns {network_instance.id} address add 169.254.0.2/30 dev {veth_d}
+        /usr/sbin/ip -netns {config.CORE_NI} -4 route add default via 169.254.0.2 dev {veth_c}
+        /usr/sbin/ip -netns {config.CORE_NI} -6 route add default via fe80::1 dev {veth_c}
         """
 
     proc = subprocess.run(  # noqa: S602
@@ -277,12 +272,12 @@ def add_network_instance_link(
     cross_ni_routes = ""
     core_ni = config.VPNC_SERVICE_CONFIG.network_instances[config.CORE_NI]
     # add route from DOWNLINK to MGMT/uplink network via CORE network instance
-    for connection in core_ni.connections:
+    for connection in core_ni.connections.values():
         for route6 in connection.routes.ipv6:
-            cross_ni_routes += f"ip -n {network_instance.name} route add {route6.to} via fe80:: dev {veth_d}\n"  # noqa: E501
+            cross_ni_routes += f"/usr/sbin/ip -netns {network_instance.id} route add {route6.to} via fe80:: dev {veth_d}\n"  # noqa: E501
         if config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB:
             for route4 in connection.routes.ipv4:
-                cross_ni_routes += f"ip -n {network_instance.name} route add {route4.to} via 169.254.0.1 dev {veth_d}\n"  # noqa: E501
+                cross_ni_routes += f"/usr/sbin/ip -netns {network_instance.id} route add {route4.to} via 169.254.0.1 dev {veth_d}\n"  # noqa: E501
         if cross_ni_routes:
             proc = subprocess.run(  # noqa: S602
                 cross_ni_routes,
@@ -300,11 +295,11 @@ def delete_network_instance_link(network_instance_name: str) -> None:
     proc = subprocess.run(  # noqa: S602
         f"""
         # remove veth interfaces
-        ip --brief -n {network_instance_name} link show type veth |
+        /usr/sbin/ip --brief -netns {network_instance_name} link show type veth |
             awk -F '@' '{{print $1}}' |
-            xargs -I {{}} sudo ip -n {network_instance_name} link del {{}}
+            xargs -I {{}} sudo /usr/sbin/ip -netns {network_instance_name} link del {{}}
         # remove NAT64
-        ip netns exec {network_instance_name} jool instance remove {network_instance_name}
+        /usr/sbin/ip netns exec {network_instance_name} jool instance remove {network_instance_name}
         """,  # noqa: E501
         capture_output=True,
         shell=True,

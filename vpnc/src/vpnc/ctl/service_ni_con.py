@@ -28,10 +28,8 @@ def complete_connection(ctx: typer.Context) -> Generator[tuple[str, str], Any, N
 
     service = helpers.get_service_config(ctx, path)
 
-    for idx, connection in enumerate(
-        service.network_instances[instance_id].connections,
-    ):
-        yield (str(idx), connection.metadata.get("description", ""))
+    for connection in service.network_instances[instance_id].connections.values():
+        yield (str(connection.id), connection.metadata.get("description", ""))
 
 
 @app.callback(invoke_without_command=True)
@@ -64,17 +62,14 @@ def list_(ctx: typer.Context) -> None:
 
     service = helpers.get_service_config(ctx, path)
 
-    output: list[dict[str, Any]] = []
-    for idx, connection in enumerate(
-        service.network_instances[instance_id].connections,
-    ):
-        output.append(
-            {
-                "connection": idx,
-                "type": connection.config.type.name,
-                "description": connection.metadata.get("description", ""),
-            },
-        )
+    output: list[dict[str, Any]] = [
+        {
+            "connection": connection.id,
+            "type": connection.config.type.name,
+            "description": connection.metadata.get("description", ""),
+        }
+        for connection in service.network_instances[instance_id].connections.values()
+    ]
 
     print(tabulate.tabulate(output, headers="keys"))
 
@@ -135,9 +130,8 @@ def summary(
     if not connection:
         return
 
-    connection_status_summary = connection.config.status_summary(
+    connection_status_summary = connection.status_summary(
         network_instance,
-        connection_id,
     )
 
     print(tabulate.tabulate([connection_status_summary], headers="keys"))

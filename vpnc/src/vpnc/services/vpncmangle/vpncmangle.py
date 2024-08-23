@@ -19,18 +19,18 @@ def generate_config() -> None:
 
     for tenant in config.VPNC_TENANT_CONFIG.values():
         for net_ni in tenant.network_instances.values():
-            nat64_scope = network_instance.get_network_instance_nat64_scope(net_ni.name)
-            output[net_ni.name] = {}
-            output[net_ni.name]["dns64"] = [
+            nat64_scope = network_instance.get_network_instance_nat64_scope(net_ni.id)
+            output[net_ni.id] = {}
+            output[net_ni.id]["dns64"] = [
                 (str(nat64_scope), str(IPv4Network("0.0.0.0/0"))),
             ]
-            for connection in net_ni.connections:
-                output[net_ni.name]["dns66"] = []
+            for connection in net_ni.connections.values():
+                output[net_ni.id]["dns66"] = []
                 for route6 in connection.routes.ipv6:
                     nptv6_prefix = route6.nptv6_prefix
                     if not nptv6_prefix:
                         nptv6_prefix = route6.to
-                    output[net_ni.name]["dns66"].append(
+                    output[net_ni.id]["dns66"].append(
                         (str(nptv6_prefix), str(route6.to)),
                     )
 

@@ -252,20 +252,18 @@ class Monitor(threading.Thread):
             cmds: list[str] = []
 
             for route in v6_networks:
-                cmd = f"ip -n {core_ni} -6 route del blackhole {route}"
+                cmd = f"/usr/sbin/ip -netns {core_ni} -6 route del blackhole {route}"
                 cmds.append(cmd)
-                cmd = (
-                    f"ip -n {core_ni} -6 route add {route} via fe80::1 dev {interface}"
-                )
+                cmd = f"/usr/sbin/ip -netns {core_ni} -6 route add {route} via fe80::1 dev {interface}"
                 cmds.append(cmd)
         else:
             # Remove the NAT64 and native IPv6 routes from the CORE network instance
             action = "Retracting"
             cmds = []
             for route in v6_networks:
-                cmd = f"ip -n {core_ni} -6 route del {route} dev {interface}"
+                cmd = f"/usr/sbin/ip -netns {core_ni} -6 route del {route} dev {interface}"
                 cmds.append(cmd)
-                cmd = f"ip -n {core_ni} -6 route add blackhole {route}"
+                cmd = f"/usr/sbin/ip -netns {core_ni} -6 route add blackhole {route}"
                 cmds.append(cmd)
 
         logger.info(

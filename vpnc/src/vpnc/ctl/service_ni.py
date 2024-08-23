@@ -65,7 +65,7 @@ def list_(ctx: typer.Context) -> None:
 
     output: list[dict[str, Any]] = [
         {
-            "network-instance": network_instance.name,
+            "network-instance": network_instance.id,
             "description": network_instance.metadata.get("description", ""),
         }
         for network_instance in service.network_instances.values()
@@ -108,16 +108,10 @@ def summary(
 
     service = helpers.get_service_config(ctx, path)
 
-    output: list[dict[str, Any]] = []
-    for idx, connection in enumerate(
-        service.network_instances[instance_id].connections,
-    ):
-        output.append(
-            connection.config.status_summary(
-                service.network_instances[instance_id],
-                idx,
-            ),
-        )
+    output: list[dict[str, Any]] = [
+        connection.status_summary(service.network_instances[instance_id])
+        for connection in service.network_instances[instance_id].connections.values()
+    ]
 
     print(tabulate.tabulate(output, headers="keys"))
 

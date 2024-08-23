@@ -1,36 +1,36 @@
 {#- flush all old configuration and drop all IPv4 traffic by default #}
-ip netns exec {{ network_instance_name }} iptables -F
-ip netns exec {{ network_instance_name }} iptables -P INPUT DROP
-ip netns exec {{ network_instance_name }} iptables -P FORWARD DROP
-ip netns exec {{ network_instance_name }} iptables -P OUTPUT DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -F
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P INPUT DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P FORWARD DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P OUTPUT DROP
 
 {#- allow forwarded IPv4 traffic from the uplink interfaces (management) and related return traffic #}
 {%- if mode.name == "ENDPOINT" %}
   {%- for interface in interfaces %}
-ip netns exec {{ network_instance_name }} iptables -A FORWARD -i {{ interface }} -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A FORWARD -i {{ interface }} -j ACCEPT
   {%- endfor %}
-ip netns exec {{ network_instance_name }} iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
 {%- endif %}
 
 
 
 {#- flush all old configuration and drop almost all IPv6 traffic by default #}
 {#- except traffic originating from the CORE network instance #}
-ip netns exec {{ network_instance_name }} ip6tables -F
-ip netns exec {{ network_instance_name }} ip6tables -P INPUT DROP
-ip netns exec {{ network_instance_name }} ip6tables -P FORWARD DROP
-ip netns exec {{ network_instance_name }} ip6tables -P OUTPUT ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -F
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -P INPUT DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -P FORWARD DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -P OUTPUT ACCEPT
 
 {% include 'iptables-icmpv6-in-out.conf.j2' %}
 {% include 'iptables-icmpv6-forward.conf.j2' %}
 
 {#- allow inbound traffic from the uplink interfaces (BGP) #}
 {%- for interface in interfaces %}
-ip netns exec {{ network_instance_name }} ip6tables -A INPUT -i {{ interface }} -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -i {{ interface }} -j ACCEPT
 {%- endfor %}
 
 {#- allow forwarded IPv6 traffic from the uplink interfaces (management) and related return traffic #}
 {%- for interface in interfaces %}
-ip netns exec {{ network_instance_name }} ip6tables -A FORWARD -i {{ interface }} -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A FORWARD -i {{ interface }} -j ACCEPT
 {%- endfor %}
-ip netns exec {{ network_instance_name }} ip6tables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT

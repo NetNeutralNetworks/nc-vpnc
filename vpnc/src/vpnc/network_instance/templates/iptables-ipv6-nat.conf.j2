@@ -1,17 +1,17 @@
 {%- if mode.name == "HUB" %}
 # NAT66 source IPv6 addresses
-ip netns exec {{ network_instance_name }} ip6tables -t nat -F
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -t nat -F
 {%- for interface in core_interfaces %}
     {%- for network in nptv6_networks %}
-ip netns exec {{ network_instance_name }} ip6tables -t nat -A PREROUTING -i {{ interface }} -d {{ network.nptv6_prefix }} -j NETMAP --to {{ network.to }}
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -t nat -A PREROUTING -i {{ interface }} -d {{ network.nptv6_prefix }} -j NETMAP --to {{ network.to }}
     {%- endfor %}
 {%- endfor %}
 {%- endif %}
 
 {#- Must be at the end as it is a terminating action. #}
 {%- for interface in downlink_interfaces %}
-ip netns exec {{ network_instance_name }} ip6tables -t nat -A POSTROUTING -o {{ interface }} -j MASQUERADE
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -t nat -A POSTROUTING -o {{ interface }} -j MASQUERADE
   {%- if mode.name == "ENDPOINT" %}
-ip netns exec {{ network_instance_name }} iptables -t nat -A POSTROUTING -o {{ interface }} -j MASQUERADE
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -t nat -A POSTROUTING -o {{ interface }} -j MASQUERADE
   {%- endif %}
 {%- endfor %}

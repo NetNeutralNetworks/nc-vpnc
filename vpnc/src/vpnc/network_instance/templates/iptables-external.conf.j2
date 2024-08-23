@@ -1,28 +1,28 @@
 {#- flush all old configuration and drop all IPv4 traffic by default #}
-ip netns exec {{ network_instance_name }} iptables -F
-ip netns exec {{ network_instance_name }} iptables -P INPUT DROP
-ip netns exec {{ network_instance_name }} iptables -P FORWARD DROP
-ip netns exec {{ network_instance_name }} iptables -P OUTPUT DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -F
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P INPUT DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P FORWARD DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P OUTPUT DROP
 
 {#- flush all old configuration and drop all IPv6 traffic by default #}
-ip netns exec {{ network_instance_name }} ip6tables -F
-ip netns exec {{ network_instance_name }} ip6tables -P INPUT DROP
-ip netns exec {{ network_instance_name }} ip6tables -P FORWARD DROP
-ip netns exec {{ network_instance_name }} ip6tables -P OUTPUT DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -F
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -P INPUT DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -P FORWARD DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -P OUTPUT DROP
 
 {% include 'iptables-icmpv6-in-out.conf.j2' %}
 
 {#- Allow IPsec #}
-ip netns exec {{ network_instance_name }} iptables -A INPUT -p esp -j ACCEPT
-ip netns exec {{ network_instance_name }} iptables -A INPUT -p udp --dport  500 --sport  500 -j ACCEPT
-ip netns exec {{ network_instance_name }} iptables -A INPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
-ip netns exec {{ network_instance_name }} iptables -A OUTPUT -p esp -j ACCEPT
-ip netns exec {{ network_instance_name }} iptables -A OUTPUT -p udp --dport  500 --sport  500 -j ACCEPT
-ip netns exec {{ network_instance_name }} iptables -A OUTPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A INPUT -p esp -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A INPUT -p udp --dport  500 --sport  500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A INPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A OUTPUT -p esp -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A OUTPUT -p udp --dport  500 --sport  500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A OUTPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
 
-ip netns exec {{ network_instance_name }} ip6tables -A INPUT -p esp -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A INPUT -p udp --dport  500 --sport  500 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A INPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A OUTPUT -p esp -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A OUTPUT -p udp --dport  500 --sport  500 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A OUTPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -p esp -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -p udp --dport  500 --sport  500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -p esp -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -p udp --dport  500 --sport  500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -p udp --dport 4500 --sport 4500 -j ACCEPT

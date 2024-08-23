@@ -1,21 +1,21 @@
 {#- create the chains to allow ICMPv6 as needed for IPv6 connectivity #}
-ip netns exec {{ network_instance_name }} ip6tables -N icmpv6-in-out
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -N icmpv6-in-out
 
-ip netns exec {{ network_instance_name }} ip6tables -A INPUT -p ipv6-icmp -j icmpv6-in-out
-ip netns exec {{ network_instance_name }} ip6tables -A OUTPUT -p ipv6-icmp -j icmpv6-in-out
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -p ipv6-icmp -j icmpv6-in-out
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -p ipv6-icmp -j icmpv6-in-out
 
 {#- Allow ICMPv6 as needed for IPv6 connectivity #}
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type destination-unreachable -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type packet-too-big -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type time-exceeded -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type parameter-problem -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type echo-request -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type echo-reply -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type 130 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type 131 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type 132 -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type router-solicitation -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type router-advertisement -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type neighbour-solicitation -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type neighbour-advertisement -j ACCEPT
-ip netns exec {{ network_instance_name }} ip6tables -A icmpv6-in-out -p ipv6-icmp -j DROP
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type destination-unreachable -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type packet-too-big -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type time-exceeded -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type parameter-problem -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type echo-request -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type echo-reply -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type 130 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type 131 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type 132 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type router-solicitation -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type router-advertisement -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type neighbour-solicitation -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -m icmp6 --icmpv6-type neighbour-advertisement -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A icmpv6-in-out -p ipv6-icmp -j DROP

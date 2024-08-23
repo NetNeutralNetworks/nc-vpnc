@@ -1,78 +1,99 @@
-#!/usr/bin/env python3
+"""Manage service configuration."""
 
+from __future__ import annotations
 
-from ipaddress import IPv4Address
-from typing import Optional
+from typing import Any
 
+import tabulate
 import typer
 import yaml
+from rich import print
 from typing_extensions import Annotated
 
-from .. import config, models
+from vpnc import models
+from vpnc.ctl import helpers
 
 app = typer.Typer()
 
 
 @app.command()
-def show(active: Annotated[bool, typer.Option("--active/--candidate")] = False):
-    """
-    Show the service BGP configuration
-    """
-    if active:
-        path = config.VPNC_A_SERVICE_CONFIG_PATH
-    else:
-        path = config.VPNC_C_SERVICE_CONFIG_PATH
+def show(
+    ctx: typer.Context,
+    active: Annotated[bool, typer.Option("--active/--candidate")] = False,  # noqa: FBT002
+) -> None:
+    """Show the service BGP configuration."""
+    path = helpers.get_service_config_path(ctx, active=active)
 
-    if not path.exists():
+    service = helpers.get_service_config(ctx, path)
+
+    if service.mode is not models.ServiceMode.HUB:
+        print("BGP is inactive. Running in 'endpoint' mode.")
         return
 
-    with open(config.VPNC_A_SERVICE_CONFIG_PATH, "r", encoding="utf-8") as f:
-        service = models.ServiceEndpoint(**yaml.safe_load(f))
-
-    if service.mode.name == "ENDPOINT":
-        return "BGP is inactive. Running in 'endpoint' mode."
-
-    with open(path, "r", encoding="utf-8") as f:
-        bgp = models.BGPGlobal(**yaml.safe_load(f).get("bgp", {}))
+    with path.open(encoding="utf-8") as f:
+        bgp = service.bgp
 
     output = bgp.model_dump(mode="json")
     print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
 
 
-@app.command(name="set")
-def set_(
-    # pylint: disable=unused-argument
-    asn: Annotated[Optional[int], typer.Option()] = None,
-    router_id: Annotated[
-        Optional[IPv4Address], typer.Option(parser=IPv4Address)
-    ] = None,
-):
-    """
-    Set service BGP properties
-    """
-    all_args = {k: v for k, v in locals().items() if v is not None}
+@app.command()
+def summary(
+    ctx: typer.Context,
+) -> None:
+    """Show a network-instance's connectivity status."""
+    assert ctx.parent is not None
 
-    path = config.VPNC_C_SERVICE_CONFIG_PATH
+    instance_id: str = ctx.parent.params["instance_id"]
 
-    if not path.exists():
-        return
+    path = helpers.get_service_config_path(ctx, active=True)
 
-    with open(config.VPNC_A_SERVICE_CONFIG_PATH, "r", encoding="utf-8") as f:
-        service = models.ServiceEndpoint(**yaml.safe_load(f))
+    service = helpers.get_service_config(ctx, path)
 
-    if service.mode.name == "ENDPOINT":
-        return "BGP is inactive. Running in 'endpoint' mode."
+    output: list[dict[str, Any]] = [
+        connection.status_summary(service.network_instances[instance_id])
+        for connection in service.network_instances[instance_id].connections.values()
+    ]
 
-    updated_bgp = service.bgp.model_copy(update=all_args)
-    service.bgp = updated_bgp
+    print(tabulate.tabulate(output, headers="keys"))
 
-    # performs the class post_init construction.
-    output = yaml.safe_dump(
-        service.model_dump(mode="json"), explicit_start=True, explicit_end=True
-    )
-    with open(path, "w+", encoding="utf-8") as f:
-        f.write(output)
-    show(active=False)
+
+# @app.command(name="set")
+# def set_(
+#     # pylint: disable=unused-argument
+#     asn: Annotated[Optional[int], typer.Option()] = None,
+#     router_id: Annotated[
+#         Optional[IPv4Address],
+#         typer.Option(parser=IPv4Address),
+#     ] = None,
+# ) -> None:
+#     """Set service BGP properties."""
+#     all_args = {k: v for k, v in locals().items() if v is not None}
+
+#     path = config.VPNC_C_SERVICE_CONFIG_PATH
+
+#     if not path.exists():
+#         return
+
+#     with config.VPNC_A_SERVICE_CONFIG_PATH.open(encoding="utf-8") as f:
+#         service = models.ServiceHub(**yaml.safe_load(f))
+
+#     if service.mode is not models.ServiceMode.HUB:
+#         print("BGP is inactive. Running in 'endpoint' mode.")
+#         return
+
+#     updated_bgp = service.bgp.model_copy(update=all_args)
+#     service.bgp = updated_bgp
+
+#     # performs the class post_init construction.
+#     output = yaml.safe_dump(
+#         service.model_dump(mode="json"),
+#         explicit_start=True,
+#         explicit_end=True,
+#     )
+#     with path.open("w+", encoding="utf-8") as f:
+#         f.write(output)
+#     show(active=False)
 
 
 if __name__ == "__main__":
