@@ -1,16 +1,22 @@
+"""Manage Linux namespace."""
+
+from __future__ import annotations
+
 import atexit
 
 from pyroute2 import netns
 
 
 def list_() -> list[str]:
+    """List available network namespaces."""
     return netns.listnetns()
 
 
-def add(name: str, cleanup=False) -> str:
+def add(name: str, cleanup: bool = False) -> str:  # noqa: FBT001, FBT002
+    """Add a namespace to the system."""
     ns_list = netns.listnetns()
 
-    if not name in ns_list:
+    if name not in ns_list:
         netns.create(name)
 
     if cleanup:
@@ -19,7 +25,8 @@ def add(name: str, cleanup=False) -> str:
     return name
 
 
-def delete(name: str):
+def delete(name: str) -> None:
+    """Delete a namespace from the system."""
     ns_list = netns.listnetns()
 
     if name in ns_list:

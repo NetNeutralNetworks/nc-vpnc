@@ -1,15 +1,15 @@
-#!/usr/bin/env python3
+"""Store global configuration."""
 
-"""
-Stores global configuration
-"""
+from __future__ import annotations
 
 import ipaddress
 import logging
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from . import models
+if TYPE_CHECKING:
+    from vpnc import models
 
 logger = logging.getLogger("vpnc")
 
@@ -24,7 +24,7 @@ DEEPDIFF_IGNORE = [
         ipaddress.IPv4Interface,
         ipaddress.IPv4Address,
         ipaddress.IPv4Network,
-    )
+    ),
 ]
 
 # Match only DOWNLINK connections
@@ -44,7 +44,7 @@ VPNC_A_SERVICE_CONFIG_PATH = Path("/opt/ncubed/config/vpnc/active/service/config
 # Candidate configuration items
 VPNC_C_TENANT_CONFIG_DIR = Path("/opt/ncubed/config/vpnc/candidate/tenant/")
 VPNC_C_SERVICE_CONFIG_PATH = Path(
-    "/opt/ncubed/config/vpnc/candidate/service/config.yaml"
+    "/opt/ncubed/config/vpnc/candidate/service/config.yaml",
 )
 
 CORE_NI = "TRUST"  # name of the CORE trusted network instance

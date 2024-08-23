@@ -1,5 +1,3 @@
-"""
-Monitors vpncmangle changes
-"""
+"""Monitor vpncmangle changes."""
 
 from .vpncmangle import *

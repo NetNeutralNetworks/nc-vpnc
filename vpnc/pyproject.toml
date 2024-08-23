@@ -41,8 +41,8 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 dev = [
-    "bandit",
     "pytest",
+    "ruff",
     "types-PyYAML",
     "types-tabulate",
 ]

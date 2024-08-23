@@ -1,6 +1,4 @@
-"""
-vpncmangle observers to load ACLs
-"""
+"""vpncmangle observers to load ACLs."""
 
 import logging
 import time
@@ -15,27 +13,23 @@ logger = logging.getLogger("vpncmangle")
 
 
 def observe() -> BaseObserver:
-    """
-    Create the observer for swanctl configuration
-    """
+    """Create the observer for swanctl configuration."""
 
     # Define what should happen when downlink files are created, modified or deleted.
     class VpnmanglerHandler(PatternMatchingEventHandler):
-        """
-        Handler for the event monitoring.
-        """
+        """Handler for the event monitoring."""
 
-        def on_created(self, event: FileSystemEvent):
+        def on_created(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
             time.sleep(0.1)
             helpers.load_config()
 
-        def on_modified(self, event: FileSystemEvent):
+        def on_modified(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
             time.sleep(0.1)
             helpers.load_config()
 
-        def on_deleted(self, event: FileSystemEvent):
+        def on_deleted(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
             time.sleep(0.1)
             helpers.load_config()
@@ -43,7 +37,8 @@ def observe() -> BaseObserver:
     # Create the observer object. This doesn't start the handler.
     observer: BaseObserver = Observer()
 
-    # Configure the event handler that watches directories. This doesn't start the handler.
+    # Configure the event handler that watches directories. This doesn't start
+    # the handler.
     observer.schedule(
         event_handler=VpnmanglerHandler(patterns=["*.json"], ignore_directories=True),
         path=config.CONFIG_PATH.parent,

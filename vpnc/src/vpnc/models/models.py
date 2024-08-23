@@ -1,6 +1,6 @@
-"""
-Models used by the services.
-"""
+"""Models used by the services."""
+
+from __future__ import annotations
 
 import ipaddress
 from ipaddress import (
@@ -24,16 +24,16 @@ from pydantic import (
     field_validator,
 )
 
-from .. import config, helpers
-from .enums import NetworkInstanceType, ServiceMode
-from .ipsec import ConnectionConfigIPsec
-from .physical import ConnectionConfigLocal
+from vpnc import config, helpers
+from vpnc.models.enums import NetworkInstanceType, ServiceMode
+
+# Needed for pydantim ports and type checking
+from vpnc.models.ipsec import ConnectionConfigIPsec  # noqa: TCH001
+from vpnc.models.physical import ConnectionConfigLocal  # noqa: TCH001
 
 
 class RouteIPv6(BaseModel):
-    """
-    IPv6 routes
-    """
+    """IPv6 routes."""
 
     to: IPv6Network
     via: IPv6Address | None = None
@@ -42,64 +42,62 @@ class RouteIPv6(BaseModel):
 
     @field_validator("to", mode="before")
     @classmethod
-    def _coerce_next_hop(cls, v: Any):
+    def _coerce_next_hop(cls, v: str) -> str:
         if v == "default":
             return "::/0"
         return v
 
 
 class RouteIPv4(BaseModel):
-    """
-    IPv4 routes
-    """
+    """IPv4 routes."""
 
     to: IPv4Network
     via: IPv4Address | None = None
 
     @field_validator("to", mode="before")
     @classmethod
-    def _coerce_next_hop(cls, v: Any):
+    def _coerce_next_hop(cls, v: str) -> str:
         if v == "default":
             return "0.0.0.0/0"
         return v
 
 
 class Routes(BaseModel):
-    """
-    Routes
-    """
+    """Routes."""
 
     ipv6: list[RouteIPv6] = Field(default_factory=list)
     ipv4: list[RouteIPv4] = Field(default_factory=list)
 
     @field_validator("ipv6", "ipv4", mode="before")
     @classmethod
-    def _coerce_addresses(cls, v: Any) -> list[RouteIPv4 | RouteIPv6]:
+    def _coerce_addresses(
+        cls,
+        v: list[RouteIPv4 | RouteIPv6] | None,
+    ) -> list[RouteIPv4 | RouteIPv6]:
         if v is None:
             return []
         return v
 
 
 class Interface(BaseModel):
-    """
-    Interface configuration such as IP addresses
-    """
+    """Interface configuration such as IP addresses."""
 
     ipv6: list[IPv6Interface] = Field(default_factory=list)
     ipv4: list[IPv4Interface] = Field(default_factory=list)
 
     @field_validator("ipv6", "ipv4", mode="before")
     @classmethod
-    def _coerce_addresses(cls, v: Any) -> list[IPv4Interface | IPv6Interface]:
+    def _coerce_addresses(
+        cls,
+        v: list[IPv4Interface | IPv6Interface] | None,
+    ) -> list[IPv4Interface | IPv6Interface]:
         if v is None:
             return []
         return v
 
 
 class Connection(BaseModel):
-    """
-    Defines a connection data structure
-    """
+    """Define a connection data structure."""
 
     model_config = ConfigDict(validate_assignment=True)
 
@@ -110,39 +108,36 @@ class Connection(BaseModel):
 
     @field_validator("metadata", mode="before")
     @classmethod
-    def _coerce_metadata(cls, v: Any) -> dict[str, Any]:
+    def _coerce_metadata(cls, v: dict[str, Any] | None) -> dict[str, Any]:
         if v is None:
             return {}
         return v
 
     @field_validator("interface", mode="before")
     @classmethod
-    def _coerce_interface(cls, v: Any):
+    def _coerce_interface(cls, v: Interface | None) -> Interface:
         if v is None:
             return Interface(ipv6=[], ipv4=[])
         return v
 
     @field_validator("routes", mode="before")
     @classmethod
-    def _coerce_routes(cls, v: Any):
+    def _coerce_routes(cls, v: Routes | None) -> Routes:
         if v is None:
             return Routes(ipv6=[], ipv4=[])
         return v
 
     def calculate_ip_addresses(
         self,
-        network_instance: "NetworkInstance",
+        network_instance: NetworkInstance,
         connection_id: int,
     ) -> tuple[list[IPv4Interface], list[IPv6Interface]]:
-        """
-        Calculates Interface IP addresses for a DOWNLINK network instance if not configured
-        """
-
+        """Calculate Interface IP addresses for a DOWNLINK if not configured."""
         is_downlink: bool = network_instance.type == NetworkInstanceType.DOWNLINK
         parsed_ni: dict[str, Any] = {}
         if is_downlink:
             parsed_ni = helpers.parse_downlink_network_instance_name(
-                network_instance.name
+                network_instance.name,
             )
         if (
             not self.interface.ipv4  # pylint: disable=no-member
@@ -150,7 +145,9 @@ class Connection(BaseModel):
             and isinstance(config.VPNC_SERVICE_CONFIG, ServiceHub)
         ):
             pdi4 = config.VPNC_SERVICE_CONFIG.prefix_downlink_interface_v4
+
             assert isinstance(parsed_ni["network_instance_id"], int)
+
             ipv4_ni_network: IPv4Network = list(pdi4.subnets(new_prefix=24))[
                 parsed_ni["network_instance_id"]
             ]
@@ -158,7 +155,7 @@ class Connection(BaseModel):
                 connection_id
             ]
             interface_ipv4_address = [
-                ipaddress.IPv4Interface(f"{ipv4_con_network[1]}/28")
+                ipaddress.IPv4Interface(f"{ipv4_con_network[1]}/28"),
             ]
         else:
             interface_ipv4_address = self.interface.ipv4  # pylint: disable=no-member
@@ -174,8 +171,8 @@ class Connection(BaseModel):
             ]
             interface_ipv6_address = [
                 ipaddress.IPv6Interface(
-                    list(ipv6_ni_network.subnets(new_prefix=64))[connection_id]
-                )
+                    list(ipv6_ni_network.subnets(new_prefix=64))[connection_id],
+                ),
             ]
         else:
             interface_ipv6_address = self.interface.ipv6  # pylint: disable=no-member
@@ -184,9 +181,7 @@ class Connection(BaseModel):
 
 
 class NetworkInstance(BaseModel):
-    """
-    Defines a network instance data structure
-    """
+    """Define a network instance data structure."""
 
     model_config = ConfigDict(validate_assignment=True)
 
@@ -198,16 +193,14 @@ class NetworkInstance(BaseModel):
 
     @field_validator("metadata", mode="before")
     @classmethod
-    def _coerce_metadata(cls, v: Any) -> dict[str, Any] | Any:
+    def _coerce_metadata(cls, v: dict[str, Any] | None) -> dict[str, Any]:
         if v is None:
             return {}
         return v
 
 
 class Tenant(BaseModel):
-    """
-    Defines a tenant data structure
-    """
+    """Define a tenant data structure."""
 
     model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
@@ -220,7 +213,7 @@ class Tenant(BaseModel):
 
     @field_validator("version", mode="before")
     @classmethod
-    def _coerce_version(cls, v: Any):
+    def _coerce_version(cls, v: str) -> Version:
         return Version(v)
 
     @field_serializer("version")
@@ -229,38 +222,31 @@ class Tenant(BaseModel):
 
 
 class BGPGlobal(BaseModel):
-    """
-    Defines global BGP data structure
-    """
+    """Define global BGP data structure."""
 
     asn: int = 4200000000
     router_id: IPv4Address
 
 
 class BGPNeighbor(BaseModel):
-    """
-    Defines a BGP neighbor data structure
-    """
+    """Define a BGP neighbor data structure."""
 
     neighbor_asn: int
     neighbor_address: IPv4Address | IPv6Address
-    # Optional, lower is more preferred CORE uplink for receiving traffic, defaults to 0, max is 9
+    # Optional, lower is more preferred CORE uplink for receiving traffic,
+    # defaults to 0, max is 9
     priority: int = Field(0, ge=0, le=9)
 
 
 class BGP(BaseModel):
-    """
-    Defines a BGP data structure
-    """
+    """Define a BGP data structure."""
 
     neighbors: list[BGPNeighbor]
     globals: BGPGlobal
 
 
 class ServiceEndpoint(Tenant):
-    """
-    Defines a service data structure
-    """
+    """Define a service data structure."""
 
     model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
@@ -274,14 +260,12 @@ class ServiceEndpoint(Tenant):
 
     @field_validator("mode", mode="before")
     @classmethod
-    def _coerce_type(cls, v: Any):
+    def _coerce_type(cls, v: str) -> ServiceMode:
         return ServiceMode(v)
 
 
 class ServiceHub(Tenant):
-    """
-    Defines a service data structure
-    """
+    """Define a service data structure."""
 
     model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
@@ -294,18 +278,18 @@ class ServiceHub(Tenant):
     local_id: str = r"%any"
 
     # OVERLAY CONFIG
-    # IPv4 prefix for downlink interfaces. Must be a /16, will get subnetted into /24s per downlink
-    # interface per tunnel.
+    # IPv4 prefix for downlink interfaces. Must be a /16, will get subnetted into /24s
+    # per downlink interface per tunnel.
     prefix_downlink_interface_v4: IPv4Network = IPv4Network("100.64.0.0/10")
-    # IPv6 prefix for downlink interfaces. Must be a /48 or larger, will get subnetted into /64s per
-    # downlink interface per tunnel.
+    # IPv6 prefix for downlink interfaces. Must be a /48 or larger, will get subnetted
+    # into /64s per downlink interface per tunnel.
     prefix_downlink_interface_v6: IPv6Network = IPv6Network("fdcc:cbe::/32")
     # The below are used on the provider side to uniquely adress tenant environments
-    # IPv6 prefix for NAT64. Must be a /32 or larger. Will be subnetted into /96s per downlink per
-    # tunnel.
+    # IPv6 prefix for NAT64. Must be a /32 or larger. Will be subnetted into /96s per
+    # downlink per tunnel.
     prefix_downlink_nat64: IPv6Network = IPv6Network("64:ff9b::/32")
-    # IPv6 prefix for NPTv6. Must be a /12 or larger. Will be subnetted into /48s per downlink per
-    # tunnel.
+    # IPv6 prefix for NPTv6. Must be a /12 or larger. Will be subnetted into /48s per
+    # downlink per tunnel.
     prefix_downlink_nptv6: IPv6Network = IPv6Network("660::/12")
 
     ## BGP config
@@ -313,20 +297,21 @@ class ServiceHub(Tenant):
 
     @field_validator("mode", mode="before")
     @classmethod
-    def _coerce_type(cls, v: Any):
+    def _coerce_type(cls, v: str) -> ServiceMode:
         return ServiceMode(v)
 
     @field_validator("prefix_downlink_interface_v4")
     @classmethod
     def set_default_prefix_downlink_interface_v4(
-        cls, v: IPv4Network, _: ValidationInfo
+        cls,
+        v: IPv4Network,
+        _: ValidationInfo,
     ) -> IPv4Network:
-        """
-        Check if the value adheres to the limits.
-        """
-        if v.prefixlen > 16:
+        """Check if the value adheres to the limits."""
+        if v.prefixlen > 16:  # noqa: PLR2004
+            msg = "'prefix_downlink_interface_v4' prefix length must be '16' or lower."
             raise NetmaskValueError(
-                "'prefix_downlink_interface_v4' prefix length must be '16' or lower."
+                msg,
             )
 
         return v
@@ -334,14 +319,15 @@ class ServiceHub(Tenant):
     @field_validator("prefix_downlink_interface_v6")
     @classmethod
     def set_default_prefix_downlink_interface_v6(
-        cls, v: IPv6Network, _: ValidationInfo
+        cls,
+        v: IPv6Network,
+        _: ValidationInfo,
     ) -> IPv6Network:
-        """
-        Check if the value adheres to the limits.
-        """
-        if v.prefixlen > 32:
+        """Check if the value adheres to the limits."""
+        if v.prefixlen > 32:  # noqa: PLR2004
+            msg = "'prefix_downlink_interface_v6' prefix length must be '32' or lower."
             raise NetmaskValueError(
-                "'prefix_downlink_interface_v6' prefix length must be '32' or lower."
+                msg,
             )
 
         return v
@@ -349,14 +335,15 @@ class ServiceHub(Tenant):
     @field_validator("prefix_downlink_nat64")
     @classmethod
     def set_default_prefix_downlink_nat64(
-        cls, v: IPv6Network, _: ValidationInfo
+        cls,
+        v: IPv6Network,
+        _: ValidationInfo,
     ) -> IPv6Network:
-        """
-        Check if the value adheres to the limits.
-        """
-        if v.prefixlen > 32:
+        """Check if the value adheres to the limits."""
+        if v.prefixlen > 32:  # noqa: PLR2004
+            msg = "'prefix_downlink_nat64' prefix length must be '32' or lower."
             raise NetmaskValueError(
-                "'prefix_downlink_nat64' prefix length must be '32' or lower."
+                msg,
             )
 
         return v
@@ -364,30 +351,27 @@ class ServiceHub(Tenant):
     @field_validator("prefix_downlink_nptv6")
     @classmethod
     def set_default_prefix_downlink_nptv6(
-        cls, v: IPv6Network, _: ValidationInfo
+        cls,
+        v: IPv6Network,
+        _: ValidationInfo,
     ) -> IPv6Network:
-        """
-        Check if the value adheres to the limits.
-        """
-        if v.prefixlen > 12:
+        """Check if the value adheres to the limits."""
+        if v.prefixlen > 12:  # noqa: PLR2004
+            msg = "'prefix_downlink_nptv6' prefix length must be '12' or lower."
             raise NetmaskValueError(
-                "'prefix_downlink_nptv6' prefix length must be '12' or lower."
+                msg,
             )
 
         return v
 
 
 class Service(BaseModel):
-    """
-    Union type to help with loading config
-    """
+    """Union type to help with loading config."""
 
     config: ServiceHub | ServiceEndpoint
 
 
 class Tenants(BaseModel):
-    """
-    Union type to help with loading config
-    """
+    """Union type to help with loading config."""
 
     config: dict[str, Tenant]

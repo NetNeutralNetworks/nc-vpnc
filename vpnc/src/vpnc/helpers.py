@@ -10,7 +10,8 @@ from typing import TYPE_CHECKING, Any
 import pydantic_core
 import yaml
 
-from . import config, models
+from vpnc import config
+from vpnc.models import models
 
 if TYPE_CHECKING:
     import pathlib

@@ -208,7 +208,7 @@ def delete_downlink_network_instance(vpn_id: str) -> None:
 
     config.VPNC_TENANT_CONFIG.pop(vpn_id, None)
     # NETWORK INSTANCES
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: S603
         ["/usr/sbin/ip", "-json", "netns"],
         stdout=subprocess.PIPE,
         check=True,

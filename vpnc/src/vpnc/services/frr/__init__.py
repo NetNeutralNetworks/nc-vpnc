@@ -1,5 +1,3 @@
-"""
-Monitors FRR routing changes
-"""
+"""Monitor FRR routing changes."""
 
 from .frr import *

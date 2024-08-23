@@ -54,7 +54,7 @@ class ConnectionConfigLocal(BaseModel):
             connection_id,
         )
         addresses = if_ipv6 + if_ipv4
-        interface.set(
+        interface.set_(
             intf,
             state="up",
             addresses=addresses,

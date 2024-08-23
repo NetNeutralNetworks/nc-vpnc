@@ -182,10 +182,10 @@ class Monitor(threading.Thread):
         If the connection is down, the advertisements should be retracted.
         """
         ike_name: str
-        if len(keys := ike_event.keys()) == 2:
+        if len(keys := ike_event.keys()) == 2:  # noqa: PLR2004
             _, ike_name = list(keys)
         else:
-            ike_name = list(keys)[0]
+            ike_name = next(iter(keys))
 
         if ike_name.startswith(config.CORE_NI):
             return
@@ -290,7 +290,7 @@ class Monitor(threading.Thread):
         If SAs need be removed, the older ones are removed in favor of the youngest.
         """
         vcs: vici.Session = self.connect()
-        if len(keys := ike_event.keys()) == 2:
+        if len(keys := ike_event.keys()) == 2:  # noqa: PLR2004
             ike_name = list(keys)[1]
         else:
             ike_name = next(iter(keys))
@@ -315,7 +315,8 @@ class Monitor(threading.Thread):
                     best_ike_sa_event = ike_sa_event
                     continue
 
-                # Compare the seconds since the SA was established. Choose the most recent one.
+                # Compare the seconds since the SA was established. Choose the most
+                # recent one.
                 try:
                     ike_sa_established = int(ike_sa["established"])
                     best_sa_established = int(
@@ -335,15 +336,16 @@ class Monitor(threading.Thread):
                 else:
                     self.terminate_sa(vcs=vcs, ike_id=ike_sa["uniqueid"])
 
-    def resolve_duplicate_ipsec_sa(self, ike_event: IkeData):
-        """Checks for duplicate IPsec security associations and if these need to be removed.
+    def resolve_duplicate_ipsec_sa(self, ike_event: IkeData) -> None:
+        """Check for duplicate IPsec security associations.
+
         If SAs need be removed, the older ones are removed in favor of the youngest.
         """
         vcs = self.connect()
-        if len(keys := ike_event.keys()) == 2:
+        if len(keys := ike_event.keys()) == 2:  # noqa: PLR2004
             _, ike_name = list(keys)
         else:
-            ike_name = list(keys)[0]
+            ike_name = next(iter(keys))
         ike_sas: list[IkeData] = list(vcs.list_sas({"ike": ike_name}))
 
         for ike_sa in ike_sas:
@@ -352,10 +354,10 @@ class Monitor(threading.Thread):
             # Get the most recent SA for each TS pair.
             ts_unique: dict[str, Any] = {}
 
-            for _, ipsec_sa in ike_sa_props["child-sas"].items():
+            for ipsec_sa in ike_sa_props["child-sas"].values():
                 # The check must be done per traffic selector pair.
-                # If this is the first time seeing the traffic selector for the IKE SA, don't do
-                # anything.
+                # If this is the first time seeing the traffic selector for the IKE SA,
+                # don't do anything.
                 ts_key = str((ipsec_sa["local-ts"], ipsec_sa["remote-ts"]))
                 if ts_key not in ts_unique:
                     ts_unique[ts_key] = ipsec_sa

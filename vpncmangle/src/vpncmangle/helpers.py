@@ -1,6 +1,7 @@
+"""Helper functions providing functions used throughout the application."""
+
 import json
 import logging
-from ipaddress import IPv6Network
 
 import pydantic_core
 
@@ -9,13 +10,10 @@ from . import config
 logger = logging.getLogger("vpncmangle")
 
 
-def load_config():
-    """
-    Load the global configuration.
-    """
-
+def load_config() -> None:
+    """Load the global configuration."""
     try:
-        with open(config.CONFIG_PATH, "r", encoding="utf-8") as f:
+        with config.CONFIG_PATH.open(encoding="utf-8") as f:
             try:
                 new_cfg_dict = json.load(f)
             except (json.JSONDecodeError, TypeError):
@@ -26,24 +24,22 @@ def load_config():
                 )
                 return
     except FileNotFoundError:
-        logger.error(
+        logger.exception(
             "Configuration file could not be found at '%s'.",
             config.CONFIG_PATH,
-            exc_info=True,
         )
         return
 
     try:
-        config.CONFIG = config.Config(**{"config": new_cfg_dict}).config
+        config.CONFIG = config.Config(config=new_cfg_dict).config
     except pydantic_core.ValidationError:
-        logger.error(
+        logger.exception(
             "Configuration '%s' doesn't adhere to the schema",
             config.CONFIG_PATH,
-            exc_info=True,
         )
         return
 
-    config.ACL_MATCH: list[tuple[IPv6Network, str]] = []
+    config.ACL_MATCH = []
 
     for net_in_name, net_in_translations in config.CONFIG.items():
         translation_list_64 = [(x[0], net_in_name) for x in net_in_translations.dns64]

@@ -1,6 +1,4 @@
-"""
-Manages network instances, connections and observers used to monitor file changes
-"""
+"""Manages network instances, connections and file observers."""
 
 from .general import *
 from .ni_core import *

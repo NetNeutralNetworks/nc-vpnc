@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+"""Mangle/doctor DNS responses."""
 
 import logging
 import subprocess
@@ -6,6 +6,7 @@ import sys
 from ipaddress import IPv4Address, IPv6Address
 from logging.handlers import RotatingFileHandler
 from time import sleep
+from typing import Any
 
 import scapy.all as sc
 from netfilterqueue import NetfilterQueue, Packet
@@ -13,6 +14,10 @@ from netfilterqueue import NetfilterQueue, Packet
 from . import config, helpers, observers
 
 logger = logging.getLogger("vpncmangle")
+
+
+QUERY_A = 1
+QUERY_AAAA = 28
 
 
 def setup_ip6tables(queue_number: int) -> None:
@@ -96,8 +101,7 @@ def mangle_dns(pkt: Packet) -> None:
         return
 
     # Temporary list to store all desired DNS responses.
-    temp_list = []
-    temp_v4_list = []
+    temp_list: list[dict[str, Any]] = []
     rrname = pkt_sc[sc.DNS].an.rrname
     for dns_query in pkt_sc[sc.DNS].an.iterpayloads():
         # # If AAAA record response, don't include it.
@@ -114,8 +118,9 @@ def mangle_dns(pkt: Packet) -> None:
         #     # temp_list.append(i)
         #     continue
 
+        dns_response: IPv4Address | IPv6Address | None = None
         dns_response_doctored: IPv6Address | None = None
-        if dns_query.type == 1:
+        if dns_query.type == QUERY_A:
             logger.debug("DNS response '%s' answer is 'A'.", dns_query.rdata)
             ipv6_local_network, _ = config.CONFIG[network_instance_name].dns64[0]
             # Calculate address.
@@ -123,7 +128,7 @@ def mangle_dns(pkt: Packet) -> None:
             dns_response_doctored = IPv6Address(
                 int(ipv6_local_network.network_address) + int(dns_response),
             )
-        elif dns_query.type == 28:
+        elif dns_query.type == QUERY_AAAA:
             logger.debug("DNS response '%s' answer is 'AAAA'.", dns_query.rdata)
             for ipv6_local_network, ipv6_remote_network in config.CONFIG[
                 network_instance_name
@@ -175,7 +180,7 @@ def mangle_dns(pkt: Packet) -> None:
             dns_response_doctored,
         )
         # Change the response type and answer.
-        temp_dict = {
+        temp_dict: dict[str, Any] = {
             "rrname": rrname,
             "type": "AAAA",
             "rclass": dns_query.rclass,
@@ -186,10 +191,8 @@ def mangle_dns(pkt: Packet) -> None:
         # Append the result to the list.
         temp_list.append(temp_dict)
 
-    temp_list.extend(temp_v4_list)
     dns_mangle = sc.DNSRR()
     for dns_query, val in enumerate(temp_list):
-        # pdb.set_trace()
         if dns_query > 0:
             dns_mangle = dns_mangle / sc.DNSRR()
         dns_mangle[dns_query].rrname = val["rrname"]
@@ -206,7 +209,6 @@ def mangle_dns(pkt: Packet) -> None:
         pkt_sc[sc.DNS].rcode = 3
     else:
         # Set the list as the answers value and edit the count.
-        # pdb.set_trace()
         pkt_sc[sc.DNS].an = dns_mangle
         pkt_sc[sc.DNS].ancount = len(temp_list)
 
@@ -224,8 +226,8 @@ def mangle_dns(pkt: Packet) -> None:
         pkt.drop()
 
 
-def main():
-    """Main function. Binds to netfilter."""
+def main() -> None:
+    """Set up netfilter and try to keep the mangle_dns function alive."""
     # LOGGER
     # Configure logging
     logger.setLevel(level=logging.INFO)

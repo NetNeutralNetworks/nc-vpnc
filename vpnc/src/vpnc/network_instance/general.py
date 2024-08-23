@@ -199,7 +199,10 @@ def add_network_instance_connection_route(
 def get_network_instance_nat64_scope(
     network_instance_name: str,
 ) -> ipaddress.IPv6Network:
-    """Returns the IPv6 NPTv6 scope for a network instance. This is always a /48."""
+    """Return the IPv6 NPTv6 scope for a network instance.
+
+    This scope  is always a /48.
+    """
     assert isinstance(config.VPNC_SERVICE_CONFIG, models.ServiceHub)
 
     ni_info = helpers.parse_downlink_network_instance_name(network_instance_name)

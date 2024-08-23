@@ -1,11 +1,18 @@
+"""Manage interface configuration."""
+
+from __future__ import annotations
+
 import atexit
-from ipaddress import IPv4Interface, IPv6Interface
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pyroute2 import IPDB, NDB, NetNS
-from pyroute2.ndb.objects import interface
 
 from . import namespace
+
+if TYPE_CHECKING:
+    from ipaddress import IPv4Interface, IPv6Interface
+
+    from pyroute2.ndb.objects import interface
 
 
 def get(
@@ -13,6 +20,7 @@ def get(
     kind: str | None = None,
     ns_name: str | Literal["*"] | None = None,
 ) -> interface.Interface | None:
+    """Get an interface configuration."""
     with NDB() as ndb:
         query = {"ifname": name}  # , "kind": kind}
 
@@ -45,18 +53,18 @@ def get(
         return inf
 
 
-def set(
+def set_(
     inf: interface.Interface,
     state: Literal["up", "down"] | None = None,
     addresses: list[IPv4Interface | IPv6Interface] | None = None,
     ns_name: str | None = None,
-    cleanup=False,
+    cleanup: bool = False,  # noqa: FBT001, FBT002
 ) -> interface.Interface:
+    """Set interface attributes."""
     if addresses is None:
         addresses = []
 
     with NDB() as ndb:
-        # ndb.sources.remove("localhost")
         try:
             ndb.sources.add(netns=inf["target"])
         except Exception:
@@ -82,19 +90,15 @@ def set(
     if cleanup:
         atexit.register(delete, inf=intf)
 
-    # delete(intf)
-
     return intf
 
 
 def delete(inf: interface.Interface) -> None:
+    """Delete an interface."""
     if inf["kind"] is None:
         netns = NetNS(inf["target"])
-        with IPDB(netns) as ipdb:
-            # ipdb.sources.add(netns=inf["target"])
-            with ipdb.interfaces[inf["ifname"]] as intf:
-                # interface.net_ns_pid = os.getpid()
-                intf.net_ns_pid = 1
+        with IPDB(netns) as ipdb, ipdb.interfaces[inf["ifname"]] as intf:
+            intf.net_ns_pid = 1
     else:
         with NDB() as ndb:
             ndb.sources.add(netns=inf["target"])

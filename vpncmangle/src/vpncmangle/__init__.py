@@ -1,3 +1,3 @@
-#!/usr/bin/env python3
+"""The vpncmangle package."""
 
 __version__ = "0.0.12"
