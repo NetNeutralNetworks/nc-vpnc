@@ -24,7 +24,7 @@
             "cwd": "${workspaceFolder}/vpnc/"
         },
         {
-   33         "name": "Python: Module - vpncmangle",
+            "name": "Python: Module - vpncmangle",
             "type": "debugpy",
             "request": "launch",
             "module": "vpncmangle.main",

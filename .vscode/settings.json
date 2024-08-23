@@ -1,1 +1,6 @@
-{}
+{
+    "python.analysis.extraPaths": [
+        "vpnc/src",
+        "vpncmangle/src"
+    ]
+}
