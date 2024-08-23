@@ -10,12 +10,14 @@ metadata:
 # Network configuration
 network_instances:
   e0001-00:
-    name: e0001-00
+    id: e0001-00
     type: downlink # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
-    - # Optional, arbitrary key-value pairs
+     0:
+      id: 0
+      # Optional, arbitrary key-value pairs
       metadata: {}
       interface:
         # Optional: IPv6 interface address, required in endpoint mode. Used in hub mode for NAT66

@@ -84,21 +84,20 @@ class ConnectionConfigIPsec(BaseModel):
     def add(
         self,
         network_instance: models.NetworkInstance,
-        connection_id: int,
         connection: models.Connection,
     ) -> str:
         """Create an XFRM interface."""
-        xfrm = self.intf_name(connection_id)
-        vpn_id = int(f"0x1000000{connection_id}", 16)
+        xfrm = self.intf_name(connection.id)
+        vpn_id = int(f"0x1000000{connection.id}", 16)
         if network_instance.type == enums.NetworkInstanceType.DOWNLINK:
             vpn_id = int(
-                f"0x{network_instance.name.replace('-', '')}{connection_id}",
+                f"0x{network_instance.id.replace('-', '')}{connection.id}",
                 16,
             )
 
         if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
             network_instance,
-            connection_id,
+            connection.id,
         )
 
         # TODO@draggeta: check if it is OK to always attach to the same external interface.
@@ -109,8 +108,8 @@ class ConnectionConfigIPsec(BaseModel):
         )
         cmds = f"""
             # configure XFRM interfaces
-            ip -n {config.EXTERNAL_NI} link add {xfrm} type xfrm dev {external_if_name} if_id {hex(vpn_id)}
-            ip -n {config.EXTERNAL_NI} link set {xfrm} netns {network_instance.name}
+            /usr/sbin/ip -netns {config.EXTERNAL_NI} link add {xfrm} type xfrm dev {external_if_name} if_id {hex(vpn_id)}
+            /usr/sbin/ip -netns {config.EXTERNAL_NI} link set {xfrm} netns {network_instance.id}
         """  # noqa: E501
         proc = subprocess.run(  # noqa: S602
             cmds,
@@ -123,9 +122,9 @@ class ConnectionConfigIPsec(BaseModel):
 
         proc = subprocess.run(  # noqa: S602
             f"""
-            ip -n {network_instance.name} link set dev {xfrm} up
-            ip -n {network_instance.name} -4 address flush dev {xfrm} scope global
-            ip -n {network_instance.name} -6 address flush dev {xfrm} scope global
+            /usr/sbin/ip -netns {network_instance.id} link set dev {xfrm} up
+            /usr/sbin/ip -netns {network_instance.id} -4 address flush dev {xfrm} scope global
+            /usr/sbin/ip -netns {network_instance.id} -6 address flush dev {xfrm} scope global
             """,
             capture_output=True,
             shell=True,
@@ -136,10 +135,10 @@ class ConnectionConfigIPsec(BaseModel):
 
         cmds = ""
         for ipv4 in if_ipv4:
-            cmds += f"ip -n {network_instance.name} address add {ipv4} dev {xfrm}\n"
+            cmds += f"/usr/sbin/ip -netns {network_instance.id} address add {ipv4} dev {xfrm}\n"
         # Add the configured IPv6 address to the XFRM interface.
         for ipv6 in if_ipv6:
-            cmds += f"ip -n {network_instance.name} address add {ipv6} dev {xfrm}\n"
+            cmds += f"/usr/sbin/ip -netns {network_instance.id} address add {ipv6} dev {xfrm}\n"
 
         proc = subprocess.run(  # noqa: S602
             cmds,
@@ -164,7 +163,7 @@ class ConnectionConfigIPsec(BaseModel):
         """Get the connection status."""
         vcs = vici.Session()
         sa: dict[str, Any] = next(
-            iter(vcs.list_sas({"ike": f"{network_instance.name}-{connection_id}"})),
+            iter(vcs.list_sas({"ike": f"{network_instance.id}-{connection_id}"})),
         )
 
         if_name = self.intf_name(connection_id)
@@ -174,7 +173,7 @@ class ConnectionConfigIPsec(BaseModel):
                     "/usr/sbin/ip",
                     "--json",
                     "--netns",
-                    network_instance.name,
+                    network_instance.id,
                     "address",
                     "show",
                     "dev",
@@ -185,13 +184,13 @@ class ConnectionConfigIPsec(BaseModel):
             ).stdout,
         )[0]
 
-        status: str = sa[f"{network_instance.name}-{connection_id}"]["state"].decode()
-        remote_addr: str = sa[f"{network_instance.name}-{connection_id}"][
+        status: str = sa[f"{network_instance.id}-{connection_id}"]["state"].decode()
+        remote_addr: str = sa[f"{network_instance.id}-{connection_id}"][
             "remote-host"
         ].decode()
         output_dict: dict[str, Any] = {
-            "tenant": f"{network_instance.name.split('-')[0]}",
-            "network-instance": network_instance.name,
+            "tenant": f"{network_instance.id.split('-')[0]}",
+            "network-instance": network_instance.id,
             "connection": connection_id,
             "type": self.type.name,
             "status": status,

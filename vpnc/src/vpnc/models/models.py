@@ -23,6 +23,7 @@ from pydantic import (
     field_serializer,
     field_validator,
 )
+from pydantic_core import PydanticCustomError
 
 from vpnc import config, helpers
 from vpnc.models.enums import NetworkInstanceType, ServiceMode
@@ -101,6 +102,7 @@ class Connection(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
+    id: int = Field(ge=0, le=9)
     metadata: dict[str, Any] = Field(default_factory=dict)
     interface: Interface = Field(default_factory=Interface)
     routes: Routes = Field(default_factory=Routes)
@@ -137,7 +139,7 @@ class Connection(BaseModel):
         parsed_ni: dict[str, Any] = {}
         if is_downlink:
             parsed_ni = helpers.parse_downlink_network_instance_name(
-                network_instance.name,
+                network_instance.id,
             )
         if (
             not self.interface.ipv4  # pylint: disable=no-member
@@ -179,23 +181,65 @@ class Connection(BaseModel):
 
         return interface_ipv4_address, interface_ipv6_address
 
+    def add(
+        self,
+        network_instance: NetworkInstance,
+    ) -> str:
+        """Create a connection."""
+        return self.config.add(network_instance, self)
+
+    def intf_name(self) -> str:
+        """Return the name of the connection interface."""
+        return self.config.intf_name(self.id)
+
+    def status_summary(
+        self,
+        network_instance: NetworkInstance,
+    ) -> dict[str, Any]:
+        """Get the connection status."""
+        return self.config.status_summary(network_instance, self.id)
+
 
 class NetworkInstance(BaseModel):
     """Define a network instance data structure."""
 
     model_config = ConfigDict(validate_assignment=True)
 
-    name: str
+    id: str
     type: NetworkInstanceType
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    connections: list[Connection]
+    connections: dict[int, Connection]
 
     @field_validator("metadata", mode="before")
     @classmethod
     def _coerce_metadata(cls, v: dict[str, Any] | None) -> dict[str, Any]:
         if v is None:
             return {}
+        return v
+
+    @field_validator("connections")
+    @classmethod
+    def validate_connection_id_uniqueness(
+        cls,
+        v: dict[int, Connection] | None,
+    ) -> dict[int, Connection]:
+        """Validate that all connections in the list have unique identifiers."""
+        if v is None:
+            return {}
+        seen_ids: list[int] = []
+        for key, connection in v.items():
+            connection_id = connection.id
+            if connection_id in seen_ids:
+                err_type = "unique_list_key"
+                msg = "Duplicate connection identifier found."
+                raise PydanticCustomError(err_type, msg)
+            if connection_id != key:
+                err_type = "unique_list_key"
+                msg = "Connection identifier doesn't match list key"
+                raise PydanticCustomError(err_type, msg)
+            seen_ids.append(connection_id)
+
         return v
 
 

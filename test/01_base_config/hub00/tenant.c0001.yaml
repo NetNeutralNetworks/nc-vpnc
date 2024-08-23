@@ -10,107 +10,111 @@ metadata:
 # Network configuration
 network_instances:
   c0001-00:
-    name: c0001-00
+    id: c0001-00
     type: downlink # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
-    - # Optional, arbitrary key-value pairs
-      metadata: {}
-      interface:
-        # Optional: IPv6 interface address, required for downlink in endpoint mode.
-        # ipv6:
-        # - fdcc:cbe::/64
-        # Optional: IPv4 interface address, required for downlink in endpoint mode.
-        # Ignored for core in hub mode.
-        # ipv4:
-        # - 100.99.0.0/24
-      # List of IPv4 and IPv6 networks reachable via this connection.
-      # IPv6 NPTv6 can be performed for DOWNLINKs in hub mode.
-      # Only global IPv6 unicast are accepted without NPTv6
-      # IPv4 prefixes are ignored for CORE in hub mode.
-      routes:
-        ipv6:
-        - to: 2001:db8:c57::/48
-          # via: # Optional, ignored for tunnel interfaces
-          nptv6: false # Optional, configured by the service automatically.
-          # nptv6_prefix: null
-        - to: fdff:db8:c57::/52
-          # via: # Optional, ignored for tunnel interfaces
-          nptv6: true # Optional, configured by the service automatically.
-          # nptv6_prefix: null
-        - to: fdff:db8:c57:1000::/52
-          # via: # Optional, ignored for tunnel interfaces
-          nptv6: true # Optional, configured by the service automatically.
-          # nptv6_prefix: null
-        - to: fdff:db8:c57:2000::/56
-          # via: # Optional, ignored for tunnel interfaces
-          nptv6: true # Optional, configured by the service automatically.
-          # nptv6_prefix: null
-        - to: fdff:db8:c57:3000::/52
-          # via: # Optional, ignored for tunnel interfaces
-          nptv6: true # Optional, configured by the service automatically.
-          # nptv6_prefix: null
-        ipv4:
-        - to: default
-          # via: # Optional, ignored for tunnel interfaces
-      config:
-        type: ipsec # ipsec | physical
-        # Optional: If not set, defaults to the default service local_id value.
-        # local_id: 192.0.2.5
-        # IPv6 or IPv4 address
-        remote_addrs: [192.0.2.7, 2001:db8::7]
-        # Optional: If not set, defaults to remote_peer_ip
-        # remote_id: 192.0.2.7
-        # Optional: defaults to 2
-        # ike_version: 2
-        # Optional: defaults to aes256gcm16-prfsha384-ecp384
-        ike_proposal: aes128gcm16-prfsha384-ecp384
-        # Optional: The IKE lifetime in seconds
-        ike_lifetime: 300
-        # Optional: defaults to aes256gcm16-prfsha384-ecp384
-        ipsec_proposal: aes128gcm16-prfsha384-ecp384
-        # Optional: The IPsec lifetime in seconds
-        ipsec_lifetime: 90
-        # Optional, defaults to start. 'start' means inititate and respond, 'none' means respond only.
-        initiation: none
-        psk: secretpasswordendpoint
-        # Optional
-        # traffic_selectors:
-        #   local:
-        #   - 10.20.0.0/16
-        #   - 10.21.0.0/16
-        #   - fdcc:cbe::/64
-        #   remote:
-        #   - 172.30.0.0/16
-        #   - 172.31.0.0/16
-        #   - 2001:db8:c57::/48
+      0:
+        id: 0
+        # Optional, arbitrary key-value pairs
+        metadata: {}
+        interface:
+          # Optional: IPv6 interface address, required for downlink in endpoint mode.
+          # ipv6:
+          # - fdcc:cbe::/64
+          # Optional: IPv4 interface address, required for downlink in endpoint mode.
+          # Ignored for core in hub mode.
+          # ipv4:
+          # - 100.99.0.0/24
+        # List of IPv4 and IPv6 networks reachable via this connection.
+        # IPv6 NPTv6 can be performed for DOWNLINKs in hub mode.
+        # Only global IPv6 unicast are accepted without NPTv6
+        # IPv4 prefixes are ignored for CORE in hub mode.
+        routes:
+          ipv6:
+          - to: 2001:db8:c57::/48
+            # via: # Optional, ignored for tunnel interfaces
+            nptv6: false # Optional, configured by the service automatically.
+            # nptv6_prefix: null
+          - to: fdff:db8:c57::/52
+            # via: # Optional, ignored for tunnel interfaces
+            nptv6: true # Optional, configured by the service automatically.
+            # nptv6_prefix: null
+          - to: fdff:db8:c57:1000::/52
+            # via: # Optional, ignored for tunnel interfaces
+            nptv6: true # Optional, configured by the service automatically.
+            # nptv6_prefix: null
+          - to: fdff:db8:c57:2000::/56
+            # via: # Optional, ignored for tunnel interfaces
+            nptv6: true # Optional, configured by the service automatically.
+            # nptv6_prefix: null
+          - to: fdff:db8:c57:3000::/52
+            # via: # Optional, ignored for tunnel interfaces
+            nptv6: true # Optional, configured by the service automatically.
+            # nptv6_prefix: null
+          ipv4:
+          - to: default
+            # via: # Optional, ignored for tunnel interfaces
+        config:
+          type: ipsec # ipsec | physical
+          # Optional: If not set, defaults to the default service local_id value.
+          # local_id: 192.0.2.5
+          # IPv6 or IPv4 address
+          remote_addrs: [192.0.2.7, 2001:db8::7]
+          # Optional: If not set, defaults to remote_peer_ip
+          # remote_id: 192.0.2.7
+          # Optional: defaults to 2
+          # ike_version: 2
+          # Optional: defaults to aes256gcm16-prfsha384-ecp384
+          ike_proposal: aes128gcm16-prfsha384-ecp384
+          # Optional: The IKE lifetime in seconds
+          ike_lifetime: 300
+          # Optional: defaults to aes256gcm16-prfsha384-ecp384
+          ipsec_proposal: aes128gcm16-prfsha384-ecp384
+          # Optional: The IPsec lifetime in seconds
+          ipsec_lifetime: 90
+          # Optional, defaults to start. 'start' means inititate and respond, 'none' means respond only.
+          initiation: none
+          psk: secretpasswordendpoint
+          # Optional
+          # traffic_selectors:
+          #   local:
+          #   - 10.20.0.0/16
+          #   - 10.21.0.0/16
+          #   - fdcc:cbe::/64
+          #   remote:
+          #   - 172.30.0.0/16
+          #   - 172.31.0.0/16
+          #   - 2001:db8:c57::/48
 
   c0001-01:
-    name: c0001-01
+    id: c0001-01
     type: downlink
     connections:
-    - routes:
-        ipv6:
-        - to: 2001:db8:c58::/48
-          nptv6: false
-        - to: fdff:db8:c58::/52
-          nptv6: true
-        - to: fdff:db8:c58:1000::/52
-          nptv6: true
-        - to: fdff:db8:c58:2000::/56
-          nptv6: true
-        - to: fdff:db8:c58:3000::/52
-          nptv6: true
-        ipv4:
-        - to: default
-      config:
-        type: ipsec
-        remote_addrs: [192.0.2.8, 2001:db8::8]
-        ike_proposal: aes128gcm16-prfsha384-ecp384
-        ike_lifetime: 300
-        ipsec_proposal: aes128gcm16-prfsha384-ecp384
-        ipsec_lifetime: 90
-        initiation: none
-        psk: secretpasswordendpoint
+      0:
+        id: 0
+        routes:
+          ipv6:
+          - to: 2001:db8:c58::/48
+            nptv6: false
+          - to: fdff:db8:c58::/52
+            nptv6: true
+          - to: fdff:db8:c58:1000::/52
+            nptv6: true
+          - to: fdff:db8:c58:2000::/56
+            nptv6: true
+          - to: fdff:db8:c58:3000::/52
+            nptv6: true
+          ipv4:
+          - to: default
+        config:
+          type: ipsec
+          remote_addrs: [192.0.2.8, 2001:db8::8]
+          ike_proposal: aes128gcm16-prfsha384-ecp384
+          ike_lifetime: 300
+          ipsec_proposal: aes128gcm16-prfsha384-ecp384
+          ipsec_lifetime: 90
+          initiation: none
+          psk: secretpasswordendpoint
 ...

@@ -86,21 +86,21 @@ charon-systemd {
 mkdir -p /var/run/netns
 ip netns add UNTRUST
 ip link set ${UNTRUST_IF} netns UNTRUST
-# ip -n UNTRUST address add ${UNTRUST_IP}/29 dev ${UNTRUST_IF}
-ip -n UNTRUST address add ${UNTRUST_IF_IP4} dev ${UNTRUST_IF}
-ip -n UNTRUST address add ${UNTRUST_IF_IP6} dev ${UNTRUST_IF}
-ip -n UNTRUST link set dev ${UNTRUST_IF} up
+# ip -netns UNTRUST address add ${UNTRUST_IP}/29 dev ${UNTRUST_IF}
+ip -netns UNTRUST address add ${UNTRUST_IF_IP4} dev ${UNTRUST_IF}
+ip -netns UNTRUST address add ${UNTRUST_IF_IP6} dev ${UNTRUST_IF}
+ip -netns UNTRUST link set dev ${UNTRUST_IF} up
 ip netns exec UNTRUST sysctl -w net.ipv4.conf.all.forwarding=1
 ip netns exec UNTRUST sysctl -w net.ipv6.conf.all.forwarding=1
 ip netns exec UNTRUST ipsec start
 
-ip -n UNTRUST link add xfrm0 type xfrm dev ${UNTRUST_IF} if_id 0x9999000
-ip -n UNTRUST link set dev xfrm0 netns 1
+ip -netns UNTRUST link add xfrm0 type xfrm dev ${UNTRUST_IF} if_id 0x9999000
+ip -netns UNTRUST link set dev xfrm0 netns 1
 ip address flush dev xfrm0 scope global
 ip link set dev xfrm0 up
 ip address add ${VPN_TUNNEL_IF_IP_0} dev xfrm0
-ip -n UNTRUST link add xfrm1 type xfrm dev ${UNTRUST_IF} if_id 0x9999001
-ip -n UNTRUST link set dev xfrm1 netns 1
+ip -netns UNTRUST link add xfrm1 type xfrm dev ${UNTRUST_IF} if_id 0x9999001
+ip -netns UNTRUST link set dev xfrm1 netns 1
 ip link set dev xfrm1 up
 ip address flush dev xfrm1 scope global
 ip address add ${VPN_TUNNEL_IF_IP_1} dev xfrm1

@@ -29,14 +29,13 @@ class ConnectionConfigLocal(BaseModel):
     def add(
         self,
         network_instance: models.NetworkInstance,
-        connection_id: int,
         connection: models.Connection,
     ) -> str:
         """Create a local connection."""
         if not isinstance(connection.config, models.ConnectionConfigLocal):
             logger.critical(
                 "Wrong connection configuration provided for %s",
-                network_instance.name,
+                network_instance.id,
             )
             raise TypeError
 
@@ -51,14 +50,14 @@ class ConnectionConfigLocal(BaseModel):
 
         if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
             network_instance,
-            connection_id,
+            connection.id,
         )
         addresses = if_ipv6 + if_ipv4
         interface.set_(
             intf,
             state="up",
             addresses=addresses,
-            ns_name=network_instance.name,
+            ns_name=network_instance.id,
         )
 
         return connection.config.interface_name
@@ -80,7 +79,7 @@ class ConnectionConfigLocal(BaseModel):
                     "/usr/sbin/ip",
                     "--json",
                     "--netns",
-                    network_instance.name,
+                    network_instance.id,
                     "address",
                     "show",
                     "dev",
@@ -92,8 +91,8 @@ class ConnectionConfigLocal(BaseModel):
         )[0]
 
         output_dict: dict[str, Any] = {
-            "tenant": f"{network_instance.name.split('-')[0]}",
-            "network-instance": network_instance.name,
+            "tenant": f"{network_instance.id.split('-')[0]}",
+            "network-instance": network_instance.id,
             "connection": connection_id,
             "type": self.type.name,
             "status": output["operstate"],

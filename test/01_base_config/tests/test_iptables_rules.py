@@ -5,24 +5,22 @@ import pytest
 
 
 def run_cmd(host: str, command: str) -> str:
-    """
-    Runs a command in the docker container and returns the results
-    """
-
+    """Runs a command in the docker container and returns the results"""
     cmd = ["docker", "exec", f"clab-vpnc-{host}"]
     cmd.extend(command.split())
 
     output = subprocess.run(
-        cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, check=True
+        cmd,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        check=True,
     ).stdout.decode()
 
     return output
 
 
 class TestIPTables:
-    """
-    Tests if IPv4 firewall rules are configured correctly.
-    """
+    """Tests if IPv4 firewall rules are configured correctly."""
 
     tables4 = {
         # By default no IPv4 in external, except for IPSec
@@ -38,23 +36,24 @@ class TestIPTables:
             "-A OUTPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
         ),
         # No IPv4 in CORE
-        "ipv4_core": ("-P INPUT DROP\n" "-P FORWARD DROP\n" "-P OUTPUT DROP\n"),
+        "ipv4_core": ("-P INPUT DROP\n-P FORWARD DROP\n-P OUTPUT DROP\n"),
         # No IPv4 in c0001-00, even though we do NAT64. These are handled by Jool before iptables
         # forwards traffic
-        "ipv4_c0001_xx": ("-P INPUT DROP\n" "-P FORWARD DROP\n" "-P OUTPUT DROP\n"),
+        "ipv4_c0001_xx": ("-P INPUT DROP\n-P FORWARD DROP\n-P OUTPUT DROP\n"),
     }
 
     @pytest.mark.parametrize("tables", [tables4])
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_iptables_hub(self, host, tables: dict[str, Any]):
-        """
-        Tests firewall rules for the hubs
-        """
-
-        iptables_external = run_cmd(host, "ip netns exec UNTRUST iptables -S")
-        iptables_core = run_cmd(host, "ip netns exec TRUST iptables -S")
-        iptables_c0001_00 = run_cmd(host, "ip netns exec c0001-00 iptables -S")
-        iptables_c0001_01 = run_cmd(host, "ip netns exec c0001-01 iptables -S")
+        """Tests firewall rules for the hubs"""
+        iptables_external = run_cmd(host, "ip netns exec UNTRUST /usr/sbin/iptables -S")
+        iptables_core = run_cmd(host, "ip netns exec TRUST /usr/sbin/iptables -S")
+        iptables_c0001_00 = run_cmd(
+            host, "ip netns exec c0001-00 /usr/sbin/iptables -S"
+        )
+        iptables_c0001_01 = run_cmd(
+            host, "ip netns exec c0001-01 /usr/sbin/iptables -S"
+        )
 
         assert iptables_external == tables["ipv4_external"]
         assert iptables_core == tables["ipv4_core"]
@@ -150,10 +149,7 @@ class TestIPTables:
     @pytest.mark.parametrize("tables", [tables6])
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_ip6tables_hub(self, host, tables: dict[str, Any]):
-        """
-        Tests IPv6 firewall rules for the hubs
-        """
-
+        """Tests IPv6 firewall rules for the hubs"""
         ip6tables_external = run_cmd(host, "ip netns exec UNTRUST ip6tables -S")
         ip6tables_core = run_cmd(host, "ip netns exec TRUST ip6tables -S")
         ip6tables_c0001_00 = run_cmd(host, "ip netns exec c0001-00 ip6tables -S")
@@ -166,9 +162,7 @@ class TestIPTables:
 
 
 class TestIPTablesNAT:
-    """
-    Tests if NAT/NPTv6 rules have been configured correctly
-    """
+    """Tests if NAT/NPTv6 rules have been configured correctly"""
 
     tables6 = {
         # Perform NPTv6 before doing the masquerade. The masquerade always has to be at the end.
@@ -199,10 +193,7 @@ class TestIPTablesNAT:
     @pytest.mark.parametrize("tables", [tables6])
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_ip6tables_nat_hub(self, host, tables: dict[str, Any]):
-        """
-        Tests IPv6 NAT rules for the hub
-        """
-
+        """Tests IPv6 NAT rules for the hub"""
         ip6tables_c0001_00 = run_cmd(host, "ip netns exec c0001-00 ip6tables -t nat -S")
         ip6tables_c0001_01 = run_cmd(host, "ip netns exec c0001-01 ip6tables -t nat -S")
 

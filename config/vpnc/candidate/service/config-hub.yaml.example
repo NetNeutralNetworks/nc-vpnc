@@ -12,109 +12,115 @@ mode: hub
 # Network configuration
 network_instances:
   UNTRUST:
-    name: UNTRUST
+    id: UNTRUST
     type: external # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
-    - # Optional, arbitrary key-value pairs
-      metadata: {}
-      interface:
-        ipv6:
-        - 2001:db8::5/64
-        ipv4:
-        - 192.0.2.5/24
-      routes:
-        ipv6:
-        - to: default
-          via: 2001:db8::1
-        ipv4:
-        - to: default
-          via: 192.0.2.1
-      # Config of type physical
-      config:
-        type: physical # ipsec | physical
-        interface_name: eth2
+      0:
+        id: 0
+        # Optional, arbitrary key-value pairs
+        metadata: {}
+        interface:
+          ipv6:
+          - 2001:db8::5/64
+          ipv4:
+          - 192.0.2.5/24
+        routes:
+          ipv6:
+          - to: default
+            via: 2001:db8::1
+          ipv4:
+          - to: default
+            via: 192.0.2.1
+        # Config of type physical
+        config:
+          type: physical # ipsec | physical
+          interface_name: eth2
   ROOT:
-    name: ROOT
+    id: ROOT
     type: default # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
-    - # Optional, arbitrary key-value pairs
-      metadata: {}
-      interface:
-        ipv6:
-        - 2001:db8:1::153/64
-        ipv4:
-        - 192.168.0.153/20
-      routes:
-        ipv6:
-        - to: default
-          via: 2001:db8:1::1
-        ipv4:
-        - to: default
-          via: 192.168.0.1
-      config:
-        type: physical # ipsec | physical
-        interface_name: eth1
+      0:
+        id: 0
+        # Optional, arbitrary key-value pairs
+        metadata: {}
+        interface:
+          ipv6:
+          - 2001:db8:1::153/64
+          ipv4:
+          - 192.168.0.153/20
+        routes:
+          ipv6:
+          - to: default
+            via: 2001:db8:1::1
+          ipv4:
+          - to: default
+            via: 192.168.0.1
+        config:
+          type: physical # ipsec | physical
+          interface_name: eth1
   TRUST:
-    name: TRUST
+    id: TRUST
     type: core # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata:
       location: Provider lab
       device_type: Management firewall
     connections:
-    - # Optional, arbitrary key-value pairs
-      metadata:
-        location: Provider lab
-        device_type: Management firewall
-      interface:
-        # Optional: IPv6 interface address, required for downlink in endpoint mode.
-        ipv6:
-        - fd00:1:2::/127
-        # Optional: IPv4 interface address, required for downlink in endpoint mode.
-        # Ignored for core in hub mode.
-        ipv4: []
-      # List of IPv4 and IPv6 networks natively reachable via this connection.
-      # IPv4 prefixes are ignored for core and downlink in hub mode.
-      routes:
-        ipv6:
-        # IP prefixes for provider client subnets initiating administration traffic to tenants.
-        - to: fd00::/16
-        #   via: fd00:1:2::1 # Optional, ignored for tunnel interfaces
+      0:
+        id: 0
+        # Optional, arbitrary key-value pairs
+        metadata:
+          location: Provider lab
+          device_type: Management firewall
+        interface:
+          # Optional: IPv6 interface address, required for downlink in endpoint mode.
+          ipv6:
+          - fd00:1:2::/127
+          # Optional: IPv4 interface address, required for downlink in endpoint mode.
+          # Ignored for core in hub mode.
+          ipv4: []
+        # List of IPv4 and IPv6 networks natively reachable via this connection.
         # IPv4 prefixes are ignored for core and downlink in hub mode.
-        ipv4: []
-      config:
-        type: ipsec # ipsec | physical
-        # Optional: If not set, defaults to the default service local_id value.
-        # local_id: 192.0.2.5
-        # IPv6 or IPv4 address
-        remote_addrs: [2001:db8::3]
-        # Optional: If not set, defaults to remote_peer_ip
-        # remote_id: 192.0.2.3
-        # Optional: defaults to 2
-        # ike_version: 2
-        # Optional: defaults to aes256gcm16-prfsha384-ecp384
-        # ike_proposal: aes256gcm16-prfsha384-ecp384
-        # Optional: The IKE lifetime in seconds
-        # ike_lifetime: 86400
-        # Optional: defaults to aes256gcm16-prfsha384-ecp384
-        # ipsec_proposal: aes256gcm16-prfsha384-ecp384
-        # Optional: The IPsec lifetime in seconds
-        # ipsec_lifetime: 3600
-        # Optional, defaults to start. Start means inititate and respond, none means respond only.
-        # initiation: start
-        psk: secretpasswordcore
-        # Optional
-        # traffic_selectors:
-        #   local:
-        #   - 10.20.0.0/16
-        #   - 10.21.0.0/16
-        #   remote:
-        #   - 172.30.0.0/16
-        #   - 172.31.0.0/16
+        routes:
+          ipv6:
+          # IP prefixes for provider client subnets initiating administration traffic to tenants.
+          - to: fd00::/16
+          #   via: fd00:1:2::1 # Optional, ignored for tunnel interfaces
+          # IPv4 prefixes are ignored for core and downlink in hub mode.
+          ipv4: []
+        config:
+          type: ipsec # ipsec | physical
+          # Optional: If not set, defaults to the default service local_id value.
+          # local_id: 192.0.2.5
+          # IPv6 or IPv4 address
+          remote_addrs: [2001:db8::3]
+          # Optional: If not set, defaults to remote_peer_ip
+          # remote_id: 192.0.2.3
+          # Optional: defaults to 2
+          # ike_version: 2
+          # Optional: defaults to aes256gcm16-prfsha384-ecp384
+          # ike_proposal: aes256gcm16-prfsha384-ecp384
+          # Optional: The IKE lifetime in seconds
+          # ike_lifetime: 86400
+          # Optional: defaults to aes256gcm16-prfsha384-ecp384
+          # ipsec_proposal: aes256gcm16-prfsha384-ecp384
+          # Optional: The IPsec lifetime in seconds
+          # ipsec_lifetime: 3600
+          # Optional, defaults to start. Start means inititate and respond, none means respond only.
+          # initiation: start
+          psk: secretpasswordcore
+          # Optional
+          # traffic_selectors:
+          #   local:
+          #   - 10.20.0.0/16
+          #   - 10.21.0.0/16
+          #   remote:
+          #   - 172.30.0.0/16
+          #   - 172.31.0.0/16
 
 # VPN CONFIG
 # Optional: IKE local identifier for VPNs
