@@ -1,4 +1,4 @@
-FROM ubuntu:jammy-20240627.1 AS build
+FROM ubuntu:jammy-20240808 AS build
 
 SHELL ["/bin/bash", "-c"]
 
@@ -20,7 +20,7 @@ RUN echo "Compile required modules"                                     && \
 
 
 # Multi-stage build
-FROM ubuntu:jammy-20240627.1
+FROM ubuntu:jammy-20240808
 
 LABEL maintainer="beheer@ncubed.nl"
 LABEL version="0.0.12"
