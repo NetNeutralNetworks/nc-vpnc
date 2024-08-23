@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 from typing import Any
 
 import tabulate
@@ -10,7 +12,7 @@ import yaml
 from rich import print
 from typing_extensions import Annotated
 
-from vpnc import models
+from vpnc import config, models
 from vpnc.ctl import helpers
 
 app = typer.Typer()
@@ -42,18 +44,39 @@ def summary(
     ctx: typer.Context,
 ) -> None:
     """Show a network-instance's connectivity status."""
-    assert ctx.parent is not None
+    output: list[dict[str, Any]] = []
 
-    instance_id: str = ctx.parent.params["instance_id"]
+    bgp: dict[str, Any] = json.loads(
+        subprocess.run(  # noqa: S603
+            [
+                "/usr/bin/vtysh",
+                "-c",
+                f"show bgp vrf {config.CORE_NI} summary json",
+            ],
+            stdout=subprocess.PIPE,
+            check=True,
+        ).stdout,
+    )
 
-    path = helpers.get_service_config_path(ctx, active=True)
-
-    service = helpers.get_service_config(ctx, path)
-
-    output: list[dict[str, Any]] = [
-        connection.status_summary(service.network_instances[instance_id])
-        for connection in service.network_instances[instance_id].connections.values()
-    ]
+    for family, bgp_status in bgp.items():
+        for peer, peer_status in bgp_status["peers"].items():
+            output.append(
+                {
+                    "neighbor": peer,
+                    "hostname": peer_status.get("hostname"),
+                    "remote-as": peer_status.get("remoteAs"),
+                    "address-family": family,
+                    "state": peer_status.get("state"),
+                    "uptime": peer_status.get("peerUptime"),
+                    "peer-state": peer_status.get("peerState"),
+                    "pfx-rcvd": peer_status.get("pfxRcd"),
+                    "pfx-sent": peer_status.get("pfxSnt"),
+                    "msg-rcvd": peer_status.get("msgRcvd"),
+                    "msg-sent": peer_status.get("msgSent"),
+                    "con-estb": peer_status.get("connectionsEstablished"),
+                    "con-drop": peer_status.get("connectionsDropped"),
+                },
+            )
 
     print(tabulate.tabulate(output, headers="keys"))
 
