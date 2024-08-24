@@ -6,8 +6,8 @@ SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 
 for i in {candidate,active};
 do
-    cp -f ${SCRIPTDIR}/service.config.yaml /opt/ncubed/config/vpnc/${i}/service/config.yaml
-    cp -f ${SCRIPTDIR}/tenant.e0001.yaml /opt/ncubed/config/vpnc/${i}/tenant/e0001.yaml
+    cp -f ${SCRIPTDIR}/DEFAULT.yaml /opt/ncubed/config/vpnc/${i}/DEFAULT.yaml
+    cp -f ${SCRIPTDIR}/E0001.yaml /opt/ncubed/config/vpnc/${i}/E0001.yaml
 done
 
 # If systemd is the init system

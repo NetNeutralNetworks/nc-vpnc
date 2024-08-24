@@ -11,7 +11,10 @@ from typing import TYPE_CHECKING
 
 import yaml
 from jinja2 import Environment, FileSystemLoader
-from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
+from watchdog.events import (
+    FileSystemEvent,
+    RegexMatchingEventHandler,
+)
 from watchdog.observers import Observer
 
 from vpnc import config, helpers, models
@@ -32,7 +35,7 @@ def observe_downlink() -> BaseObserver:
     """Create the observer for DOWNLINK network instances configuration."""
 
     # Define what should happen when DOWNLINK files are created, modified or deleted.
-    class DownlinkHandler(PatternMatchingEventHandler):
+    class DownlinkHandler(RegexMatchingEventHandler):
         """Handler for the event monitoring."""
 
         def on_created(self, event: FileSystemEvent) -> None:
@@ -59,8 +62,11 @@ def observe_downlink() -> BaseObserver:
     # Configure the event handler that watches directories.
     # This doesn't start the handler.
     observer.schedule(
-        event_handler=DownlinkHandler(patterns=["*.yaml"], ignore_directories=True),
-        path=config.VPNC_A_TENANT_CONFIG_DIR,
+        event_handler=DownlinkHandler(
+            regexes=(config.DOWNLINK_TEN_FILE_RE),
+            ignore_directories=True,
+        ),
+        path=config.VPNC_A_CONFIG_DIR,
         recursive=False,
     )
     # The handler should exit on main thread close
@@ -72,18 +78,20 @@ def observe_downlink() -> BaseObserver:
 def update_downlink_network_instance() -> None:
     """Configure DOWNLINK network instances."""
     # TODO@draggeta: Standardize parsing
-    config_files = list(config.VPNC_A_TENANT_CONFIG_DIR.glob(pattern="*.yaml"))
-    config_set = {x.stem for x in config_files}
+    config_files = list(config.VPNC_A_CONFIG_DIR.glob(pattern="*.yaml"))
+    config_set = {x.stem for x in config_files if x.stem != config.DEFAULT_TENANT}
     vpn_config_files = list(
         config.VPN_CONFIG_DIR.glob(pattern="[23456789aAbBcCdDeEfF]*.conf"),
     )
-    vpn_config_set = {x.stem for x in vpn_config_files}
-
-    for file_path in config_files:
-        add_downlink_network_instance(file_path)
+    vpn_config_set = {
+        x.stem for x in vpn_config_files if x.stem != config.DEFAULT_TENANT
+    }
 
     for vpn_id in vpn_config_set.difference(config_set):
         delete_downlink_network_instance(vpn_id)
+
+    for file_path in config_files:
+        add_downlink_network_instance(file_path)
 
 
 def add_downlink_network_instance(path: pathlib.Path) -> None:
@@ -154,7 +162,7 @@ def add_downlink_network_instance(path: pathlib.Path) -> None:
 
         # IP(6)TABLES RULES including NPTv6
         updated, _ = add_downlink_iptables(
-            config.VPNC_SERVICE_CONFIG.mode,
+            config.VPNC_CONFIG_SERVICE.mode,
             network_instance,
             core_interfaces,
             downlink_interfaces,
@@ -165,8 +173,8 @@ def add_downlink_network_instance(path: pathlib.Path) -> None:
         logger.info("Setting up VPN tunnels.")
         strongswan.generate_config(network_instance)
 
-    if config.VPNC_SERVICE_CONFIG.mode == models.ServiceMode.HUB:
-        # FRR
+    if config.VPNC_CONFIG_SERVICE.mode == models.ServiceMode.HUB:
+        # DNS mangling
         vpncmangle.generate_config()
 
     if any(update_check):
@@ -174,9 +182,8 @@ def add_downlink_network_instance(path: pathlib.Path) -> None:
         # TODO@draggeta: check if there is a way to make it so that the file isn't
         # reloaded.
         file_name = path.name
-        candidate_config = path.parent.parent.parent.joinpath(
+        candidate_config = path.parent.parent.joinpath(
             "candidate",
-            "tenant",
             file_name,
         )
         with path.open("w", encoding="utf-8") as fha, candidate_config.open(
@@ -206,7 +213,7 @@ def delete_downlink_network_instance(vpn_id: str) -> None:
         logger.error("Invalid filename found in %s. Skipping.", vpn_id, exc_info=True)
         return
 
-    config.VPNC_TENANT_CONFIG.pop(vpn_id, None)
+    config.VPNC_CONFIG_TENANT.pop(vpn_id, None)
     # NETWORK INSTANCES
     proc = subprocess.run(  # noqa: S603
         ["/usr/sbin/ip", "-json", "netns"],
@@ -232,7 +239,7 @@ def delete_downlink_network_instance(vpn_id: str) -> None:
 
 def add_downlink_nat64(network_instance: models.NetworkInstance) -> None:
     """Add NAT64 rules to a network instance (Linux namespace)."""
-    if config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB:
+    if config.VPNC_CONFIG_SERVICE.mode != models.ServiceMode.HUB:
         return
 
     nat64_scope = general.get_network_instance_nat64_scope(network_instance.id)
@@ -258,7 +265,7 @@ def get_network_instance_nptv6_networks(
     """Calculate the NPTv6 translations for a network instance (Linux namespace)."""
     updated = False
     nptv6_list: list[models.RouteIPv6] = []
-    if config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB:
+    if config.VPNC_CONFIG_SERVICE.mode != models.ServiceMode.HUB:
         return updated, nptv6_list
     if network_instance.type != models.NetworkInstanceType.DOWNLINK:
         return updated, nptv6_list

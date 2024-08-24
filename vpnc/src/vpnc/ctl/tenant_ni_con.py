@@ -25,7 +25,7 @@ def complete_connection(ctx: typer.Context) -> Generator[tuple[str, str], Any, N
     tenant_id: str = ctx.parent.parent.params["tenant_id"]
     instance_id: str = ctx.parent.params["instance_id"]
 
-    path = helpers.get_tenant_config_path(ctx, active)
+    path = helpers.get_config_path(ctx, active)
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
@@ -50,6 +50,8 @@ def main(
         # and connection_id != "list"
     ):
         ctx.fail("Missing command.")
+    if ctx.invoked_subcommand:
+        return
     list_(ctx)
 
 
@@ -62,7 +64,7 @@ def list_(ctx: typer.Context) -> None:
     tenant_id: str = ctx.parent.parent.params["tenant_id"]
     instance_id: str = ctx.parent.params["instance_id"]
 
-    path = helpers.get_tenant_config_path(ctx, active)
+    path = helpers.get_config_path(ctx, active)
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
@@ -92,7 +94,7 @@ def show(
     instance_id: str = ctx.parent.parent.params["instance_id"]
     connection_id: int = ctx.parent.params["connection_id"]
 
-    path = helpers.get_tenant_config_path(ctx, active)
+    path = helpers.get_config_path(ctx, active)
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
@@ -129,7 +131,7 @@ def summary(
     instance_id: str = ctx.parent.parent.params["instance_id"]
     connection_id: int = ctx.parent.params["connection_id"]
 
-    path = helpers.get_tenant_config_path(ctx, active=True)
+    path = helpers.get_config_path(ctx, active=True)
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 

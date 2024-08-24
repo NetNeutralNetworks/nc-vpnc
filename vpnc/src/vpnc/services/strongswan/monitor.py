@@ -191,16 +191,16 @@ class Monitor(threading.Thread):
             return
 
         ni_info = helpers.parse_downlink_network_instance_name(ike_name)
-        tenant = ni_info["tenant"]
+        tenant_id = ni_info["tenant"]
         network_instance_name = ni_info["network_instance"]
         connection_id = ni_info["connection_id"]
-        remote_config_file = config.VPNC_A_TENANT_CONFIG_DIR.joinpath(f"{tenant}.yaml")
+        remote_config_file = config.VPNC_A_CONFIG_DIR.joinpath(f"{tenant_id}.yaml")
         # When a connection configuration is deleted, the SA is deleted when the
         # monitor_connection function runs. Before this happens however, there is a
         # chance  it rekeys or switches state. To prevent errors, we check if the file
         # exists.
         if not remote_config_file.exists():
-            logger.info("No configuration file found for '%s'", tenant)
+            logger.info("No configuration file found for '%s'", tenant_id)
             return
 
         vcs = self.connect()

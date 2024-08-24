@@ -1,7 +1,7 @@
 ---
 version: 0.0.12
 
-id: c0001
+id: C0001
 name: Tenant
 # Optional, arbitrary key-value pairs
 metadata:
@@ -9,8 +9,8 @@ metadata:
 
 # Network configuration
 network_instances:
-  c0001-00:
-    id: c0001-00
+  C0001-00:
+    id: C0001-00
     type: downlink # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
@@ -77,19 +77,19 @@ network_instances:
           # Optional, defaults to start. 'start' means inititate and respond, 'none' means respond only.
           initiation: none
           psk: secretpasswordendpoint
-        # Optional
-        # traffic_selectors:
-        #   local:
-        #   - 10.20.0.0/16
-        #   - 10.21.0.0/16
-        #   - fdcc:cbe::/64
-        #   remote:
-        #   - 172.30.0.0/16
-        #   - 172.31.0.0/16
-        #   - 2001:db8:c57::/48
+          # Optional
+          # traffic_selectors:
+          #   local:
+          #   - 10.20.0.0/16
+          #   - 10.21.0.0/16
+          #   - fdcc:cbe::/64
+          #   remote:
+          #   - 172.30.0.0/16
+          #   - 172.31.0.0/16
+          #   - 2001:db8:c57::/48
 
-  c0001-01:
-    id: c0001-01
+  C0001-01:
+    id: C0001-01
     type: downlink
     connections:
       0:

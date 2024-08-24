@@ -1,18 +1,18 @@
 ---
 version: 0.0.12
 
-id: service
-name: Service
+id: DEFAULT
+name: DEFAULT
 # Optional, arbitrary key-value pairs
 metadata: {}
 # Runtime mode
 # Defines if the service is running in endpoint or hub mode
-mode: endpoint
+mode: hub
 
 # Network configuration
 network_instances:
-  UNTRUST:
-    id: UNTRUST
+  EXTERNAL:
+    id: EXTERNAL
     type: external # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
@@ -23,9 +23,9 @@ network_instances:
         metadata: {}
         interface:
           ipv6:
-          - 2001:db8::7/64
+          - 2001:db8::5/64
           ipv4:
-          - 192.0.2.7/24
+          - 192.0.2.5/24
         routes:
           ipv6:
           - to: default
@@ -49,9 +49,9 @@ network_instances:
         metadata: {}
         interface:
           ipv6:
-          - 2001:db8:1::157/64
+          - 2001:db8:1::155/64
           ipv4:
-          - 192.168.0.157/20
+          - 192.168.0.155/20
         routes:
           ipv6:
           - to: default
@@ -62,9 +62,8 @@ network_instances:
         config:
           type: physical # ipsec | physical
           interface_name: eth0
-
-  TRUST:
-    id: TRUST
+  CORE:
+    id: CORE
     type: core # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
@@ -75,41 +74,41 @@ network_instances:
         metadata: {}
         interface:
           # Optional: IPv6 interface address, required for downlink in endpoint mode.
-          # ipv6: []
+          ipv6:
+          - fd00:1:2::/127
           # Optional: IPv4 interface address, required for downlink in endpoint mode.
           # Ignored for core in hub mode.
-          # ipv4: []
+          ipv4: []
         # List of IPv4 and IPv6 networks natively reachable via this connection.
         # IPv4 prefixes are ignored for core and downlink in hub mode.
         routes:
           ipv6:
-          # IP prefixes for provider client subnets initiating administration traffic to customers.
-          - to: fdcc:cbe::/64
-          #   via: "fdcc:cbe::" # Optional, ignored for tunnel interfaces
+          # IP prefixes for provider client subnets initiating administration traffic to tenants.
+          - to: fd00::/16
+          #   via: fd00:1:2::1 # Optional, ignored for tunnel interfaces
           # IPv4 prefixes are ignored for core and downlink in hub mode.
-          ipv4:
-          - to: 100.99.0.0/28
+          ipv4: []
         config:
           type: ipsec # ipsec | physical
           # Optional: If not set, defaults to the default service local_id value.
           # local_id: 192.0.2.5
           # IPv6 or IPv4 address
-          remote_addrs: [192.0.2.5, 2001:db8::5]
+          remote_addrs: [2001:db8::3]
           # Optional: If not set, defaults to remote_peer_ip
           # remote_id: 192.0.2.3
           # Optional: defaults to 2
-          #ike_version: 2
+          # ike_version: 2
           # Optional: defaults to aes256gcm16-prfsha384-ecp384
-          ike_proposal: aes128gcm16-prfsha384-ecp384
+          # ike_proposal: aes256gcm16-prfsha384-ecp384
           # Optional: The IKE lifetime in seconds
           ike_lifetime: 300
           # Optional: defaults to aes256gcm16-prfsha384-ecp384
-          ipsec_proposal: aes128gcm16-prfsha384-ecp384
+          # ipsec_proposal: aes256gcm16-prfsha384-ecp384
           # Optional: The IPsec lifetime in seconds
           ipsec_lifetime: 90
           # Optional, defaults to start. Start means inititate and respond, none means respond only.
-          initiation: start
-          psk: secretpasswordendpoint
+          # initiation: start
+          psk: secretpasswordcore
           # Optional
           # traffic_selectors:
           #   local:
@@ -122,25 +121,60 @@ network_instances:
         id: 1
         metadata: {}
         interface:
+          ipv6:
+          - fd00:1:2::1:0/127
+          ipv4: []
         # List of IPv4 and IPv6 networks natively reachable via this connection.
         # IPv4 prefixes are ignored for core and downlink in hub mode.
         routes:
           ipv6:
-          - to: fdcc:cbf::/64
-          ipv4:
-          - to: 100.100.0.0/28
+          # IP prefixes for provider client subnets initiating administration traffic to tenants.
+          - to: fd00::/16
+          #   via: fd00:1:2::1 # Optional, ignored for tunnel interfaces
+          # IPv4 prefixes are ignored for core and downlink in hub mode.
+          ipv4: []
         config:
-          type: ipsec # ipsec | physical
-          # IPv6 or IPv4 address
-          remote_addrs: [192.0.2.6, 2001:db8::6]
-          ike_proposal: aes128gcm16-prfsha384-ecp384
+          type: ipsec
+          remote_addrs: [2001:db8::4]
           ike_lifetime: 300
-          ipsec_proposal: aes128gcm16-prfsha384-ecp384
           ipsec_lifetime: 90
-          initiation: start
-          psk: secretpasswordendpoint
+          psk: secretpasswordcore
+
 
 # VPN CONFIG
 # Optional: IKE local identifier for VPNs
-# local_id: 192.0.2.7
+# local_id: 192.0.2.5
+
+## OVERLAY CONFIG
+# IP prefix for downlinks. Must be a /16, will get subnetted into /24s per downlink tunnel.
+# The prefix is the same for all tenants. Tenants will see traffic originating from this prefix.
+prefix_downlink_interface_v4: 100.99.0.0/16
+# IP prefix for downlinks. Must be a /32, will get subnetted into /64s per downlink tunnel.
+# The prefix is the same for all tenants. Tenants will see traffic originating from this prefix.
+prefix_downlink_interface_v6: fdcc:cbe::/32
+# NAT64 IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
+# This is the prefix by which each tenant will be uniquely identified.
+# Tenant C0001 will use fdcc:0:c:1::/64 and tenant with identifier d0002 will use fdcc:0:d:2::/64.
+prefix_downlink_nat64: fdcc:0::/32
+# NPTv6 IPv6 prefix for downlinks. Must be a /12. Will be subnetted into /48s per downlink per tunnel.
+# This is the prefix by which each tenant will be uniquely identified.
+# Tenant C0001 with tunnel 0 will use fd6c:1::/48 and tenant with identifier d0002 and tunnel
+# 9 will use fd6d:2:9::/48.
+prefix_downlink_nptv6: fd60::/12
+
+## BGP config
+# ASN must be between 4.200.000.000 and 4.294.967.294 inclusive.
+bgp:
+  globals:
+    asn: 4255555555
+    router_id: 5.5.5.5
+  neighbors:
+  - neighbor_asn: 4233333333
+    neighbor_address: fd00:1:2::1
+    # Optional, lower is more preferred uplink for receiving traffic, defaults to 0, max is 9
+    priority: 0
+  - neighbor_asn: 4244444444
+    neighbor_address: fd00:1:2::1:1
+    # Optional, lower is more preferred uplink for receiving traffic, defaults to 0, max is 9
+    priority: 1
 ...

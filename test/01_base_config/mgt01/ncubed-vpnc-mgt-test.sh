@@ -4,10 +4,10 @@ apt update
 apt install -y curl lsb-release
 curl -s https://deb.frrouting.org/frr/keys.asc | apt-key add -
 FRRVER="frr-stable"
-UNTRUST_IF="eth1"
-UNTRUST_IF_IP4="192.0.2.4/24"
-UNTRUST_GW_IP4="192.0.2.1"
-UNTRUST_IF_IP6="2001:db8::4/64"
+EXTERNAL_IF="eth1"
+EXTERNAL_IF_IP4="192.0.2.4/24"
+EXTERNAL_GW_IP4="192.0.2.1"
+EXTERNAL_IF_IP6="2001:db8::4/64"
 
 LOOPBACK_IF_IP="fd00::4/128"
 
@@ -82,25 +82,25 @@ charon-systemd {
 }
 " > /etc/strongswan.conf
 
-# Create the UNTRUST namespace, configure routing and start the strongswan daemon
+# Create the EXTERNAL namespace, configure routing and start the strongswan daemon
 mkdir -p /var/run/netns
-ip netns add UNTRUST
-ip link set ${UNTRUST_IF} netns UNTRUST
-# ip -netns UNTRUST address add ${UNTRUST_IP}/29 dev ${UNTRUST_IF}
-ip -netns UNTRUST address add ${UNTRUST_IF_IP4} dev ${UNTRUST_IF}
-ip -netns UNTRUST address add ${UNTRUST_IF_IP6} dev ${UNTRUST_IF}
-ip -netns UNTRUST link set dev ${UNTRUST_IF} up
-ip netns exec UNTRUST sysctl -w net.ipv4.conf.all.forwarding=1
-ip netns exec UNTRUST sysctl -w net.ipv6.conf.all.forwarding=1
-ip netns exec UNTRUST ipsec start
+ip netns add EXTERNAL
+ip link set ${EXTERNAL_IF} netns EXTERNAL
+# ip -netns EXTERNAL address add ${EXTERNAL_IP}/29 dev ${EXTERNAL_IF}
+ip -netns EXTERNAL address add ${EXTERNAL_IF_IP4} dev ${EXTERNAL_IF}
+ip -netns EXTERNAL address add ${EXTERNAL_IF_IP6} dev ${EXTERNAL_IF}
+ip -netns EXTERNAL link set dev ${EXTERNAL_IF} up
+ip netns exec EXTERNAL sysctl -w net.ipv4.conf.all.forwarding=1
+ip netns exec EXTERNAL sysctl -w net.ipv6.conf.all.forwarding=1
+ip netns exec EXTERNAL ipsec start
 
-ip -netns UNTRUST link add xfrm0 type xfrm dev ${UNTRUST_IF} if_id 0x9999000
-ip -netns UNTRUST link set dev xfrm0 netns 1
+ip -netns EXTERNAL link add xfrm0 type xfrm dev ${EXTERNAL_IF} if_id 0x9999000
+ip -netns EXTERNAL link set dev xfrm0 netns 1
 ip address flush dev xfrm0 scope global
 ip link set dev xfrm0 up
 ip address add ${VPN_TUNNEL_IF_IP_0} dev xfrm0
-ip -netns UNTRUST link add xfrm1 type xfrm dev ${UNTRUST_IF} if_id 0x9999001
-ip -netns UNTRUST link set dev xfrm1 netns 1
+ip -netns EXTERNAL link add xfrm1 type xfrm dev ${EXTERNAL_IF} if_id 0x9999001
+ip -netns EXTERNAL link set dev xfrm1 netns 1
 ip link set dev xfrm1 up
 ip address flush dev xfrm1 scope global
 ip address add ${VPN_TUNNEL_IF_IP_1} dev xfrm1
@@ -125,7 +125,7 @@ echo "connections {
         # Section for a local authentication round.
         local {
             auth = psk
-            # id = \${UNTRUST_IP}
+            # id = \${EXTERNAL_IP}
             # id = %any
         }
         # Section for a remote authentication round.
@@ -166,7 +166,7 @@ echo "connections {
         # Section for a local authentication round.
         local {
             auth = psk
-            # id = \${UNTRUST_IP}
+            # id = \${EXTERNAL_IP}
             # id = %any
         }
         # Section for a remote authentication round.

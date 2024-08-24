@@ -17,7 +17,7 @@ def generate_config() -> None:
     """Generate vpncmangle configuration."""
     output: dict[str, dict[str, Any]] = {}
 
-    for tenant in config.VPNC_TENANT_CONFIG.values():
+    for tenant in config.VPNC_CONFIG_TENANT.values():
         for net_ni in tenant.network_instances.values():
             nat64_scope = network_instance.get_network_instance_nat64_scope(net_ni.id)
             output[net_ni.id] = {}

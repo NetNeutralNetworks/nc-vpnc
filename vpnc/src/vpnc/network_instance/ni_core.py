@@ -35,7 +35,7 @@ def observe_core() -> BaseObserver:
 
         def on_modified(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
-            helpers.load_service_config(config.VPNC_A_SERVICE_CONFIG_PATH)
+            helpers.load_service_config(config.VPNC_A_CONFIG_PATH_SERVICE)
             time.sleep(0.1)
             update_core_network_instance()
 
@@ -45,7 +45,7 @@ def observe_core() -> BaseObserver:
     # the handler.
     observer.schedule(
         event_handler=CoreHandler(),
-        path=config.VPNC_A_SERVICE_CONFIG_PATH,
+        path=config.VPNC_A_CONFIG_PATH_SERVICE,
         recursive=False,
     )
     # The handler should exit on main thread close
@@ -57,23 +57,23 @@ def observe_core() -> BaseObserver:
 def update_core_network_instance() -> None:
     """Configure the CORE network instance (Linux namespace)."""
     # Remove network instance connections that aren't configured
-    network_instance = config.VPNC_SERVICE_CONFIG.network_instances[config.CORE_NI]
+    network_instance = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
     general.delete_network_instance_connection(network_instance)
 
     # Configure connection
     logger.info("Setting up core connections for %s network instance.", config.CORE_NI)
 
-    network_instance = config.VPNC_SERVICE_CONFIG.network_instances[config.CORE_NI]
+    network_instance = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
     interfaces = general.add_network_instance_connection(network_instance)
 
     # IP(6)TABLES RULES
-    add_core_iptables(config.VPNC_SERVICE_CONFIG.mode, config.CORE_NI, interfaces)
+    add_core_iptables(config.VPNC_CONFIG_SERVICE.mode, config.CORE_NI, interfaces)
 
     # VPN
     logger.info("Setting up VPN tunnels.")
     strongswan.generate_config(network_instance=network_instance)
 
-    if config.VPNC_SERVICE_CONFIG.mode == models.ServiceMode.HUB:
+    if config.VPNC_CONFIG_SERVICE.mode == models.ServiceMode.HUB:
         # FRR
         frr.generate_config()
 

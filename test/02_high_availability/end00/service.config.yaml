@@ -1,8 +1,8 @@
 ---
 version: 0.0.12
 
-id: service
-name: Service
+id: DEFAULT
+name: DEFAULT
 # Optional, arbitrary key-value pairs
 metadata: {}
 # Runtime mode
@@ -11,8 +11,8 @@ mode: endpoint
 
 # Network configuration
 network_instances:
-  UNTRUST:
-    id: UNTRUST
+  EXTERNAL:
+    id: EXTERNAL
     type: external # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
@@ -63,8 +63,8 @@ network_instances:
           type: physical # ipsec | physical
           interface_name: eth0
 
-  TRUST:
-    id: TRUST
+  CORE:
+    id: CORE
     type: core # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}

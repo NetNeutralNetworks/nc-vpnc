@@ -1,7 +1,7 @@
 ---
 version: 0.0.12
 
-id: c0001
+id: C0001
 name: Tenant
 # Optional, arbitrary key-value pairs
 metadata:
@@ -9,8 +9,8 @@ metadata:
 
 # Network configuration
 network_instances:
-  c0001-00:
-    id: c0001-00
+  C0001-00:
+    id: C0001-00
     type: downlink # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
@@ -18,7 +18,9 @@ network_instances:
       0:
         id: 0
         # Optional, arbitrary key-value pairs
-        metadata: {}
+        metadata:
+          location: Customer lab
+          device_type: VPNC endpoint
         interface:
           # Optional: IPv6 interface address, required for downlink in endpoint mode.
           # ipv6:
@@ -61,21 +63,21 @@ network_instances:
           # Optional: If not set, defaults to the default service local_id value.
           # local_id: 192.0.2.5
           # IPv6 or IPv4 address
-          remote_addrs: [192.0.2.7, 2001:db8::7]
+          remote_addrs: [192.0.2.7]
           # Optional: If not set, defaults to remote_peer_ip
           # remote_id: 192.0.2.7
           # Optional: defaults to 2
           # ike_version: 2
           # Optional: defaults to aes256gcm16-prfsha384-ecp384
-          ike_proposal: aes128gcm16-prfsha384-ecp384
+          # ike_proposal: aes256gcm16-prfsha384-ecp384
           # Optional: The IKE lifetime in seconds
-          ike_lifetime: 300
+          # ike_lifetime: 86400
           # Optional: defaults to aes256gcm16-prfsha384-ecp384
-          ipsec_proposal: aes128gcm16-prfsha384-ecp384
+          # ipsec_proposal: aes256gcm16-prfsha384-ecp384
           # Optional: The IPsec lifetime in seconds
-          ipsec_lifetime: 90
+          # ipsec_lifetime: 3600
           # Optional, defaults to start. 'start' means inititate and respond, 'none' means respond only.
-          initiation: none
+          # initiation: start
           psk: secretpasswordendpoint
           # Optional
           # traffic_selectors:
@@ -88,8 +90,8 @@ network_instances:
           #   - 172.31.0.0/16
           #   - 2001:db8:c57::/48
 
-  c0001-01:
-    id: c0001-01
+  C0001-01:
+    id: C0001-01
     type: downlink
     connections:
       0:
@@ -110,7 +112,7 @@ network_instances:
           - to: default
         config:
           type: ipsec
-          remote_addrs: [192.0.2.8, 2001:db8::8]
+          remote_addrs: [192.0.2.8]
           ike_proposal: aes128gcm16-prfsha384-ecp384
           ike_lifetime: 300
           ipsec_proposal: aes128gcm16-prfsha384-ecp384

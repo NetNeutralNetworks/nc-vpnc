@@ -39,7 +39,7 @@ def check_system_requirements() -> None:
         logger.critical("The '%s' kernel module isn't installed. Exiting.", module)
         sys.exit(1)
 
-    if config.VPNC_SERVICE_CONFIG.mode.value != "hub":
+    if config.VPNC_CONFIG_SERVICE.mode.value != "hub":
         return
 
     hub_module_list: list[str] = []
@@ -76,7 +76,7 @@ def load_service_config(config_path: pathlib.Path) -> None:
         sys.exit(1)
 
     try:
-        config.VPNC_SERVICE_CONFIG = models.Service(config=new_cfg_dict).config
+        config.VPNC_CONFIG_SERVICE = models.Service(config=new_cfg_dict).config
     except pydantic_core.ValidationError:
         logger.critical(
             "Configuration '%s' doesn't adhere to the schema",
@@ -176,6 +176,6 @@ def load_tenant_config(path: pathlib.Path) -> None | models.Tenant:
         )
         return None
 
-    config.VPNC_TENANT_CONFIG[tenant.name] = tenant
+    config.VPNC_CONFIG_TENANT[tenant.name] = tenant
 
     return tenant

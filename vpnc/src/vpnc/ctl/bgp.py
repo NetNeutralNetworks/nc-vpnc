@@ -24,7 +24,9 @@ def show(
     active: Annotated[bool, typer.Option("--active/--candidate")] = False,  # noqa: FBT002
 ) -> None:
     """Show the service BGP configuration."""
-    path = helpers.get_service_config_path(ctx, active=active)
+    path = helpers.get_config_path(ctx, active=active).joinpath(
+        f"{config.DEFAULT_TENANT}.yaml"
+    )
 
     service = helpers.get_service_config(ctx, path)
 

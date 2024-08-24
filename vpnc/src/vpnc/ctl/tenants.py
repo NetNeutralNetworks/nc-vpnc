@@ -29,7 +29,7 @@ def complete_tenant_id(
 
     active: bool = ctx.parent.params.get("active", False)
 
-    path = helpers.get_tenant_config_path(ctx, active)
+    path = helpers.get_config_path(ctx, active)
 
     for i in path.glob("*.yaml"):
         file_name = i.stem
@@ -41,31 +41,31 @@ def complete_tenant_id(
 def main(
     ctx: typer.Context,
     tenant_id: Annotated[
-        Optional[str],
+        Optional[str],  # noqa: FA100
         typer.Argument(autocompletion=complete_tenant_id),
     ] = None,
-    active: Annotated[bool, typer.Option("--active")] = False,
+    active: Annotated[bool, typer.Option("--active")] = False,  # noqa: FBT002
 ) -> None:
     """Entrypoint for tenant commands."""
     _ = active
     if ctx.invoked_subcommand is None and tenant_id is not None and tenant_id != "list":
         ctx.fail("Missing command.")
+    if ctx.invoked_subcommand:
+        return
     list_(ctx)
 
 
 # @app.command(name="list")
 def list_(
     ctx: typer.Context,
-):
-    """s
-    List all tenants
-    """
+) -> None:
+    """List all tenants."""
     active: bool = ctx.params.get("active", False)
 
-    path = helpers.get_tenant_config_path(ctx, active)
+    path = helpers.get_config_path(ctx, active)
 
     output: list[dict[str, Any]] = []
-    for i in config.VPNC_C_TENANT_CONFIG_DIR.glob("*.yaml"):
+    for i in path.glob("*.yaml"):
         file_name = i.stem
         tenant = helpers.get_tenant_config(ctx, file_name, path)
         output.append(
@@ -90,15 +90,14 @@ def show(
 
     tenant_id: str = ctx.parent.params["tenant_id"]
 
-    path = helpers.get_tenant_config_path(ctx, active)
-
+    path = helpers.get_config_path(ctx, active)
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
     output = tenant.model_dump(mode="json")
     if full:
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
     else:
-        output["tunnel_count"] = len(output.pop("network_instances"))
+        output["network_instance_count"] = len(output.pop("network_instances"))
         print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
 
 
@@ -111,8 +110,7 @@ def summary(
 
     tenant_id: str = ctx.parent.params["tenant_id"]
 
-    path = helpers.get_tenant_config_path(ctx, active=True)
-
+    path = helpers.get_config_path(ctx, active=True)
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
     output: list[dict[str, Any]] = []
@@ -133,8 +131,7 @@ def edit(ctx: typer.Context) -> None:
     editor = os.environ.get("EDITOR", "vim")
     tenant_id: str = ctx.parent.params["tenant_id"]
 
-    path = helpers.get_tenant_config_path(ctx, False)
-
+    path = helpers.get_config_path(ctx, active=False)
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
     with tempfile.NamedTemporaryFile(suffix=".tmp", mode="w+", encoding="utf-8") as tf:
@@ -148,11 +145,16 @@ def edit(ctx: typer.Context) -> None:
         tf.flush()
         while True:
             try:
-                call([editor, tf.name])
+                call([editor, tf.name])  # noqa: S603
                 tf.seek(0)
 
                 edited_config_str = tf.read()
-                edited_config = models.Tenant(**yaml.safe_load(edited_config_str))
+                if tenant_id == config.DEFAULT_TENANT:
+                    edited_config = models.Service(
+                        config=yaml.safe_load(edited_config_str),
+                    ).config
+                else:
+                    edited_config = models.Tenant(**yaml.safe_load(edited_config_str))
                 if tenant_id != edited_config.id:
                     msg = f"Mismatch between file name '{tenant_id}' and id '{edited_config.id}'"
                     raise ValueError(
@@ -206,7 +208,10 @@ def add(
     all_args.pop("ctx")
 
     tenant_id: str = ctx.parent.params["tenant_id"]
-    path = helpers.get_tenant_config_path(ctx, False)
+    if tenant_id == config.DEFAULT_TENANT:
+        print(f"Tenant '{tenant_id}' already exists.")
+        return
+    path = helpers.get_config_path(ctx, False)
     tenant_path = path.joinpath(f"{tenant_id}.yaml")
     if tenant_path.exists():
         print(f"Tenant '{tenant_id}' already exists.")
@@ -320,7 +325,11 @@ def delete(
     assert ctx.parent is not None
 
     tenant_id: str = ctx.parent.params["tenant_id"]
-    path = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{tenant_id}.yaml")
+
+    if tenant_id == config.DEFAULT_TENANT:
+        print(f"Tenant '{tenant_id}' cannot be removed.")
+        return
+    path = config.VPNC_C_CONFIG_DIR.joinpath(f"{tenant_id}.yaml")
     if not path.exists():
         print(f"Tenant '{tenant_id}' doesn't exist.")
         return
@@ -357,40 +366,27 @@ def commit(
     assert ctx.parent is not None
 
     tenant_id: str = ctx.parent.params["tenant_id"]
-    path_candidate = config.VPNC_C_TENANT_CONFIG_DIR.joinpath(f"{tenant_id}.yaml")
-    path_active = config.VPNC_A_TENANT_CONFIG_DIR.joinpath(f"{tenant_id}.yaml")
 
-    if not path_candidate.exists():
-        tenant_config_candidate_str = ""
+    path_candidate = helpers.get_config_path(ctx, active=False)
+    path_active = helpers.get_config_path(ctx, active=True)
+
+    path_candidate_tenant = path_candidate.joinpath(f"{tenant_id}.yaml")
+    path_active_tenant = path_active.joinpath(f"{tenant_id}.yaml")
+    if not path_candidate_tenant.exists():
         tenant_config_candidate = models.Tenant(id=tenant_id, name="", version="0.0.12")
     else:
-        with path_candidate.open(encoding="utf-8") as f:
-            tenant_config_candidate_str = f.read()
-            tenant_config_candidate = models.Tenant(
-                **yaml.safe_load(tenant_config_candidate_str),
-            )
-        if tenant_id != tenant_config_candidate.id:
-            print(
-                f"Mismatch between file name '{tenant_id}' and id '{tenant_config_candidate.id}'.",
-            )
-            return
+        tenant_config_candidate = helpers.get_tenant_config(
+            ctx,
+            tenant_id,
+            path_candidate,
+        )
 
-    if not path_active.exists():
-        tenant_config_active_str = ""
+    if not path_active_tenant.exists():
         tenant_config_active = models.Tenant(id=tenant_id, name="", version="0.0.12")
     else:
-        with path_active.open(encoding="utf-8") as f:
-            tenant_config_active_str = f.read()
-            tenant_config_active = models.Tenant(
-                **yaml.safe_load(tenant_config_active_str),
-            )
-        if tenant_id != tenant_config_active.id:
-            print(
-                f"Mismatch between diff file name '{tenant_id}' and id '{tenant_config_active.id}'.",
-            )
-            return
+        tenant_config_active = helpers.get_tenant_config(ctx, tenant_id, path_active)
 
-    if tenant_config_candidate_str == tenant_config_active_str:
+    if tenant_config_candidate == tenant_config_active:
         print("No changes.")
         return
 
@@ -406,13 +402,19 @@ def commit(
         if dry_run:
             print("(Simulated) Revert succeeded.")
             return
-        if not path_active.exists():
-            path_candidate.unlink(missing_ok=True)
+        if not path_active_tenant.exists():
+            path_candidate_tenant.unlink(missing_ok=True)
             print("Revert succeeded.")
             return
 
-        with path_candidate.open("w", encoding="utf-8") as f:
-            f.write(tenant_config_active_str)
+        with path_candidate_tenant.open("w", encoding="utf-8") as f:
+            f.write(
+                yaml.dump(
+                    tenant_config_active.model_dump(mode="json"),
+                    explicit_start=True,
+                    explicit_end=True,
+                ),
+            )
         print("Revert succeeded.")
         return
 
@@ -428,13 +430,19 @@ def commit(
     if dry_run:
         print("(Simulated) Commit succeeded.")
         return
-    if not path_candidate.exists():
-        path_active.unlink(missing_ok=True)
+    if not path_candidate_tenant.exists():
+        path_active_tenant.unlink(missing_ok=True)
         print("Commit succeeded.")
         return
 
-    with path_active.open("w", encoding="utf-8") as f:
-        f.write(tenant_config_candidate_str)
+    with path_active_tenant.open("w", encoding="utf-8") as f:
+        f.write(
+            yaml.dump(
+                tenant_config_candidate.model_dump(mode="json"),
+                explicit_start=True,
+                explicit_end=True,
+            ),
+        )
     print("Commit succeeded.")
 
 

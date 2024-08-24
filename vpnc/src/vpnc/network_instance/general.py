@@ -162,7 +162,7 @@ def add_network_instance_connection_route(
 
     route_cmds = ""
     if (
-        config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB
+        config.VPNC_CONFIG_SERVICE.mode != models.ServiceMode.HUB
         or network_instance.type != models.NetworkInstanceType.CORE
     ):
         for route6 in connection.routes.ipv6:
@@ -198,7 +198,7 @@ def get_network_instance_nat64_scope(
 
     This scope  is always a /48.
     """
-    assert isinstance(config.VPNC_SERVICE_CONFIG, models.ServiceHub)
+    assert isinstance(config.VPNC_CONFIG_SERVICE, models.ServiceHub)
 
     ni_info = helpers.parse_downlink_network_instance_name(network_instance_name)
 
@@ -206,7 +206,7 @@ def get_network_instance_nat64_scope(
     tenant_id = ni_info["tenant_id"]  # remote identifier
     network_instance_id = ni_info["network_instance_id"]  # connection number
 
-    nat64_prefix = config.VPNC_SERVICE_CONFIG.prefix_downlink_nat64
+    nat64_prefix = config.VPNC_CONFIG_SERVICE.prefix_downlink_nat64
     nat64_network_address = int(nat64_prefix[0])
     offset = f"0:0:{tenant_ext}:{tenant_id}:{network_instance_id}::"
     nat64_offset = int(IPv6Address(offset))
@@ -218,7 +218,7 @@ def get_network_instance_nptv6_scope(
     network_instance_name: str,
 ) -> ipaddress.IPv6Network:
     """Return the IPv6 NPTv6 scope for a network instance. This is always a /48."""
-    assert isinstance(config.VPNC_SERVICE_CONFIG, models.ServiceHub)
+    assert isinstance(config.VPNC_CONFIG_SERVICE, models.ServiceHub)
 
     ni_info = helpers.parse_downlink_network_instance_name(network_instance_name)
 
@@ -226,7 +226,7 @@ def get_network_instance_nptv6_scope(
     tenant_id = ni_info["tenant_id"]
     network_instance_id = ni_info["network_instance_id"]
 
-    nptv6_superscope = config.VPNC_SERVICE_CONFIG.prefix_downlink_nptv6
+    nptv6_superscope = config.VPNC_CONFIG_SERVICE.prefix_downlink_nptv6
     nptv6_network_address = int(nptv6_superscope[0])
     offset = f"{tenant_ext}:{tenant_id}:{network_instance_id}::"
     nptv6_offset = int(IPv6Address(offset))
@@ -252,7 +252,7 @@ def add_network_instance_link(
     /usr/sbin/ip -netns {network_instance.id} -6 address add fe80::1/64 dev {veth_d}
     """  # noqa: E501
 
-    if config.VPNC_SERVICE_CONFIG.mode == models.ServiceMode.ENDPOINT:
+    if config.VPNC_CONFIG_SERVICE.mode == models.ServiceMode.ENDPOINT:
         cmds_ns_link += f"""
         /usr/sbin/ip -netns {config.CORE_NI} address add 169.254.0.1/30 dev {veth_c}
         /usr/sbin/ip -netns {network_instance.id} address add 169.254.0.2/30 dev {veth_d}
@@ -270,12 +270,12 @@ def add_network_instance_link(
     logger.debug(proc.stdout, proc.stderr)
 
     cross_ni_routes = ""
-    core_ni = config.VPNC_SERVICE_CONFIG.network_instances[config.CORE_NI]
+    core_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
     # add route from DOWNLINK to MGMT/uplink network via CORE network instance
     for connection in core_ni.connections.values():
         for route6 in connection.routes.ipv6:
             cross_ni_routes += f"/usr/sbin/ip -netns {network_instance.id} route add {route6.to} via fe80:: dev {veth_d}\n"  # noqa: E501
-        if config.VPNC_SERVICE_CONFIG.mode != models.ServiceMode.HUB:
+        if config.VPNC_CONFIG_SERVICE.mode != models.ServiceMode.HUB:
             for route4 in connection.routes.ipv4:
                 cross_ni_routes += f"/usr/sbin/ip -netns {network_instance.id} route add {route4.to} via 169.254.0.1 dev {veth_d}\n"  # noqa: E501
         if cross_ni_routes:

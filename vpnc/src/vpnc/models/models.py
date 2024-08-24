@@ -30,7 +30,7 @@ from vpnc.models.enums import NetworkInstanceType, ServiceMode
 
 # Needed for pydantim ports and type checking
 from vpnc.models.ipsec import ConnectionConfigIPsec  # noqa: TCH001
-from vpnc.models.physical import ConnectionConfigLocal  # noqa: TCH001
+from vpnc.models.physical import ConnectionConfigPhysical  # noqa: TCH001
 
 
 class RouteIPv6(BaseModel):
@@ -106,7 +106,7 @@ class Connection(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     interface: Interface = Field(default_factory=Interface)
     routes: Routes = Field(default_factory=Routes)
-    config: ConnectionConfigIPsec | ConnectionConfigLocal
+    config: ConnectionConfigIPsec | ConnectionConfigPhysical
 
     @field_validator("metadata", mode="before")
     @classmethod
@@ -144,9 +144,9 @@ class Connection(BaseModel):
         if (
             not self.interface.ipv4  # pylint: disable=no-member
             and is_downlink
-            and isinstance(config.VPNC_SERVICE_CONFIG, ServiceHub)
+            and isinstance(config.VPNC_CONFIG_SERVICE, ServiceHub)
         ):
-            pdi4 = config.VPNC_SERVICE_CONFIG.prefix_downlink_interface_v4
+            pdi4 = config.VPNC_CONFIG_SERVICE.prefix_downlink_interface_v4
 
             assert isinstance(parsed_ni["network_instance_id"], int)
 
@@ -165,9 +165,9 @@ class Connection(BaseModel):
         if (
             not self.interface.ipv6  # pylint: disable=no-member
             and is_downlink
-            and isinstance(config.VPNC_SERVICE_CONFIG, ServiceHub)
+            and isinstance(config.VPNC_CONFIG_SERVICE, ServiceHub)
         ):
-            pdi6 = config.VPNC_SERVICE_CONFIG.prefix_downlink_interface_v6
+            pdi6 = config.VPNC_CONFIG_SERVICE.prefix_downlink_interface_v6
             ipv6_ni_network = list(pdi6.subnets(new_prefix=48))[
                 parsed_ni["network_instance_id"]
             ]
@@ -294,8 +294,8 @@ class ServiceEndpoint(Tenant):
 
     model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
-    id: str = "service"
-    name: str = "Service"
+    id: str = "DEFAULT"
+    name: str = "DEFAULT"
     mode: Literal[ServiceMode.ENDPOINT] = ServiceMode.ENDPOINT
 
     # VPN CONFIG
@@ -307,14 +307,25 @@ class ServiceEndpoint(Tenant):
     def _coerce_type(cls, v: str) -> ServiceMode:
         return ServiceMode(v)
 
+    @field_validator("id", "name")
+    @classmethod
+    def _validate_is_default(cls, v: str) -> str:
+        if v != "DEFAULT":
+            msg = "default_tenant_error"
+            raise PydanticCustomError(
+                msg,
+                "The default tenant id and name should be 'DEFAULT'",
+            )
+        return v
+
 
 class ServiceHub(Tenant):
     """Define a service data structure."""
 
     model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
-    id: str = "service"
-    name: str = "Service"
+    id: str = "DEFAULT"
+    name: str = "DEFAULT"
     mode: Literal[ServiceMode.HUB] = ServiceMode.HUB
 
     # VPN CONFIG
@@ -343,6 +354,17 @@ class ServiceHub(Tenant):
     @classmethod
     def _coerce_type(cls, v: str) -> ServiceMode:
         return ServiceMode(v)
+
+    @field_validator("id", "name")
+    @classmethod
+    def _validate_is_default(cls, v: str) -> str:
+        if v != "DEFAULT":
+            msg = "default_tenant_error"
+            raise PydanticCustomError(
+                msg,
+                "The default tenant id and name should be 'DEFAULT'",
+            )
+        return v
 
     @field_validator("prefix_downlink_interface_v4")
     @classmethod

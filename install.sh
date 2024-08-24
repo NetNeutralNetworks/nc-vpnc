@@ -138,8 +138,8 @@ function create_vpnc_config () {
     # Create config directories if not exist
     for i in {candidate,active};
     do
-        mkdir -p ${BASEDIR}/config/${SERVICENAME}/${i}/service
-        mkdir -p ${BASEDIR}/config/${SERVICENAME}/${i}/tenant
+        mkdir -p ${BASEDIR}/config/${SERVICENAME}/${i}
+        mkdir -p ${BASEDIR}/config/${SERVICENAME}/${i}
     done
 
     mkdir -p /var/log/ncubed/vpnc
@@ -155,12 +155,14 @@ function create_vpnc_config () {
         MODE=${1}
     fi
 
+    cp -n ${SCRIPTDIR}/config/${SERVICENAME}/config/config.yaml.example \
+        ${BASEDIR}/config/${SERVICENAME}/candidate/config.yaml.example || true
     # cp --update=none ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example \
-    cp -n ${SCRIPTDIR}/config/${SERVICENAME}/candidate/service/config-${MODE}.yaml.example \
-        ${BASEDIR}/config/${SERVICENAME}/candidate/service/config.yaml || true
+    cp -n ${SCRIPTDIR}/config/${SERVICENAME}/config/config-${MODE}.yaml.example \
+        ${BASEDIR}/config/${SERVICENAME}/candidate/DEFAULT.yaml || true
     # cp --update=none ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example \
-    cp -n ${SCRIPTDIR}/config/${SERVICENAME}/candidate/service/config-${MODE}.yaml.example \
-        ${BASEDIR}/config/${SERVICENAME}/active/service/config.yaml || true
+    cp -n ${SCRIPTDIR}/config/${SERVICENAME}/config/config-${MODE}.yaml.example \
+        ${BASEDIR}/config/${SERVICENAME}/active/DEFAULT.yaml || true
 }
 
 function create_dir_vpnc () {

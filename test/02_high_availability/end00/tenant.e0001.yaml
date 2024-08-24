@@ -1,7 +1,7 @@
 ---
 version: 0.0.12
 
-id: e0001
+id: E0001
 name: Tenant
 # Optional, arbitrary key-value pairs
 metadata:
@@ -9,8 +9,8 @@ metadata:
 
 # Network configuration
 network_instances:
-  e0001-00:
-    id: e0001-00
+  E0001-00:
+    id: E0001-00
     type: downlink # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}

@@ -1,8 +1,8 @@
 ---
 version: 0.0.12
 
-id: service
-name: Service
+id: DEFAULT
+name: DEFAULT
 # Optional, arbitrary key-value pairs
 metadata: {}
 # Runtime mode
@@ -11,8 +11,8 @@ mode: hub
 
 # Network configuration
 network_instances:
-  UNTRUST:
-    id: UNTRUST
+  EXTERNAL:
+    id: EXTERNAL
     type: external # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
@@ -62,8 +62,8 @@ network_instances:
         config:
           type: physical # ipsec | physical
           interface_name: eth0
-  TRUST:
-    id: TRUST
+  CORE:
+    id: CORE
     type: core # default | external | core | downlink, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
@@ -154,11 +154,11 @@ prefix_downlink_interface_v4: 100.100.0.0/16
 prefix_downlink_interface_v6: fdcc:cbf::/32
 # NAT64 IPv6 prefix for downlinks. Must be a /32. Will be subnetted into /96s per downlink per tunnel.
 # This is the prefix by which each tenant will be uniquely identified.
-# Tenant c0001 will use fdcc:0:c:1::/64 and tenant with identifier d0002 will use fdcc:0:d:2::/64.
+# Tenant C0001 will use fdcc:0:c:1::/64 and tenant with identifier d0002 will use fdcc:0:d:2::/64.
 prefix_downlink_nat64: fdcc:0::/32
 # NPTv6 IPv6 prefix for downlinks. Must be a /12. Will be subnetted into /48s per downlink per tunnel.
 # This is the prefix by which each tenant will be uniquely identified.
-# Tenant c0001 with tunnel 0 will use fd6c:1::/48 and tenant with identifier d0002 and tunnel
+# Tenant C0001 with tunnel 0 will use fd6c:1::/48 and tenant with identifier d0002 and tunnel
 # 9 will use fd6d:2:9::/48.
 prefix_downlink_nptv6: fd60::/12
 

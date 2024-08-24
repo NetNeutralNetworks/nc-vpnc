@@ -59,17 +59,6 @@ def validate_ip_networks(x: list[str]) -> list[IPv4Network | IPv6Network]:
     return output
 
 
-def get_service_config_path(ctx: typer.Context, active: bool) -> pathlib.Path:  # noqa: FBT001
-    """Get the correct service path."""
-    path = config.VPNC_C_SERVICE_CONFIG_PATH
-    if active:
-        path = config.VPNC_A_SERVICE_CONFIG_PATH
-    if not path.exists():
-        ctx.fail("Service configuration file not found.")
-
-    return path
-
-
 def get_service_config(
     _: typer.Context,
     path: pathlib.Path,
@@ -86,11 +75,11 @@ def get_service_config(
     return service
 
 
-def get_tenant_config_path(ctx: typer.Context, active: bool) -> pathlib.Path:  # noqa: FBT001
+def get_config_path(ctx: typer.Context, active: bool) -> pathlib.Path:  # noqa: FBT001
     """Get the correct tenant path."""
-    path = config.VPNC_C_TENANT_CONFIG_DIR
+    path = config.VPNC_C_CONFIG_DIR
     if active:
-        path = config.VPNC_A_TENANT_CONFIG_DIR
+        path = config.VPNC_A_CONFIG_DIR
     if not path.exists():
         ctx.fail("Tenant configuration directory not found.")
 
@@ -101,14 +90,21 @@ def get_tenant_config(
     ctx: typer.Context,
     tenant_id: str,
     path: pathlib.Path,
-) -> models.Tenant:
+) -> models.ServiceEndpoint | models.ServiceHub | models.Tenant:
     """Get the tenant configuration from a file."""
-    if not config.DOWNLINK_TEN_RE.match(tenant_id):
+    if (
+        not config.DOWNLINK_TEN_RE.match(tenant_id)
+        and tenant_id != config.DEFAULT_TENANT
+    ):
         ctx.fail(f"Tenant name '{tenant_id}' is invalid.")
 
     config_path = path.joinpath(f"{tenant_id}.yaml")
+    tenant: models.ServiceEndpoint | models.ServiceHub | models.Tenant
     with config_path.open(encoding="utf-8") as fh:
-        tenant = models.Tenant(**yaml.safe_load(fh))
+        if tenant_id == config.DEFAULT_TENANT:
+            tenant = get_service_config(ctx, config_path)
+        else:
+            tenant = models.Tenant(**yaml.safe_load(fh))
     if tenant_id != tenant.id:
         ctx.fail(f"Mismatch between file name '{tenant_id}' and id '{tenant.id}'.")
 

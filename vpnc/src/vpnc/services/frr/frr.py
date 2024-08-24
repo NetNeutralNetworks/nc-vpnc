@@ -80,11 +80,11 @@ def observe() -> BaseObserver:
 
 def generate_config() -> None:
     """Generate FRR configuration."""
-    assert isinstance(config.VPNC_SERVICE_CONFIG, models.ServiceHub)
+    assert isinstance(config.VPNC_CONFIG_SERVICE, models.ServiceHub)
 
     neighbors: list[dict[str, Any]] = []
-    net_instance = config.VPNC_SERVICE_CONFIG.network_instances[config.CORE_NI]
-    for neighbor in config.VPNC_SERVICE_CONFIG.bgp.neighbors:
+    net_instance = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
+    for neighbor in config.VPNC_CONFIG_SERVICE.bgp.neighbors:
         neighbor_cfg: dict[str, Any] = {
             "neighbor_ip": neighbor.neighbor_address,
             "neighbor_asn": neighbor.neighbor_asn,
@@ -102,12 +102,12 @@ def generate_config() -> None:
     frr_cfg = {
         "core_ni": config.CORE_NI,
         "external_ni": config.EXTERNAL_NI,
-        "router_id": config.VPNC_SERVICE_CONFIG.bgp.globals.router_id,
-        "as": config.VPNC_SERVICE_CONFIG.bgp.globals.asn,
+        "router_id": config.VPNC_CONFIG_SERVICE.bgp.globals.router_id,
+        "as": config.VPNC_CONFIG_SERVICE.bgp.globals.asn,
         "neighbors": neighbors,
         "prefix_core": prefix_core,
-        "prefix_downlink_nat64": config.VPNC_SERVICE_CONFIG.prefix_downlink_nat64,
-        "prefix_downlink_nptv6": config.VPNC_SERVICE_CONFIG.prefix_downlink_nptv6,
+        "prefix_downlink_nat64": config.VPNC_CONFIG_SERVICE.prefix_downlink_nat64,
+        "prefix_downlink_nptv6": config.VPNC_CONFIG_SERVICE.prefix_downlink_nptv6,
     }
 
     frr_render = frr_template.render(**frr_cfg)

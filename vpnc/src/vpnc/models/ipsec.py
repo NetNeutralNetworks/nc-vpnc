@@ -102,7 +102,7 @@ class ConnectionConfigIPsec(BaseModel):
 
         # TODO@draggeta: check if it is OK to always attach to the same external interface.
         external_if_name = (
-            config.VPNC_SERVICE_CONFIG.network_instances[config.EXTERNAL_NI]
+            config.VPNC_CONFIG_SERVICE.network_instances[config.EXTERNAL_NI]
             .connections[0]
             .config.intf_name(0)
         )

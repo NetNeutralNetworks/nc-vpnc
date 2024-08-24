@@ -24,8 +24,8 @@ def load_config() -> None:
                 )
                 return
     except FileNotFoundError:
-        logger.exception(
-            "Configuration file could not be found at '%s'.",
+        logger.warning(
+            "Configuration file could not be found at '%s'. Skipping",
             config.CONFIG_PATH,
         )
         return
@@ -34,12 +34,12 @@ def load_config() -> None:
         config.CONFIG = config.Config(config=new_cfg_dict).config
     except pydantic_core.ValidationError:
         logger.exception(
-            "Configuration '%s' doesn't adhere to the schema",
+            "Configuration '%s' doesn't adhere to the schema. Skipping",
             config.CONFIG_PATH,
         )
         return
 
-    config.ACL_MATCH = []
+    config.ACL_MATCH.clear()
 
     for net_in_name, net_in_translations in config.CONFIG.items():
         translation_list_64 = [(x[0], net_in_name) for x in net_in_translations.dns64]

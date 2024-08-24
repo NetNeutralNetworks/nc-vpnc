@@ -15,7 +15,7 @@ from vpnc.network import interface
 logger = logging.getLogger("vpnc")
 
 
-class ConnectionConfigLocal(BaseModel):
+class ConnectionConfigPhysical(BaseModel):
     """Defines a local connection data structure."""
 
     type: Literal[enums.ConnectionType.PHYSICAL] = enums.ConnectionType.PHYSICAL
@@ -32,7 +32,7 @@ class ConnectionConfigLocal(BaseModel):
         connection: models.Connection,
     ) -> str:
         """Create a local connection."""
-        if not isinstance(connection.config, models.ConnectionConfigLocal):
+        if not isinstance(connection.config, models.ConnectionConfigPhysical):
             logger.critical(
                 "Wrong connection configuration provided for %s",
                 network_instance.id,

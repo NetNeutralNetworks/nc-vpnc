@@ -57,7 +57,7 @@ class TestIPTablesMangle:
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_ip6tables_mangle_hub(self, host, tables: dict[str, Any]):
         """Tests if vpncmangle correctly adds the ip6table rule"""
-        ip6tables = run_cmd(host, "ip netns exec TRUST ip6tables -t mangle -S")
+        ip6tables = run_cmd(host, "ip netns exec CORE ip6tables -t mangle -S")
 
         assert ip6tables == tables["ipv6_core_hub"]
 
@@ -76,7 +76,7 @@ class TestIPTablesMangle:
     @pytest.mark.parametrize("host", ["end00", "end01"])
     def test_ip6tables_mangle_disabled_endpoints(self, host, tables: dict[str, Any]):
         """Tests if vpncmangle correctly adds the ip6table rule"""
-        ip6tables = run_cmd(host, "ip netns exec TRUST ip6tables -t mangle -S")
+        ip6tables = run_cmd(host, "ip netns exec CORE ip6tables -t mangle -S")
 
         assert ip6tables == tables["ipv6_core_endpoint"]
 

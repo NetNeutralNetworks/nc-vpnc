@@ -84,7 +84,7 @@ def generate_config(
             continue
         swanctl_cfg: dict[str, Any] = {
             "connection": f"{network_instance.id}-{connection.id}",
-            "local_id": config.VPNC_SERVICE_CONFIG.local_id,
+            "local_id": config.VPNC_CONFIG_SERVICE.local_id,
             "remote_peer_ip": ",".join(
                 [str(x) for x in connection.config.remote_addrs],
             ),

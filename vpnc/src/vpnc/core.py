@@ -16,11 +16,11 @@ logger = logging.getLogger("vpnc")
 
 
 def concentrator() -> None:
-    """Create the CORE and EXTERNAL network instance (Linux namespace) and aliasthe DEFAULT network instance."""  # noqa: E501
+    """Set up the DEFAULT tenant."""
     logger.info("#" * 100)
     logger.info(
         "Starting ncubed VPNC strongSwan daemon in %s mode.",
-        config.VPNC_SERVICE_CONFIG.mode.name,
+        config.VPNC_CONFIG_SERVICE.mode.name,
     )
 
     # Mount the DEFAULT network instance with it's alias. This makes for consistent
@@ -41,7 +41,7 @@ def concentrator() -> None:
     # Create and mount the EXTERNAL network instance.
     # This provides VPN connectivity
     logger.info("Setting up %s network instance", config.EXTERNAL_NI)
-    external_ni = config.VPNC_SERVICE_CONFIG.network_instances[config.EXTERNAL_NI]
+    external_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.EXTERNAL_NI]
     try:
         network_instance.add_network_instance(external_ni)
     except ValueError:
@@ -51,7 +51,7 @@ def concentrator() -> None:
 
     # Create and mount the CORE network instance. This provides the management
     # connectivity. The CORE namespace has no internet connectivity.
-    core_ni = config.VPNC_SERVICE_CONFIG.network_instances[config.CORE_NI]
+    core_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
     try:
         network_instance.add_network_instance(core_ni)
     except ValueError:
@@ -66,7 +66,7 @@ def concentrator() -> None:
     sa_mon = strongswan.Monitor(daemon=True)
     sa_mon.start()
 
-    if config.VPNC_SERVICE_CONFIG.mode == models.ServiceMode.HUB:
+    if config.VPNC_CONFIG_SERVICE.mode == models.ServiceMode.HUB:
         # VPNC in hub mode performs NAT64 using Jool. The kernel module must be loaded
         # before it can be used.
         # Load the NAT64 kernel module (jool).
