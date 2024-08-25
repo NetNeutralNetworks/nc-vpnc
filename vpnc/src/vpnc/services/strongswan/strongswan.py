@@ -2,6 +2,7 @@
 
 import atexit
 import logging
+import os
 import pathlib
 import subprocess
 import time
@@ -126,6 +127,8 @@ def generate_config(
 
     with swanctl_path.open("w", encoding="utf-8") as f:
         f.write(swanctl_render)
+
+    os.chown(swanctl_path, config.VPN_USER, config.VPN_GROUP)
 
 
 def stop() -> None:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import grp
 import ipaddress
 import logging
+import pwd
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -41,6 +43,9 @@ DOWNLINK_NI_RE = re.compile(r"^[2-9A-F]\d{4}-\d{2}$")
 # Match only non-default tenant network instance connections
 DOWNLINK_CON_RE = re.compile(r"^[2-9A-F]\d{4}-\d{2}-\d$")
 
+# UID and GID used by strongswan to reduce attack surface
+VPN_USER = pwd.getpwnam("swan").pw_uid
+VPN_GROUP = grp.getgrnam("swan").gr_gid
 # Configuration file paths/directories for swanctl
 VPN_CONFIG_DIR = Path("/etc/swanctl/conf.d/")
 # Configuration file paths/directories for FRR

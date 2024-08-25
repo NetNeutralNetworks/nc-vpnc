@@ -30,6 +30,11 @@ function install_apt_defaults () {
         /usr/bin/systemctl mask ipsec.service
         /usr/bin/systemctl stop ipsec.service
     fi
+
+    groupadd swan
+    useradd -g swan swan
+
+    chown -R swan:swan /etc/swanctl
 }
 
 function install_apt_python () {
@@ -131,7 +136,7 @@ function create_misc_config () {
 
     # Copy configuration files over to the configuration directories.
     cp -rf ${SCRIPTDIR}/config/snmp/vpnc.conf /etc/snmp/snmpd.conf.d/
-    cp -rf ${SCRIPTDIR}/config/strongswan/vpnc.conf /etc/strongswan.d/charon/
+    cp -rf ${SCRIPTDIR}/config/strongswan/vpnc.conf /etc/strongswan.d/
 }
 
 function create_vpnc_config () {
@@ -143,11 +148,6 @@ function create_vpnc_config () {
     done
 
     mkdir -p /var/log/ncubed/vpnc
-
-    # Copy configuration files over to the configuration directories.
-    cp -rf ${SCRIPTDIR}/config/snmpd/vpnc.conf /etc/snmp/snmpd.conf.d/
-    cp -rf ${SCRIPTDIR}/config/strongswan/vpnc.conf /etc/strongswan.d/charon/
-    # cp -rf ${SCRIPTDIR}/config/vpnc/* ${BASEDIR}/config/${SERVICENAME}/
 
     if [[ -z "${1}" ]]; then
         MODE="hub"
