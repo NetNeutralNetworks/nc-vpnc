@@ -27,7 +27,7 @@ ip -6 address add fdff:db8:c58:31::6/64 dev lo
 ip -6 address add 2001:db8:c58:31::64/64 dev lo
 ip -6 address add fdff:db8:c58:31::64/64 dev lo
 
-cp -f ${SCRIPTDIR}/db.example.com /etc/bind/
+cp -f ${SCRIPTDIR}/db.example.com_cli01 /etc/bind/db.example.com
 cp -f ${SCRIPTDIR}/named.conf.local /etc/bind/
 cp -f ${SCRIPTDIR}/named.conf.options /etc/bind/
 

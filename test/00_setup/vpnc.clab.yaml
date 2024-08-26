@@ -16,11 +16,11 @@ topology:
     mgt00:
       kind: linux
       image: nc-vpnc:latest
-      cmd: /nc-vpnc/test/01_base_config/mgt00/config.sh
+      cmd: /nc-vpnc/test/01_base_config/mgt/mgt00.sh
     mgt01:
       kind: linux
       image: nc-vpnc:latest
-      cmd: /nc-vpnc/test/01_base_config/mgt01/config.sh
+      cmd: /nc-vpnc/test/01_base_config/mgt/mgt01.sh
     hub00:
       kind: linux
       # image: vrnetlab/vr-ubuntu:jammy
@@ -41,11 +41,11 @@ topology:
     cli00:
       kind: linux
       image: ubuntu:24.04
-      cmd: /nc-vpnc/test/01_base_config/cli00/config.sh
+      cmd: /nc-vpnc/test/01_base_config/cli/cli00.sh
     cli01:
       kind: linux
       image: ubuntu:24.04
-      cmd: /nc-vpnc/test/01_base_config/cli01/config.sh
+      cmd: /nc-vpnc/test/01_base_config/cli/cli01.sh
     br-nc-vpnc:
       kind: bridge
 

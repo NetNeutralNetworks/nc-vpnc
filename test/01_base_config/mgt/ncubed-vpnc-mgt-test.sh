@@ -3,32 +3,6 @@
 apt update
 apt install -y curl lsb-release
 curl -s https://deb.frrouting.org/frr/keys.asc | apt-key add -
-FRRVER="frr-stable"
-EXTERNAL_IF="eth1"
-EXTERNAL_IF_IP4="192.0.2.4/24"
-EXTERNAL_GW_IP4="192.0.2.1"
-EXTERNAL_IF_IP6="2001:db8::4/64"
-
-LOOPBACK_IF_IP="fd00::4/128"
-
-BGP_AS="4244444444"
-BGP_ROUTER_ID="4.4.4.4"
-
-VPN_PEER_PSK="secretpasswordcore"
-
-VPN_TUNNEL_IF_IP_0="fd00:1:2::1:1/127"
-VPN_PEER_IP4_0="192.0.2.5"
-VPN_PEER_IP6_0="2001:db8::5"
-VPN_PEER_IP_0="${VPN_PEER_IP6_0}"
-BGP_PEER_IP_0="fd00:1:2::1:0"
-BGP_PEER_AS_0="4255555555"
-
-VPN_TUNNEL_IF_IP_1="fd00:1:2::1:3/127"
-VPN_PEER_IP4_1="192.0.2.6"
-VPN_PEER_IP6_1="2001:db8::6"
-VPN_PEER_IP_1="${VPN_PEER_IP6_1}"
-BGP_PEER_IP_1="fd00:1:2::1:2"
-BGP_PEER_AS_1="4266666666"
 
 # Add FRR and other required services to the installation
 echo deb https://deb.frrouting.org/frr $(lsb_release -s -c) $FRRVER | tee /etc/apt/sources.list.d/frr.list
