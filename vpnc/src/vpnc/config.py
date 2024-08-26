@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import grp
 import ipaddress
 import logging
 import pwd
@@ -44,8 +43,9 @@ DOWNLINK_NI_RE = re.compile(r"^[2-9A-F]\d{4}-\d{2}$")
 DOWNLINK_CON_RE = re.compile(r"^[2-9A-F]\d{4}-\d{2}-\d$")
 
 # UID and GID used by strongswan to reduce attack surface
-VPN_USER = pwd.getpwnam("swan").pw_uid
-VPN_GROUP = grp.getgrnam("swan").gr_gid
+_PWD = list(filter(lambda x: x.pw_name == "swan", pwd.getpwall()))
+VPN_USER = _PWD[0].pw_uid if _PWD else 0
+VPN_GROUP = _PWD[0].pw_gid if _PWD else 0
 # Configuration file paths/directories for swanctl
 VPN_CONFIG_DIR = Path("/etc/swanctl/conf.d/")
 # Configuration file paths/directories for FRR

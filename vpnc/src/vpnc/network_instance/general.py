@@ -6,7 +6,7 @@ import ipaddress
 import json
 import logging
 import subprocess
-from ipaddress import IPv6Address, IPv6Network
+from ipaddress import AddressValueError, IPv4Network, IPv6Address, IPv6Network
 from typing import Any
 
 from vpnc import config, helpers, models
@@ -307,3 +307,54 @@ def delete_network_instance_link(network_instance_name: str) -> None:
     )
     logger.info(proc.args)
     logger.debug(proc.stdout, proc.stderr)
+
+
+def get_network_instance_nat64_mappings_state(
+    network_instance_name: str,
+) -> tuple[IPv6Network, IPv4Network] | None:
+    """Retrieve the live NAT64 mapping configured in Jool."""
+    proc = subprocess.run(  # noqa: S602
+        (
+            f"/usr/sbin/ip netns exec {network_instance_name}"
+            f" jool --instance {network_instance_name} global display |"
+            " grep pool6 |"
+            " awk '{ print $2 }'"
+        ),
+        stdout=subprocess.PIPE,
+        shell=True,
+        check=False,
+    )
+
+    try:
+        return IPv6Network(proc.stdout.decode().strip()), IPv4Network("0.0.0.0/0")
+    except AddressValueError:
+        return None
+
+
+def get_network_instance_nptv6_mappings_state(
+    network_instance_name: str,
+) -> list[tuple[IPv6Network, IPv6Network]]:
+    """Retrieve the live NPTv6 mapping configured in ip6tables."""
+    proc = subprocess.run(  # noqa: S602
+        (
+            f"/usr/sbin/ip netns exec {network_instance_name}"
+            " ip6tables -t nat -L |"
+            " grep NETMAP |"
+            " awk '{print $5,$6}'"
+        ),
+        stdout=subprocess.PIPE,
+        shell=True,
+        check=False,
+    )
+
+    output: list[tuple[IPv6Network, IPv6Network]] = []
+    try:
+        for mapping_str in proc.stdout.decode().strip().split("\n"):
+            mapping: list[str] = mapping_str.split()
+            local = IPv6Network(mapping[0])
+            remote = IPv6Network(mapping[1].split("to:", maxsplit=1)[1])
+
+            output.append((local, remote))
+    except AddressValueError:
+        return output
+    return output

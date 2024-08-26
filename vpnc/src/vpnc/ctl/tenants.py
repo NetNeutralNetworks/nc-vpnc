@@ -15,10 +15,11 @@ from rich import print
 from typing_extensions import Annotated
 
 from vpnc import config, models
-from vpnc.ctl import helpers, tenants_ni
+from vpnc.ctl import helpers, tenants_nat, tenants_ni
 
 app = typer.Typer()
 app.add_typer(tenants_ni.app, name="network-instances")
+app.add_typer(tenants_nat.app, name="nat")
 
 
 def complete_tenant_id(

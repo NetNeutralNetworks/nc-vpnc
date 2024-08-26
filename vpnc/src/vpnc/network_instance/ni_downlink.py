@@ -259,7 +259,7 @@ def add_downlink_nat64(network_instance: models.NetworkInstance) -> None:
     logger.debug(proc.stdout, proc.stderr)
 
 
-def get_network_instance_nptv6_networks(
+def calculate_network_instance_nptv6_mappings(
     network_instance: models.NetworkInstance,
 ) -> tuple[bool, list[models.RouteIPv6]]:
     """Calculate the NPTv6 translations for a network instance (Linux namespace)."""
@@ -273,6 +273,7 @@ def get_network_instance_nptv6_networks(
     # Get NPTv6 prefix for this network instance
     nptv6_scope = general.get_network_instance_nptv6_scope(network_instance.id)
 
+    # Get only routes that should have NPTv6 performed.
     for connection in network_instance.connections.values():
         nptv6_list.extend(
             [route for route in connection.routes.ipv6 if route.nptv6 is True],
@@ -294,7 +295,10 @@ def get_network_instance_nptv6_networks(
                 )
                 continue
             logger.warning(
-                "Route '%s' has invalid NPTv6 prefix '%s' applied. Not part of assigned scope '%s'. Recalculating",
+                (
+                    "Route '%s' has invalid NPTv6 prefix '%s' applied."
+                    " Not part of assigned scope '%s'. Recalculating"
+                ),
                 configured_nptv6.to,
                 configured_nptv6.nptv6_prefix,
                 nptv6_scope,
@@ -357,7 +361,9 @@ def add_downlink_iptables(
     network instance and ICMPv6.
     """
     iptables_template = TEMPLATES_ENV.get_template("iptables-downlink.conf.j2")
-    updated, nptv6_networks = get_network_instance_nptv6_networks(network_instance)
+    updated, nptv6_networks = calculate_network_instance_nptv6_mappings(
+        network_instance,
+    )
     iptables_configs = {
         "mode": mode,
         "network_instance_name": network_instance.id,
