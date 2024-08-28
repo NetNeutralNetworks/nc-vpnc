@@ -26,8 +26,7 @@ def get_interfaces(host: str, netns: str) -> list[InterfaceInfo]:
         state = i["operstate"]
         if state == "UNKNOWN":
             state = i["flags"][-2]
-        addresses = set()
-        # if_info: InterfaceInfo = (i["ifname"], state, frozenset())
+        addresses: set[str] = set()
 
         for addr in i["addr_info"]:
             intf_addr = f"{addr['local']}/{addr['prefixlen']}"

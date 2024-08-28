@@ -1,10 +1,10 @@
-{#- flush all old configuration and drop all IPv4 traffic by default #}
+{#- Flush all old configuration and drop all IPv4 traffic by default #}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -F
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P INPUT DROP
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P FORWARD DROP
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P OUTPUT DROP
 
-{#- flush all old configuration and drop all IPv6 traffic by default #}
+{#- Flush all old configuration and drop all IPv6 traffic by default #}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -F
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -P INPUT DROP
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -P FORWARD DROP

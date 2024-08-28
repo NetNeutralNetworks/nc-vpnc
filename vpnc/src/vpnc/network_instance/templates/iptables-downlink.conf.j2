@@ -1,10 +1,10 @@
-{#- flush all old configuration and drop all IPv4 traffic by default #}
+{#- Flush all old configuration and drop all IPv4 traffic by default #}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -F
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P INPUT DROP
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P FORWARD DROP
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P OUTPUT DROP
 
-{#- allow forwarded IPv4 traffic from the CORE and related return traffic #}
+{#- Allow forwarded IPv4 traffic from the CORE and related return traffic #}
 {%- if mode.name == "ENDPOINT" %}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A INPUT -p icmp -j ACCEPT
   {%- for interface in core_interfaces %}
@@ -14,12 +14,13 @@
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 {%- endif %}
 
-{#- flush all old configuration and drop all IPv6 traffic by default #}
+{#- Flush all old configuration and drop all IPv6 traffic by default #}
 {#- except traffic originating from the CORE network instance #}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -F
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -P INPUT DROP
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -P FORWARD DROP
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -P OUTPUT DROP
+
 
 {% include 'iptables-icmpv6-in-out.conf.j2' %}
 
@@ -27,8 +28,7 @@
 {#- No input #}
 
 
-
-
+{#- Forward #}
 {#- allow forwarded IPv6 traffic from the CORE and related return traffic #}
 {%- for interface in core_interfaces %}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A FORWARD -i {{ interface }} -j ACCEPT
@@ -36,8 +36,10 @@
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 
 
-{%- if mode.name == "ENDPOINT" %}
+{#- Output #}
+{#- {%- if mode.name == "ENDPOINT" %} #}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-{%- endif %}
+{#- {%- endif %} #}
+
 
 {% include 'iptables-ipv6-nat.conf.j2' %}

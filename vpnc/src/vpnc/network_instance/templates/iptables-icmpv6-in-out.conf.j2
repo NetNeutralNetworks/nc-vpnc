@@ -1,6 +1,7 @@
-{#- create the chains to allow ICMPv6 as needed for IPv6 connectivity #}
+{#- Create the chains to allow ICMPv6 as needed for IPv6 connectivity #}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -N icmpv6-in-out
 
+{#- Apply the chain to the INPUT and OUTPUT chains. #}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -p ipv6-icmp -j icmpv6-in-out
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -p ipv6-icmp -j icmpv6-in-out
 

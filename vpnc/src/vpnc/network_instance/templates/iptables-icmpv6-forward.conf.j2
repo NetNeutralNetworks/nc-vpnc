@@ -1,6 +1,7 @@
-{#- create the chains to allow ICMPv6 to be forwarded as needed for IPv6 connectivity #}
+{#- Create the chains to allow ICMPv6 to be forwarded as needed for IPv6 connectivity #}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -N icmpv6-forward
 
+{#- Apply the chain to the FORWARD chains. #}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A FORWARD -j icmpv6-forward
 
 {#- Allow ICMPv6 as needed for IPv6 connectivity #}
