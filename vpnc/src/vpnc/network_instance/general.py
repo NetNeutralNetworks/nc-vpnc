@@ -7,27 +7,35 @@ import logging
 import subprocess
 from ipaddress import AddressValueError, IPv4Network, IPv6Address, IPv6Network
 
+import pyroute2
+
 from vpnc import config, helpers, models
 from vpnc.network import namespace
+from vpnc.services import routes
 
 logger = logging.getLogger("vpnc")
 
 
-def add_network_instance(
+def set_network_instance(
     network_instance: models.NetworkInstance,
+    active_network_instance: models.NetworkInstance | None,
     cleanup: bool = False,  # noqa: FBT001, FBT002
 ) -> None:
     """Add a network instance (Linux namespace) and enable forwarding if needed."""
     logger.info("Setting up %s network instance.", network_instance.id)
     namespace.add(name=network_instance.id, cleanup=cleanup)
 
+    if network_instance.type == models.NetworkInstanceType.DOWNLINK:
+        add_network_instance_link(network_instance)
+    routes.start(network_instance.id)
+
     # IPv6 and IPv4 routing is enabled on the network instance only for CORE
     # and DOWNLINK.
-    if network_instance.type in [
+    if network_instance.type in (
         models.NetworkInstanceType.CORE,
         models.NetworkInstanceType.DOWNLINK,
-    ]:
-        proc = subprocess.run(  # noqa: S602
+    ):
+        proc = subprocess.run(
             f"""
             # enable routing
             /usr/sbin/ip netns exec {network_instance.id} sysctl -w net.ipv6.conf.all.forwarding=1
@@ -40,20 +48,20 @@ def add_network_instance(
         logger.info(proc.args)
         logger.debug(proc.stdout)
 
-    add_network_instance_connection(network_instance)
+    set_network_instance_connection(network_instance, active_network_instance)
 
 
 def delete_network_instance(network_instance: str) -> None:
     """Delete a network instance (Linux namespace)."""
     # run the network instance remove commands
     namespace.delete(network_instance)
+    routes.stop(network_instance)
 
 
 def get_network_instance_connections(
     network_instance: models.NetworkInstance,
 ) -> list[str]:
     """Get all configured connections (interfaces)."""
-    # Configured XFRM interfaces for provider connections.
     configured_interfaces: set[str] = {
         connection.intf_name() for connection in network_instance.connections.values()
     }
@@ -61,29 +69,61 @@ def get_network_instance_connections(
     return list(configured_interfaces)
 
 
-def add_network_instance_connection(
+def set_network_instance_connection(
     network_instance: models.NetworkInstance,
+    active_network_instance: models.NetworkInstance | None,
 ) -> list[str]:
     """Add configured connections (interfaces).
 
     Adds connections to the network instance (Linux namespace).
     """
     interfaces: list[str] = []
-    for connection in network_instance.connections.values():
-        # Add connection
-        # TODO@draggeta: delete unused connections as well!!
-        try:
-            interface = connection.add(
-                network_instance=network_instance,
-            )
-            interfaces.append(interface)
-        except ValueError:
-            logger.exception(
-                "Failed to set up connection '%s' interface(s)",
-                connection,
-            )
-            continue
-        add_network_instance_connection_route(network_instance, interface, connection)
+    if active_network_instance:
+        delete_network_instance_connection(network_instance, active_network_instance)
+    ni_dl = pyroute2.NetNS(network_instance.id)
+    ni_core = pyroute2.NetNS(config.CORE_NI)
+    with ni_dl, ni_core:
+        for connection in network_instance.connections.values():
+            active_connection = None
+            if active_network_instance and active_network_instance.connections:
+                active_connection = active_network_instance.connections.get(
+                    connection.id,
+                )
+            # Add connection
+            try:
+                interface = connection.add(
+                    network_instance=network_instance,
+                )
+                interfaces.append(interface)
+                with routes.ni_locks[network_instance.id]:
+                    intf = []
+                    if if_idx := ni_dl.link_lookup(ifname=interface):
+                        intf = ni_dl.get_links(if_idx[0])
+                    connection_state: str = "down"
+                    if intf:
+                        connection_state = intf[0].get("state")
+                    if connection_state == "up":
+                        routes.set_routes_up(
+                            ni_dl,
+                            ni_core,
+                            network_instance,
+                            connection,
+                            active_connection,
+                        )
+                    else:
+                        routes.set_routes_down(
+                            ni_dl,
+                            ni_core,
+                            network_instance,
+                            connection,
+                            active_connection,
+                        )
+            except ValueError:
+                logger.exception(
+                    "Failed to set up connection '%s' interface(s)",
+                    connection,
+                )
+                continue
 
     return interfaces
 
@@ -111,69 +151,22 @@ def delete_network_instance_connection(
         active_connection.delete(active_network_instance)
 
 
-def add_network_instance_connection_route(
-    network_instance: models.NetworkInstance,
-    interface: str,
-    connection: models.Connection,
-) -> None:
-    """Add configured routes.
-
-    Adds the routes to a connection (interface) in a network instance (Linux namespace).
-    """
-    # Remove all statically configured routes.
-    proc = subprocess.run(  # noqa: S602
-        f"""
-        /usr/sbin/ip -netns {network_instance.id} -4 route flush dev {interface} protocol static
-        /usr/sbin/ip -netns {network_instance.id} -6 route flush dev {interface} protocol static
-        """,
-        capture_output=True,
-        shell=True,
-        check=False,
-    )
-    logger.info(proc.args)
-    logger.debug(proc.stdout, proc.stderr)
-
-    route_cmds = ""
-    if (
-        config.VPNC_CONFIG_SERVICE.mode != models.ServiceMode.HUB
-        or network_instance.type != models.NetworkInstanceType.CORE
-    ):
-        for route6 in connection.routes.ipv6:
-            if not route6.via or connection.config.type in [
-                models.ConnectionType.IPSEC,
-                models.ConnectionType.SSH,
-            ]:
-                route_cmds += f"/usr/sbin/ip -netns {network_instance.id} -6 route add {route6.to} dev {interface}\n"
-                continue
-            route_cmds += f"/usr/sbin/ip -netns {network_instance.id} -6 route add {route6.to} via {route6.via} dev {interface}\n"
-
-        for route4 in connection.routes.ipv4:
-            if not route4.via or connection.config.type in [
-                models.ConnectionType.IPSEC,
-                models.ConnectionType.SSH,
-            ]:
-                route_cmds += f"/usr/sbin/ip -netns {network_instance.id} -4 route add {route4.to} dev {interface}\n"
-                continue
-            route_cmds += f"/usr/sbin/ip -netns {network_instance.id} -4 route add {route4.to} via {route4.via} dev {interface}\n"
-
-    proc = subprocess.run(  # noqa: S602
-        route_cmds,
-        capture_output=True,
-        shell=True,
-        check=False,
-    )
-    logger.info(proc.args)
-    logger.debug(proc.stdout, proc.stderr)
-
-
 def get_network_instance_nat64_scope(
     network_instance_name: str,
-) -> ipaddress.IPv6Network:
+) -> ipaddress.IPv6Network | None:
     """Return the IPv6 NPTv6 scope for a network instance.
 
     This scope  is always a /48.
     """
-    assert isinstance(config.VPNC_CONFIG_SERVICE, models.ServiceHub)
+    if network_instance_name in (
+        config.CORE_NI,
+        config.DEFAULT_NI,
+        config.EXTERNAL_NI,
+    ):
+        return None
+
+    if not isinstance(config.VPNC_CONFIG_SERVICE, models.ServiceHub):
+        return None
 
     ni_info = helpers.parse_downlink_network_instance_name(network_instance_name)
 
@@ -191,8 +184,13 @@ def get_network_instance_nat64_scope(
 
 def get_network_instance_nptv6_scope(
     network_instance_name: str,
-) -> ipaddress.IPv6Network:
+) -> ipaddress.IPv6Network | None:
     """Return the IPv6 NPTv6 scope for a network instance. This is always a /48."""
+    if network_instance_name in (config.CORE_NI, config.DEFAULT_NI, config.EXTERNAL_NI):
+        return None
+
+    if not isinstance(config.VPNC_CONFIG_SERVICE, models.ServiceHub):
+        return None
     assert isinstance(config.VPNC_CONFIG_SERVICE, models.ServiceHub)
 
     ni_info = helpers.parse_downlink_network_instance_name(network_instance_name)
@@ -229,13 +227,11 @@ def add_network_instance_link(
 
     if config.VPNC_CONFIG_SERVICE.mode == models.ServiceMode.ENDPOINT:
         cmds_ns_link += f"""
-        /usr/sbin/ip -netns {config.CORE_NI} address add 169.254.0.1/30 dev {veth_c}
-        /usr/sbin/ip -netns {network_instance.id} address add 169.254.0.2/30 dev {veth_d}
-        /usr/sbin/ip -netns {config.CORE_NI} -4 route add default via 169.254.0.2 dev {veth_c}
-        /usr/sbin/ip -netns {config.CORE_NI} -6 route add default via fe80::1 dev {veth_c}
+    /usr/sbin/ip -netns {config.CORE_NI} address add 169.254.0.1/30 dev {veth_c}
+    /usr/sbin/ip -netns {network_instance.id} address add 169.254.0.2/30 dev {veth_d}
         """
 
-    proc = subprocess.run(  # noqa: S602
+    proc = subprocess.run(
         cmds_ns_link,
         capture_output=True,
         shell=True,
@@ -254,7 +250,7 @@ def add_network_instance_link(
             for route4 in connection.routes.ipv4:
                 cross_ni_routes += f"/usr/sbin/ip -netns {network_instance.id} route add {route4.to} via 169.254.0.1 dev {veth_d}\n"  # noqa: E501
         if cross_ni_routes:
-            proc = subprocess.run(  # noqa: S602
+            proc = subprocess.run(
                 cross_ni_routes,
                 capture_output=True,
                 shell=True,
@@ -267,7 +263,7 @@ def add_network_instance_link(
 def delete_network_instance_link(network_instance_name: str) -> None:
     """Delete a link (and routes) between a DOWNLINK and the CORE network instance."""
     # run the netns remove commands
-    proc = subprocess.run(  # noqa: S602
+    proc = subprocess.run(
         f"""
         # remove veth interfaces
         /usr/sbin/ip --brief -netns {network_instance_name} link show type veth |
@@ -288,7 +284,7 @@ def get_network_instance_nat64_mappings_state(
     network_instance_name: str,
 ) -> tuple[IPv6Network, IPv4Network] | None:
     """Retrieve the live NAT64 mapping configured in Jool."""
-    proc = subprocess.run(  # noqa: S602
+    proc = subprocess.run(
         (
             f"/usr/sbin/ip netns exec {network_instance_name}"
             f" jool --instance {network_instance_name} global display |"
@@ -310,7 +306,7 @@ def get_network_instance_nptv6_mappings_state(
     network_instance_name: str,
 ) -> list[tuple[IPv6Network, IPv6Network]]:
     """Retrieve the live NPTv6 mapping configured in ip6tables."""
-    proc = subprocess.run(  # noqa: S602
+    proc = subprocess.run(
         (
             f"/usr/sbin/ip netns exec {network_instance_name}"
             " ip6tables -t nat -L |"

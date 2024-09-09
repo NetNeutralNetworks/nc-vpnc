@@ -37,10 +37,10 @@ ipv6 prefix-list UPLINK-PL-IN seq {{ 10 * loop.index }} permit {{ prefix }} le 6
 {%- endfor %}
 ipv6 prefix-list UPLINK-PL-OUT seq 10 permit 2000::/3 ge 32
 ipv6 prefix-list UPLINK-PL-OUT seq 20 permit {{ prefix_downlink_nat64 }} ge 96 le 96
-ipv6 prefix-list UPLINK-PL-OUT seq 30 permit {{ prefix_downlink_nptv6 }} ge 48 le 48
+ipv6 prefix-list UPLINK-PL-OUT seq 30 permit {{ prefix_downlink_nptv6 }} ge 48
 ipv6 prefix-list REDIS-PL-IN seq 10 permit 2000::/3 ge 32
 ipv6 prefix-list REDIS-PL-IN seq 20 permit {{ prefix_downlink_nat64 }} ge 96 le 96
-ipv6 prefix-list REDIS-PL-IN seq 30 permit {{ prefix_downlink_nptv6 }} ge 48 le 48
+ipv6 prefix-list REDIS-PL-IN seq 30 permit {{ prefix_downlink_nptv6 }} ge 48
 !
 {%- for neighbor in neighbors %}
 route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-IN permit 1

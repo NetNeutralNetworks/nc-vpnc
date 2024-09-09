@@ -121,8 +121,8 @@ class ConnectionConfigIPsec(BaseModel):
         logger.debug(proc.stdout, proc.stderr)
 
         proc = subprocess.run(  # noqa: S602
+            # /usr/sbin/ip -netns {network_instance.id} link set dev {xfrm} up
             f"""
-            /usr/sbin/ip -netns {network_instance.id} link set dev {xfrm} up
             /usr/sbin/ip -netns {network_instance.id} -4 address flush dev {xfrm} scope global
             /usr/sbin/ip -netns {network_instance.id} -6 address flush dev {xfrm} scope global
             """,

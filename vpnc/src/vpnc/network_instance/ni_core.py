@@ -72,23 +72,20 @@ def update_core_network_instance(*, startup: bool = False) -> None:
         )
         return
 
-    general.delete_network_instance_connection(
+    # Set the network instance
+    general.set_network_instance(
         network_instance,
         active_network_instance,
+        cleanup=True,
     )
 
-    # Configure connection
-    logger.info("Setting up core connections for %s network instance.", config.CORE_NI)
-
-    network_instance = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
-    interfaces = general.add_network_instance_connection(network_instance)
-
     # IP(6)TABLES RULES
-    add_core_iptables(config.VPNC_CONFIG_SERVICE.mode, config.CORE_NI, interfaces)
+    connection_names = general.get_network_instance_connections(network_instance)
+    add_core_iptables(config.VPNC_CONFIG_SERVICE.mode, config.CORE_NI, connection_names)
 
     # VPN
     logger.info("Setting up VPN tunnels.")
-    strongswan.generate_config(network_instance=network_instance)
+    strongswan.generate_config(network_instance)
 
     if config.VPNC_CONFIG_SERVICE.mode == models.ServiceMode.HUB:
         # FRR
@@ -109,7 +106,7 @@ def add_core_iptables(
     iptables_configs: dict[str, Any] = {
         "mode": mode,
         "network_instance_name": network_instance_name,
-        "interfaces": interfaces,
+        "interfaces": sorted(interfaces),
     }
     iptables_render = iptables_template.render(**iptables_configs)
     logger.info(iptables_render)

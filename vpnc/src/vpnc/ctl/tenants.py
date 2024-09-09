@@ -205,7 +205,7 @@ def add(
     assert ctx.parent is not None
 
     all_args = {k: v for k, v in locals().items() if v}
-    all_args["version"] = "0.0.12"
+    all_args["version"] = "0.1.0"
     all_args.pop("ctx")
 
     tenant_id: str = ctx.parent.params["tenant_id"]
@@ -374,7 +374,7 @@ def commit(
     path_candidate_tenant = path_candidate.joinpath(f"{tenant_id}.yaml")
     path_active_tenant = path_active.joinpath(f"{tenant_id}.yaml")
     if not path_candidate_tenant.exists():
-        tenant_config_candidate = models.Tenant(id=tenant_id, name="", version="0.0.12")
+        tenant_config_candidate = models.Tenant(id=tenant_id, name="", version="0.1.0")
     else:
         tenant_config_candidate = helpers.get_tenant_config(
             ctx,
@@ -383,7 +383,7 @@ def commit(
         )
 
     if not path_active_tenant.exists():
-        tenant_config_active = models.Tenant(id=tenant_id, name="", version="0.0.12")
+        tenant_config_active = models.Tenant(id=tenant_id, name="", version="0.1.0")
     else:
         tenant_config_active = helpers.get_tenant_config(ctx, tenant_id, path_active)
 

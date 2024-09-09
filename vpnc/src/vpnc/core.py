@@ -43,7 +43,7 @@ def concentrator() -> None:
     logger.info("Setting up %s network instance", config.EXTERNAL_NI)
     external_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.EXTERNAL_NI]
     try:
-        network_instance.add_network_instance(external_ni)
+        network_instance.set_network_instance(external_ni, None)
     except ValueError:
         logger.critical("Setting up the EXTERNAL network instance failed.")
         sys.exit(1)
@@ -53,14 +53,14 @@ def concentrator() -> None:
     # connectivity. The CORE namespace has no internet connectivity.
     core_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
     try:
-        network_instance.add_network_instance(core_ni)
+        network_instance.set_network_instance(core_ni, None)
     except ValueError:
         logger.critical("Setting up the CORE network instance failed.")
         sys.exit(1)
 
     # The IPSec process must be started in the EXTERNAL network instance.
     strongswan.start()
-
+    time.sleep(5)
     # Start the VPNC Security Association monitor to fix duplicate connections.
     logger.info("Monitoring IKE/IPsec security associations for errors.")
     sa_mon = strongswan.Monitor(daemon=True)
@@ -99,7 +99,7 @@ def concentrator() -> None:
     downlink_obs.start()
 
     network_instance.update_core_network_instance(startup=True)
-    network_instance.update_downlink_network_instance()
+    network_instance.manage_downlink_tenants()
 
     while True:
         time.sleep(0.1)

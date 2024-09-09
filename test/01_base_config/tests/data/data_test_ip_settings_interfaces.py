@@ -25,6 +25,7 @@ TESTDATA_INTERFACES = [
             ("lo", "DOWN", frozenset()),
             ("xfrm0", "UP", frozenset({"100.99.0.1/28", "fdcc:cbe::/64"})),
             ("C0001-00_D", "UP", frozenset({"fe80::1/64"})),
+            ("tun1", "UP", frozenset({"100.99.0.17/28", "fdcc:cbe:0:1::/64"})),
         },
     ),
     (
@@ -62,6 +63,7 @@ TESTDATA_INTERFACES = [
             ("lo", "DOWN", frozenset()),
             ("xfrm0", "UP", frozenset({"100.100.0.1/28", "fdcc:cbf::/64"})),
             ("C0001-00_D", "UP", frozenset({"fe80::1/64"})),
+            ("tun1", "UP", frozenset({"100.100.0.17/28", "fdcc:cbf:0:1::/64"})),
         },
     ),
     (

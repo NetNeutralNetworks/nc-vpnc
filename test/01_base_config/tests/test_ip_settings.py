@@ -34,7 +34,7 @@ def get_interfaces(host: str, netns: str) -> list[InterfaceInfo]:
             if (
                 isinstance(test, ipaddress.IPv6Interface)
                 and test.is_link_local
-                and intf_addr not in ["fe80::/64", "fe80::1/64"]
+                and intf_addr not in ("fe80::/64", "fe80::1/64")
             ):
                 continue
             addresses.add(intf_addr)
@@ -98,7 +98,7 @@ def get_routes(
         if (
             gateway
             and gateway.startswith("fe80:")
-            and gateway not in ["fe80::", "fe80::1"]
+            and gateway not in ("fe80::", "fe80::1")
         ):
             gateway = None
         results.add(

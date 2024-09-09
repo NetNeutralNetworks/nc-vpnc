@@ -101,6 +101,7 @@ TABLES6_HUB = [
             "-A PREROUTING -d fd6c:1:0:1000::/52 -i C0001-00_D -j NETMAP --to fdff:db8:c57:1000::/52\n"
             "-A PREROUTING -d fd6c:1:0:2000::/56 -i C0001-00_D -j NETMAP --to fdff:db8:c57:2000::/56\n"
             "-A PREROUTING -d fd6c:1:0:3000::/52 -i C0001-00_D -j NETMAP --to fdff:db8:c57:3000::/52\n"
+            "-A POSTROUTING -o tun1 -j MASQUERADE\n"
             "-A POSTROUTING -o xfrm0 -j MASQUERADE"
         ),
     ),

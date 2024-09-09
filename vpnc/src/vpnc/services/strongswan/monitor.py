@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import queue
-import subprocess
 import threading
 import time
 from types import MappingProxyType
 from typing import Any, Awaitable, Callable, TypeAlias
 
+import pyroute2
 import vici
 import vici.exception
-import yaml
 
-from vpnc import config, helpers, models, network_instance
+from vpnc import config, helpers
 
 logger = logging.getLogger("vpnc")
 
@@ -45,31 +43,26 @@ class Monitor(threading.Thread):
     async def monitor(self) -> None:
         """Test function."""
         # Wait for startup before starting to manage VPNs
-        await asyncio.sleep(10)
+        # await asyncio.sleep(10)
 
         # Get the current event loop for the thread.
         loop = asyncio.get_running_loop()
-
-        # Queue to exchange up/down VPN events with.
-        updown_q: queue.Queue[dict[str, Any]] = queue.Queue()
 
         # Run the task to monitor the security associations for duplicates.
         logger.info("Starting duplicate SA monitor.")
         duplicates = threading.Thread(
             target=self.monitor_duplicate_sa_events,
-            args=[updown_q],
             daemon=True,
         )
         duplicates.start()
 
-        # Run the task to monitor the route advertisements.
-        logger.info("Starting route advertisement monitor.")
-        routes = threading.Thread(
-            target=self.monitor_route_advertisements,
-            args=[updown_q],
+        # Run the task to monitor the XFRM interface state.
+        logger.info("Starting interface state monitor.")
+        interface_state = threading.Thread(
+            target=self.monitor_xfrm_interface_state,
             daemon=True,
         )
-        routes.start()
+        interface_state.start()
 
         # Run the task to check for inactive and active connections every interval.
         logger.info("Starting inactive/active connection monitor.")
@@ -133,7 +126,7 @@ class Monitor(threading.Thread):
             logger.info("Terminating connection '%s'", sa)
             self.terminate_sa(vcs=vcs, ike=sa)
 
-    def monitor_duplicate_sa_events(self, q: queue.Queue[dict[str, Any]]) -> None:
+    def monitor_duplicate_sa_events(self) -> None:
         """Monitor for SA events.
 
         check if there are duplicates and take action accordingly.
@@ -148,14 +141,12 @@ class Monitor(threading.Thread):
             match event_type:
                 # check for duplicate IKE associations
                 case b"ike-updown":
-                    q.put_nowait(event_data)
                     self.resolve_duplicate_ike_sa(event_data)
                 # check for duplicate IPSec associations
                 case b"child-updown":
-                    q.put_nowait(event_data)
                     self.resolve_duplicate_ipsec_sa(event_data)
 
-    def monitor_route_advertisements(self, q: queue.Queue[dict[str, Any]]) -> None:
+    def monitor_xfrm_interface_state(self) -> None:
         """Monitor route advertisements.
 
         Receives child updown events and tries to check if the route for the remote
@@ -165,15 +156,18 @@ class Monitor(threading.Thread):
 
         # At startup check for routes
         for i in vcs.list_sas():
-            self.resolve_route_advertisements(i)
+            self.resolve_xfrm_interface_state(i)
 
         # Then check the queue for new events
-        while True:
-            ike_event = q.get()
-            time.sleep(0.1)
-            self.resolve_route_advertisements(ike_event)
+        for event in vcs.listen(
+            event_types=["ike-updown", "child-updown"],  # , timeout=0.05
+        ):
+            event_type, event_data = event
+            if event_type is None or event_data is None:
+                continue
+            self.resolve_xfrm_interface_state(event_data)
 
-    def resolve_route_advertisements(self, ike_event: IkeData) -> None:
+    def resolve_xfrm_interface_state(self, ike_event: IkeData) -> None:
         """Resolve route advertisement statuses.
 
         Used by monitor monitor_route_advertisements.
@@ -188,48 +182,24 @@ class Monitor(threading.Thread):
             ike_name = next(iter(keys))
 
         if ike_name.startswith(config.CORE_NI):
-            return
-
-        ni_info = helpers.parse_downlink_network_instance_name(ike_name)
-        tenant_id = ni_info["tenant"]
-        network_instance_name = ni_info["network_instance"]
-        connection_id = ni_info["connection_id"]
-        remote_config_file = config.VPNC_A_CONFIG_DIR.joinpath(f"{tenant_id}.yaml")
-        # When a connection configuration is deleted, the SA is deleted when the
-        # monitor_connection function runs. Before this happens however, there is a
-        # chance  it rekeys or switches state. To prevent errors, we check if the file
-        # exists.
-        if not remote_config_file.exists():
-            logger.info("No configuration file found for '%s'", tenant_id)
-            return
+            tenant_id = "DEFAULT"
+            network_instance_name = config.CORE_NI
+            connection_id = ike_name[-1]
+        else:
+            ni_info = helpers.parse_downlink_network_instance_name(ike_name)
+            tenant_id = ni_info["tenant"]
+            network_instance_name = ni_info["network_instance"]
+            connection_id = ni_info["connection_id"]
+            tenant_config_file = config.VPNC_A_CONFIG_DIR.joinpath(f"{tenant_id}.yaml")
+            # When a connection configuration is deleted, the SA is deleted when the
+            # monitor_connection function runs. Before this happens however, there is a
+            # chance  it rekeys or switches state. To prevent errors, we check if the
+            # file exists.
+            if not tenant_config_file.exists():
+                logger.info("No configuration file found for '%s'", tenant_id)
+                return
 
         vcs = self.connect()
-
-        core_ni = config.CORE_NI
-        interface = f"{network_instance_name}_C"
-
-        # Get NAT64 prefix for this connection
-        nat64_scope = network_instance.get_network_instance_nat64_scope(
-            network_instance_name,
-        )
-
-        # Get NPTv6 prefix for this connection
-        nptv6_scope = network_instance.get_network_instance_nptv6_scope(
-            network_instance_name,
-        )
-
-        remote_config_file_handle = remote_config_file.open(encoding="utf-8")
-        remote_config = models.Tenant(**yaml.safe_load(remote_config_file_handle))
-        v6_networks = {
-            route.to
-            for route in remote_config.network_instances[network_instance_name]
-            .connections[int(connection_id)]
-            .routes.ipv6
-            # Only advertise non NPTv6 routes, and only if those routes are
-            # global unicast.
-            if route.nptv6 is False
-        }
-        v6_networks.update([nat64_scope, nptv6_scope])
 
         # Get VPN state
         vpn: dict[str, Any] = {}
@@ -243,44 +213,23 @@ class Monitor(threading.Thread):
             child_id = ""
         child_data = ike_data.get("child-sas", {}).get(child_id, {})
 
-        if (
-            ike_data.get("state", b"") == b"ESTABLISHED"
-            and child_data.get("state", b"") == b"INSTALLED"
-        ):
-            # Remove the NAT64 and native IPv6 routes from the CORE network instance
-            action = "Advertising"
-            cmds: list[str] = []
+        with pyroute2.NetNS(network_instance_name) as netns:
+            ifidx = netns.link_lookup(ifname=f"xfrm{connection_id}")[0]
+            if (
+                ike_data.get("state", b"") == b"ESTABLISHED"
+                and child_data.get("state", b"") == b"INSTALLED"
+            ):
+                action = "up"
+            else:
+                action = "down"
 
-            for route in v6_networks:
-                cmd = f"/usr/sbin/ip -netns {core_ni} -6 route del blackhole {route}"
-                cmds.append(cmd)
-                cmd = f"/usr/sbin/ip -netns {core_ni} -6 route add {route} via fe80::1 dev {interface}"
-                cmds.append(cmd)
-        else:
-            # Remove the NAT64 and native IPv6 routes from the CORE network instance
-            action = "Retracting"
-            cmds = []
-            for route in v6_networks:
-                cmd = f"/usr/sbin/ip -netns {core_ni} -6 route del {route} dev {interface}"
-                cmds.append(cmd)
-                cmd = f"/usr/sbin/ip -netns {core_ni} -6 route add blackhole {route}"
-                cmds.append(cmd)
+            logger.info(
+                "Bringing interface 'xfrm%s' %s.",
+                connection_id,
+                action,
+            )
+            netns.link("set", index=ifidx, state=action)
 
-        logger.info(
-            "%s route for tunnel '%s'.\n%s",
-            action,
-            ike_name,
-            cmds,
-        )
-        proc = subprocess.run(  # noqa: S602
-            "\n".join(cmds),
-            capture_output=True,
-            text=True,
-            shell=True,
-            check=False,
-        )
-        if proc.stderr.strip() != "RTNETLINK answers: File exists":
-            logger.debug(proc.stdout)
 
     def resolve_duplicate_ike_sa(self, ike_event: IkeData) -> None:
         """Check for duplicate IPsec security associations.

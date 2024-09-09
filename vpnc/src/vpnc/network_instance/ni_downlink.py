@@ -42,13 +42,13 @@ def observe_downlink() -> BaseObserver:
             logger.info("File %s: %s", event.event_type, event.src_path)
             downlink_config = pathlib.Path(event.src_path)
             time.sleep(0.1)
-            add_downlink_network_instance(downlink_config)
+            manage_downlink_network_instance(downlink_config)
 
         def on_modified(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
             downlink_config = pathlib.Path(event.src_path)
             time.sleep(0.1)
-            add_downlink_network_instance(downlink_config)
+            manage_downlink_network_instance(downlink_config)
 
         def on_deleted(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
@@ -75,7 +75,7 @@ def observe_downlink() -> BaseObserver:
     return observer
 
 
-def update_downlink_network_instance() -> None:
+def manage_downlink_tenants() -> None:
     """Configure DOWNLINK network instances."""
     # TODO@draggeta: Standardize parsing
     config_files = list(config.VPNC_A_CONFIG_DIR.glob(pattern="*.yaml"))
@@ -91,10 +91,10 @@ def update_downlink_network_instance() -> None:
         delete_downlink_network_instance(vpn_id)
 
     for file_path in config_files:
-        add_downlink_network_instance(file_path)
+        manage_downlink_network_instance(file_path)
 
 
-def add_downlink_network_instance(path: pathlib.Path) -> None:
+def manage_downlink_network_instance(path: pathlib.Path) -> None:
     """Configure DOWNLINK connections."""
     if not (tenant_info := helpers.load_tenant_config(path)):
         return
@@ -104,14 +104,15 @@ def add_downlink_network_instance(path: pathlib.Path) -> None:
         return
 
     if not active_tenant:
-        ni_state: set[str] = set()
+        active_network_instance_ids: set[str] = set()
     else:
-        ni_state = {x.id for x in active_tenant.network_instances.values()}
-
-    ni_configured = {x.id for x in tenant.network_instances.values()}  # pylint: disable=no-member
+        active_network_instance_ids = {
+            x.id for x in active_tenant.network_instances.values()
+        }
+    network_instance_ids = {x.id for x in tenant.network_instances.values()}  # pylint: disable=no-member
 
     # Calculate network instances that need to be removed and remove them.
-    ni_remove = ni_state.difference(ni_configured)
+    ni_remove = active_network_instance_ids.difference(network_instance_ids)
     for ni in ni_remove:
         # delete links to the CORE network instance
         general.delete_network_instance_link(ni)
@@ -119,55 +120,16 @@ def add_downlink_network_instance(path: pathlib.Path) -> None:
         general.delete_network_instance(ni)
 
     logger.info("Setting up tenant %s netns.", tenant.id)
-    update_check: list[bool] = []
-    for network_instance in tenant.network_instances.values():  # pylint: disable=no-member
-        if not active_tenant:
-            active_network_instance = None
-        else:
-            active_network_instance = active_tenant.network_instances.get(
-                network_instance.id,
-            )
-
-        if network_instance == active_network_instance:
-            logger.info(
-                "Network instance '%s' is already in the correct state",
-                network_instance.id,
-            )
-            return
-
-        core_interfaces = [f"{network_instance.id}_D"]
-        downlink_interfaces = general.get_network_instance_connections(network_instance)
-
-        # Create the network instance
-        general.add_network_instance(network_instance, cleanup=True)
-
-        # Add a link between the DOWNLINK and CORE network instance
-        general.add_network_instance_link(network_instance)
-
-        # Delete unconfigured connections
-
-        # If there are no active connections, then there should be nothing to delete.
-        if active_network_instance:
-            general.delete_network_instance_connection(
-                network_instance,
-                active_network_instance,
-            )
-
-        # Configure NAT64
-        add_downlink_nat64(network_instance)
-
-        # IP(6)TABLES RULES including NPTv6
-        updated, _ = add_downlink_iptables(
-            config.VPNC_CONFIG_SERVICE.mode,
+    active_tenant_network_instances: dict[str, models.NetworkInstance] = {}
+    if active_tenant:
+        active_tenant_network_instances = active_tenant.network_instances
+    update_check: list[bool] = [
+        set_downlink_network_instance(
             network_instance,
-            core_interfaces,
-            downlink_interfaces,
+            active_tenant_network_instances.get(network_instance.id),
         )
-
-        update_check.append(updated)
-        # VPN
-        logger.info("Setting up VPN tunnels.")
-        strongswan.generate_config(network_instance)
+        for network_instance in tenant.network_instances.values()
+    ]
 
     if config.VPNC_CONFIG_SERVICE.mode == models.ServiceMode.HUB:
         # DNS mangling
@@ -201,6 +163,46 @@ def add_downlink_network_instance(path: pathlib.Path) -> None:
             except yaml.YAMLError:
                 logger.exception("Invalid YAML found in %s. Skipping.", path)
                 return
+
+
+def set_downlink_network_instance(
+    network_instance: models.NetworkInstance,
+    active_network_instance: models.NetworkInstance | None,
+) -> bool:
+    """Configure the DOWNLINKnetwork instance (Linux namespace)."""
+    if network_instance == active_network_instance:
+        logger.info(
+            "Network instance '%s' is already in the correct state",
+            network_instance.id,
+        )
+        return False
+
+    # Set the network instance
+    general.set_network_instance(
+        network_instance,
+        active_network_instance,
+        cleanup=True,
+    )
+
+    # Configure NAT64
+    add_downlink_nat64(network_instance)
+
+    core_interfaces = [f"{network_instance.id}_D"]
+    downlink_interfaces = general.get_network_instance_connections(network_instance)
+
+    # IP(6)TABLES RULES including NPTv6
+    updated, _ = add_downlink_iptables(
+        config.VPNC_CONFIG_SERVICE.mode,
+        network_instance,
+        core_interfaces,
+        downlink_interfaces,
+    )
+
+    # VPN
+    logger.info("Setting up VPN tunnels.")
+    strongswan.generate_config(network_instance)
+
+    return updated
 
 
 def delete_downlink_network_instance(vpn_id: str) -> None:
@@ -238,7 +240,10 @@ def add_downlink_nat64(network_instance: models.NetworkInstance) -> None:
     if config.VPNC_CONFIG_SERVICE.mode != models.ServiceMode.HUB:
         return
 
-    nat64_scope = general.get_network_instance_nat64_scope(network_instance.id)
+    if not (
+        nat64_scope := general.get_network_instance_nat64_scope(network_instance.id)
+    ):
+        return
 
     # configure NAT64 for the DOWNLINK network instance
     proc = subprocess.run(  # noqa: S602
@@ -267,7 +272,10 @@ def calculate_network_instance_nptv6_mappings(
         return updated, nptv6_list
 
     # Get NPTv6 prefix for this network instance
-    nptv6_scope = general.get_network_instance_nptv6_scope(network_instance.id)
+    if not (
+        nptv6_scope := general.get_network_instance_nptv6_scope(network_instance.id)
+    ):
+        return updated, []
 
     # Get only routes that should have NPTv6 performed.
     for connection in network_instance.connections.values():
@@ -363,8 +371,8 @@ def add_downlink_iptables(
     iptables_configs = {
         "mode": mode,
         "network_instance_name": network_instance.id,
-        "core_interfaces": core_interfaces,
-        "downlink_interfaces": downlink_interfaces,
+        "core_interfaces": sorted(core_interfaces),
+        "downlink_interfaces": sorted(downlink_interfaces),
         "nptv6_networks": nptv6_networks,
     }
     iptables_render = iptables_template.render(**iptables_configs)

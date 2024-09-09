@@ -8,7 +8,6 @@ import os
 import pathlib
 import signal
 import subprocess
-from threading import Lock
 
 from vpnc import models
 
@@ -20,7 +19,7 @@ SSH_SOCKET_DIR.mkdir(mode=777, parents=True, exist_ok=True)
 
 SSH_CONNECTIONS: dict[str, models.Connection] = {}
 
-lock = Lock()
+# lock = Lock()
 
 
 def start(
@@ -125,7 +124,7 @@ autossh -f -M 0 \
         env=autossh_master_env,
     )
     logger.info(master_tunnel_proc.args)
-    logger.info(master_tunnel_proc.stdout, master_tunnel_proc.stderr)
+    logger.info("%s\n%s", master_tunnel_proc.stdout, master_tunnel_proc.stderr)
 
     SSH_CONNECTIONS[connection_name] = connection
     atexit.register(stop, connection_name)

@@ -18,8 +18,28 @@ TABLES4_HUB = [
     ("CORE", ("-P INPUT DROP\n-P FORWARD DROP\n-P OUTPUT DROP")),
     # No IPv4 in C0001-00, even though we do NAT64. These are handled by Jool before
     # iptables forwards traffic
-    ("C0001-00", ("-P INPUT DROP\n-P FORWARD DROP\n-P OUTPUT DROP")),
-    ("C0001-01", ("-P INPUT DROP\n-P FORWARD DROP\n-P OUTPUT DROP")),
+    (
+        "C0001-00",
+        (
+            "-P INPUT DROP\n"
+            "-P FORWARD DROP\n"
+            "-P OUTPUT DROP\n"
+            "-A INPUT -i tun1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
+            "-A INPUT -i xfrm0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
+            "-A OUTPUT -o tun1 -p tcp -m tcp --dport 22 -j ACCEPT\n"
+            "-A OUTPUT -o xfrm0 -p tcp -m tcp --dport 22 -j ACCEPT"
+        ),
+    ),
+    (
+        "C0001-01",
+        (
+            "-P INPUT DROP\n"
+            "-P FORWARD DROP\n"
+            "-P OUTPUT DROP\n"
+            "-A INPUT -i xfrm0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
+            "-A OUTPUT -o xfrm0 -p tcp -m tcp --dport 22 -j ACCEPT"
+        ),
+    ),
 ]
 
 TABLES4_END = [
@@ -59,9 +79,11 @@ TABLES4_END = [
             "-P FORWARD DROP\n"
             "-P OUTPUT DROP\n"
             "-A INPUT -p icmp -j ACCEPT\n"
+            "-A INPUT -i eth2 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             "-A FORWARD -i E0001-00_D -j ACCEPT\n"
             "-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
-            "-A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
+            "-A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
+            "-A OUTPUT -o eth2 -p tcp -m tcp --dport 22 -j ACCEPT"
         ),
     ),
 ]
@@ -147,10 +169,14 @@ TABLES6_HUB = [
             "-P OUTPUT DROP\n"
             "-N icmpv6-in-out\n"
             "-A INPUT -p ipv6-icmp -j icmpv6-in-out\n"
+            "-A INPUT -i tun1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
+            "-A INPUT -i xfrm0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             "-A FORWARD -i C0001-00_D -j ACCEPT\n"
             "-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             "-A OUTPUT -p ipv6-icmp -j icmpv6-in-out\n"
             "-A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
+            "-A OUTPUT -o tun1 -p tcp -m tcp --dport 22 -j ACCEPT\n"
+            "-A OUTPUT -o xfrm0 -p tcp -m tcp --dport 22 -j ACCEPT\n"
             f"{TABLES6_ICMPV6_IN_OUT}"
         ),
     ),
@@ -162,10 +188,12 @@ TABLES6_HUB = [
             "-P OUTPUT DROP\n"
             "-N icmpv6-in-out\n"
             "-A INPUT -p ipv6-icmp -j icmpv6-in-out\n"
+            "-A INPUT -i xfrm0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             "-A FORWARD -i C0001-01_D -j ACCEPT\n"
             "-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             "-A OUTPUT -p ipv6-icmp -j icmpv6-in-out\n"
             "-A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
+            "-A OUTPUT -o xfrm0 -p tcp -m tcp --dport 22 -j ACCEPT\n"
             f"{TABLES6_ICMPV6_IN_OUT}"
         ),
     ),
@@ -181,10 +209,12 @@ TABLES6_END = [
             "-P OUTPUT DROP\n"
             "-N icmpv6-in-out\n"
             "-A INPUT -p ipv6-icmp -j icmpv6-in-out\n"
+            "-A INPUT -i eth2 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             "-A FORWARD -i E0001-00_D -j ACCEPT\n"
             "-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             "-A OUTPUT -p ipv6-icmp -j icmpv6-in-out\n"
             "-A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
+            "-A OUTPUT -o eth2 -p tcp -m tcp --dport 22 -j ACCEPT\n"
             f"{TABLES6_ICMPV6_IN_OUT}"
         ),
     ),

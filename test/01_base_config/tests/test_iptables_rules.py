@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from . import conftest
@@ -154,14 +156,24 @@ class TestIPTablesNAT:
         ).strip()
 
         rules_state_lines = rules_state.split("\n")
-        rules_state_without_masquerade = "\n".join(rules_state_lines[:-1])
-        # The masquerade always has to be at the end.
-        assert rules_state_lines[-1] == "-A POSTROUTING -o xfrm0 -j MASQUERADE"
-        # Masquerade must not be in the rest of the configuration
-        assert (
-            "-A POSTROUTING -o xfrm0 -j MASQUERADE"
-            not in rules_state_without_masquerade
+        first_masquerade_line = 0
+        for idx, line in enumerate(rules_state_lines):
+            if "MASQUERADE" in line:
+                first_masquerade_line = idx
+                break
+
+        masquerades_at_end = all(
+            "MASQUERADE" in x for x in rules_state_lines[first_masquerade_line:]
         )
+
+        # The masquerade always has to be at the end.
+        assert re.match(
+            r"-A POSTROUTING -o \S+ -j MASQUERADE",
+            rules_state_lines[-1],
+        )
+
+        # Masquerade must not be in the rest of the configuration
+        assert masquerades_at_end
 
     @pytest.mark.parametrize(
         ("network_instance", "rules"),

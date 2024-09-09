@@ -79,12 +79,12 @@ def set_(
         with intf:
             if ns_name and ns_name != intf["target"]:
                 intf.set(net_ns_fd=ns_name).commit()
-            if state:
-                intf.set(state=state)
             if addresses:
                 intf.del_ip()
             for i in addresses:
                 intf.add_ip(str(i))
+            if state:
+                intf.set(state=state)
             intf.commit()
 
     if cleanup:
