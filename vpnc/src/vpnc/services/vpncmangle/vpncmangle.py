@@ -24,8 +24,8 @@ def generate_config() -> None:
             output[net_ni.id]["dns64"] = [
                 (str(nat64_scope), str(IPv4Network("0.0.0.0/0"))),
             ]
+            output[net_ni.id]["dns66"] = []
             for connection in net_ni.connections.values():
-                output[net_ni.id]["dns66"] = []
                 for route6 in connection.routes.ipv6:
                     nptv6_prefix = route6.nptv6_prefix
                     if not nptv6_prefix:

@@ -8,6 +8,7 @@ class ConnectionType(Enum):
 
     IPSEC = "ipsec"
     PHYSICAL = "physical"
+    SSH = "ssh"
 
 
 class ServiceMode(Enum):

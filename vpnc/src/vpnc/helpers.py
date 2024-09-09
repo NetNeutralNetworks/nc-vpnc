@@ -54,7 +54,12 @@ def check_system_requirements() -> None:
         sys.exit(1)
 
 
-def load_service_config(config_path: pathlib.Path) -> None:
+def load_service_config(
+    config_path: pathlib.Path,
+) -> tuple[
+    models.ServiceHub | models.ServiceEndpoint,
+    models.ServiceEndpoint | models.ServiceHub | None,
+]:
     """Load the global configuration."""
     try:
         with config_path.open(encoding="utf-8") as f:
@@ -76,7 +81,12 @@ def load_service_config(config_path: pathlib.Path) -> None:
         sys.exit(1)
 
     try:
-        config.VPNC_CONFIG_SERVICE = models.Service(config=new_cfg_dict).config
+        if hasattr(config, "VPNC_CONFIG_SERVICE"):
+            active_tenant = config.VPNC_CONFIG_SERVICE.model_copy(deep=True)
+            config.VPNC_CONFIG_SERVICE = models.Service(config=new_cfg_dict).config
+        else:
+            config.VPNC_CONFIG_SERVICE = models.Service(config=new_cfg_dict).config
+            active_tenant = None
     except pydantic_core.ValidationError:
         logger.critical(
             "Configuration '%s' doesn't adhere to the schema",
@@ -86,6 +96,8 @@ def load_service_config(config_path: pathlib.Path) -> None:
         sys.exit(1)
 
     logger.info("Loaded new configuration.")
+
+    return config.VPNC_CONFIG_SERVICE, active_tenant
 
 
 def parse_downlink_network_instance_name(
@@ -134,11 +146,13 @@ def parse_downlink_network_instance_name(
     raise ValueError(msg)
 
 
-def load_tenant_config(path: pathlib.Path) -> None | models.Tenant:
+def load_tenant_config(
+    path: pathlib.Path,
+) -> tuple[models.Tenant | None, models.Tenant | None]:
     """Load tenant configuration."""
     if not config.DOWNLINK_TEN_RE.match(path.stem):
         logger.exception("Invalid filename found in %s. Skipping.", path)
-        return None
+        return None, None
 
     # Open the configuration file and check if it's valid YAML.
     try:
@@ -153,7 +167,7 @@ def load_tenant_config(path: pathlib.Path) -> None | models.Tenant:
             "Configuration file could not be found at '%s'. Skipping",
             path,
         )
-        return None
+        return None, None
 
     # Parse the YAML file to a DOWNLINK object and validate the input.
     try:
@@ -163,7 +177,7 @@ def load_tenant_config(path: pathlib.Path) -> None | models.Tenant:
             "Invalid configuration found in '%s'. Skipping.",
             path,
         )
-        return None
+        return None, None
 
     if tenant.id != path.stem:
         logger.error(
@@ -174,8 +188,9 @@ def load_tenant_config(path: pathlib.Path) -> None | models.Tenant:
             tenant.id,
             path.stem,
         )
-        return None
+        return None, None
 
-    config.VPNC_CONFIG_TENANT[tenant.name] = tenant
+    active_tenant = config.VPNC_CONFIG_TENANT.get(tenant.id)
+    config.VPNC_CONFIG_TENANT[tenant.id] = tenant
 
-    return tenant
+    return tenant, active_tenant

@@ -38,6 +38,6 @@ network_instances:
           - to: default
             via: 172.16.31.1
         config:
-          type: physical # ipsec | physical
+          type: physical # ipsec | ssh | physical
           interface_name: ens5
   ...

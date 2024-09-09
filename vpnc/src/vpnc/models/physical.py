@@ -62,6 +62,32 @@ class ConnectionConfigPhysical(BaseModel):
 
         return connection.config.interface_name
 
+    def delete(
+        self,
+        network_instance: models.NetworkInstance,
+        connection: models.Connection,
+    ) -> None:
+        """Delete a connection."""
+        interface_name = self.intf_name(connection.id)
+        # run the commands
+        proc = subprocess.run(
+            [
+                "/usr/sbin/ip",
+                "-netns",
+                network_instance.id,
+                "link",
+                "set",
+                "dev",
+                interface_name,
+                "netns",
+                "1",
+            ],
+            capture_output=True,
+            check=False,
+        )
+        logger.info(proc.args)
+        logger.debug(proc.stdout, proc.stderr)
+
     def intf_name(self, _: int) -> str:
         """Return the name of the connection interface."""
         return self.interface_name

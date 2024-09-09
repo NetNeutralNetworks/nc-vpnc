@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import ipaddress
-import json
 import logging
 import subprocess
 from ipaddress import AddressValueError, IPv4Network, IPv6Address, IPv6Network
-from typing import Any
 
 from vpnc import config, helpers, models
 from vpnc.network import namespace
@@ -92,50 +90,25 @@ def add_network_instance_connection(
 
 def delete_network_instance_connection(
     network_instance: models.NetworkInstance,
+    active_network_instance: models.NetworkInstance,
 ) -> None:
     """Delete unconfigured connections (interfaces).
 
     Deletes the connection from the network instance (Linux namespace).
     """
-    # INTERFACES
-    # Get all interfaces in the network instance.
-    proc = subprocess.run(  # noqa: S603
-        ["/usr/sbin/ip", "-json", "-details", "-netns", network_instance.id, "link"],
-        stdout=subprocess.PIPE,
-        check=True,
-    )
-    active_interfaces_ni: list[dict[str, Any]] = json.loads(proc.stdout)
+    active_connections = list(active_network_instance.connections.values())
 
-    # Active interfaces connected to the provider not of type veth or loopback.
-    active_interfaces: list[dict[str, Any]] = [
-        x
-        for x in active_interfaces_ni
-        if x["link_type"] != "loopback"
-        and x.get("linkinfo", {}).get("info_kind") != "veth"
-    ]
     # Configured interfaces for connections.
-    configured_interfaces = get_network_instance_connections(network_instance)
+    configured_connections = get_network_instance_connections(network_instance)
 
-    remove_cmds = ""
-    for active_intf in active_interfaces:
-        if active_intf.get("ifname") in configured_interfaces:
+    for active_connection in active_connections:
+        interface_name = active_connection.intf_name()
+        if not interface_name:
             continue
-        if not active_intf.get("linkinfo"):
-            # Move physical interfaces back to the DEFAULT network instance.
-            remove_cmds += f"/usr/sbin/ip -netns {network_instance.id} link set dev {active_intf.get('ifname')} netns 1\n"  # noqa: E501
+        if interface_name in configured_connections:
             continue
-        remove_cmds += f"/usr/sbin/ip -netns {network_instance.id} link del dev {active_intf.get('ifname')}\n"
 
-    if remove_cmds:
-        # run the commands
-        proc = subprocess.run(  # noqa: S602
-            remove_cmds,
-            capture_output=True,
-            shell=True,
-            check=False,
-        )
-        logger.info(proc.args)
-        logger.debug(proc.stdout, proc.stderr)
+        active_connection.delete(active_network_instance)
 
 
 def add_network_instance_connection_route(
@@ -168,6 +141,7 @@ def add_network_instance_connection_route(
         for route6 in connection.routes.ipv6:
             if not route6.via or connection.config.type in [
                 models.ConnectionType.IPSEC,
+                models.ConnectionType.SSH,
             ]:
                 route_cmds += f"/usr/sbin/ip -netns {network_instance.id} -6 route add {route6.to} dev {interface}\n"
                 continue
@@ -176,6 +150,7 @@ def add_network_instance_connection_route(
         for route4 in connection.routes.ipv4:
             if not route4.via or connection.config.type in [
                 models.ConnectionType.IPSEC,
+                models.ConnectionType.SSH,
             ]:
                 route_cmds += f"/usr/sbin/ip -netns {network_instance.id} -4 route add {route4.to} dev {interface}\n"
                 continue

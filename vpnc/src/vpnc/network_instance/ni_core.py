@@ -35,7 +35,6 @@ def observe_core() -> BaseObserver:
 
         def on_modified(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
-            helpers.load_service_config(config.VPNC_A_CONFIG_PATH_SERVICE)
             time.sleep(0.1)
             update_core_network_instance()
 
@@ -54,11 +53,29 @@ def observe_core() -> BaseObserver:
     return observer
 
 
-def update_core_network_instance() -> None:
+def update_core_network_instance(*, startup: bool = False) -> None:
     """Configure the CORE network instance (Linux namespace)."""
     # Remove network instance connections that aren't configured
-    network_instance = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
-    general.delete_network_instance_connection(network_instance)
+    tenant, active_tenant = helpers.load_service_config(
+        config.VPNC_A_CONFIG_PATH_SERVICE,
+    )
+    network_instance = tenant.network_instances[config.CORE_NI]
+    if active_tenant:
+        active_network_instance = active_tenant.network_instances[config.CORE_NI]
+    else:
+        active_network_instance = None
+
+    if not startup and network_instance == active_network_instance:
+        logger.info(
+            "Network instance '%s' is already in the correct state",
+            network_instance.id,
+        )
+        return
+
+    general.delete_network_instance_connection(
+        network_instance,
+        active_network_instance,
+    )
 
     # Configure connection
     logger.info("Setting up core connections for %s network instance.", config.CORE_NI)

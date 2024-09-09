@@ -63,7 +63,7 @@ def observe_downlink() -> BaseObserver:
     # This doesn't start the handler.
     observer.schedule(
         event_handler=DownlinkHandler(
-            regexes=(config.DOWNLINK_TEN_FILE_RE),
+            regexes=[config.DOWNLINK_TEN_FILE_RE],
             ignore_directories=True,
         ),
         path=config.VPNC_A_CONFIG_DIR,
@@ -96,28 +96,22 @@ def update_downlink_network_instance() -> None:
 
 def add_downlink_network_instance(path: pathlib.Path) -> None:
     """Configure DOWNLINK connections."""
-    if not (tenant := helpers.load_tenant_config(path)):
+    if not (tenant_info := helpers.load_tenant_config(path)):
         return
 
-    # NETWORK INSTANCES AND INTERFACES
-    # Get all network instances created for the configuration file
-    proc = subprocess.run(  # noqa: S603
-        ["/usr/sbin/ip", "-json", "netns"],
-        stdout=subprocess.PIPE,
-        text=True,
-        check=True,
-    )
-    ip_ni = json.loads(proc.stdout)
+    tenant, active_tenant = tenant_info
+    if not tenant:
+        return
 
-    ni_diff = {x["name"] for x in ip_ni if x["name"].startswith(tenant.id)}
-    ni_ref = {
-        x.id
-        for _, x in tenant.network_instances.items()  # pylint: disable=no-member
-        if x.id.startswith(tenant.id)
-    }
+    if not active_tenant:
+        ni_state: set[str] = set()
+    else:
+        ni_state = {x.id for x in active_tenant.network_instances.values()}
+
+    ni_configured = {x.id for x in tenant.network_instances.values()}  # pylint: disable=no-member
 
     # Calculate network instances that need to be removed and remove them.
-    ni_remove = ni_diff.difference(ni_ref)
+    ni_remove = ni_state.difference(ni_configured)
     for ni in ni_remove:
         # delete links to the CORE network instance
         general.delete_network_instance_link(ni)
@@ -126,24 +120,20 @@ def add_downlink_network_instance(path: pathlib.Path) -> None:
 
     logger.info("Setting up tenant %s netns.", tenant.id)
     update_check: list[bool] = []
-    for (
-        key,
-        network_instance,
-    ) in tenant.network_instances.items():  # pylint: disable=no-member
-        if not key.startswith(tenant.id):
-            logger.warning(
-                "Invalid network instance '%s' found for tenant '%s'.",
-                key,
-                tenant.id,
-            )
-            continue
-        if network_instance.id != key:
-            logger.warning(
-                "Network instance name '%s' must be the same as key  '%s'.",
+    for network_instance in tenant.network_instances.values():  # pylint: disable=no-member
+        if not active_tenant:
+            active_network_instance = None
+        else:
+            active_network_instance = active_tenant.network_instances.get(
                 network_instance.id,
-                key,
             )
-            continue
+
+        if network_instance == active_network_instance:
+            logger.info(
+                "Network instance '%s' is already in the correct state",
+                network_instance.id,
+            )
+            return
 
         core_interfaces = [f"{network_instance.id}_D"]
         downlink_interfaces = general.get_network_instance_connections(network_instance)
@@ -155,7 +145,13 @@ def add_downlink_network_instance(path: pathlib.Path) -> None:
         general.add_network_instance_link(network_instance)
 
         # Delete unconfigured connections
-        general.delete_network_instance_connection(network_instance)
+
+        # If there are no active connections, then there should be nothing to delete.
+        if active_network_instance:
+            general.delete_network_instance_connection(
+                network_instance,
+                active_network_instance,
+            )
 
         # Configure NAT64
         add_downlink_nat64(network_instance)

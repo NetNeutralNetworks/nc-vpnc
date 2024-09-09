@@ -36,7 +36,7 @@ EXTERNAL_NI = "EXTERNAL"  # name of the EXTERNAL untrusted network instance
 # Match only non-default tenants
 DOWNLINK_TEN_RE = re.compile(r"^[2-9A-F]\d{4}$")
 # Match only non-default tenant configuration files
-DOWNLINK_TEN_FILE_RE = r"^[2-9A-F]\d{4}.yaml$"
+DOWNLINK_TEN_FILE_RE = r".+\/[2-9A-F]\d{4}\.yaml$"
 # Match only non-default tenant network instances
 DOWNLINK_NI_RE = re.compile(r"^[2-9A-F]\d{4}-\d{2}$")
 # Match only non-default tenant network instance connections

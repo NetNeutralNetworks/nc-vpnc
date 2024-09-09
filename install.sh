@@ -17,7 +17,8 @@ function install_apt_defaults () {
     fi
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
     iptables iproute2 \
-    strongswan strongswan-swanctl
+    strongswan strongswan-swanctl \
+    ssh autossh
 
     # Remove cached apt list after install
     if  [ -f /.dockerenv ]; then
@@ -141,7 +142,7 @@ function create_misc_config () {
 
 function create_vpnc_config () {
     # Create config directories if not exist
-    for i in {candidate,active};
+    for i in {candidate,active,units};
     do
         mkdir -p ${BASEDIR}/config/${SERVICENAME}/${i}
         mkdir -p ${BASEDIR}/config/${SERVICENAME}/${i}
@@ -163,6 +164,11 @@ function create_vpnc_config () {
     # cp --update=none ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example \
     cp -n ${SCRIPTDIR}/config/${SERVICENAME}/config/config-${MODE}.yaml.example \
         ${BASEDIR}/config/${SERVICENAME}/active/DEFAULT.yaml || true
+    if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
+        cp -n ${SCRIPTDIR}/config/${SERVICENAME}/units/ncubed-${SERVICENAME}.service \
+            ${BASEDIR}/config/${SERVICENAME}/units/ncubed-${SERVICENAME}.service || true
+    fi
+
 }
 
 function create_dir_vpnc () {

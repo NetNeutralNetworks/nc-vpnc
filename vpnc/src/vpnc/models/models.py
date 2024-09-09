@@ -31,6 +31,7 @@ from vpnc.models.enums import NetworkInstanceType, ServiceMode
 # Needed for pydantim ports and type checking
 from vpnc.models.ipsec import ConnectionConfigIPsec  # noqa: TCH001
 from vpnc.models.physical import ConnectionConfigPhysical  # noqa: TCH001
+from vpnc.models.ssh import ConnectionConfigSSH  # noqa: TCH001
 
 
 class RouteIPv6(BaseModel):
@@ -106,7 +107,7 @@ class Connection(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     interface: Interface = Field(default_factory=Interface)
     routes: Routes = Field(default_factory=Routes)
-    config: ConnectionConfigIPsec | ConnectionConfigPhysical
+    config: ConnectionConfigIPsec | ConnectionConfigPhysical | ConnectionConfigSSH
 
     @field_validator("metadata", mode="before")
     @classmethod
@@ -187,6 +188,13 @@ class Connection(BaseModel):
     ) -> str:
         """Create a connection."""
         return self.config.add(network_instance, self)
+
+    def delete(
+        self,
+        network_instance: NetworkInstance,
+    ) -> None:
+        """Delete a connection."""
+        return self.config.delete(network_instance, self)
 
     def intf_name(self) -> str:
         """Return the name of the connection interface."""

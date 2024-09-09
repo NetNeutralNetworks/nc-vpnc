@@ -56,14 +56,14 @@ network_instances:
             nptv6: true # Optional, configured by the service automatically.
             # nptv6_prefix: null
           ipv4:
-          - to: default
+          - to: 172.16.30.1
             # via: # Optional, ignored for tunnel interfaces
         config:
-          type: ipsec # ipsec | physical
+          type: ipsec # ipsec | ssh | physical
           # Optional: If not set, defaults to the default service local_id value.
           # local_id: 192.0.2.5
           # IPv6 or IPv4 address
-          remote_addrs: [192.0.2.7]
+          remote_addrs: [192.0.2.7, 2001:db8::7]
           # Optional: If not set, defaults to remote_peer_ip
           # remote_id: 192.0.2.7
           # Optional: defaults to 2
@@ -89,6 +89,28 @@ network_instances:
           #   - 172.30.0.0/16
           #   - 172.31.0.0/16
           #   - 2001:db8:c57::/48
+      1:
+        id: 1
+        # Optional, arbitrary key-value pairs
+        metadata: {}
+        interface:
+        routes:
+          ipv6:
+          ipv4:
+          - to: default
+            # via: # Optional, ignored for tunnel interfaces
+        config:
+          type: ssh # ipsec | physical
+          remote_addrs: [172.16.30.1]
+          # Required. Specifies the remote tunnel identifier to avoid overlap.
+          remote_tunnel_id: 0
+          # Optional: default False, determines if the remote side should be
+          # configured. Requires root.
+          remote_config: true
+          # Optional: if specified, iptables rules for forwarding are also
+          # configured. Requires that remote_config is set to True.
+          remote_config_interface: eth0
+          username: root
 
   C0001-01:
     id: C0001-01

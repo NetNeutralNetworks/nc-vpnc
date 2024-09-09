@@ -37,9 +37,15 @@
 
 
 {#- Output #}
-{#- {%- if mode.name == "ENDPOINT" %} #}
+{#- Basically allow ICMPv6 return traffic #}
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-{#- {%- endif %} #}
 
+{#- Internal SSH tunnels #}
+{%- for interface in downlink_interfaces %}
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A OUTPUT -o {{ interface }} -p tcp --dport 22 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A INPUT -i {{ interface }} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -o {{ interface }} -p tcp --dport 22 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -i {{ interface }} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+{%- endfor %}
 
 {% include 'iptables-ipv6-nat.conf.j2' %}

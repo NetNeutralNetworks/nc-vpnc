@@ -38,6 +38,6 @@ network_instances:
           - to: default
             via: 172.16.30.1
         config:
-          type: physical # ipsec | physical
+          type: physical # ipsec | ssh | physical
           interface_name: eth2
 ...

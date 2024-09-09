@@ -2,7 +2,7 @@
 SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 
 apt update
-apt install -y iproute2 bind9 dnsutils
+DEBIAN_FRONTEND=noninteractive apt install -y iproute2 bind9 dnsutils openssh-server iptables
 
 # Enable forwarding
 sysctl -w net.ipv4.conf.all.forwarding=1
@@ -27,9 +27,15 @@ ip -6 address add fdff:db8:c57:31::6/64 dev lo
 ip -6 address add 2001:db8:c57:31::64/64 dev lo
 ip -6 address add fdff:db8:c57:31::64/64 dev lo
 
+cp -f ${SCRIPTDIR}/authorized_keys /root/.ssh/
+cp -f ${SCRIPTDIR}/sshd_lab.conf /etc/ssh/sshd_config.d/
 cp -f ${SCRIPTDIR}/db.example.com_cli00 /etc/bind/db.example.com
 cp -f ${SCRIPTDIR}/named.conf.local /etc/bind/
 cp -f ${SCRIPTDIR}/named.conf.options /etc/bind/
+
+# start ssh server
+service ssh start
+# sshd -D
 
 # Start DNS server
 named

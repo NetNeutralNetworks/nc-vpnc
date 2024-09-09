@@ -151,6 +151,30 @@ class ConnectionConfigIPsec(BaseModel):
 
         return xfrm
 
+    def delete(
+        self,
+        network_instance: models.NetworkInstance,
+        connection: models.Connection,
+    ) -> None:
+        """Delete a connection."""
+        interface_name = self.intf_name(connection.id)
+        # run the commands
+        proc = subprocess.run(
+            [
+                "/usr/sbin/ip",
+                "-netns",
+                network_instance.id,
+                "link",
+                "del",
+                "dev",
+                interface_name,
+            ],
+            capture_output=True,
+            check=False,
+        )
+        logger.info(proc.args)
+        logger.debug(proc.stdout, proc.stderr)
+
     def intf_name(self, connection_id: int) -> str:
         """Return the name of the connection interface."""
         return f"xfrm{connection_id}"
