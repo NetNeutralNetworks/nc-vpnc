@@ -176,7 +176,7 @@ def get_network_instance_nat64_scope(
 
     nat64_prefix = config.VPNC_CONFIG_SERVICE.prefix_downlink_nat64
     nat64_network_address = int(nat64_prefix[0])
-    offset = f"0:0:{tenant_ext}:{tenant_id}:{network_instance_id}::"
+    offset = f"0:0:{tenant_ext}:{tenant_id:x}:{network_instance_id}::"
     nat64_offset = int(IPv6Address(offset))
     nat64_address = IPv6Address(nat64_network_address + nat64_offset)
     return IPv6Network(nat64_address).supernet(new_prefix=96)
@@ -201,7 +201,7 @@ def get_network_instance_nptv6_scope(
 
     nptv6_superscope = config.VPNC_CONFIG_SERVICE.prefix_downlink_nptv6
     nptv6_network_address = int(nptv6_superscope[0])
-    offset = f"{tenant_ext}:{tenant_id}:{network_instance_id}::"
+    offset = f"{tenant_ext}:{tenant_id:x}:{network_instance_id}::"
     nptv6_offset = int(IPv6Address(offset))
     nptv6_address = IPv6Address(nptv6_network_address + nptv6_offset)
     return IPv6Network(nptv6_address).supernet(new_prefix=48)
