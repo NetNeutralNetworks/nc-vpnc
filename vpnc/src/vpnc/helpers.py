@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 import pydantic_core
 import yaml
 
-from vpnc import config
+from vpnc import config, shared
 from vpnc.models import models
 
 if TYPE_CHECKING:
@@ -20,9 +20,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger("vpnc")
 
 
-def kill_handler(*_: object) -> None:
+def signal_handler(*_: object) -> None:
     """Shut down the program gracefully."""
-    sys.exit(0)
+    logger.info("SIGTERM received. Stopping all threads.")
+    shared.stop_event.set()
 
 
 def check_system_requirements() -> None:

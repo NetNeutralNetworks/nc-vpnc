@@ -13,7 +13,7 @@ import pyroute2
 import vici
 import vici.exception
 
-from vpnc import config, helpers
+from vpnc import config, helpers, shared
 
 logger = logging.getLogger("vpnc")
 
@@ -32,13 +32,14 @@ class Monitor(threading.Thread):
 
     def run(self) -> None:
         """Override and entrypoint of the threading.Thread class."""
-        while True:
+        while not shared.stop_event.is_set():
             try:
-                logger.info("Starting VPNC Monitors")
+                logger.info("Starting VPNC Strongswan monitors")
                 asyncio.run(self.monitor())
             except Exception:  # noqa: BLE001, PERF203
-                logger.warning("VPNC Monitors crashed", exc_info=True)
+                logger.warning("VPNC strongswan monitor crashed", exc_info=True)
                 time.sleep(1)
+        logger.info("Exiting VPNC Strongswan monitor")
 
     async def monitor(self) -> None:
         """Test function."""
@@ -88,7 +89,7 @@ class Monitor(threading.Thread):
         """
         if init_wait:
             await asyncio.sleep(interval)
-        while True:
+        while not shared.stop_event.is_set():
             await asyncio.gather(
                 func(*args, **kwargs),
                 asyncio.sleep(interval),
@@ -133,8 +134,13 @@ class Monitor(threading.Thread):
         """
         vcs = self.connect()
         for event in vcs.listen(
-            event_types=["ike-updown", "child-updown"],  # , timeout=0.05
+            event_types=["ike-updown", "child-updown"],
+            timeout=0.1,
         ):
+            if shared.stop_event.is_set():
+                return
+            if event == (None, None):
+                continue
             event_type, event_data = event
             if event_type is None or event_data is None:
                 continue
@@ -160,8 +166,13 @@ class Monitor(threading.Thread):
 
         # Then check the queue for new events
         for event in vcs.listen(
-            event_types=["ike-updown", "child-updown"],  # , timeout=0.05
+            event_types=["ike-updown", "child-updown"],
+            timeout=0.1,
         ):
+            if shared.stop_event.is_set():
+                return
+            if event == (None, None):
+                continue
             event_type, event_data = event
             if event_type is None or event_data is None:
                 continue
@@ -229,7 +240,6 @@ class Monitor(threading.Thread):
                 action,
             )
             netns.link("set", index=ifidx, state=action)
-
 
     def resolve_duplicate_ike_sa(self, ike_event: IkeData) -> None:
         """Check for duplicate IPsec security associations.

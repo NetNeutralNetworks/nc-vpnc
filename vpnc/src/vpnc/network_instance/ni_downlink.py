@@ -70,7 +70,7 @@ def observe_downlink() -> BaseObserver:
         recursive=False,
     )
     # The handler should exit on main thread close
-    observer.daemon = False
+    observer.daemon = True
 
     return observer
 

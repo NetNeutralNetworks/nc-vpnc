@@ -9,6 +9,8 @@ import subprocess
 import sys
 import time
 
+from vpnc import shared
+
 from . import config, models, network_instance
 from .services import frr, strongswan, vpncmangle
 
@@ -101,5 +103,16 @@ def concentrator() -> None:
     network_instance.update_core_network_instance(startup=True)
     network_instance.manage_downlink_tenants()
 
-    while True:
-        time.sleep(0.1)
+    try:
+        while not shared.stop_event.is_set():
+            time.sleep(1)
+    except KeyboardInterrupt:
+        shared.stop_event.is_set()
+    except Exception:
+        logger.critical(
+            "VPNC ended prematurely.",
+            exc_info=True,
+        )
+        sys.exit(1)
+
+    sys.exit(0)

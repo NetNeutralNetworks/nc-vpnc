@@ -48,8 +48,8 @@ def main() -> None:
 
     # Used to gracefully shutdown, allows the atexit commands to run when a
     # signal is received.
-    signal.signal(signal.SIGINT, helpers.kill_handler)
-    signal.signal(signal.SIGTERM, helpers.kill_handler)
+    signal.signal(signal.SIGINT, helpers.signal_handler)
+    signal.signal(signal.SIGTERM, helpers.signal_handler)
 
     # Start the concentrator
     core.concentrator()
