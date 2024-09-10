@@ -127,6 +127,8 @@ def stop() -> None:
     )
     logger.info(proc.args)
 
+    proc.wait()
+
 
 def start() -> None:
     """Start the IPSec service in the EXTERNAL network instance."""
@@ -143,6 +145,8 @@ def start() -> None:
     logger.info(proc.args)
     time.sleep(5)
     atexit.register(stop)
+
+    proc.wait()
 
     # FRR doesn't monitor for file config changes directly, so a file observer is
     # used to auto reload the configuration.
