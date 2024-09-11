@@ -170,9 +170,9 @@ def get_network_instance_nat64_scope(
 
     ni_info = helpers.parse_downlink_network_instance_name(network_instance_name)
 
-    tenant_ext = ni_info["tenant_ext_str"]  # c, d, e, f
-    tenant_id = ni_info["tenant_id"]  # remote identifier
-    network_instance_id = ni_info["network_instance_id"]  # connection number
+    tenant_ext = ni_info.tenant_ext_str  # c, d, e, f
+    tenant_id = ni_info.tenant_id  # remote identifier
+    network_instance_id = ni_info.network_instance_id  # connection number
 
     nat64_prefix = config.VPNC_CONFIG_SERVICE.prefix_downlink_nat64
     nat64_network_address = int(nat64_prefix[0])
@@ -195,9 +195,9 @@ def get_network_instance_nptv6_scope(
 
     ni_info = helpers.parse_downlink_network_instance_name(network_instance_name)
 
-    tenant_ext = ni_info["tenant_ext_str"]
-    tenant_id = ni_info["tenant_id"]
-    network_instance_id = ni_info["network_instance_id"]
+    tenant_ext = ni_info.tenant_ext_str
+    tenant_id = ni_info.tenant_id
+    network_instance_id = ni_info.network_instance_id
 
     nptv6_superscope = config.VPNC_CONFIG_SERVICE.prefix_downlink_nptv6
     nptv6_network_address = int(nptv6_superscope[0])

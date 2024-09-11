@@ -48,7 +48,7 @@ class ConnectionConfigPhysical(BaseModel):
             )
             raise ValueError
 
-        if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
+        if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
             network_instance,
             connection.id,
         )

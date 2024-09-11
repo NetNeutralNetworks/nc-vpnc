@@ -36,7 +36,7 @@ def observe_core() -> BaseObserver:
         def on_modified(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
             time.sleep(0.1)
-            update_core_network_instance()
+            set_core_network_instance()
 
     # Create the observer object. This doesn't start the handler.
     observer: BaseObserver = Observer()
@@ -53,7 +53,7 @@ def observe_core() -> BaseObserver:
     return observer
 
 
-def update_core_network_instance(*, startup: bool = False) -> None:
+def set_core_network_instance(*, startup: bool = False) -> None:
     """Configure the CORE network instance (Linux namespace)."""
     # Remove network instance connections that aren't configured
     tenant, active_tenant = helpers.load_service_config(

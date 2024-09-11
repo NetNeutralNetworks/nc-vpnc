@@ -46,7 +46,7 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
             ni_info = helpers.parse_downlink_network_instance_name(
                 network_instance_id,
             )
-            tenant_id = ni_info["tenant"]
+            tenant_id = ni_info.tenant
             net_inst = config.VPNC_CONFIG_TENANT[tenant_id].network_instances[
                 network_instance_id
             ]

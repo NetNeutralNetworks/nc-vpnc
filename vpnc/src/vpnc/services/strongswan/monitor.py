@@ -194,13 +194,13 @@ class Monitor(threading.Thread):
 
         if ike_name.startswith(config.CORE_NI):
             tenant_id = "DEFAULT"
-            network_instance_name = config.CORE_NI
-            connection_id = ike_name[-1]
+            network_instance_name: str | None = config.CORE_NI
+            connection_id: str | None = ike_name[-1]
         else:
             ni_info = helpers.parse_downlink_network_instance_name(ike_name)
-            tenant_id = ni_info["tenant"]
-            network_instance_name = ni_info["network_instance"]
-            connection_id = ni_info["connection_id"]
+            tenant_id = ni_info.tenant
+            network_instance_name = ni_info.network_instance
+            connection_id = ni_info.connection_id
             tenant_config_file = config.VPNC_A_CONFIG_DIR.joinpath(f"{tenant_id}.yaml")
             # When a connection configuration is deleted, the SA is deleted when the
             # monitor_connection function runs. Before this happens however, there is a

@@ -12,7 +12,7 @@ from ipaddress import (
     IPv6Network,
     NetmaskValueError,
 )
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from packaging.version import Version
 from pydantic import (
@@ -26,6 +26,7 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from vpnc import config, helpers
+from vpnc.models import enums
 from vpnc.models.enums import NetworkInstanceType, ServiceMode
 
 # Needed for pydantim ports and type checking
@@ -34,8 +35,22 @@ from vpnc.models.physical import ConnectionConfigPhysical  # noqa: TCH001
 from vpnc.models.ssh import ConnectionConfigSSH  # noqa: TCH001
 
 
+class TenantInformation(BaseModel):
+    """Contains the parsed tenant/network/connection information."""
+
+    tenant: str
+    tenant_ext: int
+    tenant_ext_str: str
+    tenant_id: int
+    tenant_id_str: str
+    network_instance: str | None
+    network_instance_id: int | None
+    connection: str | None
+    connection_id: int | None
+
+
 class RouteIPv6(BaseModel):
-    """IPv6 routes."""
+    """Define IPv6 routes. Include the option to enable/disable NPTv6 for the route."""
 
     to: IPv6Network
     via: IPv6Address | None = None
@@ -51,7 +66,7 @@ class RouteIPv6(BaseModel):
 
 
 class RouteIPv4(BaseModel):
-    """IPv4 routes."""
+    """Define IPv4 routes."""
 
     to: IPv4Network
     via: IPv4Address | None = None
@@ -65,7 +80,7 @@ class RouteIPv4(BaseModel):
 
 
 class Routes(BaseModel):
-    """Routes."""
+    """Define route (IPv4 and IPv6) configuration for a connection."""
 
     ipv6: list[RouteIPv6] = Field(default_factory=list)
     ipv4: list[RouteIPv4] = Field(default_factory=list)
@@ -82,7 +97,7 @@ class Routes(BaseModel):
 
 
 class Interface(BaseModel):
-    """Interface configuration such as IP addresses."""
+    """Define interface configuration such as IP addresses."""
 
     ipv6: list[IPv6Interface] = Field(default_factory=list)
     ipv4: list[IPv4Interface] = Field(default_factory=list)
@@ -98,8 +113,38 @@ class Interface(BaseModel):
         return v
 
 
+class ConnectionConfig(Protocol):
+    """Defines the structure for connection configrations."""
+
+    type: enums.ConnectionType
+
+    def add(self, network_instance: NetworkInstance, connection: Connection) -> str:
+        """Create a connection."""
+        ...
+
+    def delete(
+        self,
+        network_instance: NetworkInstance,
+        connection: Connection,
+    ) -> None:
+        """Delete a connection."""
+        ...
+
+    def intf_name(self, connection_id: int) -> str:
+        """Return the name of the connection interface."""
+        ...
+
+    def status_summary(
+        self,
+        network_instance: NetworkInstance,
+        connection_id: int,
+    ) -> dict[str, Any]:
+        """Get the connection status."""
+        ...
+
+
 class Connection(BaseModel):
-    """Define a connection data structure."""
+    """Define a connection data structure used in a network instance."""
 
     model_config = ConfigDict(validate_assignment=True)
 
@@ -130,29 +175,30 @@ class Connection(BaseModel):
             return Routes(ipv6=[], ipv4=[])
         return v
 
-    def calculate_ip_addresses(
+    def calc_interface_ip_addresses(
         self,
         network_instance: NetworkInstance,
         connection_id: int,
     ) -> tuple[list[IPv4Interface], list[IPv6Interface]]:
         """Calculate Interface IP addresses for a DOWNLINK if not configured."""
         is_downlink: bool = network_instance.type == NetworkInstanceType.DOWNLINK
-        parsed_ni: dict[str, Any] = {}
+        ni_info: TenantInformation | None = None
         if is_downlink:
-            parsed_ni = helpers.parse_downlink_network_instance_name(
+            ni_info = helpers.parse_downlink_network_instance_name(
                 network_instance.id,
             )
         if (
             not self.interface.ipv4  # pylint: disable=no-member
             and is_downlink
+            and ni_info
             and isinstance(config.VPNC_CONFIG_SERVICE, ServiceHub)
         ):
             pdi4 = config.VPNC_CONFIG_SERVICE.prefix_downlink_interface_v4
 
-            assert isinstance(parsed_ni["network_instance_id"], int)
+            assert isinstance(ni_info.network_instance_id, int)
 
             ipv4_ni_network: IPv4Network = list(pdi4.subnets(new_prefix=24))[
-                parsed_ni["network_instance_id"]
+                ni_info.network_instance_id
             ]
             ipv4_con_network = list(ipv4_ni_network.subnets(new_prefix=28))[
                 connection_id
@@ -166,11 +212,12 @@ class Connection(BaseModel):
         if (
             not self.interface.ipv6  # pylint: disable=no-member
             and is_downlink
+            and ni_info
             and isinstance(config.VPNC_CONFIG_SERVICE, ServiceHub)
         ):
             pdi6 = config.VPNC_CONFIG_SERVICE.prefix_downlink_interface_v6
-            ipv6_ni_network = list(pdi6.subnets(new_prefix=48))[
-                parsed_ni["network_instance_id"]
+            ipv6_ni_network: IPv6Network = list(pdi6.subnets(new_prefix=48))[
+                ni_info.network_instance_id
             ]
             interface_ipv6_address = [
                 ipaddress.IPv6Interface(
@@ -197,7 +244,7 @@ class Connection(BaseModel):
         return self.config.delete(network_instance, self)
 
     def intf_name(self) -> str:
-        """Return the name of the connection interface."""
+        """Return the name of the connection's interface."""
         return self.config.intf_name(self.id)
 
     def status_summary(
@@ -274,7 +321,7 @@ class Tenant(BaseModel):
 
 
 class BGPGlobal(BaseModel):
-    """Define global BGP data structure."""
+    """Define BGP global data structure."""
 
     asn: int = 4200000000
     router_id: IPv4Address

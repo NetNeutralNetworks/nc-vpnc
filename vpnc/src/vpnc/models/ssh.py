@@ -52,7 +52,7 @@ class ConnectionConfigSSH(BaseModel):
             raise ValueError(err)
         tun = self.intf_name(connection.id)
 
-        if_ipv4, if_ipv6 = connection.calculate_ip_addresses(
+        if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
             network_instance,
             connection.id,
         )

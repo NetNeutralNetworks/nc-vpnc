@@ -189,7 +189,6 @@ def set_downlink_network_instance(
 
     core_interfaces = [f"{network_instance.id}_D"]
     downlink_interfaces = general.get_network_instance_connections(network_instance)
-
     # IP(6)TABLES RULES including NPTv6
     updated, _ = add_downlink_iptables(
         config.VPNC_CONFIG_SERVICE.mode,

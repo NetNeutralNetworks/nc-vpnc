@@ -100,7 +100,7 @@ def concentrator() -> None:
     downlink_obs = network_instance.observe_downlink()
     downlink_obs.start()
 
-    network_instance.update_core_network_instance(startup=True)
+    network_instance.set_core_network_instance(startup=True)
     network_instance.manage_downlink_tenants()
 
     try:

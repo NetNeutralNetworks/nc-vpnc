@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pydantic_core
 import yaml
@@ -103,45 +103,45 @@ def load_service_config(
 
 def parse_downlink_network_instance_name(
     name: str,
-) -> dict[str, Any]:
+) -> models.TenantInformation:
     """Parse a connection name into it's components."""
     if config.DOWNLINK_CON_RE.match(name):
-        return {
-            "tenant": name[:5],
-            "tenant_ext": int(name[0], 16),
-            "tenant_ext_str": name[0],
-            "tenant_id": int(name[1:5], 16),
-            "tenant_id_str": name[1:5],
-            "network_instance": name[:8],
-            "network_instance_id": int(name[6:8], 16),
-            "connection": name,
-            "connection_id": int(name[-1], 16),
-        }
+        return models.TenantInformation(
+            tenant=name[:5],
+            tenant_ext=int(name[0], 16),
+            tenant_ext_str=name[0],
+            tenant_id=int(name[1:5], 16),
+            tenant_id_str=name[1:5],
+            network_instance=name[:8],
+            network_instance_id=int(name[6:8], 16),
+            connection=name,
+            connection_id=int(name[-1], 16),
+        )
 
     if config.DOWNLINK_NI_RE.match(name):
-        return {
-            "tenant": name[:5],
-            "tenant_ext": int(name[0], 16),
-            "tenant_ext_str": name[0],
-            "tenant_id": int(name[1:5], 16),
-            "tenant_id_str": name[1:5],
-            "network_instance": name[:8],
-            "network_instance_id": int(name[6:8], 16),
-            "connection": None,
-            "connection_id": None,
-        }
+        return models.TenantInformation(
+            tenant=name[:5],
+            tenant_ext=int(name[0], 16),
+            tenant_ext_str=name[0],
+            tenant_id=int(name[1:5], 16),
+            tenant_id_str=name[1:5],
+            network_instance=name[:8],
+            network_instance_id=int(name[6:8], 16),
+            connection=None,
+            connection_id=None,
+        )
     if config.DOWNLINK_TEN_RE.match(name):
-        return {
-            "tenant": name[:5],
-            "tenant_ext": int(name[0], 16),
-            "tenant_ext_str": name[0],
-            "tenant_id": int(name[1:5], 16),
-            "tenant_id_str": name[1:5],
-            "network_instance": None,
-            "network_instance_id": None,
-            "connection": None,
-            "connection_id": None,
-        }
+        return models.TenantInformation(
+            tenant=name[:5],
+            tenant_ext=int(name[0], 16),
+            tenant_ext_str=name[0],
+            tenant_id=int(name[1:5], 16),
+            tenant_id_str=name[1:5],
+            network_instance=None,
+            network_instance_id=None,
+            connection=None,
+            connection_id=None,
+        )
 
     msg = f"Invalid network instance/connection name '{name}'"
     raise ValueError(msg)
