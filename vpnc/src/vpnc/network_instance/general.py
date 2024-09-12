@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import subprocess
+import time
 from ipaddress import AddressValueError, IPv4Network, IPv6Address, IPv6Network
 
 import pyroute2
@@ -25,6 +26,7 @@ def set_network_instance(
     logger.info("Setting up %s network instance.", network_instance.id)
     namespace.add(name=network_instance.id, cleanup=cleanup)
 
+    time.sleep(0.05)
     if network_instance.type == models.NetworkInstanceType.DOWNLINK:
         add_network_instance_link(network_instance)
     routes.start(network_instance.id)

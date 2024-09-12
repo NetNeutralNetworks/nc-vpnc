@@ -1,7 +1,7 @@
 # nc-vpnc
 
-A VPN service that has the following features:
-* A bridge between management environment and clients.
+A VPN concentrator service that has the following features:
+* A bridge between management environment and tenant (client) networks.
 * Uses IPv6 internally to accomodate client IPv4 overlap. Uses NAT64 to map a clients entire possible IPv4 address space into IPv6.
 * DNS64 mangling translates A records resolved in a client network to AAAA records.
 * Uses dynamic routing via BGP to exchange routes from established VPNs to the management environment.
