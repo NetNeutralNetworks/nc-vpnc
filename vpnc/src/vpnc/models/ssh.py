@@ -116,12 +116,7 @@ class ConnectionConfigSSH(BaseModel):
         if_name = self.intf_name(connection_id)
         status_command = subprocess.run(  # noqa: S603
             [
-                "/usr/sbin/ip",
-                "--json",
-                "netns",
-                "exec",
-                network_instance.id,
-                "ssh",
+                "/usr/bin/ssh",
                 "-o",
                 f"ControlPath={ssh_master_socket}",
                 "-O",
@@ -135,7 +130,7 @@ class ConnectionConfigSSH(BaseModel):
         logger.info(status_command.args)
         logger.info(status_command.stdout, status_command.stderr)
 
-        status = "ACTIVE" if "Master running" in status_command.stdout else "INACTIVE"
+        status = "ACTIVE" if status_command.returncode == 0 else "INACTIVE"
 
         output = json.loads(
             subprocess.run(  # noqa: S603

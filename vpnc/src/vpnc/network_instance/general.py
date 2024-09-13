@@ -318,13 +318,16 @@ def get_network_instance_nat64_mappings_state(
             " grep pool6 |"
             " awk '{ print $2 }'"
         ),
-        stdout=subprocess.PIPE,
+        capture_output=True,
+        text=True,
         shell=True,
         check=False,
     )
 
+    if not proc.stdout.strip():
+        return None
     try:
-        return IPv6Network(proc.stdout.decode().strip()), IPv4Network("0.0.0.0/0")
+        return IPv6Network(proc.stdout.strip()), IPv4Network("0.0.0.0/0")
     except AddressValueError:
         return None
 
@@ -346,6 +349,9 @@ def get_network_instance_nptv6_mappings_state(
     )
 
     output: list[tuple[IPv6Network, IPv6Network]] = []
+
+    if not proc.stdout:
+        return output
     try:
         for mapping_str in proc.stdout.decode().strip().split("\n"):
             mapping: list[str] = mapping_str.split()
