@@ -172,8 +172,8 @@ def set_downlink_network_instance(
 ) -> bool:
     """Configure the DOWNLINKnetwork instance (Linux namespace)."""
     if network_instance == active_network_instance:
-        logger.info(
-            "Network instance '%s' is already in the correct state",
+        logger.debug(
+            "Network instance '%s' is already in the correct state.",
             network_instance.id,
         )
         return False
@@ -231,11 +231,16 @@ def delete_downlink_network_instance(vpn_id: str) -> None:
 def add_downlink_nat64(network_instance: models.NetworkInstance) -> None:
     """Add NAT64 rules to a network instance (Linux namespace)."""
     if config.VPNC_CONFIG_SERVICE.mode != models.ServiceMode.HUB:
+        logger.debug("Not running in hub mode. Not configuring NAT64.")
         return
 
     if not (
         nat64_scope := general.get_network_instance_nat64_scope(network_instance.id)
     ):
+        logger.warning(
+            "No NAT64 scope found for network instance %s",
+            network_instance.id,
+        )
         return
     # configure NAT64 for the DOWNLINK network instance
     try:
@@ -257,6 +262,11 @@ def add_downlink_nat64(network_instance: models.NetworkInstance) -> None:
         proc.wait()
         proc.release()
     try:
+        logger.info(
+            "Configuring network instance %s NAT64 scope %s",
+            network_instance.id,
+            nat64_scope,
+        )
         proc = pyroute2.NSPopen(
             network_instance.id,
             # Stop Strongswan in the EXTERNAL network instance.
@@ -272,7 +282,7 @@ def add_downlink_nat64(network_instance: models.NetworkInstance) -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        logger.info(
+        logger.debug(
             "Executing in network instance %s: %s",
             network_instance.id,
             proc.args,
@@ -400,7 +410,8 @@ def add_downlink_iptables(
         "nptv6_networks": nptv6_networks,
     }
     iptables_render = iptables_template.render(**iptables_configs)
-    logger.info(iptables_render)
+    logger.info("Configuring network instance %s iptables rules.", network_instance.id)
+    logger.debug(iptables_render)
     proc = subprocess.run(  # noqa: S602
         iptables_render,
         stdout=subprocess.PIPE,

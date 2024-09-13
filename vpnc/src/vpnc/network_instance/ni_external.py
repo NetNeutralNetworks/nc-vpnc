@@ -25,7 +25,8 @@ def add_external_iptables(network_instance: models.NetworkInstance) -> None:
         "network_instance_name": network_instance.id,
     }
     iptables_render = iptables_template.render(**iptables_configs)
-    logger.info(iptables_render)
+    logger.info("Configuring network instance %s iptables rules.", network_instance.id)
+    logger.debug(iptables_render)
     proc = subprocess.run(  # noqa: S602
         iptables_render,
         stdout=subprocess.PIPE,

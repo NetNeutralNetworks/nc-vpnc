@@ -49,14 +49,15 @@ def observe() -> BaseObserver:
         def reload_config(self) -> None:
             """Load FRR config from file in an idempotent way."""
             # Wait to make sure the file is written
+
+            logger.info("Reloading FRR configuration.")
             proc = subprocess.run(  # noqa: S603
                 [
                     "/usr/lib/frr/frr-reload.py",
                     "/etc/frr/frr.conf",
                     "--reload",
-                    "--stdout",
                 ],
-                stdout=subprocess.PIPE,
+                capture_output=True,
                 check=True,
             )
             logger.debug(proc.stdout)
@@ -110,8 +111,9 @@ def generate_config() -> None:
         "prefix_downlink_nptv6": config.VPNC_CONFIG_SERVICE.prefix_downlink_nptv6,
     }
 
+    logger.info("Generating FRR configuration.")
     frr_render = frr_template.render(**frr_cfg)
-    logger.info(frr_render)
+    logger.debug(frr_render)
 
     with config.FRR_CONFIG_PATH.open("w+", encoding="utf-8") as f:
         f.write(frr_render)
@@ -119,6 +121,7 @@ def generate_config() -> None:
 
 def stop() -> None:
     """Shut down IPsec when terminating the program."""
+    logger.info("Stopping FRR process.")
     proc = subprocess.Popen(  # noqa: S603
         ["/usr/lib/frr/frrinit.sh", "stop"],
         stdout=subprocess.PIPE,
@@ -136,13 +139,14 @@ def start() -> None:
     logger.debug("Unlinking FRR config file %s at startup", config.FRR_CONFIG_PATH)
     config.FRR_CONFIG_PATH.unlink(missing_ok=True)
 
+    logger.info("Starting FRR process.")
     proc = subprocess.Popen(  # noqa: S603
         ["/usr/lib/frr/frrinit.sh", "start"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=False,
     )
-    logger.info(proc.args)
+    logger.debug(proc.args)
     time.sleep(5)
     atexit.register(stop)
 
@@ -150,6 +154,6 @@ def start() -> None:
 
     # FRR doesn't monitor for file config changes directly, so a file observer is
     # used to auto reload the configuration.
-    logger.info("Monitoring frr config changes.")
+    logger.info("Monitoring FRR configuration changes.")
     obs = observe()
     obs.start()

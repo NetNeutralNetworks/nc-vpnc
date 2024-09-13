@@ -9,6 +9,8 @@ import subprocess
 import sys
 import time
 
+import vici
+
 from vpnc import shared
 
 from . import config, models, network_instance
@@ -21,7 +23,7 @@ def concentrator() -> None:
     """Set up the DEFAULT tenant."""
     logger.info("#" * 100)
     logger.info(
-        "Starting ncubed VPNC strongSwan daemon in %s mode.",
+        "Starting ncubed vpnc daemon in %s mode.",
         config.VPNC_CONFIG_SERVICE.mode.name,
     )
 
@@ -42,12 +44,14 @@ def concentrator() -> None:
 
     # Create and mount the EXTERNAL network instance.
     # This provides VPN connectivity
-    logger.info("Setting up %s network instance", config.EXTERNAL_NI)
     external_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.EXTERNAL_NI]
     try:
         network_instance.set_network_instance(external_ni, None)
     except ValueError:
-        logger.critical("Setting up the EXTERNAL network instance failed.")
+        logger.critical(
+            "Setting up the %s network instance failed.",
+            config.EXTERNAL_NI,
+        )
         sys.exit(1)
     network_instance.add_external_iptables(external_ni)
 
@@ -57,14 +61,29 @@ def concentrator() -> None:
     try:
         network_instance.set_network_instance(core_ni, None)
     except ValueError:
-        logger.critical("Setting up the CORE network instance failed.")
+        logger.critical("Setting up the %s network instance failed.", config.CORE_NI)
         sys.exit(1)
 
     # The IPSec process must be started in the EXTERNAL network instance.
+    logger.info("Starting Strongswan process.")
     strongswan.start()
-    time.sleep(5)
+    tries = 50
+    delay = 0.1
+    for i in range(tries):
+        try:
+            vici.Session()
+            break
+        except (ConnectionRefusedError, FileNotFoundError):
+            if i >= tries:
+                logger.critical(
+                    "VICI socket not available after %s tries. Exiting.",
+                    tries,
+                )
+                sys.exit(1)
+            logger.info("VICI socket is not yet available. Retrying.")
+            time.sleep(delay)
     # Start the VPNC Security Association monitor to fix duplicate connections.
-    logger.info("Monitoring IKE/IPsec security associations for errors.")
+    logger.info("Starting Strongswan monitor")
     sa_mon = strongswan.Monitor(daemon=True)
     sa_mon.start()
 
@@ -72,6 +91,7 @@ def concentrator() -> None:
         # VPNC in hub mode performs NAT64 using Jool. The kernel module must be loaded
         # before it can be used.
         # Load the NAT64 kernel module (jool).
+        logger.info("Loading kernel module Jool.")
         proc = subprocess.run(  # noqa: S603
             ["/usr/sbin/modprobe", "jool"],
             stdout=subprocess.PIPE,
@@ -82,21 +102,19 @@ def concentrator() -> None:
         # VPNC in hub mode doctors DNS responses so requests are sent via the tunnel.
         # Start the VPNC mangle process in the CORE network instance.
         # This process mangles DNS responses to translate A responses to AAAA responses.
-        logger.info("Start vpncmangle.")
         vpncmangle.start()
 
         # VPNC in hub mode uses FRR to exchange routes. Start FRR to make sure it can
         # load the CORE and EXTERNAL network instances
-        logger.info("Start FRR.")
         frr.start()
 
     # Start the event handler.
-    logger.info("Monitoring CORE config changes.")
+    logger.info("Monitoring %s network instance config changes.", config.CORE_NI)
     core_obs = network_instance.observe_core()
     core_obs.start()
 
     # Start the event handler.
-    logger.info("Monitoring downlink config changes.")
+    logger.info("Monitoring DOWNLINK network instance config changes.")
     downlink_obs = network_instance.observe_downlink()
     downlink_obs.start()
 
@@ -114,5 +132,3 @@ def concentrator() -> None:
             exc_info=True,
         )
         sys.exit(1)
-
-    sys.exit(0)

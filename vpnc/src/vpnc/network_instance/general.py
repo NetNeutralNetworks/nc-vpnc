@@ -29,7 +29,7 @@ def set_network_instance(
     cleanup: bool = False,  # noqa: FBT001, FBT002
 ) -> None:
     """Add a network instance (Linux namespace) and enable forwarding if needed."""
-    logger.info("Setting up %s network instance.", network_instance.id)
+    logger.info("Setting up the %s network instance.", network_instance.id)
     namespace.add(name=network_instance.id, cleanup=cleanup)
 
     attempts = 20
@@ -41,11 +41,8 @@ def set_network_instance(
                 "Network instance %s did not instantiate correctly. Not configured.",
                 network_instance.id,
             )
+            raise ValueError
         time.sleep(0.05)
-
-    if network_instance.type == models.NetworkInstanceType.DOWNLINK:
-        add_network_instance_link(network_instance)
-    routes.start(network_instance.id)
 
     # IPv6 and IPv4 routing is enabled on the network instance only for CORE
     # and DOWNLINK.
@@ -53,18 +50,35 @@ def set_network_instance(
         models.NetworkInstanceType.CORE,
         models.NetworkInstanceType.DOWNLINK,
     ):
-        proc = subprocess.run(
-            f"""
-            # enable routing
-            /usr/sbin/ip netns exec {network_instance.id} sysctl -w net.ipv6.conf.all.forwarding=1
-            /usr/sbin/ip netns exec {network_instance.id} sysctl -w net.ipv4.conf.all.forwarding=1
-            """,  # noqa: E501
-            stdout=subprocess.PIPE,
-            shell=True,
-            check=True,
+        logger.info(
+            "Enabling network instance %s IPv6 forwarding.",
+            network_instance.id,
         )
-        logger.info(proc.args)
-        logger.debug(proc.stdout)
+        proc = pyroute2.NSPopen(
+            network_instance.id,
+            ["sysctl", "-w", "net.ipv6.conf.all.forwarding=1"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        proc.wait()
+        proc.release()
+
+        logger.info(
+            "Enabling network instance %s IPv4 forwarding.",
+            network_instance.id,
+        )
+        proc = pyroute2.NSPopen(
+            network_instance.id,
+            ["sysctl", "-w", "net.ipv4.conf.all.forwarding=1"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        proc.wait()
+        proc.release()
+
+    if network_instance.type == models.NetworkInstanceType.DOWNLINK:
+        add_network_instance_link(network_instance)
+    routes.start(network_instance.id)
 
     set_network_instance_connection(network_instance, active_network_instance)
 
@@ -72,8 +86,8 @@ def set_network_instance(
 def delete_network_instance(network_instance: str) -> None:
     """Delete a network instance (Linux namespace)."""
     # run the network instance remove commands
-    namespace.delete(network_instance)
     routes.stop(network_instance)
+    namespace.delete(network_instance)
 
 
 def get_network_instance_connections(
@@ -102,7 +116,14 @@ def set_network_instance_connection(
     ni_core = pyroute2.NetNS(config.CORE_NI)
     with ni_dl, ni_core:
         for connection in network_instance.connections.values():
+            logger.info(
+                "Setting up network instance %s connection %s.",
+                network_instance.id,
+                connection.id,
+            )
             active_connection = None
+            # Match the configured connection to an active, running connection,
+            # if it exists).
             if active_network_instance and active_network_instance.connections:
                 active_connection = active_network_instance.connections.get(
                     connection.id,
@@ -232,10 +253,16 @@ def add_network_instance_link(
     veth_c = f"{network_instance.id}_C"
     veth_d = f"{network_instance.id}_D"
 
+    logger.info(
+        "Setting up the connection between %s and the %s network instance",
+        network_instance.id,
+        config.CORE_NI,
+    )
     with pyroute2.NetNS(netns=network_instance.id) as ni_dl, pyroute2.NetNS(
         netns=config.CORE_NI,
     ) as ni_core:
         # add veth interfaces between CORE and DOWNLINK network instance
+        logger.info("Adding veth pair %s and %s.", veth_c, veth_d)
         if not ni_core.link_lookup(ifname=veth_c):
             ni_core.link(
                 "add",
@@ -244,19 +271,33 @@ def add_network_instance_link(
                 peer={"ifname": veth_d, "net_ns_fd": network_instance.id},
             )
         # bring veth interfaces up
+        logger.info(
+            "Setting veth pair %s and %s interface status to up.",
+            veth_c,
+            veth_d,
+        )
         ifidx_core: int = ni_core.link_lookup(ifname=veth_c)[0]
         ifidx_dl: int = ni_dl.link_lookup(ifname=veth_d)[0]
 
-        # assign IP addresses to veth interfaces
         ni_core.link("set", index=ifidx_core, state="up")
         ni_dl.link("set", index=ifidx_dl, state="up")
 
         # assign IP addresses to veth interfaces
+        logger.info(
+            "Setting veth pair %s and %s interface IPv6 addresses.",
+            veth_c,
+            veth_d,
+        )
         ni_core.addr("replace", index=ifidx_core, address="fe80::", prefixlen=64)
         ni_dl.addr("replace", index=ifidx_dl, address="fe80::1", prefixlen=64)
 
         if config.VPNC_CONFIG_SERVICE.mode == models.ServiceMode.ENDPOINT:
             # assign IP addresses to veth interfaces
+            logger.info(
+                "Setting veth pair %s and %s interface IPv4 addresses.",
+                veth_c,
+                veth_d,
+            )
             ni_core.addr(
                 "replace",
                 index=ifidx_core,
@@ -269,6 +310,11 @@ def add_network_instance_link(
         # add route from DOWNLINK to MGMT/uplink network via CORE network instance
         for connection in core_ni.connections.values():
             for route6 in connection.routes.ipv6:
+                logger.info(
+                    "Setting DOWNLINK to CORE route: %s, gateway fe80::, ifname %s interface.",
+                    route6.to,
+                    veth_d,
+                )
                 route.command(
                     ni_dl,
                     "replace",
@@ -278,6 +324,11 @@ def add_network_instance_link(
                 )
             if config.VPNC_CONFIG_SERVICE.mode != models.ServiceMode.HUB:
                 for route4 in connection.routes.ipv4:
+                    logger.info(
+                        "Setting DOWNLINK to CORE route: %s, gateway 169.254.0.1, ifname %s interface.",
+                        route4.to,
+                        veth_d,
+                    )
                     route.command(
                         ni_dl,
                         "replace",

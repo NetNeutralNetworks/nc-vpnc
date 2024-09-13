@@ -81,7 +81,7 @@ def set_core_network_instance(*, startup: bool = False) -> None:
 
     # IP(6)TABLES RULES
     connection_names = general.get_network_instance_connections(network_instance)
-    add_core_iptables(config.VPNC_CONFIG_SERVICE.mode, config.CORE_NI, connection_names)
+    add_core_iptables(config.CORE_NI, connection_names)
 
     # VPN
     logger.info("Setting up VPN tunnels.")
@@ -93,8 +93,7 @@ def set_core_network_instance(*, startup: bool = False) -> None:
 
 
 def add_core_iptables(
-    mode: models.ServiceMode,
-    network_instance_name: str,
+    network_instance_id: str,
     interfaces: list[str],
 ) -> None:
     """Add ip(6)table rules for the CORE network instance.
@@ -104,12 +103,16 @@ def add_core_iptables(
     """
     iptables_template = TEMPLATES_ENV.get_template("iptables-core.conf.j2")
     iptables_configs: dict[str, Any] = {
-        "mode": mode,
-        "network_instance_name": network_instance_name,
+        "mode": config.VPNC_CONFIG_SERVICE.mode,
+        "network_instance_name": network_instance_id,
         "interfaces": sorted(interfaces),
     }
     iptables_render = iptables_template.render(**iptables_configs)
-    logger.info(iptables_render)
+    logger.info(
+        "Configuring network instance %s iptables rules.",
+        network_instance_id,
+    )
+    logger.debug(iptables_render)
     proc = subprocess.run(  # noqa: S602
         iptables_render,
         stdout=subprocess.PIPE,

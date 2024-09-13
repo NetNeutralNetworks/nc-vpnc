@@ -45,6 +45,7 @@ def generate_config() -> None:
 
 def stop(proc: pyroute2.NSPopen) -> None:
     """Shut down the vpncmangle service when terminating the program."""
+    logger.info("Stopping vpncmangle process in network instance %s.", config.CORE_NI)
     proc.terminate()
     proc.wait()
 
@@ -54,6 +55,7 @@ def start() -> None:
     # VPNC in hub mode doctors DNS responses so requests are sent via the tunnel.
     # Start the VPNC mangle process in the CORE network instance.
     # This process mangles DNS responses to translate A responses to AAAA responses.
+    logger.info("Starting vpncmangle process in network instance %s.", config.CORE_NI)
     proc = pyroute2.NSPopen(
         config.CORE_NI,
         # Stop Strongswan in the EXTERNAL network instance.
@@ -61,9 +63,5 @@ def start() -> None:
         stderr=subprocess.PIPE,
         stdout=subprocess.PIPE,
     )
-    logger.info(
-        "Executing in network instance %s: %s",
-        config.CORE_NI,
-        proc.args,
-    )
+
     atexit.register(stop, proc)

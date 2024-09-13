@@ -340,7 +340,7 @@ class Monitor(threading.Thread):
         for i in range(tries):
             try:
                 return vici.Session()
-            except ConnectionRefusedError as err:  # noqa: PERF203
+            except (ConnectionRefusedError, FileNotFoundError) as err:  # noqa: PERF203
                 if i >= tries:
                     logger.warning(
                         "VICI socket not available after %s tries. Exiting.",

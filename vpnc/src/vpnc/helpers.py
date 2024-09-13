@@ -32,9 +32,11 @@ def check_system_requirements() -> None:
     module: str = ""
     try:
         for module in module_list:
+            logger.debug("Verifying kernel module %s is installed", module)
             subprocess.run(  # noqa: S603
                 ["/usr/sbin/modinfo", module],
                 check=True,
+                stdout=subprocess.PIPE,
             )
     except subprocess.CalledProcessError:
         logger.critical("The '%s' kernel module isn't installed. Exiting.", module)
@@ -46,8 +48,10 @@ def check_system_requirements() -> None:
     hub_module_list: list[str] = []
     try:
         for module in hub_module_list:
+            logger.debug("Verifying kernel module %s is installed", module)
             subprocess.run(  # noqa: S603
                 ["/usr/sbin/modinfo", module],
+                stdout=subprocess.PIPE,
                 check=True,
             )
     except subprocess.CalledProcessError:
@@ -62,6 +66,7 @@ def load_service_config(
     models.ServiceEndpoint | models.ServiceHub | None,
 ]:
     """Load the global configuration."""
+    logger.info("Loading configuration file from %s.", config_path)
     try:
         with config_path.open(encoding="utf-8") as f:
             try:
@@ -90,13 +95,11 @@ def load_service_config(
             active_tenant = None
     except pydantic_core.ValidationError:
         logger.critical(
-            "Configuration '%s' doesn't adhere to the schema",
+            "Configuration file '%s' doesn't adhere to the schema",
             config_path,
             exc_info=True,
         )
         sys.exit(1)
-
-    logger.info("Loaded new configuration.")
 
     return config.VPNC_CONFIG_SERVICE, active_tenant
 

@@ -321,6 +321,7 @@ def delete_all_routes(
     This function is called when a connection is removed.
     """
     interface_name_downlink = active_connection.intf_name()
+    nat64_scope = None
     if net_inst:
         nat64_scope = network_instance.get_network_instance_nat64_scope(
             net_inst.id,
@@ -391,17 +392,21 @@ def delete_all_routes(
 def start(network_instance_id: str) -> None:
     """Start monitoring routes in a network_instance."""
     if network_instance_id in ni_monitors:
+        logger.debug(
+            "Network instance %s routes are already monitored.",
+            network_instance_id,
+        )
         return
     ni_locks[network_instance_id] = threading.Lock()
     with ni_locks[network_instance_id]:
+        logger.info("Starting network instance %s routes monitor.", network_instance_id)
         ndb = pyroute2.NDB(sources=[{"netns": network_instance_id}])
         ni_monitors[network_instance_id] = (None, ndb)
 
-    handler = create_handler(network_instance_id)
-    ndb.task_manager.register_handler(ifinfmsg, handler)
+        handler = create_handler(network_instance_id)
+        ndb.task_manager.register_handler(ifinfmsg, handler)
 
     atexit.register(stop, network_instance_id=network_instance_id)
-    logger.info("Started monitoring network instance '%s' routes.", network_instance_id)
 
 
 def stop(network_instance_id: str) -> None:
@@ -413,7 +418,10 @@ def stop(network_instance_id: str) -> None:
         )
         return
 
+    logger.info(
+        "Stopping network instance '%s' routes monitoring.",
+        network_instance_id,
+    )
     ni_monitors[network_instance_id][1].close()
     del ni_monitors[network_instance_id]
     del ni_locks[network_instance_id]
-    logger.info("Stopped monitoring network instance '%s' routes.", network_instance_id)

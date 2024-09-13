@@ -124,8 +124,12 @@ def generate_config(
         swanctl_path.unlink(missing_ok=True)
         return
 
+    logger.info(
+        "Generating network instance %s Strongswan configuration.",
+        network_instance.id,
+    )
     swanctl_render = swanctl_template.render(connections=swanctl_cfgs)
-
+    logger.debug(swanctl_render)
     with swanctl_path.open("w", encoding="utf-8") as f:
         f.write(swanctl_render)
 
@@ -143,9 +147,8 @@ def stop() -> None:
             stderr=subprocess.PIPE,
         )
         logger.info(
-            "Executing in network instance %s: %s",
+            "Stopping Strongswan in network instance %s.",
             config.EXTERNAL_NI,
-            proc.args,
         )
         stdout, stderr = proc.communicate()
         logger.debug(stdout, stderr)
@@ -170,9 +173,8 @@ def start() -> None:
             stderr=subprocess.PIPE,
         )
         logger.info(
-            "Executing in network instance %s: %s",
+            "Starting Strongswan in network instance %s.",
             config.EXTERNAL_NI,
-            proc.args,
         )
         stdout, stderr = proc.communicate()
         logger.debug(stdout, stderr)
