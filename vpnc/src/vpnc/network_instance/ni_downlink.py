@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import pathlib
 import subprocess
 import time
 from typing import TYPE_CHECKING
 
+import pyroute2
 import yaml
 from jinja2 import Environment, FileSystemLoader
+from pyroute2 import netns
 from watchdog.events import (
     FileSystemEvent,
     RegexMatchingEventHandler,
@@ -210,17 +211,10 @@ def delete_downlink_network_instance(vpn_id: str) -> None:
         logger.error("Invalid filename found in %s. Skipping.", vpn_id, exc_info=True)
         return
 
-    config.VPNC_CONFIG_TENANT.pop(vpn_id, None)
-    # NETWORK INSTANCES
-    proc = subprocess.run(  # noqa: S603
-        ["/usr/sbin/ip", "-json", "netns"],
-        stdout=subprocess.PIPE,
-        check=True,
-    )
-    ip_ni = json.loads(proc.stdout)
+    ni_list = netns.listnetns()
 
     logger.info("Removing all network instance configuration for '%s'.", vpn_id)
-    ni_remove = {x["name"] for x in ip_ni if x["name"].startswith(vpn_id)}
+    ni_remove = {x for x in ni_list if x.startswith(vpn_id)}
 
     for ni in ni_remove:
         # delete links to the CORE network instance
@@ -243,20 +237,51 @@ def add_downlink_nat64(network_instance: models.NetworkInstance) -> None:
         nat64_scope := general.get_network_instance_nat64_scope(network_instance.id)
     ):
         return
-
     # configure NAT64 for the DOWNLINK network instance
-    proc = subprocess.run(  # noqa: S602
-        f"""
-        # start NAT64
-        /usr/sbin/ip netns exec {network_instance.id} jool instance flush
-        /usr/sbin/ip netns exec {network_instance.id} jool instance add {network_instance.id} --netfilter --pool6 {nat64_scope}
-        """,  # noqa: E501
-        capture_output=True,
-        shell=True,
-        check=False,
-    )
-    logger.info(proc.args)
-    logger.debug(proc.stdout, proc.stderr)
+    try:
+        proc = pyroute2.NSPopen(
+            network_instance.id,
+            # Stop Strongswan in the EXTERNAL network instance.
+            ["jool", "instance", "flush"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        logger.info(
+            "Executing in network instance %s: %s",
+            network_instance.id,
+            proc.args,
+        )
+        stdout, stderr = proc.communicate()
+        logger.debug(stdout, stderr)
+    finally:
+        proc.wait()
+        proc.release()
+    try:
+        proc = pyroute2.NSPopen(
+            network_instance.id,
+            # Stop Strongswan in the EXTERNAL network instance.
+            [
+                "jool",
+                "instance",
+                "add",
+                network_instance.id,
+                "--netfilter",
+                "--pool6",
+                str(nat64_scope),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        logger.info(
+            "Executing in network instance %s: %s",
+            network_instance.id,
+            proc.args,
+        )
+        stdout, stderr = proc.communicate()
+        logger.debug(stdout, stderr)
+    finally:
+        proc.wait()
+        proc.release()
 
 
 def calculate_network_instance_nptv6_mappings(

@@ -14,7 +14,7 @@ from vpnc import models
 logger = logging.getLogger("vpnc")
 
 SSH_SOCKET_DIR = pathlib.Path("/run/vpnc/ssh/")
-SSH_SOCKET_DIR.mkdir(mode=777, parents=True, exist_ok=True)
+SSH_SOCKET_DIR.mkdir(mode=770, parents=True, exist_ok=True)
 
 
 SSH_CONNECTIONS: dict[str, models.Connection] = {}

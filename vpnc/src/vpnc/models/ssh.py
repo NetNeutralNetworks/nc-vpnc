@@ -7,6 +7,7 @@ import logging
 import subprocess
 from typing import TYPE_CHECKING, Any, Literal
 
+import pyroute2
 from pydantic import BaseModel, field_validator
 
 import vpnc.services.ssh
@@ -57,47 +58,28 @@ class ConnectionConfigSSH(BaseModel):
             connection.id,
         )
 
-        cmds = f"""\
-# configure SSH interfaces
-/usr/sbin/ip -netns {network_instance.id} tuntap add {tun} mode tun
-        """
-        proc = subprocess.run(  # noqa: S602
-            cmds,
-            capture_output=True,
-            shell=True,
-            check=False,
-        )
-        logger.info(proc.args)
-        logger.debug(proc.stdout, proc.stderr)
+        with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
+            if not ni_dl.link_lookup(ifname=tun):
+                ni_dl.link("add", ifname=tun, kind="tuntap", mode="tun")
+            ifidx: int = ni_dl.link_lookup(ifname=tun)[0]
+            ni_dl.link("set", index=ifidx, state="up")
+            ni_dl.flush_addr(index=ifidx, scope=enums.IPRouteScope.GLOBAL.value)
 
-        proc = subprocess.run(  # noqa: S602
-            f"""
-/usr/sbin/ip -netns {network_instance.id} link set dev {tun} up
-/usr/sbin/ip -netns {network_instance.id} -4 address flush dev {tun} scope global
-/usr/sbin/ip -netns {network_instance.id} -6 address flush dev {tun} scope global
-            """,
-            capture_output=True,
-            shell=True,
-            check=False,
-        )
-        logger.info(proc.args)
-        logger.debug(proc.stdout, proc.stderr)
-
-        cmds = ""
-        for ipv4 in if_ipv4:
-            cmds += f"/usr/sbin/ip -netns {network_instance.id} address add {ipv4} dev {tun}\n"
-        # Add the configured IPv6 address to the XFRM interface.
-        for ipv6 in if_ipv6:
-            cmds += f"/usr/sbin/ip -netns {network_instance.id} address add {ipv6} dev {tun}\n"
-
-        proc = subprocess.run(  # noqa: S602
-            cmds,
-            capture_output=True,
-            shell=True,
-            check=False,
-        )
-        logger.info(proc.args)
-        logger.debug(proc.stdout, proc.stderr)
+            for ipv4 in if_ipv4:
+                ni_dl.addr(
+                    "replace",
+                    index=ifidx,
+                    address=str(ipv4.ip),
+                    prefixlen=ipv4.network.prefixlen,
+                )
+            # Add the configured IPv6 address to the XFRM interface.
+            for ipv6 in if_ipv6:
+                ni_dl.addr(
+                    "replace",
+                    index=ifidx,
+                    address=str(ipv6.ip),
+                    prefixlen=ipv6.network.prefixlen,
+                )
 
         ssh.start(network_instance, connection)
         return tun
@@ -111,22 +93,11 @@ class ConnectionConfigSSH(BaseModel):
         connection_name = f"{network_instance.id}-{connection.id}"
         interface_name = self.intf_name(connection.id)
         ssh.stop(connection_name)
-        # run the commands
-        proc = subprocess.run(
-            [
-                "/usr/sbin/ip",
-                "-netns",
-                network_instance.id,
-                "link",
-                "del",
-                "dev",
-                interface_name,
-            ],
-            capture_output=True,
-            check=False,
-        )
-        logger.info(proc.args)
-        logger.debug(proc.stdout, proc.stderr)
+        with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
+            if not ni_dl.link_lookup(ifname=interface_name):
+                return
+            ifidx = ni_dl.link_lookup(ifname=interface_name)[0]
+            ni_dl.link("del", index=ifidx)
 
     def intf_name(self, connection_id: int) -> str:
         """Return the name of the connection interface."""
@@ -138,7 +109,7 @@ class ConnectionConfigSSH(BaseModel):
         connection_id: int,
     ) -> dict[str, Any]:
         """Get the connection status."""
-        connection_name = f"{network_instance}-{connection_id}"
+        connection_name = f"{network_instance.id}-{connection_id}"
         ssh_master_socket = vpnc.services.ssh.SSH_SOCKET_DIR.joinpath(
             f"{connection_name}.sock",
         )

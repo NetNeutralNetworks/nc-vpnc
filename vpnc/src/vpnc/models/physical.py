@@ -7,10 +7,10 @@ import logging
 import subprocess
 from typing import Any, Literal
 
+import pyroute2
 from pydantic import BaseModel, field_validator
 
 from vpnc.models import enums, models
-from vpnc.network import interface
 
 logger = logging.getLogger("vpnc")
 
@@ -39,26 +39,50 @@ class ConnectionConfigPhysical(BaseModel):
             )
             raise TypeError
 
-        intf = interface.get(connection.config.interface_name, ns_name="*")
+        with pyroute2.NetNS(
+            netns=network_instance.id,
+        ) as ni_dl, pyroute2.IPRoute() as ni_default:
+            if not ni_dl.link_lookup(ifname=connection.config.interface_name):
+                if not ni_default.link_lookup(
+                    ifname=connection.config.interface_name,
+                ):
+                    raise Exception("WTF")
+                ifidx_default_phy = ni_default.link_lookup(
+                    ifname=connection.config.interface_name,
+                )[0]
+                ni_default.link(
+                    "set",
+                    index=ifidx_default_phy,
+                    net_ns_fd=network_instance.id,
+                )
 
-        if not intf:
-            logger.warning(
-                "Cannot find interface '%s' in any namespace. Skipping connection.",
-                connection.config.interface_name,
+            ifidx_phy = ni_dl.link_lookup(ifname=connection.config.interface_name)[0]
+            ni_dl.flush_addr(index=ifidx_phy, scope=enums.IPRouteScope.GLOBAL.value)
+            ni_dl.link(
+                "set",
+                index=ifidx_phy,
+                state="up",
             )
-            raise ValueError
 
-        if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
-            network_instance,
-            connection.id,
-        )
-        addresses = if_ipv6 + if_ipv4
-        interface.set_(
-            intf,
-            state="up",
-            addresses=addresses,
-            ns_name=network_instance.id,
-        )
+            if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
+                network_instance,
+                connection.id,
+            )
+            for ipv4 in if_ipv4:
+                ni_dl.addr(
+                    "replace",
+                    index=ifidx_phy,
+                    address=str(ipv4.ip),
+                    prefixlen=ipv4.network.prefixlen,
+                )
+            # Add the configured IPv6 address to the XFRM interface.
+            for ipv6 in if_ipv6:
+                ni_dl.addr(
+                    "replace",
+                    index=ifidx_phy,
+                    address=str(ipv6.ip),
+                    prefixlen=ipv6.network.prefixlen,
+                )
 
         return connection.config.interface_name
 
@@ -70,23 +94,11 @@ class ConnectionConfigPhysical(BaseModel):
         """Delete a connection."""
         interface_name = self.intf_name(connection.id)
         # run the commands
-        proc = subprocess.run(
-            [
-                "/usr/sbin/ip",
-                "-netns",
-                network_instance.id,
-                "link",
-                "set",
-                "dev",
-                interface_name,
-                "netns",
-                "1",
-            ],
-            capture_output=True,
-            check=False,
-        )
-        logger.info(proc.args)
-        logger.debug(proc.stdout, proc.stderr)
+        with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
+            if not ni_dl.link_lookup(ifname=interface_name):
+                return
+            ifidx = ni_dl.link_lookup(ifname=interface_name)[0]
+            ni_dl.link("set", index=ifidx, net_ns_fd=1)
 
     def intf_name(self, _: int) -> str:
         """Return the name of the connection interface."""

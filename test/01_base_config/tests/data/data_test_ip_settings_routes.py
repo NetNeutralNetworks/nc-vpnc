@@ -36,7 +36,7 @@ TESTDATA_ROUTES = [
         "C0001-00",
         {
             # Uplink to CORE
-            ("fd00::/16", "fe80::", "C0001-00_D", None),
+            ("fd00::/16", "fe80::", "C0001-00_D", "static"),
             # IPv4 routes
             ("default", None, "tun1", "static"),
             ("172.16.30.1", None, "xfrm0", "static"),
@@ -53,7 +53,7 @@ TESTDATA_ROUTES = [
         "C0001-01",
         {
             # Uplink to CORE
-            ("fd00::/16", "fe80::", "C0001-01_D", None),
+            ("fd00::/16", "fe80::", "C0001-01_D", "static"),
             # IPv4 routes
             ("default", None, "xfrm0", "static"),
             # IPv6 routes
@@ -99,7 +99,7 @@ TESTDATA_ROUTES = [
         "C0001-00",
         {
             # Uplink to CORE
-            ("fd00::/16", "fe80::", "C0001-00_D", None),
+            ("fd00::/16", "fe80::", "C0001-00_D", "static"),
             # IPv4 routes
             ("default", None, "tun1", "static"),
             ("172.16.30.1", None, "xfrm0", "static"),
@@ -116,7 +116,7 @@ TESTDATA_ROUTES = [
         "C0001-01",
         {
             # Uplink to CORE
-            ("fd00::/16", "fe80::", "C0001-01_D", None),
+            ("fd00::/16", "fe80::", "C0001-01_D", "static"),
             # IPv4 routes
             ("default", None, "xfrm0", "static"),
             # IPv6 routes
@@ -155,11 +155,11 @@ TESTDATA_ROUTES = [
         "E0001-00",
         {
             # IPv4 uplink to CORE
-            ("100.99.0.0/28", "169.254.0.1", "E0001-00_D", None),
-            ("100.100.0.0/28", "169.254.0.1", "E0001-00_D", None),
+            ("100.99.0.0/28", "169.254.0.1", "E0001-00_D", "static"),
+            ("100.100.0.0/28", "169.254.0.1", "E0001-00_D", "static"),
             # IPv6 uplink to CORE
-            ("fdcc:cbe::/64", "fe80::", "E0001-00_D", None),
-            ("fdcc:cbf::/64", "fe80::", "E0001-00_D", None),
+            ("fdcc:cbe::/64", "fe80::", "E0001-00_D", "static"),
+            ("fdcc:cbf::/64", "fe80::", "E0001-00_D", "static"),
             # IPv4 routes
             ("default", "172.16.30.1", "eth2", "static"),
             # IPv6 routes
@@ -194,11 +194,11 @@ TESTDATA_ROUTES = [
         "E0001-00",
         {
             # IPv4 uplink to CORE
-            ("100.99.1.0/28", "169.254.0.1", "E0001-00_D", None),
-            ("100.100.1.0/28", "169.254.0.1", "E0001-00_D", None),
+            ("100.99.1.0/28", "169.254.0.1", "E0001-00_D", "static"),
+            ("100.100.1.0/28", "169.254.0.1", "E0001-00_D", "static"),
             # IPv6 uplink to CORE
-            ("fdcc:cbe:1::/64", "fe80::", "E0001-00_D", None),
-            ("fdcc:cbf:1::/64", "fe80::", "E0001-00_D", None),
+            ("fdcc:cbe:1::/64", "fe80::", "E0001-00_D", "static"),
+            ("fdcc:cbf:1::/64", "fe80::", "E0001-00_D", "static"),
             # IPv4 routes
             ("default", "172.17.30.1", "eth2", "static"),
             # IPv6 routes

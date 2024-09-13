@@ -6,12 +6,18 @@ import ipaddress
 import logging
 import subprocess
 import time
-from ipaddress import AddressValueError, IPv4Network, IPv6Address, IPv6Network
+from ipaddress import (
+    AddressValueError,
+    IPv4Address,
+    IPv4Network,
+    IPv6Address,
+    IPv6Network,
+)
 
-import pyroute2
+import pyroute2.netns
 
 from vpnc import config, helpers, models
-from vpnc.network import namespace
+from vpnc.network import namespace, route
 from vpnc.services import routes
 
 logger = logging.getLogger("vpnc")
@@ -26,7 +32,17 @@ def set_network_instance(
     logger.info("Setting up %s network instance.", network_instance.id)
     namespace.add(name=network_instance.id, cleanup=cleanup)
 
-    time.sleep(0.05)
+    attempts = 20
+    for attempt in range(attempts):
+        if network_instance.id in pyroute2.netns.listnetns():
+            break
+        if attempt == attempts - 1:
+            logger.error(
+                "Network instance %s did not instantiate correctly. Not configured.",
+                network_instance.id,
+            )
+        time.sleep(0.05)
+
     if network_instance.type == models.NetworkInstanceType.DOWNLINK:
         add_network_instance_link(network_instance)
     routes.start(network_instance.id)
@@ -216,50 +232,59 @@ def add_network_instance_link(
     veth_c = f"{network_instance.id}_C"
     veth_d = f"{network_instance.id}_D"
 
-    cmds_ns_link = f"""
-    # add veth interfaces between CORE and DOWNLINK network instance
-    /usr/sbin/ip -netns {config.CORE_NI} link add {veth_c} type veth peer name {veth_d} netns {network_instance.id}
-    # bring veth interfaces up
-    /usr/sbin/ip -netns {config.CORE_NI} link set dev {veth_c} up
-    /usr/sbin/ip -netns {network_instance.id} link set dev {veth_d} up
-    # assign IP addresses to veth interfaces
-    /usr/sbin/ip -netns {config.CORE_NI} -6 address add fe80::/64 dev {veth_c}
-    /usr/sbin/ip -netns {network_instance.id} -6 address add fe80::1/64 dev {veth_d}
-    """  # noqa: E501
-
-    if config.VPNC_CONFIG_SERVICE.mode == models.ServiceMode.ENDPOINT:
-        cmds_ns_link += f"""
-    /usr/sbin/ip -netns {config.CORE_NI} address add 169.254.0.1/30 dev {veth_c}
-    /usr/sbin/ip -netns {network_instance.id} address add 169.254.0.2/30 dev {veth_d}
-        """
-
-    proc = subprocess.run(
-        cmds_ns_link,
-        capture_output=True,
-        shell=True,
-        check=False,
-    )
-    logger.info(proc.args)
-    logger.debug(proc.stdout, proc.stderr)
-
-    cross_ni_routes = ""
-    core_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
-    # add route from DOWNLINK to MGMT/uplink network via CORE network instance
-    for connection in core_ni.connections.values():
-        for route6 in connection.routes.ipv6:
-            cross_ni_routes += f"/usr/sbin/ip -netns {network_instance.id} route add {route6.to} via fe80:: dev {veth_d}\n"  # noqa: E501
-        if config.VPNC_CONFIG_SERVICE.mode != models.ServiceMode.HUB:
-            for route4 in connection.routes.ipv4:
-                cross_ni_routes += f"/usr/sbin/ip -netns {network_instance.id} route add {route4.to} via 169.254.0.1 dev {veth_d}\n"  # noqa: E501
-        if cross_ni_routes:
-            proc = subprocess.run(
-                cross_ni_routes,
-                capture_output=True,
-                shell=True,
-                check=False,
+    with pyroute2.NetNS(netns=network_instance.id) as ni_dl, pyroute2.NetNS(
+        netns=config.CORE_NI,
+    ) as ni_core:
+        # add veth interfaces between CORE and DOWNLINK network instance
+        if not ni_core.link_lookup(ifname=veth_c):
+            ni_core.link(
+                "add",
+                ifname=veth_c,
+                kind="veth",
+                peer={"ifname": veth_d, "net_ns_fd": network_instance.id},
             )
-            logger.info(proc.args)
-            logger.debug(proc.stdout, proc.stderr)
+        # bring veth interfaces up
+        ifidx_core: int = ni_core.link_lookup(ifname=veth_c)[0]
+        ifidx_dl: int = ni_dl.link_lookup(ifname=veth_d)[0]
+
+        # assign IP addresses to veth interfaces
+        ni_core.link("set", index=ifidx_core, state="up")
+        ni_dl.link("set", index=ifidx_dl, state="up")
+
+        # assign IP addresses to veth interfaces
+        ni_core.addr("replace", index=ifidx_core, address="fe80::", prefixlen=64)
+        ni_dl.addr("replace", index=ifidx_dl, address="fe80::1", prefixlen=64)
+
+        if config.VPNC_CONFIG_SERVICE.mode == models.ServiceMode.ENDPOINT:
+            # assign IP addresses to veth interfaces
+            ni_core.addr(
+                "replace",
+                index=ifidx_core,
+                address="169.254.0.1",
+                prefixlen=30,
+            )
+            ni_dl.addr("replace", index=ifidx_dl, address="169.254.0.2", prefixlen=30)
+
+        core_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
+        # add route from DOWNLINK to MGMT/uplink network via CORE network instance
+        for connection in core_ni.connections.values():
+            for route6 in connection.routes.ipv6:
+                route.command(
+                    ni_dl,
+                    "replace",
+                    dst=route6.to,
+                    gateway=IPv6Address("fe80::"),
+                    ifname=veth_d,
+                )
+            if config.VPNC_CONFIG_SERVICE.mode != models.ServiceMode.HUB:
+                for route4 in connection.routes.ipv4:
+                    route.command(
+                        ni_dl,
+                        "replace",
+                        dst=route4.to,
+                        gateway=IPv4Address("169.254.0.1"),
+                        ifname=veth_d,
+                    )
 
 
 def delete_network_instance_link(network_instance_name: str) -> None:

@@ -8,6 +8,8 @@ import subprocess
 from ipaddress import IPv4Network
 from typing import Any
 
+import pyroute2
+
 from vpnc import config, network_instance
 
 logger = logging.getLogger("vpnc")
@@ -41,7 +43,7 @@ def generate_config() -> None:
         json.dump(output, f)
 
 
-def stop(proc: subprocess.Popen[bytes]) -> None:
+def stop(proc: pyroute2.NSPopen) -> None:
     """Shut down the vpncmangle service when terminating the program."""
     proc.terminate()
     proc.wait()
@@ -52,16 +54,16 @@ def start() -> None:
     # VPNC in hub mode doctors DNS responses so requests are sent via the tunnel.
     # Start the VPNC mangle process in the CORE network instance.
     # This process mangles DNS responses to translate A responses to AAAA responses.
-    proc = subprocess.Popen(  # pylint: disable=consider-using-with  # noqa: S603
-        [
-            "/usr/sbin/ip",
-            "netns",
-            "exec",
-            config.CORE_NI,
-            f"{config.VPNC_INSTALL_DIR}/bin/vpncmangle",
-        ],
-        shell=False,
+    proc = pyroute2.NSPopen(
+        config.CORE_NI,
+        # Stop Strongswan in the EXTERNAL network instance.
+        [f"{config.VPNC_INSTALL_DIR}/bin/vpncmangle"],
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
     )
-    logger.info(proc.args)
-
+    logger.info(
+        "Executing in network instance %s: %s",
+        config.CORE_NI,
+        proc.args,
+    )
     atexit.register(stop, proc)

@@ -7,11 +7,6 @@ import atexit
 from pyroute2 import netns
 
 
-def list_() -> list[str]:
-    """List available network namespaces."""
-    return netns.listnetns()
-
-
 def add(name: str, cleanup: bool = False) -> str:  # noqa: FBT001, FBT002
     """Add a namespace to the system."""
     ns_list = netns.listnetns()

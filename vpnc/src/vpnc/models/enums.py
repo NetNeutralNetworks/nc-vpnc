@@ -25,3 +25,15 @@ class NetworkInstanceType(Enum):
     EXTERNAL = "external"
     CORE = "core"
     DOWNLINK = "downlink"
+
+
+class IPRouteScope(Enum):
+    """Define the address/route scopes used by iproute2/pyroute2.
+
+    See /etc/iproute2/rt_scope.
+    """
+
+    GLOBAL = 0
+    NOWHERE = 255
+    HOST = 254
+    LINK = 253

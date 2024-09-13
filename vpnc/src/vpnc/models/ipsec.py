@@ -8,6 +8,7 @@ import subprocess
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal
 
+import pyroute2
 import vici
 from pydantic import BaseModel, Field, field_validator
 
@@ -106,48 +107,41 @@ class ConnectionConfigIPsec(BaseModel):
             .connections[0]
             .config.intf_name(0)
         )
-        cmds = f"""
-            # configure XFRM interfaces
-            /usr/sbin/ip -netns {config.EXTERNAL_NI} link add {xfrm} type xfrm dev {external_if_name} if_id {hex(vpn_id)}
-            /usr/sbin/ip -netns {config.EXTERNAL_NI} link set {xfrm} netns {network_instance.id}
-        """  # noqa: E501
-        proc = subprocess.run(  # noqa: S602
-            cmds,
-            capture_output=True,
-            shell=True,
-            check=False,
-        )
-        logger.info(proc.args)
-        logger.debug(proc.stdout, proc.stderr)
+        with pyroute2.NetNS(netns=network_instance.id) as ni_dl, pyroute2.NetNS(
+            netns=config.EXTERNAL_NI,
+        ) as ni_ext:
+            if not ni_dl.link_lookup(ifname=xfrm):
+                ni_ext.link(
+                    "add",
+                    ifname=xfrm,
+                    kind="xfrm",
+                    xfrm_if_id=vpn_id,
+                )
+                ifid_ext_xfrm = ni_ext.link_lookup(ifname=xfrm)[0]
+                ni_ext.link(
+                    "set",
+                    index=ifid_ext_xfrm,
+                    net_ns_fd=network_instance.id,
+                )
 
-        proc = subprocess.run(  # noqa: S602
-            # /usr/sbin/ip -netns {network_instance.id} link set dev {xfrm} up
-            f"""
-            /usr/sbin/ip -netns {network_instance.id} -4 address flush dev {xfrm} scope global
-            /usr/sbin/ip -netns {network_instance.id} -6 address flush dev {xfrm} scope global
-            """,
-            capture_output=True,
-            shell=True,
-            check=False,
-        )
-        logger.info(proc.args)
-        logger.debug(proc.stdout, proc.stderr)
+            ifidx_xfrm = ni_dl.link_lookup(ifname=xfrm)[0]
+            ni_dl.flush_addr(index=ifidx_xfrm, scope=enums.IPRouteScope.GLOBAL.value)
 
-        cmds = ""
-        for ipv4 in if_ipv4:
-            cmds += f"/usr/sbin/ip -netns {network_instance.id} address add {ipv4} dev {xfrm}\n"
-        # Add the configured IPv6 address to the XFRM interface.
-        for ipv6 in if_ipv6:
-            cmds += f"/usr/sbin/ip -netns {network_instance.id} address add {ipv6} dev {xfrm}\n"
-
-        proc = subprocess.run(  # noqa: S602
-            cmds,
-            capture_output=True,
-            shell=True,
-            check=False,
-        )
-        logger.info(proc.args)
-        logger.debug(proc.stdout, proc.stderr)
+            for ipv4 in if_ipv4:
+                ni_dl.addr(
+                    "replace",
+                    index=ifidx_xfrm,
+                    address=str(ipv4.ip),
+                    prefixlen=ipv4.network.prefixlen,
+                )
+            # Add the configured IPv6 address to the XFRM interface.
+            for ipv6 in if_ipv6:
+                ni_dl.addr(
+                    "replace",
+                    index=ifidx_xfrm,
+                    address=str(ipv6.ip),
+                    prefixlen=ipv6.network.prefixlen,
+                )
 
         return xfrm
 
@@ -159,21 +153,11 @@ class ConnectionConfigIPsec(BaseModel):
         """Delete a connection."""
         interface_name = self.intf_name(connection.id)
         # run the commands
-        proc = subprocess.run(
-            [
-                "/usr/sbin/ip",
-                "-netns",
-                network_instance.id,
-                "link",
-                "del",
-                "dev",
-                interface_name,
-            ],
-            capture_output=True,
-            check=False,
-        )
-        logger.info(proc.args)
-        logger.debug(proc.stdout, proc.stderr)
+        with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
+            if not ni_dl.link_lookup(ifname=interface_name):
+                return
+            ifidx = ni_dl.link_lookup(ifname=interface_name)[0]
+            ni_dl.link("del", index=ifidx)
 
     def intf_name(self, connection_id: int) -> str:
         """Return the name of the connection interface."""

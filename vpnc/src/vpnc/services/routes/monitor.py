@@ -47,9 +47,10 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
                 network_instance_id,
             )
             tenant_id = ni_info.tenant
-            net_inst = config.VPNC_CONFIG_TENANT[tenant_id].network_instances[
-                network_instance_id
-            ]
+            net_inst = None
+            if tenant := config.VPNC_CONFIG_TENANT.get(tenant_id):
+                net_inst = tenant.network_instances.get(network_instance_id)
+
         active_net_inst, ni_handler = ni_monitors[network_instance_id]
         ni_dl = pyroute2.NetNS(network_instance_id)
         ni_core = pyroute2.NetNS(config.CORE_NI)
@@ -67,10 +68,11 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
         except AttributeError:
             interface_state = event["state"]
 
-        for conn in net_inst.connections.values():
-            if connection_name_downlink == conn.intf_name():
-                connection = conn
-                break
+        if net_inst:
+            for conn in net_inst.connections.values():
+                if connection_name_downlink == conn.intf_name():
+                    connection = conn
+                    break
 
         if active_net_inst:
             for conn in active_net_inst.connections.values():
@@ -85,12 +87,13 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
                 delete_all_routes(
                     ni_dl,
                     ni_core,
-                    net_inst,
+                    active_net_inst,
                     active_connection,
                 )
 
             if (
-                connection_event == "RTM_NEWLINK"
+                net_inst
+                and connection_event == "RTM_NEWLINK"
                 and interface_state == "up"
                 and connection
             ):
@@ -103,7 +106,8 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
                 )
 
             if (
-                connection_event == "RTM_NEWLINK"
+                net_inst
+                and connection_event == "RTM_NEWLINK"
                 and interface_state == "down"
                 and connection
             ):
@@ -317,9 +321,10 @@ def delete_all_routes(
     This function is called when a connection is removed.
     """
     interface_name_downlink = active_connection.intf_name()
-    nat64_scope = network_instance.get_network_instance_nat64_scope(
-        net_inst.id,
-    )
+    if net_inst:
+        nat64_scope = network_instance.get_network_instance_nat64_scope(
+            net_inst.id,
+        )
     for route6 in active_connection.routes.ipv6:
         # routes in current the namespace
         route.command(

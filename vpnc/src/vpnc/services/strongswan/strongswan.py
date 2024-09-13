@@ -8,6 +8,7 @@ import subprocess
 import time
 from typing import Any
 
+import pyroute2
 from jinja2 import Environment, FileSystemLoader
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
@@ -133,14 +134,24 @@ def generate_config(
 
 def stop() -> None:
     """Shut down IPsec when terminating the program."""
-    proc = subprocess.run(  # noqa: S603
-        # Stop Strongswan in the EXTERNAL network instance.
-        ["/usr/sbin/ip", "netns", "exec", config.EXTERNAL_NI, "ipsec", "stop"],
-        capture_output=True,
-        check=False,
-    )
-    logger.info(proc.args)
-    logger.debug(proc.stdout, proc.stderr)
+    try:
+        proc = pyroute2.NSPopen(
+            config.EXTERNAL_NI,
+            # Stop Strongswan in the EXTERNAL network instance.
+            ["ipsec", "stop"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        logger.info(
+            "Executing in network instance %s: %s",
+            config.EXTERNAL_NI,
+            proc.args,
+        )
+        stdout, stderr = proc.communicate()
+        logger.debug(stdout, stderr)
+    finally:
+        proc.wait()
+        proc.release()
 
 
 def start() -> None:
@@ -150,14 +161,24 @@ def start() -> None:
         logger.debug("Unlinking swanctl config file %s at startup", file)
         file.unlink(missing_ok=True)
 
-    proc = subprocess.run(  # noqa: S603
-        # Run Strongswan in the EXTERNAL network instance.
-        ["/usr/sbin/ip", "netns", "exec", config.EXTERNAL_NI, "ipsec", "start"],
-        stdout=subprocess.PIPE,
-        check=True,
-    )
-    logger.info(proc.args)
-    logger.debug(proc.stdout)
+    try:
+        proc = pyroute2.NSPopen(
+            config.EXTERNAL_NI,
+            # Stop Strongswan in the EXTERNAL network instance.
+            ["ipsec", "start"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        logger.info(
+            "Executing in network instance %s: %s",
+            config.EXTERNAL_NI,
+            proc.args,
+        )
+        stdout, stderr = proc.communicate()
+        logger.debug(stdout, stderr)
+    finally:
+        proc.wait()
+        proc.release()
 
     atexit.register(stop)
 
