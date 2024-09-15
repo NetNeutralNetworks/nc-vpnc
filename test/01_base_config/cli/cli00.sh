@@ -35,7 +35,7 @@ cp -f ${SCRIPTDIR}/named.conf.options /etc/bind/
 
 # start ssh server
 service ssh start
-# sshd -D
+sshd -D
 
 # Start DNS server
 named
