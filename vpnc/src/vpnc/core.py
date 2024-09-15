@@ -119,7 +119,10 @@ def concentrator() -> None:
     downlink_obs.start()
 
     network_instance.set_core_network_instance(startup=True)
-    network_instance.manage_downlink_tenants()
+
+    config_files = list(config.VPNC_A_CONFIG_DIR.glob(pattern="*.yaml"))
+    for file_path in config_files:
+        network_instance.manage_downlink_tenant(file_path)
 
     try:
         while not shared.stop_event.is_set():

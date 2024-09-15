@@ -83,17 +83,21 @@ def set_network_instance(
     set_network_instance_connection(network_instance, active_network_instance)
 
 
-def delete_network_instance(network_instance: str) -> None:
+def delete_network_instance(network_instance: models.NetworkInstance) -> None:
     """Delete a network instance (Linux namespace)."""
     # run the network instance remove commands
-    routes.stop(network_instance)
-    namespace.delete(network_instance)
+    routes.stop(network_instance.id)
+    # Break connections.
+    delete_network_instance_connection(None, network_instance)
+    namespace.delete(network_instance.id)
 
 
 def get_network_instance_connections(
-    network_instance: models.NetworkInstance,
+    network_instance: models.NetworkInstance | None,
 ) -> list[str]:
     """Get all configured connections (interfaces)."""
+    if network_instance is None:
+        return []
     configured_interfaces: set[str] = {
         connection.intf_name() for connection in network_instance.connections.values()
     }
@@ -157,37 +161,62 @@ def set_network_instance_connection(
                             connection,
                             active_connection,
                         )
-            except ValueError:
+            except (ValueError, Exception):
                 logger.exception(
                     "Failed to set up connection '%s' interface(s)",
                     connection,
                 )
                 continue
+            time.sleep(0.05)
 
     return interfaces
 
 
 def delete_network_instance_connection(
-    network_instance: models.NetworkInstance,
-    active_network_instance: models.NetworkInstance,
+    network_instance: models.NetworkInstance | None,
+    active_network_instance: models.NetworkInstance | None,
 ) -> None:
     """Delete unconfigured connections (interfaces).
 
     Deletes the connection from the network instance (Linux namespace).
     """
+    if not active_network_instance:
+        return
     active_connections = list(active_network_instance.connections.values())
+    # Break connections in reverse order.
+    active_connections.reverse()
 
     # Configured interfaces for connections.
     configured_connections = get_network_instance_connections(network_instance)
 
-    for active_connection in active_connections:
-        interface_name = active_connection.intf_name()
+    # It is important to break SSH connections first as these always depend on another
+    # connection.
+    ssh_connections = [
+        x
+        for x in active_connections
+        if isinstance(x.config, models.ConnectionConfigSSH)
+    ]
+    other_connections = [
+        x
+        for x in active_connections
+        if not isinstance(x.config, models.ConnectionConfigSSH)
+    ]
+
+    sorted_connections = ssh_connections + other_connections
+
+    for conn in sorted_connections:
+        logger.info(
+            "Deleting network instance %s connection %s.",
+            active_network_instance.id,
+            conn.id,
+        )
+        interface_name = conn.intf_name()
         if not interface_name:
             continue
         if interface_name in configured_connections:
             continue
 
-        active_connection.delete(active_network_instance)
+        conn.delete(active_network_instance)
 
 
 def get_network_instance_nat64_scope(
@@ -338,17 +367,17 @@ def add_network_instance_link(
                     )
 
 
-def delete_network_instance_link(network_instance_name: str) -> None:
+def delete_network_instance_link(network_instance_name: models.NetworkInstance) -> None:
     """Delete a link (and routes) between a DOWNLINK and the CORE network instance."""
     # run the netns remove commands
     proc = subprocess.run(
         f"""
         # remove veth interfaces
-        /usr/sbin/ip --brief -netns {network_instance_name} link show type veth |
+        /usr/sbin/ip --brief -netns {network_instance_name.id} link show type veth |
             awk -F '@' '{{print $1}}' |
-            xargs -I {{}} sudo /usr/sbin/ip -netns {network_instance_name} link del {{}}
+            xargs -I {{}} sudo /usr/sbin/ip -netns {network_instance_name.id} link del {{}}
         # remove NAT64
-        /usr/sbin/ip netns exec {network_instance_name} jool instance remove {network_instance_name}
+        /usr/sbin/ip netns exec {network_instance_name.id} jool instance remove {network_instance_name.id}
         """,  # noqa: E501
         capture_output=True,
         shell=True,

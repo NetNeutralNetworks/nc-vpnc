@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 import pyroute2
 import yaml
 from jinja2 import Environment, FileSystemLoader
-from pyroute2 import netns
 from watchdog.events import (
     FileSystemEvent,
     RegexMatchingEventHandler,
@@ -41,21 +40,21 @@ def observe_downlink() -> BaseObserver:
 
         def on_created(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
-            downlink_config = pathlib.Path(event.src_path)
+            config_file_path = pathlib.Path(event.src_path)
             time.sleep(0.1)
-            manage_downlink_network_instance(downlink_config)
+            manage_downlink_tenant(config_file_path)
 
         def on_modified(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
-            downlink_config = pathlib.Path(event.src_path)
+            config_file_path = pathlib.Path(event.src_path)
             time.sleep(0.1)
-            manage_downlink_network_instance(downlink_config)
+            manage_downlink_tenant(config_file_path)
 
         def on_deleted(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
-            downlink_config = pathlib.Path(event.src_path).stem
+            config_file_path = pathlib.Path(event.src_path)
             time.sleep(0.1)
-            delete_downlink_network_instance(downlink_config)
+            delete_downlink_tenant(config_file_path)
 
     # Create the observer object. This doesn't start the handler.
     observer: BaseObserver = Observer()
@@ -76,27 +75,8 @@ def observe_downlink() -> BaseObserver:
     return observer
 
 
-def manage_downlink_tenants() -> None:
-    """Configure DOWNLINK network instances."""
-    # TODO@draggeta: Standardize parsing
-    config_files = list(config.VPNC_A_CONFIG_DIR.glob(pattern="*.yaml"))
-    config_set = {x.stem for x in config_files if x.stem != config.DEFAULT_TENANT}
-    vpn_config_files = list(
-        config.VPN_CONFIG_DIR.glob(pattern="[23456789aAbBcCdDeEfF]*.conf"),
-    )
-    vpn_config_set = {
-        x.stem for x in vpn_config_files if x.stem != config.DEFAULT_TENANT
-    }
-
-    for vpn_id in vpn_config_set.difference(config_set):
-        delete_downlink_network_instance(vpn_id)
-
-    for file_path in config_files:
-        manage_downlink_network_instance(file_path)
-
-
-def manage_downlink_network_instance(path: pathlib.Path) -> None:
-    """Configure DOWNLINK connections."""
+def manage_downlink_tenant(path: pathlib.Path) -> None:
+    """Configure DOWNLINK tenants."""
     if not (tenant_info := helpers.load_tenant_config(path)):
         return
 
@@ -115,10 +95,13 @@ def manage_downlink_network_instance(path: pathlib.Path) -> None:
     # Calculate network instances that need to be removed and remove them.
     ni_remove = active_network_instance_ids.difference(network_instance_ids)
     for ni in ni_remove:
+        delete_active_ni = active_tenant.network_instances.pop(ni, None)
+        if delete_active_ni is None:
+            continue
         # delete links to the CORE network instance
-        general.delete_network_instance_link(ni)
+        general.delete_network_instance_link(delete_active_ni)
         # run the network instance remove commands
-        general.delete_network_instance(ni)
+        general.delete_network_instance(delete_active_ni)
 
     logger.info("Setting up tenant %s netns.", tenant.id)
     active_tenant_network_instances: dict[str, models.NetworkInstance] = {}
@@ -205,27 +188,35 @@ def set_downlink_network_instance(
     return updated
 
 
-def delete_downlink_network_instance(vpn_id: str) -> None:
+def delete_downlink_tenant(path: pathlib.Path) -> None:
     """Remove downlink VPN connections."""
-    if not config.DOWNLINK_TEN_RE.match(vpn_id):
-        logger.error("Invalid filename found in %s. Skipping.", vpn_id, exc_info=True)
+    tenant_id = path.stem
+    if not config.DOWNLINK_TEN_RE.match(tenant_id):
+        logger.error(
+            "Invalid filename found in %s. Skipping.",
+            tenant_id,
+            exc_info=True,
+        )
         return
 
-    ni_list = netns.listnetns()
+    logger.info(
+        "Removing all network instance configuration for tenant '%s'.",
+        tenant_id,
+    )
+    active_network_instances = []
+    if active_tenant := config.VPNC_CONFIG_TENANT.pop(tenant_id, None):
+        active_network_instances = list(active_tenant.network_instances.values())
 
-    logger.info("Removing all network instance configuration for '%s'.", vpn_id)
-    ni_remove = {x for x in ni_list if x.startswith(vpn_id)}
-
-    for ni in ni_remove:
+    for ni in active_network_instances:
+        # remove VPN configs if exist
+        logger.info("Removing VPN configuration for '%s'.", ni.id)
+        downlink_path = config.VPN_CONFIG_DIR.joinpath(f"{ni.id}.conf")
+        downlink_path.unlink(missing_ok=True)
+        time.sleep(0.1)
         # delete links to the CORE network instance
         general.delete_network_instance_link(ni)
         # run the network instance remove commands
         general.delete_network_instance(ni)
-
-    # remove VPN configs if exist
-    logger.info("Removing VPN configuration for '%s'.", vpn_id)
-    downlink_path = config.VPN_CONFIG_DIR.joinpath(f"{vpn_id}.conf")
-    downlink_path.unlink(missing_ok=True)
 
 
 def add_downlink_nat64(network_instance: models.NetworkInstance) -> None:
