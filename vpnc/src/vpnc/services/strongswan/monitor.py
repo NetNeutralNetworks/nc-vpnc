@@ -153,14 +153,10 @@ class Monitor(threading.Thread):
                     self.resolve_duplicate_ipsec_sa(event_data)
 
     def monitor_xfrm_interface_state(self) -> None:
-        """Monitor route advertisements.
-
-        Receives child updown events and tries to check if the route for the remote
-        should be advertised or retracted.
-        """
+        """Monitor VPN tunnel state and set interface state accordingly."""
         vcs = self.connect()
 
-        # At startup check for routes
+        # At startup check for interface states
         for i in vcs.list_sas():
             self.resolve_xfrm_interface_state(i)
 
@@ -225,7 +221,15 @@ class Monitor(threading.Thread):
         child_data = ike_data.get("child-sas", {}).get(child_id, {})
 
         with pyroute2.NetNS(network_instance_name) as netns:
-            ifidx = netns.link_lookup(ifname=f"xfrm{connection_id}")[0]
+            ifname = f"xfrm{connection_id}"
+            if not (iflookup := netns.link_lookup(ifname=ifname)):
+                logger.warning(
+                    "Network instance %s interface %s doesn't exist.",
+                    network_instance_name,
+                    ifname,
+                )
+                return
+            ifidx = iflookup[0]
             if (
                 ike_data.get("state", b"") == b"ESTABLISHED"
                 and child_data.get("state", b"") == b"INSTALLED"

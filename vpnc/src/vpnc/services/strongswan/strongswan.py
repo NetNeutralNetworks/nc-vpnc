@@ -5,6 +5,7 @@ import logging
 import os
 import pathlib
 import subprocess
+import threading
 import time
 from typing import Any
 
@@ -21,6 +22,8 @@ logger = logging.getLogger("vpnc")
 BASE_DIR = pathlib.Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR.joinpath("templates")
 TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True)
+
+SW_LOCK = threading.Lock()
 
 
 def observe() -> BaseObserver:
@@ -47,13 +50,14 @@ def observe() -> BaseObserver:
 
         def reload_config(self) -> None:
             """Load all swanctl strongswan configurations."""
-            logger.debug("Loading all swanctl connections.")
-            proc = subprocess.run(  # noqa: S603
-                ["/usr/sbin/swanctl", "--load-all", "--clear"],
-                stdout=subprocess.PIPE,
-                check=True,
-            )
-            logger.debug(proc.stdout)
+            with SW_LOCK:
+                logger.debug("Loading all swanctl connections.")
+                proc = subprocess.run(  # noqa: S603
+                    ["/usr/sbin/swanctl", "--load-all", "--clear"],
+                    stdout=subprocess.PIPE,
+                    check=True,
+                )
+                logger.debug(proc.stdout)
 
     # Create the observer object. This doesn't start the handler.
     observer: BaseObserver = Observer()

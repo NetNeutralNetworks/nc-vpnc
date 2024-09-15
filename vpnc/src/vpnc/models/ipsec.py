@@ -153,6 +153,12 @@ class ConnectionConfigIPsec(BaseModel):
             ifidx = ni_dl.link_lookup(ifname=interface_name)[0]
             ni_dl.link("del", index=ifidx)
 
+        vcs = vici.Session()
+        for i in vcs.terminate(
+            {"ike": f"{network_instance.id}-{connection.id}".encode()},
+        ):
+            logger.info(i)
+
     def intf_name(self, connection_id: int) -> str:
         """Return the name of the connection interface."""
         return f"xfrm{connection_id}"
