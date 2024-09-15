@@ -9,6 +9,8 @@ import pathlib
 import signal
 import subprocess
 
+import pyroute2
+
 from vpnc import models
 
 logger = logging.getLogger("vpnc")
@@ -18,8 +20,6 @@ SSH_SOCKET_DIR.mkdir(mode=770, parents=True, exist_ok=True)
 
 
 SSH_CONNECTIONS: dict[str, models.Connection] = {}
-
-# lock = Lock()
 
 
 def start(
@@ -59,7 +59,7 @@ def start(
         logger.info("No changes detected in connection '%s'.", connection_name)
         return
 
-    stop(connection_name)
+    stop(network_instance, connection)
 
     remote_config: str = ""
     if connection.config.remote_config is True:
@@ -108,6 +108,7 @@ autossh -f -M 0 \
 -o ControlPath={ssh_master_socket} \
 -o Tunnel=point-to-point \
 -o ExitOnForwardFailure=yes \
+-o ConnectTimeout=10 \
 -o ServerAliveInterval=5 \
 -o ServerAliveCountMax=5 \
 -o StrictHostKeyChecking=accept-new \
@@ -127,22 +128,45 @@ autossh -f -M 0 \
     logger.info("%s\n%s", master_tunnel_proc.stdout, master_tunnel_proc.stderr)
 
     SSH_CONNECTIONS[connection_name] = connection
-    atexit.register(stop, connection_name)
+    atexit.register(stop, network_instance, connection)
 
 
-def stop(connection_name: str) -> None:
+def stop(
+    network_instance: models.NetworkInstance,
+    connection: models.Connection,
+) -> None:
     """Stop the long running SSH configuration tasks."""
-    connection = SSH_CONNECTIONS.get(connection_name)
-    if connection is None or not isinstance(
-        connection.config,
+    connection_name = f"{network_instance.id}-{connection.id}"
+    ssh_connection = SSH_CONNECTIONS.pop(connection_name, None)
+    if ssh_connection is None or not isinstance(
+        ssh_connection.config,
         models.ConnectionConfigSSH,
     ):
         return
     ssh_master_pid_file = SSH_SOCKET_DIR.joinpath(f"{connection_name}-master.pid")
-    ssh_master_pid = int(ssh_master_pid_file.read_text())
+    ssh_master_socket = SSH_SOCKET_DIR.joinpath(f"{connection_name}.sock")
+    ssh_master_pid = None
+    if ssh_master_pid_file.exists():
+        ssh_master_pid = int(ssh_master_pid_file.read_text())
 
     if ssh_master_pid:
-        process_name = pathlib.Path(f"/proc/{ssh_master_pid}/comm").read_text().strip()
+        proc = pyroute2.NSPopen(
+            network_instance.id,
+            [
+                "ssh",
+                "-o",
+                f"ControlPath={ssh_master_socket}",
+                "-O",
+                "exit",
+                f"{connection.config.username}:{connection.config.remote_addrs[0]}",
+            ],
+        )
+        proc.wait()
+        proc.release()
+        process_path = pathlib.Path(f"/proc/{ssh_master_pid}/comm")
+        if not process_path.exists():
+            return
+        process_name = process_path.read_text().strip()
         if process_name != "autossh":
             return
         os.kill(ssh_master_pid, signal.SIGTERM)

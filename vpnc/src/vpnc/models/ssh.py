@@ -44,7 +44,7 @@ class ConnectionConfigSSH(BaseModel):
         network_instance: models.NetworkInstance,
         connection: models.Connection,
     ) -> str:
-        """Create an XFRM interface."""
+        """Create an SSH connection."""
         if network_instance.type != models.NetworkInstanceType.DOWNLINK:
             err = (
                 "Connections of type SSH can only be used in DOWNLINK network instances"
@@ -72,7 +72,7 @@ class ConnectionConfigSSH(BaseModel):
                     address=str(ipv4.ip),
                     prefixlen=ipv4.network.prefixlen,
                 )
-            # Add the configured IPv6 address to the XFRM interface.
+            # Add the configured IPv6 address to the TUN interface.
             for ipv6 in if_ipv6:
                 ni_dl.addr(
                     "replace",
@@ -90,9 +90,8 @@ class ConnectionConfigSSH(BaseModel):
         connection: models.Connection,
     ) -> None:
         """Delete a connection."""
-        connection_name = f"{network_instance.id}-{connection.id}"
+        ssh.stop(network_instance, connection)
         interface_name = self.intf_name(connection.id)
-        ssh.stop(connection_name)
         with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
             if not ni_dl.link_lookup(ifname=interface_name):
                 return
