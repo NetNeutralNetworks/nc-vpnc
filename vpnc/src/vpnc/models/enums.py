@@ -3,7 +3,7 @@
 from enum import Enum
 
 
-class ConnectionType(Enum):
+class ConnectionType(str, Enum):
     """Define the modes in which the connections can run."""
 
     IPSEC = "ipsec"
@@ -11,17 +11,17 @@ class ConnectionType(Enum):
     SSH = "ssh"
 
 
-class ServiceMode(Enum):
+class ServiceMode(str, Enum):
     """Define the modes in which the service can run."""
 
     HUB = "hub"
     ENDPOINT = "endpoint"
 
 
-class NetworkInstanceType(Enum):
+class NetworkInstanceType(str, Enum):
     """Define the modes in which the service can run."""
 
-    DEFAULT = "default"
+    ENDPOINT = "endpoint"
     EXTERNAL = "external"
     CORE = "core"
     DOWNLINK = "downlink"

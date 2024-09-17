@@ -1,5 +1,7 @@
 """Manage tenants."""
 
+from __future__ import annotations
+
 import json
 import os
 import tempfile
@@ -14,7 +16,8 @@ from pydantic import ValidationError
 from rich import print
 from typing_extensions import Annotated
 
-from vpnc import config, models
+import vpnc.models.tenant
+from vpnc import config
 from vpnc.ctl import helpers, tenants_nat, tenants_ni
 
 app = typer.Typer()
@@ -42,7 +45,7 @@ def complete_tenant_id(
 def main(
     ctx: typer.Context,
     tenant_id: Annotated[
-        Optional[str],  # noqa: FA100
+        Optional[str],
         typer.Argument(autocompletion=complete_tenant_id),
     ] = None,
     active: Annotated[bool, typer.Option("--active")] = False,  # noqa: FBT002
@@ -151,16 +154,16 @@ def edit(ctx: typer.Context) -> None:
 
                 edited_config_str = tf.read()
                 if tenant_id == config.DEFAULT_TENANT:
-                    edited_config = models.Service(
+                    edited_config = vpnc.models.tenant.Service(
                         config=yaml.safe_load(edited_config_str),
                     ).config
                 else:
-                    edited_config = models.Tenant(**yaml.safe_load(edited_config_str))
+                    edited_config = vpnc.models.tenant.Tenant(
+                        **yaml.safe_load(edited_config_str),
+                    )
                 if tenant_id != edited_config.id:
                     msg = f"Mismatch between file name '{tenant_id}' and id '{edited_config.id}'"
-                    raise ValueError(
-                        msg,
-                    )
+                    raise ValueError(msg)
             except (ValidationError, ValueError, yaml.YAMLError) as err:
                 print(f"Error: {err}")
                 retry_or_abort = (
@@ -212,14 +215,14 @@ def add(
     if tenant_id == config.DEFAULT_TENANT:
         print(f"Tenant '{tenant_id}' already exists.")
         return
-    path = helpers.get_config_path(ctx, False)
+    path = helpers.get_config_path(ctx, active=False)
     tenant_path = path.joinpath(f"{tenant_id}.yaml")
     if tenant_path.exists():
         print(f"Tenant '{tenant_id}' already exists.")
         return
 
     all_args.update({"id": tenant_id})
-    tenant = models.Tenant(**all_args)
+    tenant = vpnc.models.tenant.Tenant(**all_args)
 
     output = yaml.safe_dump(
         tenant.model_dump(mode="json"),
@@ -252,7 +255,7 @@ def add(
 #         return
 
 #     with open(path, "r", encoding="utf-8") as f:
-#         remote = models.Tenant(**yaml.safe_load(f))
+#         remote = vpnc.models.tenant.Tenant(**yaml.safe_load(f))
 #     if tenant_id != remote.id:
 #         print(f"Mismatch between file name '{tenant_id}' and id '{remote.id}'.")
 #         return
@@ -293,7 +296,7 @@ def add(
 #     if not path.exists():
 #         return
 #     with open(path, "r", encoding="utf-8") as f:
-#         remote = models.Tenant(**yaml.safe_load(f))
+#         remote = vpnc.models.tenant.Tenant(**yaml.safe_load(f))
 #     if tenant_id != remote.id:
 #         print(f"Mismatch between file name '{tenant_id}' and id '{remote.id}'.")
 #         return
@@ -305,7 +308,7 @@ def add(
 #     for i in all_metadata:
 #         remote_dict["metadata"].pop(i, None)
 
-#     updated_remote = models.Tenant(**remote_dict)
+#     updated_remote = vpnc.models.tenant.Tenant(**remote_dict)
 
 #     output = yaml.safe_dump(
 #         updated_remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
@@ -335,7 +338,7 @@ def delete(
         print(f"Tenant '{tenant_id}' doesn't exist.")
         return
     with path.open(encoding="utf-8") as f:
-        tenant = models.Tenant(**yaml.safe_load(f))
+        tenant = vpnc.models.tenant.Tenant(**yaml.safe_load(f))
     if tenant_id != tenant.id:
         print(f"Mismatch between file name '{tenant_id}' and id '{tenant.id}'.")
         return
@@ -374,7 +377,9 @@ def commit(
     path_candidate_tenant = path_candidate.joinpath(f"{tenant_id}.yaml")
     path_active_tenant = path_active.joinpath(f"{tenant_id}.yaml")
     if not path_candidate_tenant.exists():
-        tenant_config_candidate = models.Tenant(id=tenant_id, name="", version="0.1.0")
+        tenant_config_candidate = vpnc.models.tenant.Tenant(
+            id=tenant_id, name="", version="0.1.0"
+        )
     else:
         tenant_config_candidate = helpers.get_tenant_config(
             ctx,
@@ -383,7 +388,9 @@ def commit(
         )
 
     if not path_active_tenant.exists():
-        tenant_config_active = models.Tenant(id=tenant_id, name="", version="0.1.0")
+        tenant_config_active = vpnc.models.tenant.Tenant(
+            id=tenant_id, name="", version="0.1.0"
+        )
     else:
         tenant_config_active = helpers.get_tenant_config(ctx, tenant_id, path_active)
 

@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, Any, Literal
 import pyroute2
 from pydantic import BaseModel, field_validator
 
+import vpnc.models.network_instance
 import vpnc.services.ssh
-from vpnc.models import enums, models
-from vpnc.services import ssh
+from vpnc.models import connections, enums
 
 if TYPE_CHECKING:
     from ipaddress import IPv4Address, IPv6Address
@@ -41,11 +41,11 @@ class ConnectionConfigSSH(BaseModel):
 
     def add(
         self,
-        network_instance: models.NetworkInstance,
-        connection: models.Connection,
+        network_instance: vpnc.models.network_instance.NetworkInstance,
+        connection: connections.Connection,
     ) -> str:
         """Create an SSH connection."""
-        if network_instance.type != models.NetworkInstanceType.DOWNLINK:
+        if network_instance.type != enums.NetworkInstanceType.DOWNLINK:
             err = (
                 "Connections of type SSH can only be used in DOWNLINK network instances"
             )
@@ -81,16 +81,16 @@ class ConnectionConfigSSH(BaseModel):
                     prefixlen=ipv6.network.prefixlen,
                 )
 
-        ssh.start(network_instance, connection)
+        vpnc.services.ssh.start(network_instance, connection)
         return tun
 
     def delete(
         self,
-        network_instance: models.NetworkInstance,
-        connection: models.Connection,
+        network_instance: vpnc.models.network_instance.NetworkInstance,
+        connection: connections.Connection,
     ) -> None:
         """Delete a connection."""
-        ssh.stop(network_instance, connection)
+        vpnc.services.ssh.stop(network_instance, connection)
         interface_name = self.intf_name(connection.id)
         with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
             if not ni_dl.link_lookup(ifname=interface_name):
@@ -104,7 +104,7 @@ class ConnectionConfigSSH(BaseModel):
 
     def status_summary(
         self,
-        network_instance: models.NetworkInstance,
+        network_instance: vpnc.models.network_instance.NetworkInstance,
         connection_id: int,
     ) -> dict[str, Any]:
         """Get the connection status."""

@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import pyroute2
 from pydantic import BaseModel, field_validator
 
-from vpnc.models import enums, models
+from vpnc.models import connections, enums
+
+if TYPE_CHECKING:
+    import vpnc.models.network_instance
 
 logger = logging.getLogger("vpnc")
 
@@ -28,27 +31,29 @@ class ConnectionConfigPhysical(BaseModel):
 
     def add(
         self,
-        network_instance: models.NetworkInstance,
-        connection: models.Connection,
+        network_instance: vpnc.models.network_instance.NetworkInstance,
+        connection: connections.Connection,
     ) -> str:
         """Create a local connection."""
-        if not isinstance(connection.config, models.ConnectionConfigPhysical):
+        if connection.config.type != enums.ConnectionType.PHYSICAL:
             logger.critical(
                 "Wrong connection configuration provided for %s",
                 network_instance.id,
             )
             raise TypeError
 
+        ifname = connection.config.interface_name
         with pyroute2.NetNS(
             netns=network_instance.id,
         ) as ni_dl, pyroute2.IPRoute() as ni_default:
-            if not ni_dl.link_lookup(ifname=connection.config.interface_name):
+            if not ni_dl.link_lookup(ifname=ifname):
                 if not ni_default.link_lookup(
-                    ifname=connection.config.interface_name,
+                    ifname=ifname,
                 ):
-                    raise Exception("WTF")
+                    logger.critical("Physical interface %s not found.", ifname)
+                    raise ValueError
                 ifidx_default_phy = ni_default.link_lookup(
-                    ifname=connection.config.interface_name,
+                    ifname=ifname,
                 )[0]
                 ni_default.link(
                     "set",
@@ -56,7 +61,7 @@ class ConnectionConfigPhysical(BaseModel):
                     net_ns_fd=network_instance.id,
                 )
 
-            ifidx_phy = ni_dl.link_lookup(ifname=connection.config.interface_name)[0]
+            ifidx_phy = ni_dl.link_lookup(ifname=ifname)[0]
             ni_dl.flush_addr(index=ifidx_phy, scope=enums.IPRouteScope.GLOBAL.value)
             ni_dl.link(
                 "set",
@@ -84,12 +89,12 @@ class ConnectionConfigPhysical(BaseModel):
                     prefixlen=ipv6.network.prefixlen,
                 )
 
-        return connection.config.interface_name
+        return ifname
 
     def delete(
         self,
-        network_instance: models.NetworkInstance,
-        connection: models.Connection,
+        network_instance: vpnc.models.network_instance.NetworkInstance,
+        connection: connections.Connection,
     ) -> None:
         """Delete a connection."""
         interface_name = self.intf_name(connection.id)
@@ -106,7 +111,7 @@ class ConnectionConfigPhysical(BaseModel):
 
     def status_summary(
         self,
-        network_instance: models.NetworkInstance,
+        network_instance: vpnc.models.network_instance.NetworkInstance,
         connection_id: int,
     ) -> dict[str, Any]:
         """Get the connection status."""

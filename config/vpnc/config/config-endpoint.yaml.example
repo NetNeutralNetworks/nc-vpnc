@@ -1,17 +1,121 @@
 ---
-version: 0.1.0
+version: 0.1.3
 
-id: E0001
-name: Tenant
+id: DEFAULT
+name: DEFAULT
 # Optional, arbitrary key-value pairs
-metadata:
-  environment: test
+metadata: {}
+# Runtime mode
+# Defines if the service is running in endpoint or hub mode
+mode: endpoint
 
 # Network configuration
 network_instances:
-  E0001-00:
-    id: E0001-00
-    type: downlink # default | external | core | downlink, IPv4 is ignored for core in hub mode.
+  EXTERNAL:
+    id: EXTERNAL
+    type: external # external
+    # Optional, arbitrary key-value pairs
+    metadata: {}
+    connections:
+      0:
+        id: 0
+        # Optional, arbitrary key-value pairs
+        metadata: {}
+        interface:
+          ipv6:
+          - 2001:db8::7/64
+          ipv4:
+          - 192.0.2.7/24
+        routes:
+          ipv6:
+          - to: default
+            via: 2001:db8::1
+          ipv4:
+          - to: default
+            via: 192.0.2.1
+        # Config of type physical
+        config:
+          type: physical # ipsec | physical
+          interface_name: eth1
+  CORE:
+    id: CORE
+    type: core # core
+    # Optional, arbitrary key-value pairs
+    metadata: {}
+    connections:
+      0:
+        id: 0
+        # Optional, arbitrary key-value pairs
+        metadata: {}
+        interface:
+          # Optional: IPv6 interface address, required for downlink in endpoint mode.
+          # ipv6: []
+          # Optional: IPv4 interface address, required for downlink in endpoint mode.
+          # Ignored for core in hub mode.
+          # ipv4: []
+        # List of IPv4 and IPv6 networks natively reachable via this connection.
+        # IPv4 prefixes are ignored for core and downlink in hub mode.
+        routes:
+          ipv6:
+          # IP prefixes for provider client subnets initiating administration traffic to customers.
+          - to: fdcc:cbe::/64
+          #   via: "fdcc:cbe::" # Optional, ignored for tunnel interfaces
+          # IPv4 prefixes are ignored for core and downlink in hub mode.
+          ipv4:
+          - to: 100.99.0.0/28
+        config:
+          type: ipsec # ipsec | physical
+          # Optional: If not set, defaults to the default service local_id value.
+          # local_id: 192.0.2.5
+          # IPv6 or IPv4 address
+          remote_addrs: [192.0.2.5, 2001:db8::5]
+          # Optional: If not set, defaults to remote_peer_ip
+          # remote_id: 192.0.2.3
+          # Optional: defaults to 2
+          #ike_version: 2
+          # Optional: defaults to aes256gcm16-prfsha384-ecp384
+          ike_proposal: aes128gcm16-prfsha384-ecp384
+          # Optional: The IKE lifetime in seconds
+          ike_lifetime: 300
+          # Optional: defaults to aes256gcm16-prfsha384-ecp384
+          ipsec_proposal: aes128gcm16-prfsha384-ecp384
+          # Optional: The IPsec lifetime in seconds
+          ipsec_lifetime: 90
+          # Optional, defaults to start. Start means inititate and respond, none means respond only.
+          initiation: start
+          psk: secretpasswordendpoint
+          # Optional
+          # traffic_selectors:
+          #   local:
+          #   - 10.20.0.0/16
+          #   - 10.21.0.0/16
+          #   remote:
+          #   - 172.30.0.0/16
+          #   - 172.31.0.0/16
+      1:
+        id: 1
+        metadata: {}
+        interface:
+        # List of IPv4 and IPv6 networks natively reachable via this connection.
+        # IPv4 prefixes are ignored for core and downlink in hub mode.
+        routes:
+          ipv6:
+          - to: fdcc:cbf::/64
+          ipv4:
+          - to: 100.100.0.0/28
+        config:
+          type: ipsec # ipsec | physical
+          # IPv6 or IPv4 address
+          remote_addrs: [192.0.2.6, 2001:db8::6]
+          ike_proposal: aes128gcm16-prfsha384-ecp384
+          ike_lifetime: 300
+          ipsec_proposal: aes128gcm16-prfsha384-ecp384
+          ipsec_lifetime: 90
+          initiation: start
+          psk: secretpasswordendpoint
+  ENDPOINT:
+    id: ENDPOINT
+    type: endpoint # endpoint
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -22,22 +126,25 @@ network_instances:
         interface:
           # Optional: IPv6 interface address, required in endpoint mode. Used in hub mode for NAT66
           ipv6:
-          - fdff:1234:1234::ffff/64
+          - fdff:db8:c57::ffff/64
           - 2001:db8:c57::ffff/64
           # Optional: IPv4 interface address, required in endpoint mode. Used in hub mode for NAT64
           ipv4:
-          - 172.16.31.254/24
+          - 172.16.30.254/24
         # List of IPv4 and IPv6 networks natively reachable via this connection.
         # IPv4 prefixes are ignored for core and downlink in hub mode.
         routes:
           ipv6:
           - to: default
-            via: fdff:1234:5678:1000::1 # Optional, ignored for tunnel interfaces
+            via: fdff:db8:c57::1 # Optional, ignored for tunnel interfaces
           # IPv4 prefixes are ignored for core and downlink in hub mode.
           ipv4:
           - to: default
-            via: 172.16.31.1
+            via: 172.16.30.1
         config:
           type: physical # ipsec | ssh | physical
-          interface_name: ens5
-  ...
+          interface_name: eth2
+# VPN CONFIG
+# Optional: IKE local identifier for VPNs
+# local_id: 192.0.2.7
+...

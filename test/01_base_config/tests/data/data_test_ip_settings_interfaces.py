@@ -90,12 +90,12 @@ TESTDATA_INTERFACES = [
             ("lo", "DOWN", frozenset()),
             ("xfrm0", "UP", frozenset()),
             ("xfrm1", "UP", frozenset()),
-            ("E0001-00_C", "UP", frozenset(["169.254.0.1/30", "fe80::/64"])),
+            ("ENDPOINT_C", "UP", frozenset(["169.254.0.1/30", "fe80::/64"])),
         },
     ),
     (
         "end00",
-        "E0001-00",
+        "ENDPOINT",
         {
             ("lo", "DOWN", frozenset()),
             (
@@ -109,7 +109,7 @@ TESTDATA_INTERFACES = [
                     },
                 ),
             ),
-            ("E0001-00_D", "UP", frozenset({"169.254.0.2/30", "fe80::1/64"})),
+            ("ENDPOINT_D", "UP", frozenset({"169.254.0.2/30", "fe80::1/64"})),
         },
     ),
     (
@@ -127,12 +127,12 @@ TESTDATA_INTERFACES = [
             ("lo", "DOWN", frozenset()),
             ("xfrm0", "UP", frozenset()),
             ("xfrm1", "UP", frozenset()),
-            ("E0001-00_C", "UP", frozenset({"169.254.0.1/30", "fe80::/64"})),
+            ("ENDPOINT_C", "UP", frozenset({"169.254.0.1/30", "fe80::/64"})),
         },
     ),
     (
         "end01",
-        "E0001-00",
+        "ENDPOINT",
         {
             ("lo", "DOWN", frozenset()),
             (
@@ -146,7 +146,7 @@ TESTDATA_INTERFACES = [
                     },
                 ),
             ),
-            ("E0001-00_D", "UP", frozenset({"169.254.0.2/30", "fe80::1/64"})),
+            ("ENDPOINT_D", "UP", frozenset({"169.254.0.2/30", "fe80::1/64"})),
         },
     ),
 ]

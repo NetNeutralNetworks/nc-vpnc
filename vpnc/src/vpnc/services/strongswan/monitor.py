@@ -13,7 +13,8 @@ import pyroute2
 import vici
 import vici.exception
 
-from vpnc import config, helpers, shared
+from vpnc import config, shared
+from vpnc.models import info
 
 logger = logging.getLogger("vpnc")
 
@@ -43,9 +44,6 @@ class Monitor(threading.Thread):
 
     async def monitor(self) -> None:
         """Test function."""
-        # Wait for startup before starting to manage VPNs
-        # await asyncio.sleep(10)
-
         # Get the current event loop for the thread.
         loop = asyncio.get_running_loop()
 
@@ -193,7 +191,7 @@ class Monitor(threading.Thread):
             network_instance_name: str | None = config.CORE_NI
             connection_id: str | None = ike_name[-1]
         else:
-            ni_info = helpers.parse_downlink_network_instance_name(ike_name)
+            ni_info = info.parse_downlink_network_instance_name(ike_name)
             tenant_id = ni_info.tenant
             network_instance_name = ni_info.network_instance
             connection_id = ni_info.connection_id
@@ -324,7 +322,8 @@ class Monitor(threading.Thread):
                     ts_unique[ts_key] = ipsec_sa
                     continue
 
-                # Compare the seconds since the SA was established. Choose the most recent one.
+                # Compare the seconds since the SA was established. Choose the most
+                # recent one.
                 try:
                     ipsec_sa_established = int(ipsec_sa["install-time"])
                     best_sa_established = int(ts_unique[ts_key]["install-time"])

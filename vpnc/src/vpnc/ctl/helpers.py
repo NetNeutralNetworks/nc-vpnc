@@ -18,7 +18,8 @@ from typing import TYPE_CHECKING
 import yaml
 from pydantic import ValidationError
 
-from vpnc import config, models
+import vpnc.models.tenant
+from vpnc import config
 
 if TYPE_CHECKING:
     import pathlib
@@ -62,15 +63,15 @@ def validate_ip_networks(x: list[str]) -> list[IPv4Network | IPv6Network]:
 def get_service_config(
     _: typer.Context,
     path: pathlib.Path,
-) -> models.ServiceEndpoint | models.ServiceHub:
+) -> vpnc.models.tenant.ServiceEndpoint | vpnc.models.tenant.ServiceHub:
     """Get the service configuration from a file."""
-    service: models.ServiceEndpoint | models.ServiceHub
+    service: vpnc.models.tenant.ServiceEndpoint | vpnc.models.tenant.ServiceHub
     with path.open(encoding="utf-8") as f:
         try:
-            service = models.ServiceEndpoint(**yaml.safe_load(f))
+            service = vpnc.models.tenant.ServiceEndpoint(**yaml.safe_load(f))
         except ValidationError:
             f.seek(0)
-            service = models.ServiceHub(**yaml.safe_load(f))
+            service = vpnc.models.tenant.ServiceHub(**yaml.safe_load(f))
 
     return service
 
@@ -90,7 +91,11 @@ def get_tenant_config(
     ctx: typer.Context,
     tenant_id: str,
     path: pathlib.Path,
-) -> models.ServiceEndpoint | models.ServiceHub | models.Tenant:
+) -> (
+    vpnc.models.tenant.ServiceEndpoint
+    | vpnc.models.tenant.ServiceHub
+    | vpnc.models.tenant.Tenant
+):
     """Get the tenant configuration from a file."""
     if (
         not config.DOWNLINK_TEN_RE.match(tenant_id)
@@ -99,12 +104,16 @@ def get_tenant_config(
         ctx.fail(f"Tenant name '{tenant_id}' is invalid.")
 
     config_path = path.joinpath(f"{tenant_id}.yaml")
-    tenant: models.ServiceEndpoint | models.ServiceHub | models.Tenant
+    tenant: (
+        vpnc.models.tenant.ServiceEndpoint
+        | vpnc.models.tenant.ServiceHub
+        | vpnc.models.tenant.Tenant
+    )
     with config_path.open(encoding="utf-8") as fh:
         if tenant_id == config.DEFAULT_TENANT:
             tenant = get_service_config(ctx, config_path)
         else:
-            tenant = models.Tenant(**yaml.safe_load(fh))
+            tenant = vpnc.models.tenant.Tenant(**yaml.safe_load(fh))
     if tenant_id != tenant.id:
         ctx.fail(f"Mismatch between file name '{tenant_id}' and id '{tenant.id}'.")
 

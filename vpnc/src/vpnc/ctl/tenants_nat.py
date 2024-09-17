@@ -9,8 +9,9 @@ import typer
 from rich import print
 from typing_extensions import Annotated
 
-import vpnc.network_instance
-from vpnc.models import models
+import vpnc.models.network_instance
+import vpnc.models.tenant
+import vpnc.services.configuration
 
 from . import helpers, tenant_ni_con
 
@@ -64,7 +65,7 @@ def main(
 
     tenant = helpers.get_tenant_config(ctx, tenant_id, path)
 
-    if isinstance(tenant, models.ServiceEndpoint):
+    if isinstance(tenant, vpnc.models.tenant.ServiceEndpoint):
         print("No NAT mappings: VPNC running in 'endpoint' mode.")
         return
 
@@ -77,7 +78,7 @@ def main(
     for instance in list_instances:
         if (
             nat64_mapping
-            := vpnc.network_instance.get_network_instance_nat64_mappings_state(
+            := vpnc.services.configuration.get_network_instance_nat64_mappings_state(
                 instance,
             )
         ):
@@ -91,8 +92,10 @@ def main(
                     "remote": nat64_remote,
                 },
             )
-        for mapping in vpnc.network_instance.get_network_instance_nptv6_mappings_state(
-            instance
+        for (
+            mapping
+        ) in vpnc.services.configuration.get_network_instance_nptv6_mappings_state(
+            instance,
         ):
             nptv6_local, nptv6_remote = mapping
             output.append(

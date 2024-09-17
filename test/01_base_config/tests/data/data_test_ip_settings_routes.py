@@ -146,20 +146,20 @@ TESTDATA_ROUTES = [
             ("fdcc:cbf::/64", None, "xfrm1", "static"),
             ("fdcc:cbe::/64", None, "xfrm0", "static"),
             # Downlink routes
-            ("default", "169.254.0.2", "E0001-00_C", "static"),
-            ("default", "fe80::1", "E0001-00_C", "static"),
+            ("default", "169.254.0.2", "ENDPOINT_C", "static"),
+            ("default", "fe80::1", "ENDPOINT_C", "static"),
         },
     ),
     (
         "end00",
-        "E0001-00",
+        "ENDPOINT",
         {
             # IPv4 uplink to CORE
-            ("100.99.0.0/28", "169.254.0.1", "E0001-00_D", "static"),
-            ("100.100.0.0/28", "169.254.0.1", "E0001-00_D", "static"),
+            ("100.99.0.0/28", "169.254.0.1", "ENDPOINT_D", "static"),
+            ("100.100.0.0/28", "169.254.0.1", "ENDPOINT_D", "static"),
             # IPv6 uplink to CORE
-            ("fdcc:cbe::/64", "fe80::", "E0001-00_D", "static"),
-            ("fdcc:cbf::/64", "fe80::", "E0001-00_D", "static"),
+            ("fdcc:cbe::/64", "fe80::", "ENDPOINT_D", "static"),
+            ("fdcc:cbf::/64", "fe80::", "ENDPOINT_D", "static"),
             # IPv4 routes
             ("default", "172.16.30.1", "eth2", "static"),
             # IPv6 routes
@@ -185,20 +185,20 @@ TESTDATA_ROUTES = [
             ("fdcc:cbf:1::/64", None, "xfrm1", "static"),
             ("fdcc:cbe:1::/64", None, "xfrm0", "static"),
             # Downlink routes
-            ("default", "169.254.0.2", "E0001-00_C", "static"),
-            ("default", "fe80::1", "E0001-00_C", "static"),
+            ("default", "169.254.0.2", "ENDPOINT_C", "static"),
+            ("default", "fe80::1", "ENDPOINT_C", "static"),
         },
     ),
     (
         "end01",
-        "E0001-00",
+        "ENDPOINT",
         {
             # IPv4 uplink to CORE
-            ("100.99.1.0/28", "169.254.0.1", "E0001-00_D", "static"),
-            ("100.100.1.0/28", "169.254.0.1", "E0001-00_D", "static"),
+            ("100.99.1.0/28", "169.254.0.1", "ENDPOINT_D", "static"),
+            ("100.100.1.0/28", "169.254.0.1", "ENDPOINT_D", "static"),
             # IPv6 uplink to CORE
-            ("fdcc:cbe:1::/64", "fe80::", "E0001-00_D", "static"),
-            ("fdcc:cbf:1::/64", "fe80::", "E0001-00_D", "static"),
+            ("fdcc:cbe:1::/64", "fe80::", "ENDPOINT_D", "static"),
+            ("fdcc:cbf:1::/64", "fe80::", "ENDPOINT_D", "static"),
             # IPv4 routes
             ("default", "172.17.30.1", "eth2", "static"),
             # IPv6 routes

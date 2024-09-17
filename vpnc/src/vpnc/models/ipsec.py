@@ -10,13 +10,16 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import pyroute2
 import vici
+import vici.exception
 from pydantic import BaseModel, Field, field_validator
 
 from vpnc import config
-from vpnc.models import enums, models
+from vpnc.models import connections, enums
 
 if TYPE_CHECKING:
     from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
+
+    import vpnc.models.network_instance
 
 logger = logging.getLogger("vpnc")
 
@@ -84,8 +87,8 @@ class ConnectionConfigIPsec(BaseModel):
 
     def add(
         self,
-        network_instance: models.NetworkInstance,
-        connection: models.Connection,
+        network_instance: vpnc.models.network_instance.NetworkInstance,
+        connection: connections.Connection,
     ) -> str:
         """Create an XFRM interface."""
         xfrm = self.intf_name(connection.id)
@@ -141,8 +144,8 @@ class ConnectionConfigIPsec(BaseModel):
 
     def delete(
         self,
-        network_instance: models.NetworkInstance,
-        connection: models.Connection,
+        network_instance: vpnc.models.network_instance.NetworkInstance,
+        connection: connections.Connection,
     ) -> None:
         """Delete a connection."""
         interface_name = self.intf_name(connection.id)
@@ -154,10 +157,16 @@ class ConnectionConfigIPsec(BaseModel):
             ni_dl.link("del", index=ifidx)
 
         vcs = vici.Session()
-        for i in vcs.terminate(
-            {"ike": f"{network_instance.id}-{connection.id}".encode()},
-        ):
-            logger.info(i)
+        try:
+            for i in vcs.terminate(
+                {"ike": f"{network_instance.id}-{connection.id}".encode()},
+            ):
+                logger.info(i)
+        except vici.exception.CommandException:
+            logger.warning(
+                "OK exception occurred while using a VICI command",
+                exc_info=True,
+            )
 
     def intf_name(self, connection_id: int) -> str:
         """Return the name of the connection interface."""
@@ -165,7 +174,7 @@ class ConnectionConfigIPsec(BaseModel):
 
     def status_summary(
         self,
-        network_instance: models.NetworkInstance,
+        network_instance: vpnc.models.network_instance.NetworkInstance,
         connection_id: int,
     ) -> dict[str, Any]:
         """Get the connection status."""

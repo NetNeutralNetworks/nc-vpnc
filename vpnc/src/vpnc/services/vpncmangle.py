@@ -10,7 +10,8 @@ from typing import Any
 
 import pyroute2
 
-from vpnc import config, network_instance
+from vpnc import config
+from vpnc.services import configuration
 
 logger = logging.getLogger("vpnc")
 
@@ -22,9 +23,7 @@ def generate_config() -> None:
     for tenant in config.VPNC_CONFIG_TENANT.values():
         for net_ni in tenant.network_instances.values():
             output[net_ni.id] = {"dns64": [], "dns66": []}
-            if nat64_scope := network_instance.get_network_instance_nat64_scope(
-                net_ni.id,
-            ):
+            if nat64_scope := configuration.get_network_instance_nat64_scope(net_ni):
                 output[net_ni.id]["dns64"] = [
                     (str(nat64_scope), str(IPv4Network("0.0.0.0/0"))),
                 ]

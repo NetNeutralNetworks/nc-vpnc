@@ -1,0 +1,7 @@
+{#- NPTv6 #}
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -t nat -F
+{%- for interface in core_interfaces %}
+    {%- for network in nptv6_networks %}
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -t nat -A PREROUTING -i {{ interface }} -d {{ network.nptv6_prefix }} -j NETMAP --to {{ network.to }}
+    {%- endfor %}
+{%- endfor %}

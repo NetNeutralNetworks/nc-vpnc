@@ -58,7 +58,7 @@ TABLES4_END = [
         ),
     ),
     (
-        "E0001-00",
+        "ENDPOINT",
         (
             "-P PREROUTING ACCEPT\n"
             "-P INPUT ACCEPT\n"
@@ -141,7 +141,7 @@ TABLES6_END = [
         ),
     ),
     (
-        "E0001-00",
+        "ENDPOINT",
         (
             "-P PREROUTING ACCEPT\n"
             "-P INPUT ACCEPT\n"

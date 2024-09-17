@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal
-
-import pyroute2
+from typing import TYPE_CHECKING, Any, Literal
 
 logger = logging.getLogger("vpnc")
 
 if TYPE_CHECKING:
     from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
+
+    import pyroute2
 
 
 def command(

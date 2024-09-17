@@ -12,8 +12,9 @@ import yaml
 from rich import print
 from typing_extensions import Annotated
 
-from vpnc import config, models
+from vpnc import config
 from vpnc.ctl import helpers
+from vpnc.models import enums
 
 app = typer.Typer()
 
@@ -25,12 +26,12 @@ def show(
 ) -> None:
     """Show the service BGP configuration."""
     path = helpers.get_config_path(ctx, active=active).joinpath(
-        f"{config.DEFAULT_TENANT}.yaml"
+        f"{config.DEFAULT_TENANT}.yaml",
     )
 
     service = helpers.get_service_config(ctx, path)
 
-    if service.mode is not models.ServiceMode.HUB:
+    if service.mode is not enums.ServiceMode.HUB:
         print("BGP is inactive. Running in 'endpoint' mode.")
         return
 
@@ -46,6 +47,16 @@ def summary(
     ctx: typer.Context,
 ) -> None:
     """Show a network-instance's connectivity status."""
+    path = helpers.get_config_path(ctx, active=True).joinpath(
+        f"{config.DEFAULT_TENANT}.yaml",
+    )
+
+    service = helpers.get_service_config(ctx, path)
+
+    if service.mode is not enums.ServiceMode.HUB:
+        print("BGP is inactive. Running in 'endpoint' mode.")
+        return
+
     output: list[dict[str, Any]] = []
 
     bgp: dict[str, Any] = json.loads(

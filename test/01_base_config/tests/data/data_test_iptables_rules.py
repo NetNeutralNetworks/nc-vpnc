@@ -73,17 +73,15 @@ TABLES4_END = [
     # No IPv4 in C0001-00, even though we do NAT64. These are handled by Jool before iptables
     # forwards traffic
     (
-        "E0001-00",
+        "ENDPOINT",
         (
             "-P INPUT DROP\n"
             "-P FORWARD DROP\n"
             "-P OUTPUT DROP\n"
             "-A INPUT -p icmp -j ACCEPT\n"
-            "-A INPUT -i eth2 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
-            "-A FORWARD -i E0001-00_D -j ACCEPT\n"
+            "-A FORWARD -i ENDPOINT_D -j ACCEPT\n"
             "-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
-            "-A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
-            "-A OUTPUT -o eth2 -p tcp -m tcp --dport 22 -j ACCEPT"
+            "-A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
         ),
     ),
 ]
@@ -202,19 +200,17 @@ TABLES6_HUB = [
 TABLES6_END = [
     *TABLES6_CORE_EXT,
     (
-        "E0001-00",
+        "ENDPOINT",
         (
             "-P INPUT DROP\n"
             "-P FORWARD DROP\n"
             "-P OUTPUT DROP\n"
             "-N icmpv6-in-out\n"
             "-A INPUT -p ipv6-icmp -j icmpv6-in-out\n"
-            "-A INPUT -i eth2 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
-            "-A FORWARD -i E0001-00_D -j ACCEPT\n"
+            "-A FORWARD -i ENDPOINT_D -j ACCEPT\n"
             "-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             "-A OUTPUT -p ipv6-icmp -j icmpv6-in-out\n"
             "-A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
-            "-A OUTPUT -o eth2 -p tcp -m tcp --dport 22 -j ACCEPT\n"
             f"{TABLES6_ICMPV6_IN_OUT}"
         ),
     ),

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from vpnc import models
+    from vpnc.models import tenant
 
 logger = logging.getLogger("vpnc")
 
@@ -29,8 +29,9 @@ DEEPDIFF_IGNORE = [
 ]
 
 DEFAULT_TENANT = "DEFAULT"
-DEFAULT_NI = "ROOT"  # name of the DEFAULT network instance
 CORE_NI = "CORE"  # name of the CORE trusted network instance
+DEFAULT_NI = "DEFAULT"  # name of the DEFAULT network instance
+ENDPOINT_NI = "ENDPOINT"  # name of the ENDPOINT network instance
 EXTERNAL_NI = "EXTERNAL"  # name of the EXTERNAL untrusted network instance
 
 # Match only non-default tenants
@@ -60,5 +61,5 @@ VPNC_C_CONFIG_DIR = Path("/opt/ncubed/config/vpnc/candidate/")
 VPNC_C_CONFIG_PATH_SERVICE = VPNC_C_CONFIG_DIR.joinpath(f"{DEFAULT_TENANT}.yaml")
 
 # Variables used for shared configuration
-VPNC_CONFIG_SERVICE: models.ServiceEndpoint | models.ServiceHub
-VPNC_CONFIG_TENANT: dict[str, models.Tenant] = {}
+VPNC_CONFIG_SERVICE: tenant.ServiceEndpoint | tenant.ServiceHub
+VPNC_CONFIG_TENANT: dict[str, tenant.Tenant] = {}

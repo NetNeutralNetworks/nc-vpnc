@@ -4,15 +4,6 @@
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P FORWARD DROP
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -P OUTPUT DROP
 
-{#- Allow forwarded IPv4 traffic from the CORE and related return traffic #}
-{%- if mode.name == "ENDPOINT" %}
-/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A INPUT -p icmp -j ACCEPT
-  {%- for interface in core_interfaces %}
-/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A FORWARD -i {{ interface }} -j ACCEPT
-  {%- endfor%}
-/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-{%- endif %}
 
 {#- Flush all old configuration and drop all IPv6 traffic by default #}
 {#- except traffic originating from the CORE network instance #}
@@ -48,4 +39,5 @@
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -i {{ interface }} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 {%- endfor %}
 
+{% include 'iptables-ipv6-npt.conf.j2' %}
 {% include 'iptables-ipv6-nat.conf.j2' %}

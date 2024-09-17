@@ -1,21 +1,30 @@
 """Manages VPN connections and observers used to monitor file changes."""
 
+from __future__ import annotations
+
 import atexit
 import logging
 import os
 import pathlib
 import subprocess
+import sys
 import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pyroute2
+import vici
 from jinja2 import Environment, FileSystemLoader
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
-from watchdog.observers.api import BaseObserver
 
-from vpnc import config, models
+from vpnc import config
+from vpnc.models import enums
+
+if TYPE_CHECKING:
+    from watchdog.observers.api import BaseObserver
+
+    from vpnc.models.network_instance import NetworkInstance
 
 logger = logging.getLogger("vpnc")
 
@@ -76,17 +85,17 @@ def observe() -> BaseObserver:
 
 
 def generate_config(
-    network_instance: models.NetworkInstance,
+    network_instance: NetworkInstance,
 ) -> None:
     """Generate swanctl configurations."""
     swanctl_template = TEMPLATES_ENV.get_template("swanctl.conf.j2")
     swanctl_cfgs: list[dict[str, Any]] = []
     vpn_id = int("0x10000000", 16)
-    if network_instance.type == models.NetworkInstanceType.DOWNLINK:
+    if network_instance.type == enums.NetworkInstanceType.DOWNLINK:
         vpn_id = int(f"0x{network_instance.id.replace('-', '')}0", 16)
 
     for connection in network_instance.connections.values():
-        if connection.config.type != models.ConnectionType.IPSEC:
+        if connection.config.type != enums.ConnectionType.IPSEC:
             continue
         swanctl_cfg: dict[str, Any] = {
             "connection": f"{network_instance.id}-{connection.id}",
@@ -164,6 +173,7 @@ def stop() -> None:
 def start() -> None:
     """Start the IPSec service in the EXTERNAL network instance."""
     # Remove old strongswan/swanctl config files
+    logger.info("Starting Strongswan process.")
     for file in config.VPN_CONFIG_DIR.iterdir():
         logger.debug("Unlinking swanctl config file %s at startup", file)
         file.unlink(missing_ok=True)
@@ -187,6 +197,22 @@ def start() -> None:
         proc.release()
 
     atexit.register(stop)
+
+    tries = 50
+    delay = 0.1
+    for i in range(tries):
+        try:
+            vici.Session()
+            break
+        except (ConnectionRefusedError, FileNotFoundError):
+            if i >= tries:
+                logger.critical(
+                    "VICI socket not available after %s tries. Exiting.",
+                    tries,
+                )
+                sys.exit(1)
+            logger.info("VICI socket is not yet available. Retrying.")
+            time.sleep(delay)
 
     # Strongswan doesn't monitor it's configuration files automatically,
     # so a file observer is used to reload the configuration.

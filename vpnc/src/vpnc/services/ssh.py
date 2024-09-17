@@ -8,10 +8,17 @@ import os
 import pathlib
 import signal
 import subprocess
+from typing import TYPE_CHECKING
 
 import pyroute2
 
-from vpnc import models
+import vpnc.models.connections
+import vpnc.models.ssh
+from vpnc.models import enums
+
+if TYPE_CHECKING:
+    import vpnc.models.network_instance
+
 
 logger = logging.getLogger("vpnc")
 
@@ -19,15 +26,15 @@ SSH_SOCKET_DIR = pathlib.Path("/run/vpnc/ssh/")
 SSH_SOCKET_DIR.mkdir(mode=770, parents=True, exist_ok=True)
 
 
-SSH_CONNECTIONS: dict[str, models.Connection] = {}
+SSH_CONNECTIONS: dict[str, vpnc.models.connections.Connection] = {}
 
 
 def start(
-    network_instance: models.NetworkInstance,
-    connection: models.Connection,
+    network_instance: vpnc.models.network_instance.NetworkInstance,
+    connection: vpnc.models.connections.Connection,
 ) -> None:
     """Start SSH connections."""
-    if not isinstance(connection.config, models.ConnectionConfigSSH):
+    if connection.config.type != enums.ConnectionType.SSH:
         logger.warning("Invalid module type specified.")
         return
 
@@ -116,7 +123,7 @@ autossh -f -M 0 \
 {connection.config.username}@{connection.config.remote_addrs[0]} {remote_config}
 """
 
-    master_tunnel_proc = subprocess.run(
+    master_tunnel_proc = subprocess.run(  # noqa: S602
         master_local_tunnel,
         capture_output=True,
         text=True,
@@ -132,16 +139,13 @@ autossh -f -M 0 \
 
 
 def stop(
-    network_instance: models.NetworkInstance,
-    connection: models.Connection,
+    network_instance: vpnc.models.network_instance.NetworkInstance,
+    connection: vpnc.models.connections.Connection,
 ) -> None:
     """Stop the long running SSH configuration tasks."""
     connection_name = f"{network_instance.id}-{connection.id}"
     ssh_connection = SSH_CONNECTIONS.pop(connection_name, None)
-    if ssh_connection is None or not isinstance(
-        ssh_connection.config,
-        models.ConnectionConfigSSH,
-    ):
+    if ssh_connection is None or ssh_connection.config.type != enums.ConnectionType.SSH:
         return
     ssh_master_pid_file = SSH_SOCKET_DIR.joinpath(f"{connection_name}-master.pid")
     ssh_master_socket = SSH_SOCKET_DIR.joinpath(f"{connection_name}.sock")

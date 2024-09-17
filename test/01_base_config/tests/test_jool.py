@@ -34,7 +34,7 @@ class TestJool:
         # Remove trailing newline
         assert jool_running.strip() == "Running"
 
-    @pytest.mark.parametrize("network_instance", [("E0001-00")])
+    @pytest.mark.parametrize("network_instance", [("ENDPOINT")])
     @pytest.mark.parametrize("host", [("end00"), ("end01")])
     def test_jool_is_not_running_in_network_instance_endpoint(
         self,

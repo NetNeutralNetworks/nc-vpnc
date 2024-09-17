@@ -1,5 +1,5 @@
 ---
-version: 0.1.0
+version: 0.1.3
 
 id: DEFAULT
 name: DEFAULT
@@ -13,7 +13,7 @@ mode: hub
 network_instances:
   EXTERNAL:
     id: EXTERNAL
-    type: external # default | external | core | downlink, IPv4 is ignored for core in hub mode.
+    type: external # external
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -36,10 +36,10 @@ network_instances:
         # Config of type physical
         config:
           type: physical # ipsec | physical
-          interface_name: eth2
-  ROOT:
-    id: ROOT
-    type: default # default | external | core | downlink, IPv4 is ignored for core in hub mode.
+          interface_name: eth1
+  CORE:
+    id: CORE
+    type: core # core, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -47,35 +47,6 @@ network_instances:
         id: 0
         # Optional, arbitrary key-value pairs
         metadata: {}
-        interface:
-          ipv6:
-          - 2001:db8:1::153/64
-          ipv4:
-          - 192.168.0.153/20
-        routes:
-          ipv6:
-          - to: default
-            via: 2001:db8:1::1
-          ipv4:
-          - to: default
-            via: 192.168.0.1
-        config:
-          type: physical # ipsec | physical
-          interface_name: eth1
-  CORE:
-    id: CORE
-    type: core # default | external | core | downlink, IPv4 is ignored for core in hub mode.
-    # Optional, arbitrary key-value pairs
-    metadata:
-      location: Provider lab
-      device_type: Management firewall
-    connections:
-      0:
-        id: 0
-        # Optional, arbitrary key-value pairs
-        metadata:
-          location: Provider lab
-          device_type: Management firewall
         interface:
           # Optional: IPv6 interface address, required for downlink in endpoint mode.
           ipv6:
@@ -105,11 +76,11 @@ network_instances:
           # Optional: defaults to aes256gcm16-prfsha384-ecp384
           # ike_proposal: aes256gcm16-prfsha384-ecp384
           # Optional: The IKE lifetime in seconds
-          # ike_lifetime: 86400
+          ike_lifetime: 300
           # Optional: defaults to aes256gcm16-prfsha384-ecp384
           # ipsec_proposal: aes256gcm16-prfsha384-ecp384
           # Optional: The IPsec lifetime in seconds
-          # ipsec_lifetime: 3600
+          ipsec_lifetime: 90
           # Optional, defaults to start. Start means inititate and respond, none means respond only.
           # initiation: start
           psk: secretpasswordcore
@@ -121,6 +92,29 @@ network_instances:
           #   remote:
           #   - 172.30.0.0/16
           #   - 172.31.0.0/16
+      1:
+        id: 1
+        metadata: {}
+        interface:
+          ipv6:
+          - fd00:1:2::1:0/127
+          ipv4: []
+        # List of IPv4 and IPv6 networks natively reachable via this connection.
+        # IPv4 prefixes are ignored for core and downlink in hub mode.
+        routes:
+          ipv6:
+          # IP prefixes for provider client subnets initiating administration traffic to tenants.
+          - to: fd00::/16
+          #   via: fd00:1:2::1 # Optional, ignored for tunnel interfaces
+          # IPv4 prefixes are ignored for core and downlink in hub mode.
+          ipv4: []
+        config:
+          type: ipsec
+          remote_addrs: [2001:db8::4]
+          ike_lifetime: 300
+          ipsec_lifetime: 90
+          psk: secretpasswordcore
+
 
 # VPN CONFIG
 # Optional: IKE local identifier for VPNs
@@ -147,11 +141,15 @@ prefix_downlink_nptv6: fd60::/12
 # ASN must be between 4.200.000.000 and 4.294.967.294 inclusive.
 bgp:
   globals:
-    asn: 4255786777
-    router_id: 1.1.1.2
+    asn: 4255555555
+    router_id: 5.5.5.5
   neighbors:
-  - neighbor_asn: 4255786769
+  - neighbor_asn: 4233333333
     neighbor_address: fd00:1:2::1
     # Optional, lower is more preferred uplink for receiving traffic, defaults to 0, max is 9
     priority: 0
+  - neighbor_asn: 4244444444
+    neighbor_address: fd00:1:2::1:1
+    # Optional, lower is more preferred uplink for receiving traffic, defaults to 0, max is 9
+    priority: 1
 ...

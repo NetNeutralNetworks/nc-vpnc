@@ -158,8 +158,10 @@ function create_vpnc_config () {
         MODE=${1}
     fi
 
+    if [ "${MODE}" != "hub" ]; then
     cp -n ${SCRIPTDIR}/config/${SERVICENAME}/config/config.yaml.example \
         ${BASEDIR}/config/${SERVICENAME}/candidate/config.yaml.example || true
+    fi
     # cp --update=none ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example \
     cp -n ${SCRIPTDIR}/config/${SERVICENAME}/config/config-${MODE}.yaml.example \
         ${BASEDIR}/config/${SERVICENAME}/candidate/DEFAULT.yaml || true

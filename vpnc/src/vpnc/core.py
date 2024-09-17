@@ -9,12 +9,9 @@ import subprocess
 import sys
 import time
 
-import vici
-
-from vpnc import shared
-
-from . import config, models, network_instance
-from .services import frr, strongswan, vpncmangle
+from vpnc import config, shared
+from vpnc.models import enums
+from vpnc.services import configuration, frr, strongswan, vpncmangle
 
 logger = logging.getLogger("vpnc")
 
@@ -46,48 +43,33 @@ def concentrator() -> None:
     # This provides VPN connectivity
     external_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.EXTERNAL_NI]
     try:
-        network_instance.set_network_instance(external_ni, None)
+        external_ni.set(None)
     except ValueError:
-        logger.critical(
-            "Setting up the %s network instance failed.",
-            config.EXTERNAL_NI,
-        )
-        sys.exit(1)
-    network_instance.add_external_iptables(external_ni)
-
-    # Create and mount the CORE network instance. This provides the management
-    # connectivity. The CORE namespace has no internet connectivity.
-    core_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
-    try:
-        network_instance.set_network_instance(core_ni, None)
-    except ValueError:
-        logger.critical("Setting up the %s network instance failed.", config.CORE_NI)
         sys.exit(1)
 
     # The IPSec process must be started in the EXTERNAL network instance.
-    logger.info("Starting Strongswan process.")
     strongswan.start()
-    tries = 50
-    delay = 0.1
-    for i in range(tries):
-        try:
-            vici.Session()
-            break
-        except (ConnectionRefusedError, FileNotFoundError):
-            if i >= tries:
-                logger.critical(
-                    "VICI socket not available after %s tries. Exiting.",
-                    tries,
-                )
-                sys.exit(1)
-            logger.info("VICI socket is not yet available. Retrying.")
-            time.sleep(delay)
+
     # Start the VPNC Security Association monitor to fix duplicate connections.
     logger.info("Starting Strongswan monitor")
     sa_mon = strongswan.Monitor(daemon=True)
     sa_mon.start()
 
-    if config.VPNC_CONFIG_SERVICE.mode == models.ServiceMode.HUB:
+    # Create and mount the CORE network instance. This provides the management
+    # connectivity. The CORE namespace has no internet connectivity.
+    core_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
+    try:
+        core_ni.set(None)
+    except ValueError:
+        sys.exit(1)
+    if config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.ENDPOINT:
+        endpoint_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.ENDPOINT_NI]
+        try:
+            endpoint_ni.set(None)
+        except ValueError:
+            sys.exit(1)
+
+    if config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.HUB:
         # VPNC in hub mode performs NAT64 using Jool. The kernel module must be loaded
         # before it can be used.
         # Load the NAT64 kernel module (jool).
@@ -109,21 +91,15 @@ def concentrator() -> None:
         frr.start()
 
     # Start the event handler.
-    logger.info("Monitoring %s network instance config changes.", config.CORE_NI)
-    core_obs = network_instance.observe_core()
-    core_obs.start()
-
-    # Start the event handler.
-    logger.info("Monitoring DOWNLINK network instance config changes.")
-    downlink_obs = network_instance.observe_downlink()
-    downlink_obs.start()
-
-    network_instance.set_core_network_instance(startup=True)
+    logger.info("Monitoring tenant config changes.")
+    configuration_obs = configuration.observe_configuration()
+    configuration_obs.start()
 
     config_files = list(config.VPNC_A_CONFIG_DIR.glob(pattern="*.yaml"))
     for file_path in config_files:
-        network_instance.manage_downlink_tenant(file_path)
+        configuration.manage_tenant(file_path)
 
+    # Keep the program running, but terminate if needed.
     try:
         while not shared.stop_event.is_set():
             time.sleep(1)
