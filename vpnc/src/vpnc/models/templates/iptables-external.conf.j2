@@ -16,13 +16,17 @@
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A INPUT -p esp -j ACCEPT
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A INPUT -p udp --dport  500 --sport  500 -j ACCEPT
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A INPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A INPUT -p udp --dport 51820:51899 -j ACCEPT
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A OUTPUT -p esp -j ACCEPT
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A OUTPUT -p udp --dport  500 --sport  500 -j ACCEPT
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A OUTPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/iptables -A OUTPUT -p udp --sport 51820:51899 -j ACCEPT
 
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -p esp -j ACCEPT
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -p udp --dport  500 --sport  500 -j ACCEPT
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A INPUT -p udp --dport 51820:51899 -j ACCEPT
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -p esp -j ACCEPT
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -p udp --dport  500 --sport  500 -j ACCEPT
 /usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -p udp --dport 4500 --sport 4500 -j ACCEPT
+/usr/sbin/ip netns exec {{ network_instance_name }} /usr/sbin/ip6tables -A OUTPUT -p udp --sport 51820:51899 -j ACCEPT

@@ -71,7 +71,6 @@ class ConnectionConfigPhysical(BaseModel):
 
             if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
                 network_instance,
-                connection.id,
             )
             for ipv4 in if_ipv4:
                 ni_dl.addr(
@@ -97,7 +96,7 @@ class ConnectionConfigPhysical(BaseModel):
         connection: connections.Connection,
     ) -> None:
         """Delete a connection."""
-        interface_name = self.intf_name(connection.id)
+        interface_name = self.intf_name(network_instance, connection)
         # run the commands
         with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
             if not ni_dl.link_lookup(ifname=interface_name):
@@ -105,17 +104,21 @@ class ConnectionConfigPhysical(BaseModel):
             ifidx = ni_dl.link_lookup(ifname=interface_name)[0]
             ni_dl.link("set", index=ifidx, net_ns_fd=1)
 
-    def intf_name(self, _: int) -> str:
+    def intf_name(
+        self,
+        _: vpnc.models.network_instance.NetworkInstance,
+        __: connections.Connection,
+    ) -> str:
         """Return the name of the connection interface."""
         return self.interface_name
 
     def status_summary(
         self,
         network_instance: vpnc.models.network_instance.NetworkInstance,
-        connection_id: int,
+        connection: connections.Connection,
     ) -> dict[str, Any]:
         """Get the connection status."""
-        if_name = self.intf_name(connection_id)
+        if_name = self.intf_name(network_instance, connection)
         output = json.loads(
             subprocess.run(  # noqa: S603
                 [
@@ -136,7 +139,7 @@ class ConnectionConfigPhysical(BaseModel):
         output_dict: dict[str, Any] = {
             "tenant": f"{network_instance.id.split('-')[0]}",
             "network-instance": network_instance.id,
-            "connection": connection_id,
+            "connection": connection.id,
             "type": self.type.name,
             "status": output["operstate"],
             "interface-name": if_name,

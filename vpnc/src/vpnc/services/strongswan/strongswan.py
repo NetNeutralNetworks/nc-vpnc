@@ -75,7 +75,7 @@ def observe() -> BaseObserver:
     # This doesn't start the handler.
     observer.schedule(
         event_handler=SwanctlHandler(patterns=["*.conf"], ignore_directories=True),
-        path=config.VPN_CONFIG_DIR,
+        path=config.IPSEC_CONFIG_DIR,
         recursive=False,
     )
     # The handler should exit on main thread close
@@ -130,7 +130,7 @@ def generate_config(
 
         swanctl_cfgs.append(swanctl_cfg)
 
-    swanctl_path = config.VPN_CONFIG_DIR.joinpath(f"{network_instance.id}.conf")
+    swanctl_path = config.IPSEC_CONFIG_DIR.joinpath(f"{network_instance.id}.conf")
     # Remove the configuration file if it exists and there is no IPSec connection
     # configured.
     if not swanctl_cfgs:
@@ -146,7 +146,7 @@ def generate_config(
     with swanctl_path.open("w", encoding="utf-8") as f:
         f.write(swanctl_render)
 
-    os.chown(swanctl_path, config.VPN_USER, config.VPN_GROUP)
+    os.chown(swanctl_path, config.IPSEC_USER, config.IPSEC_GROUP)
 
 
 def stop() -> None:
@@ -174,7 +174,7 @@ def start() -> None:
     """Start the IPSec service in the EXTERNAL network instance."""
     # Remove old strongswan/swanctl config files
     logger.info("Starting Strongswan process.")
-    for file in config.VPN_CONFIG_DIR.iterdir():
+    for file in config.IPSEC_CONFIG_DIR.iterdir():
         logger.debug("Unlinking swanctl config file %s at startup", file)
         file.unlink(missing_ok=True)
 

@@ -14,7 +14,7 @@ logger = logging.getLogger("vpnc")
 def signal_handler(*_: object) -> None:
     """Shut down the program gracefully."""
     logger.info("SIGTERM received. Stopping all threads.")
-    shared.stop_event.set()
+    shared.STOP_EVENT.set()
 
 
 def check_system_requirements() -> None:

@@ -11,7 +11,7 @@ import time
 
 from vpnc import config, shared
 from vpnc.models import enums
-from vpnc.services import configuration, frr, strongswan, vpncmangle
+from vpnc.services import configuration, frr, strongswan, vpncmangle, wireguard
 
 logger = logging.getLogger("vpnc")
 
@@ -54,6 +54,10 @@ def concentrator() -> None:
     logger.info("Starting Strongswan monitor")
     sa_mon = strongswan.Monitor(daemon=True)
     sa_mon.start()
+
+    logger.info("Starting WireGuard monitor")
+    wg_mon = wireguard.observe()
+    wg_mon.start()
 
     # Create and mount the CORE network instance. This provides the management
     # connectivity. The CORE namespace has no internet connectivity.
@@ -101,10 +105,10 @@ def concentrator() -> None:
 
     # Keep the program running, but terminate if needed.
     try:
-        while not shared.stop_event.is_set():
+        while not shared.STOP_EVENT.is_set():
             time.sleep(1)
     except KeyboardInterrupt:
-        shared.stop_event.is_set()
+        shared.STOP_EVENT.is_set()
     except Exception:
         logger.critical(
             "VPNC ended prematurely.",

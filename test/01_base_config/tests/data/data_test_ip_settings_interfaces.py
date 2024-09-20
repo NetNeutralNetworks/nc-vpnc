@@ -33,7 +33,7 @@ TESTDATA_INTERFACES = [
         "C0001-01",
         {
             ("lo", "DOWN", frozenset()),
-            ("xfrm0", "UP", frozenset({"100.99.1.1/28", "fdcc:cbe:1::/64"})),
+            ("wg-C0001-01-0", "UP", frozenset({"100.99.1.1/28", "fdcc:cbe:1::/64"})),
             ("C0001-01_D", "UP", frozenset({"fe80::1/64"})),
         },
     ),
@@ -71,7 +71,7 @@ TESTDATA_INTERFACES = [
         "C0001-01",
         {
             ("lo", "DOWN", frozenset()),
-            ("xfrm0", "UP", frozenset({"100.100.1.1/28", "fdcc:cbf:1::/64"})),
+            ("wg-C0001-01-0", "UP", frozenset({"100.100.1.1/28", "fdcc:cbf:1::/64"})),
             ("C0001-01_D", "UP", frozenset({"fe80::1/64"})),
         },
     ),
@@ -125,8 +125,8 @@ TESTDATA_INTERFACES = [
         "CORE",
         {
             ("lo", "DOWN", frozenset()),
-            ("xfrm0", "UP", frozenset()),
-            ("xfrm1", "UP", frozenset()),
+            ("wg-CORE-0", "UP", frozenset()),
+            ("wg-CORE-1", "UP", frozenset()),
             ("ENDPOINT_C", "UP", frozenset({"169.254.0.1/30", "fe80::/64"})),
         },
     ),

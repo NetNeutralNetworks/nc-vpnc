@@ -33,7 +33,7 @@ class Monitor(threading.Thread):
 
     def run(self) -> None:
         """Override and entrypoint of the threading.Thread class."""
-        while not shared.stop_event.is_set():
+        while not shared.STOP_EVENT.is_set():
             try:
                 logger.info("Starting VPNC Strongswan monitors")
                 asyncio.run(self.monitor())
@@ -87,7 +87,7 @@ class Monitor(threading.Thread):
         """
         if init_wait:
             await asyncio.sleep(interval)
-        while not shared.stop_event.is_set():
+        while not shared.STOP_EVENT.is_set():
             await asyncio.gather(
                 func(*args, **kwargs),
                 asyncio.sleep(interval),
@@ -135,7 +135,7 @@ class Monitor(threading.Thread):
             event_types=["ike-updown", "child-updown"],
             timeout=0.1,
         ):
-            if shared.stop_event.is_set():
+            if shared.STOP_EVENT.is_set():
                 return
             if event == (None, None):
                 continue
@@ -163,7 +163,7 @@ class Monitor(threading.Thread):
             event_types=["ike-updown", "child-updown"],
             timeout=0.1,
         ):
-            if shared.stop_event.is_set():
+            if shared.STOP_EVENT.is_set():
                 return
             if event == (None, None):
                 continue

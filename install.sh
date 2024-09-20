@@ -18,7 +18,8 @@ function install_apt_defaults () {
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
     iptables iproute2 \
     strongswan strongswan-swanctl \
-    ssh autossh
+    ssh autossh \
+    wireguard
 
     # Remove cached apt list after install
     if  [ -f /.dockerenv ]; then

@@ -16,17 +16,17 @@ from vpnc import config
 from vpnc.models import enums, info
 from vpnc.network import route
 from vpnc.services import configuration
+from vpnc.shared import NI_LOCK
 
 if TYPE_CHECKING:
     import vpnc.models.network_instance
 
 logger = logging.getLogger("vpnc")
 
-ni_monitors: dict[
+NI_ROUTE_MONITORS: dict[
     str,
     tuple[vpnc.models.network_instance.NetworkInstance, pyroute2.NDB],
 ] = {}
-ni_locks: dict[str, threading.Lock] = {}
 
 
 def create_handler(network_instance_id: str) -> Callable[..., None]:
@@ -61,7 +61,7 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
             if tenant := config.VPNC_CONFIG_TENANT.get(tenant_id):
                 net_inst = tenant.network_instances.get(network_instance_id)
 
-        active_net_inst, ni_handler = ni_monitors[network_instance_id]
+        active_net_inst, ni_handler = NI_ROUTE_MONITORS[network_instance_id]
         ni_dl = pyroute2.NetNS(network_instance_id)
         ni_core = pyroute2.NetNS(config.CORE_NI)
 
@@ -80,18 +80,18 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
 
         if net_inst:
             for conn in net_inst.connections.values():
-                if connection_name_downlink == conn.intf_name():
+                if connection_name_downlink == conn.intf_name(net_inst):
                     connection = conn
                     break
 
         if active_net_inst:
             for conn in active_net_inst.connections.values():
-                if connection_name_downlink == conn.intf_name():
+                if connection_name_downlink == conn.intf_name(active_net_inst):
                     active_connection = conn
                     break
 
         logger.info("Acquiring lock for %s", network_instance_id)
-        with ni_dl, ni_core, ni_locks[network_instance_id]:
+        with ni_dl, ni_core, NI_LOCK[network_instance_id]:
             # Connection is deleted
             if active_connection and connection_event == "RTM_DELLINK":
                 delete_all_routes(
@@ -124,7 +124,7 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
                 set_routes_down(ni_dl, ni_core, net_inst, connection, active_connection)
         logger.info("Releasing lock for %s", network_instance_id)
 
-        ni_monitors[network_instance_id] = (net_inst, ni_handler)
+        NI_ROUTE_MONITORS[network_instance_id] = (net_inst, ni_handler)
 
     return resolve_route_advertisements
 
@@ -143,12 +143,12 @@ def set_routes_up(
     ):
         return
 
-    interface_name_downlink = connection.intf_name()
+    interface_name_downlink = connection.intf_name(net_inst)
     interface_name_core = f"{net_inst.id}_C"
 
     interfaces_all_up_list: list[bool] = []
     for conn in net_inst.connections.values():
-        ifidx = ni_dl.link_lookup(ifname=conn.intf_name())
+        ifidx = ni_dl.link_lookup(ifname=conn.intf_name(net_inst))
         if intf := ni_dl.get_links(*ifidx):
             interfaces_all_up_list.append(intf[0].get("state", "down") == "up")
             continue
@@ -300,17 +300,17 @@ def delete_all_routes(
     ni_dl: pyroute2.NetNS,
     ni_core: pyroute2.NetNS,
     net_inst: vpnc.models.network_instance.NetworkInstance,
-    active_connection: vpnc.models.connections.Connection,
+    connection: vpnc.models.connections.Connection,
 ) -> None:
     """Delete all routes for a connection.
 
     This function is called when a connection is removed.
     """
-    interface_name_downlink = active_connection.intf_name()
+    interface_name_downlink = connection.intf_name(net_inst)
     nat64_scope = None
     if net_inst:
         nat64_scope = configuration.get_network_instance_nat64_scope(net_inst)
-    for route6 in active_connection.routes.ipv6:
+    for route6 in connection.routes.ipv6:
         # routes in current the namespace
         route.command(
             ni_dl,
@@ -338,7 +338,7 @@ def delete_all_routes(
                 dst=adv6_route_del,
             )
 
-    for route4 in active_connection.routes.ipv4:
+    for route4 in connection.routes.ipv4:
         # routes in current the namespace
         route.command(
             ni_dl,
@@ -365,27 +365,29 @@ def delete_all_routes(
 
 def start(network_instance_id: str) -> None:
     """Start monitoring routes in a network_instance."""
-    if network_instance_id in ni_monitors:
+    if network_instance_id in NI_ROUTE_MONITORS:
         logger.debug(
             "Network instance %s routes are already monitored.",
             network_instance_id,
         )
         return
-    ni_locks[network_instance_id] = threading.Lock()
-    with ni_locks[network_instance_id]:
-        logger.info("Starting network instance %s routes monitor.", network_instance_id)
-        ndb = pyroute2.NDB(sources=[{"netns": network_instance_id}])
-        ni_monitors[network_instance_id] = (None, ndb)
 
-        handler = create_handler(network_instance_id)
-        ndb.task_manager.register_handler(ifinfmsg, handler)
+    logger.info(
+        "Starting network instance %s routes monitor.",
+        network_instance_id,
+    )
+    ndb = pyroute2.NDB(sources=[{"netns": network_instance_id}])
+    NI_ROUTE_MONITORS[network_instance_id] = (None, ndb)
+
+    handler = create_handler(network_instance_id)
+    ndb.task_manager.register_handler(ifinfmsg, handler)
 
     atexit.register(stop, network_instance_id=network_instance_id)
 
 
 def stop(network_instance_id: str) -> None:
     """Stop monitoring routes in a network_instance."""
-    if network_instance_id not in ni_monitors:
+    if network_instance_id not in NI_ROUTE_MONITORS:
         logger.warning(
             "Network instance '%s' routes are not being monitored.",
             network_instance_id,
@@ -396,6 +398,6 @@ def stop(network_instance_id: str) -> None:
         "Stopping network instance '%s' routes monitoring.",
         network_instance_id,
     )
-    ni_monitors[network_instance_id][1].close()
-    del ni_monitors[network_instance_id]
-    del ni_locks[network_instance_id]
+
+    NI_ROUTE_MONITORS[network_instance_id][1].close()
+    del NI_ROUTE_MONITORS[network_instance_id]

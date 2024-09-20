@@ -20,7 +20,8 @@ from vpnc import config
 from vpnc.models import enums, info
 from vpnc.models.ipsec import ConnectionConfigIPsec  # noqa: TCH001
 from vpnc.models.physical import ConnectionConfigPhysical  # noqa: TCH001
-from vpnc.models.ssh import ConnectionConfigSSH  # noqa: TCH001
+from vpnc.models.ssh import ConnectionConfigSSH
+from vpnc.models.wireguard import ConnectionConfigWireGuard  # noqa: TCH001
 
 if TYPE_CHECKING:
     from vpnc.models import network_instance
@@ -102,7 +103,12 @@ class Connection(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     interface: Interface = Field(default_factory=Interface)
     routes: Routes = Field(default_factory=Routes)
-    config: ConnectionConfigIPsec | ConnectionConfigPhysical | ConnectionConfigSSH
+    config: (
+        ConnectionConfigIPsec
+        | ConnectionConfigPhysical
+        | ConnectionConfigSSH
+        | ConnectionConfigWireGuard
+    )
 
     @field_validator("metadata", mode="before")
     @classmethod
@@ -128,7 +134,6 @@ class Connection(BaseModel):
     def calc_interface_ip_addresses(
         self,
         network_instance: network_instance.NetworkInstance,
-        connection_id: int,
     ) -> tuple[list[IPv4Interface], list[IPv6Interface]]:
         """Calculate Interface IP addresses for a DOWNLINK if not configured."""
         is_downlink: bool = network_instance.type == enums.NetworkInstanceType.DOWNLINK
@@ -156,9 +161,7 @@ class Connection(BaseModel):
             ipv4_ni_network: IPv4Network = list(pdi4.subnets(new_prefix=24))[
                 network_instance_id
             ]
-            ipv4_con_network = list(ipv4_ni_network.subnets(new_prefix=28))[
-                connection_id
-            ]
+            ipv4_con_network = list(ipv4_ni_network.subnets(new_prefix=28))[self.id]
             interface_ipv4_address = [
                 ipaddress.IPv4Interface(f"{ipv4_con_network[1]}/28"),
             ]
@@ -183,7 +186,7 @@ class Connection(BaseModel):
             ipv6_ni_network: IPv6Network = ipv6_ni_network_list[network_instance_id]
             interface_ipv6_address = [
                 ipaddress.IPv6Interface(
-                    list(ipv6_ni_network.subnets(new_prefix=64))[connection_id],
+                    list(ipv6_ni_network.subnets(new_prefix=64))[self.id],
                 ),
             ]
         else:
@@ -205,16 +208,16 @@ class Connection(BaseModel):
         """Delete a connection."""
         return self.config.delete(network_instance, self)
 
-    def intf_name(self) -> str:
+    def intf_name(self, network_instance: network_instance.NetworkInstance) -> str:
         """Return the name of the connection's interface."""
-        return self.config.intf_name(self.id)
+        return self.config.intf_name(network_instance, self)
 
     def status_summary(
         self,
         network_instance: network_instance.NetworkInstance,
     ) -> dict[str, Any]:
         """Get the connection status."""
-        return self.config.status_summary(network_instance, self.id)
+        return self.config.status_summary(network_instance, self)
 
 
 class ConnectionConfig(Protocol):
@@ -238,14 +241,18 @@ class ConnectionConfig(Protocol):
         """Delete a connection."""
         ...
 
-    def intf_name(self, connection_id: int) -> str:
+    def intf_name(
+        self,
+        network_instance: network_instance.NetworkInstance,
+        connection: Connection,
+    ) -> str:
         """Return the name of the connection interface."""
         ...
 
     def status_summary(
         self,
         network_instance: network_instance.NetworkInstance,
-        connection_id: int,
+        connection: Connection,
     ) -> dict[str, Any]:
         """Get the connection status."""
         ...

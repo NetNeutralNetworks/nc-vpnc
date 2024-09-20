@@ -10,10 +10,9 @@ class TestIPTables:
     """Tests if IPv4 firewall rules are configured correctly."""
 
     @pytest.mark.parametrize(
-        ("network_instance", "rules"),
+        ("host", "network_instance", "rules"),
         data_test_iptables_rules.TABLES4_HUB,
     )
-    @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_iptables_hub(self, host: str, network_instance: str, rules: str) -> None:
         """Test IPv4 firewall rules for hubs."""
         rules_state = conftest.run_cmd(
@@ -24,10 +23,9 @@ class TestIPTables:
         assert rules_state == rules
 
     @pytest.mark.parametrize(
-        ("network_instance", "rules"),
-        data_test_iptables_rules.TABLES4_END,
+        ("host", "network_instance", "rules"),
+        data_test_iptables_rules.TABLES4_ENDPOINT,
     )
-    @pytest.mark.parametrize("host", ["end00", "end01"])
     def test_iptables_endpoint(
         self,
         host: str,
@@ -43,10 +41,9 @@ class TestIPTables:
         assert rules_state == rules
 
     @pytest.mark.parametrize(
-        ("network_instance", "rules"),
+        ("host", "network_instance", "rules"),
         data_test_iptables_rules.TABLES6_HUB,
     )
-    @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_ip6tables_hub(self, host: str, network_instance: str, rules: str) -> None:
         """Test IPv6 firewall rules for hubs."""
         rules_state = conftest.run_cmd(
@@ -57,10 +54,9 @@ class TestIPTables:
         assert rules_state == rules
 
     @pytest.mark.parametrize(
-        ("network_instance", "rules"),
-        data_test_iptables_rules.TABLES6_END,
+        ("host", "network_instance", "rules"),
+        data_test_iptables_rules.TABLES6_ENDPOINT,
     )
-    @pytest.mark.parametrize("host", ["end00", "end01"])
     def test_ip6tables_endpoint(
         self,
         host: str,

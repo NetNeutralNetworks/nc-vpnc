@@ -100,7 +100,7 @@ network_instances:
           - to: default
             # via: # Optional, ignored for tunnel interfaces
         config:
-          type: ssh # ipsec | physical
+          type: ssh # ipsec | physical | wireguard
           remote_addrs: [172.16.30.1]
           # Required. Specifies the remote tunnel identifier to avoid overlap.
           remote_tunnel_id: 0

@@ -35,7 +35,7 @@ network_instances:
             via: 192.0.2.1
         # Config of type physical
         config:
-          type: physical # ipsec | physical
+          type: physical # ipsec | physical | wireguard
           interface_name: eth1
   CORE:
     id: CORE
@@ -64,7 +64,7 @@ network_instances:
           ipv4:
           - to: 100.99.0.0/28
         config:
-          type: ipsec # ipsec | physical
+          type: ipsec # ipsec | physical | wireguard
           # Optional: If not set, defaults to the default service local_id value.
           # local_id: 192.0.2.5
           # IPv6 or IPv4 address
@@ -104,7 +104,7 @@ network_instances:
           ipv4:
           - to: 100.100.0.0/28
         config:
-          type: ipsec # ipsec | physical
+          type: ipsec # ipsec | physical | wireguard
           # IPv6 or IPv4 address
           remote_addrs: [192.0.2.6, 2001:db8::6]
           ike_proposal: aes128gcm16-prfsha384-ecp384

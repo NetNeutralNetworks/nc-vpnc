@@ -6,6 +6,7 @@ import logging
 import pathlib
 import subprocess
 import sys
+import threading
 import time
 from abc import abstractmethod
 from ipaddress import IPv4Address, IPv6Address
@@ -22,6 +23,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
+import vpnc.shared
 from vpnc import config
 from vpnc.models import connections, enums, ssh
 from vpnc.network import namespace, route
@@ -95,70 +97,77 @@ class NetworkInstance(BaseModel):
         cleanup: bool = False,
     ) -> bool:
         """Add a network instance (Linux namespace) and enable forwarding if needed."""
-        if self == active_network_instance:
-            logger.debug(
-                "Network instance '%s' is already in the correct state.",
-                self.id,
-            )
-            return False
+        with vpnc.shared.NI_START_LOCK:
+            if self.id not in vpnc.shared.NI_LOCK:
+                vpnc.shared.NI_LOCK[self.id] = threading.Lock()
 
-        logger.info("Setting up the %s network instance.", self.id)
-        namespace.add(name=self.id, cleanup=cleanup)
-
-        attempts = 20
-        for attempt in range(attempts):
-            if self.id in pyroute2.netns.listnetns():
-                break
-            if attempt == attempts - 1:
-                logger.error(
-                    "Network instance %s did not instantiate correctly."
-                    " Not configured.",
+        logger.info("Acquiring lock for %s", self.id)
+        with vpnc.shared.NI_LOCK[self.id]:
+            if self == active_network_instance:
+                logger.debug(
+                    "Network instance '%s' is already in the correct state.",
                     self.id,
                 )
-                raise ValueError
-            time.sleep(0.05)
+                return False
 
-        # IPv6 and IPv4 routing is enabled on the network instance only for CORE,
-        # DOWNLINK and ENDPOINT.
-        if self.type in (
-            enums.NetworkInstanceType.CORE,
-            enums.NetworkInstanceType.DOWNLINK,
-            enums.NetworkInstanceType.ENDPOINT,
-        ):
-            logger.info(
-                "Enabling network instance %s IPv6 forwarding.",
-                self.id,
-            )
-            proc = pyroute2.NSPopen(
-                self.id,
-                ["sysctl", "-w", "net.ipv6.conf.all.forwarding=1"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            proc.wait()
-            proc.release()
+            logger.info("Setting up the %s network instance.", self.id)
+            namespace.add(name=self.id, cleanup=cleanup)
 
-            logger.info(
-                "Enabling network instance %s IPv4 forwarding.",
-                self.id,
-            )
-            proc = pyroute2.NSPopen(
-                self.id,
-                ["sysctl", "-w", "net.ipv4.conf.all.forwarding=1"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            proc.wait()
-            proc.release()
+            attempts = 20
+            for attempt in range(attempts):
+                if self.id in pyroute2.netns.listnetns():
+                    break
+                if attempt == attempts - 1:
+                    logger.error(
+                        "Network instance %s did not instantiate correctly."
+                        " Not configured.",
+                        self.id,
+                    )
+                    raise ValueError
+                time.sleep(0.05)
 
-        if self.type in (
-            enums.NetworkInstanceType.DOWNLINK,
-            enums.NetworkInstanceType.ENDPOINT,
-        ):
-            self._set_network_instance_link()
+            # IPv6 and IPv4 routing is enabled on the network instance only for CORE,
+            # DOWNLINK and ENDPOINT.
+            if self.type in (
+                enums.NetworkInstanceType.CORE,
+                enums.NetworkInstanceType.DOWNLINK,
+                enums.NetworkInstanceType.ENDPOINT,
+            ):
+                logger.info(
+                    "Enabling network instance %s IPv6 forwarding.",
+                    self.id,
+                )
+                proc = pyroute2.NSPopen(
+                    self.id,
+                    ["sysctl", "-w", "net.ipv6.conf.all.forwarding=1"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                proc.wait()
+                proc.release()
+
+                logger.info(
+                    "Enabling network instance %s IPv4 forwarding.",
+                    self.id,
+                )
+                proc = pyroute2.NSPopen(
+                    self.id,
+                    ["sysctl", "-w", "net.ipv4.conf.all.forwarding=1"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                proc.wait()
+                proc.release()
+
+            if self.type in (
+                enums.NetworkInstanceType.DOWNLINK,
+                enums.NetworkInstanceType.ENDPOINT,
+            ):
+                self._set_network_instance_link()
+
         routes.start(self.id)
-
-        self._set_network_instance_connections(active_network_instance)
+        with vpnc.shared.NI_LOCK[self.id]:
+            self._set_network_instance_connections(active_network_instance)
 
         return False
 
@@ -167,38 +176,43 @@ class NetworkInstance(BaseModel):
         # run the network instance remove commands
         routes.stop(self.id)
 
-        if self.type in (
-            enums.NetworkInstanceType.DOWNLINK,
-            enums.NetworkInstanceType.ENDPOINT,
-        ):
-            self._delete_network_instance_link()
+        logger.info("Acquiring lock for %s", self.id)
+        with vpnc.shared.NI_LOCK[self.id]:
+            if self.type in (
+                enums.NetworkInstanceType.DOWNLINK,
+                enums.NetworkInstanceType.ENDPOINT,
+            ):
+                self._delete_network_instance_link()
 
-        # Break connections.
-        ssh_connections = [
-            x
-            for x in self.connections.values()
-            if x.config.type == enums.ConnectionType.SSH
-        ]
-        other_connections = [
-            x
-            for x in self.connections.values()
-            if x.config.type != ssh.ConnectionConfigSSH
-        ]
-        sorted_connections = ssh_connections + other_connections
-        for conn in sorted_connections:
-            logger.info(
-                "Deleting network instance %s connection %s.",
-                self.id,
-                conn.id,
-            )
-            conn.delete(self)
+            # Break connections.
+            ssh_connections = [
+                x
+                for x in self.connections.values()
+                if x.config.type == enums.ConnectionType.SSH
+            ]
+            other_connections = [
+                x
+                for x in self.connections.values()
+                if x.config.type != ssh.ConnectionConfigSSH
+            ]
+            sorted_connections = ssh_connections + other_connections
+            for conn in sorted_connections:
+                logger.info(
+                    "Deleting network instance %s connection %s.",
+                    self.id,
+                    conn.id,
+                )
+                conn.delete(self)
 
-        namespace.delete(self.id)
+            namespace.delete(self.id)
+
+        with vpnc.shared.NI_START_LOCK:
+            del vpnc.shared.NI_LOCK[self.id]
 
     def _get_network_instance_connections(self) -> list[str]:
         """Get all configured connections (interfaces)."""
         configured_interfaces: set[str] = {
-            connection.intf_name() for connection in self.connections.values()
+            connection.intf_name(self) for connection in self.connections.values()
         }
 
         return list(configured_interfaces)
@@ -238,36 +252,35 @@ class NetworkInstance(BaseModel):
                         network_instance=self,
                     )
                     interfaces.append(interface)
-                    with routes.ni_locks[self.id]:
-                        intf = []
-                        if if_idx := ni_dl.link_lookup(ifname=interface):
-                            intf = ni_dl.get_links(if_idx[0])
-                        connection_state: str = "down"
-                        if intf:
-                            connection_state = intf[0].get("state")
-                        if connection_state == "up":
-                            routes.set_routes_up(
-                                ni_dl,
-                                ni_core,
-                                self,
-                                connection,
-                                active_connection,
-                            )
-                        else:
-                            routes.set_routes_down(
-                                ni_dl,
-                                ni_core,
-                                self,
-                                connection,
-                                active_connection,
-                            )
+                    intf = []
+                    if if_idx := ni_dl.link_lookup(ifname=interface):
+                        intf = ni_dl.get_links(if_idx[0])
+                    connection_state: str = "down"
+                    if intf:
+                        connection_state = intf[0].get("state")
+                    if connection_state == "up":
+                        routes.set_routes_up(
+                            ni_dl,
+                            ni_core,
+                            self,
+                            connection,
+                            active_connection,
+                        )
+                    else:
+                        routes.set_routes_down(
+                            ni_dl,
+                            ni_core,
+                            self,
+                            connection,
+                            active_connection,
+                        )
                 except (ValueError, Exception):
                     logger.exception(
                         "Failed to set up connection '%s' interface(s)",
                         connection,
                     )
                     continue
-                time.sleep(0.05)
+                time.sleep(0.01)
 
     def _delete_network_instance_connections(
         self,
@@ -303,7 +316,7 @@ class NetworkInstance(BaseModel):
                 active_network_instance.id,
                 conn.id,
             )
-            interface_name = conn.intf_name()
+            interface_name = conn.intf_name(self)
             if not interface_name:
                 continue
             if interface_name in configured_connections:

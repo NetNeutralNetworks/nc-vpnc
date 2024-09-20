@@ -131,12 +131,10 @@ network_instances:
           ipv4:
           - to: default
         config:
-          type: ipsec
+          type: wireguard # ipsec | physical | wireguard
+          # local_port: 51820
           remote_addrs: [192.0.2.8, 2001:db8::8]
-          ike_proposal: aes128gcm16-prfsha384-ecp384
-          ike_lifetime: 300
-          ipsec_proposal: aes128gcm16-prfsha384-ecp384
-          ipsec_lifetime: 90
-          initiation: none
-          psk: secretpasswordendpoint
+          # remote_port: 51820
+          private_key: aCIwvWZ7aknX9Lpyk40zEu2HhneHyWSxgl6NVJRU50s=
+          public_key: 9xdzIRK5ARFePwKZUKZAMwXPddTRtQTlQ00J3aUEeGc=
 ...

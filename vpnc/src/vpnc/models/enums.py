@@ -9,6 +9,7 @@ class ConnectionType(str, Enum):
     IPSEC = "ipsec"
     PHYSICAL = "physical"
     SSH = "ssh"
+    WIREGUARD = "wireguard"
 
 
 class ServiceMode(str, Enum):

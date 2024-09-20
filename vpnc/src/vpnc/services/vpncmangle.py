@@ -35,7 +35,7 @@ def generate_config() -> None:
                     output[net_ni.id]["dns66"].append(
                         (str(nptv6_prefix), str(route6.to)),
                     )
-
+    
     file_path = pathlib.Path("/opt/ncubed/config/vpncmangle/translations.json")
     file_path.touch(exist_ok=True)
     with file_path.open("w+", encoding="utf-8") as f:

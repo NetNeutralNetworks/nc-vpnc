@@ -51,11 +51,10 @@ class ConnectionConfigSSH(BaseModel):
             )
             logger.error(err)
             raise ValueError(err)
-        tun = self.intf_name(connection.id)
+        tun = self.intf_name(network_instance, connection)
 
         if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
             network_instance,
-            connection.id,
         )
 
         with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
@@ -91,28 +90,32 @@ class ConnectionConfigSSH(BaseModel):
     ) -> None:
         """Delete a connection."""
         vpnc.services.ssh.stop(network_instance, connection)
-        interface_name = self.intf_name(connection.id)
+        interface_name = self.intf_name(network_instance, connection)
         with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
             if not ni_dl.link_lookup(ifname=interface_name):
                 return
             ifidx = ni_dl.link_lookup(ifname=interface_name)[0]
             ni_dl.link("del", index=ifidx)
 
-    def intf_name(self, connection_id: int) -> str:
+    def intf_name(
+        self,
+        _: vpnc.models.network_instance.NetworkInstance,
+        connection: connections.Connection,
+    ) -> str:
         """Return the name of the connection interface."""
-        return f"tun{connection_id}"
+        return f"tun{connection.id}"
 
     def status_summary(
         self,
         network_instance: vpnc.models.network_instance.NetworkInstance,
-        connection_id: int,
+        connection: connections.Connection,
     ) -> dict[str, Any]:
         """Get the connection status."""
-        connection_name = f"{network_instance.id}-{connection_id}"
+        connection_name = f"{network_instance.id}-{connection.id}"
         ssh_master_socket = vpnc.services.ssh.SSH_SOCKET_DIR.joinpath(
             f"{connection_name}.sock",
         )
-        if_name = self.intf_name(connection_id)
+        if_name = self.intf_name(network_instance, connection)
         status_command = subprocess.run(  # noqa: S603
             [
                 "/usr/bin/ssh",
@@ -151,7 +154,7 @@ class ConnectionConfigSSH(BaseModel):
         output_dict: dict[str, Any] = {
             "tenant": f"{network_instance.id.split('-')[0]}",
             "network-instance": network_instance.id,
-            "connection": connection_id,
+            "connection": connection.id,
             "type": self.type.name,
             "status": status,
             "interface-name": if_name,

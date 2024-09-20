@@ -91,7 +91,7 @@ class ConnectionConfigIPsec(BaseModel):
         connection: connections.Connection,
     ) -> str:
         """Create an XFRM interface."""
-        xfrm = self.intf_name(connection.id)
+        xfrm = self.intf_name(network_instance, connection)
         vpn_id = int(f"0x1000000{connection.id}", 16)
         if network_instance.type == enums.NetworkInstanceType.DOWNLINK:
             vpn_id = int(
@@ -101,7 +101,6 @@ class ConnectionConfigIPsec(BaseModel):
 
         if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
             network_instance,
-            connection.id,
         )
 
         with pyroute2.NetNS(netns=network_instance.id) as ni_dl, pyroute2.NetNS(
@@ -148,7 +147,7 @@ class ConnectionConfigIPsec(BaseModel):
         connection: connections.Connection,
     ) -> None:
         """Delete a connection."""
-        interface_name = self.intf_name(connection.id)
+        interface_name = self.intf_name(network_instance, connection)
         # run the commands
         with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
             if not ni_dl.link_lookup(ifname=interface_name):
@@ -168,22 +167,26 @@ class ConnectionConfigIPsec(BaseModel):
                 exc_info=True,
             )
 
-    def intf_name(self, connection_id: int) -> str:
+    def intf_name(
+        self,
+        _: vpnc.models.network_instance.NetworkInstance,
+        connection: connections.Connection,
+    ) -> str:
         """Return the name of the connection interface."""
-        return f"xfrm{connection_id}"
+        return f"xfrm{connection.id}"
 
     def status_summary(
         self,
         network_instance: vpnc.models.network_instance.NetworkInstance,
-        connection_id: int,
+        connection: connections.Connection,
     ) -> dict[str, Any]:
         """Get the connection status."""
         vcs = vici.Session()
         sa: dict[str, Any] = next(
-            iter(vcs.list_sas({"ike": f"{network_instance.id}-{connection_id}"})),
+            iter(vcs.list_sas({"ike": f"{network_instance.id}-{connection.id}"})),
         )
 
-        if_name = self.intf_name(connection_id)
+        if_name = self.intf_name(network_instance, connection)
         output = json.loads(
             subprocess.run(  # noqa: S603
                 [
@@ -201,14 +204,14 @@ class ConnectionConfigIPsec(BaseModel):
             ).stdout,
         )[0]
 
-        status: str = sa[f"{network_instance.id}-{connection_id}"]["state"].decode()
-        remote_addr: str = sa[f"{network_instance.id}-{connection_id}"][
+        status: str = sa[f"{network_instance.id}-{connection.id}"]["state"].decode()
+        remote_addr: str = sa[f"{network_instance.id}-{connection.id}"][
             "remote-host"
         ].decode()
         output_dict: dict[str, Any] = {
             "tenant": f"{network_instance.id.split('-')[0]}",
             "network-instance": network_instance.id,
-            "connection": connection_id,
+            "connection": connection.id,
             "type": self.type.name,
             "status": status,
             "interface-name": if_name,

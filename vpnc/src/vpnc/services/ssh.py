@@ -72,7 +72,6 @@ def start(
     if connection.config.remote_config is True:
         if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
             network_instance,
-            connection.id,
         )
         remote_tun = f"tun{connection.config.remote_tunnel_id}"
         routes: str = ""

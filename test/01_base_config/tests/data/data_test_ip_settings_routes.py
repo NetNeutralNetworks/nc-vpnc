@@ -55,13 +55,13 @@ TESTDATA_ROUTES = [
             # Uplink to CORE
             ("fd00::/16", "fe80::", "C0001-01_D", "static"),
             # IPv4 routes
-            ("default", None, "xfrm0", "static"),
+            ("default", None, "wg-C0001-01-0", "static"),
             # IPv6 routes
-            ("2001:db8:c58::/48", None, "xfrm0", "static"),
-            ("fdff:db8:c58::/52", None, "xfrm0", "static"),
-            ("fdff:db8:c58:2000::/56", None, "xfrm0", "static"),
-            ("fdff:db8:c58:1000::/52", None, "xfrm0", "static"),
-            ("fdff:db8:c58:3000::/52", None, "xfrm0", "static"),
+            ("2001:db8:c58::/48", None, "wg-C0001-01-0", "static"),
+            ("fdff:db8:c58::/52", None, "wg-C0001-01-0", "static"),
+            ("fdff:db8:c58:2000::/56", None, "wg-C0001-01-0", "static"),
+            ("fdff:db8:c58:1000::/52", None, "wg-C0001-01-0", "static"),
+            ("fdff:db8:c58:3000::/52", None, "wg-C0001-01-0", "static"),
         },
     ),
     (
@@ -118,13 +118,13 @@ TESTDATA_ROUTES = [
             # Uplink to CORE
             ("fd00::/16", "fe80::", "C0001-01_D", "static"),
             # IPv4 routes
-            ("default", None, "xfrm0", "static"),
+            ("default", None, "wg-C0001-01-0", "static"),
             # IPv6 routes
-            ("2001:db8:c58::/48", None, "xfrm0", "static"),
-            ("fdff:db8:c58::/52", None, "xfrm0", "static"),
-            ("fdff:db8:c58:2000::/56", None, "xfrm0", "static"),
-            ("fdff:db8:c58:1000::/52", None, "xfrm0", "static"),
-            ("fdff:db8:c58:3000::/52", None, "xfrm0", "static"),
+            ("2001:db8:c58::/48", None, "wg-C0001-01-0", "static"),
+            ("fdff:db8:c58::/52", None, "wg-C0001-01-0", "static"),
+            ("fdff:db8:c58:2000::/56", None, "wg-C0001-01-0", "static"),
+            ("fdff:db8:c58:1000::/52", None, "wg-C0001-01-0", "static"),
+            ("fdff:db8:c58:3000::/52", None, "wg-C0001-01-0", "static"),
         },
     ),
     (
@@ -179,11 +179,11 @@ TESTDATA_ROUTES = [
         "CORE",
         {
             # Uplink IPv4 routes
-            ("100.99.1.0/28", None, "xfrm0", "static"),
-            ("100.100.1.0/28", None, "xfrm1", "static"),
+            ("100.99.1.0/28", None, "wg-CORE-0", "static"),
+            ("100.100.1.0/28", None, "wg-CORE-1", "static"),
             # Uplink IPv6 routes
-            ("fdcc:cbf:1::/64", None, "xfrm1", "static"),
-            ("fdcc:cbe:1::/64", None, "xfrm0", "static"),
+            ("fdcc:cbf:1::/64", None, "wg-CORE-1", "static"),
+            ("fdcc:cbe:1::/64", None, "wg-CORE-0", "static"),
             # Downlink routes
             ("default", "169.254.0.2", "ENDPOINT_C", "static"),
             ("default", "fe80::1", "ENDPOINT_C", "static"),

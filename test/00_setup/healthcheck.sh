@@ -33,7 +33,7 @@ done
 
 if [[ $rc -eq 0 ]] ; then                                   # Make final determination.
     echo -e "\n[SUCCESS] VPN and route advertisements are up"
-    sleep 3
+    sleep 15
 else
     echo -e "\n[WARNING] Not all connections are functional after ${init_count} tries"
 fi

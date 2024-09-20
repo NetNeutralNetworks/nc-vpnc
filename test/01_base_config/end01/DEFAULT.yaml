@@ -35,7 +35,7 @@ network_instances:
             via: 192.0.2.1
         # Config of type physical
         config:
-          type: physical # ipsec | physical
+          type: physical # ipsec | physical | wireguard
           interface_name: eth1
   CORE:
     id: CORE
@@ -64,34 +64,13 @@ network_instances:
           ipv4:
           - to: 100.99.1.0/28
         config:
-          type: ipsec # ipsec | physical
-          # Optional: If not set, defaults to the default service local_id value.
-          # local_id: 192.0.2.5
+          type: wireguard # ipsec | physical | wireguard
+          # local_port: 51820
           # IPv6 or IPv4 address
           remote_addrs: [192.0.2.5, 2001:db8::5]
-          # Optional: If not set, defaults to remote_peer_ip
-          # remote_id: 192.0.2.3
-          # Optional: defaults to 2
-          #ike_version: 2
-          # Optional: defaults to aes256gcm16-prfsha384-ecp384
-          ike_proposal: aes128gcm16-prfsha384-ecp384
-          # Optional: The IKE lifetime in seconds
-          ike_lifetime: 300
-          # Optional: defaults to aes256gcm16-prfsha384-ecp384
-          ipsec_proposal: aes128gcm16-prfsha384-ecp384
-          # Optional: The IPsec lifetime in seconds
-          ipsec_lifetime: 90
-          # Optional, defaults to start. Start means inititate and respond, none means respond only.
-          initiation: start
-          psk: secretpasswordendpoint
-          # Optional
-          # traffic_selectors:
-          #   local:
-          #   - 10.20.0.0/16
-          #   - 10.21.0.0/16
-          #   remote:
-          #   - 172.30.0.0/16
-          #   - 172.31.0.0/16
+          # remote_port: 51820
+          private_key: wDce0Xch/bwiMMbnhDvZaiaOCE/K/ERTXMvHTXQRFWw=
+          public_key: rKdmw6z5GSWnOK3k+LN4Wc2jxH17TYzIlRI5gPiiv2U=
       1:
         id: 1
         metadata: {}
@@ -104,15 +83,13 @@ network_instances:
           ipv4:
           - to: 100.100.1.0/28
         config:
-          type: ipsec # ipsec | physical
+          type: wireguard # ipsec | physical | wireguard
+          local_port: 51821
           # IPv6 or IPv4 address
           remote_addrs: [192.0.2.6, 2001:db8::6]
-          ike_proposal: aes128gcm16-prfsha384-ecp384
-          ike_lifetime: 300
-          ipsec_proposal: aes128gcm16-prfsha384-ecp384
-          ipsec_lifetime: 90
-          initiation: start
-          psk: secretpasswordendpoint
+          remote_port: 51820
+          private_key: 8NXTx0XzfdAhRWJbYx/cuRNwY9ONLDg8o1LKs+IxpHM=
+          public_key: QId/IeB4jutXdyCqoIP6zHdp0etP59+MvfRhsU8OeFA=
   ENDPOINT:
     id: ENDPOINT
     type: endpoint # endpoint

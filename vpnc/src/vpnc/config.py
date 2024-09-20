@@ -45,10 +45,11 @@ DOWNLINK_CON_RE = re.compile(r"^[2-9A-F]\d{4}-\d{2}-\d$")
 
 # UID and GID used by strongswan to reduce attack surface
 _PWD = list(filter(lambda x: x.pw_name == "swan", pwd.getpwall()))
-VPN_USER = _PWD[0].pw_uid if _PWD else 0
-VPN_GROUP = _PWD[0].pw_gid if _PWD else 0
+IPSEC_USER = _PWD[0].pw_uid if _PWD else 0
+IPSEC_GROUP = _PWD[0].pw_gid if _PWD else 0
 # Configuration file paths/directories for swanctl
-VPN_CONFIG_DIR = Path("/etc/swanctl/conf.d/")
+IPSEC_CONFIG_DIR = Path("/etc/swanctl/conf.d/")
+WIREGUARD_CONFIG_DIR = Path("/etc/wireguard/")
 # Configuration file paths/directories for FRR
 FRR_CONFIG_PATH = Path("/etc/frr/frr.conf")
 # Installation directory
