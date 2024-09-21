@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import datetime
+import json
 import logging
+import subprocess
 from typing import TYPE_CHECKING, Any, Literal
 
 import pyroute2
@@ -117,19 +120,7 @@ class ConnectionConfigWireGuard(BaseModel):
             f"wg-{network_instance.id}-{connection.id}",
         )
 
-        config_file.unlink(missing_ok=False)
-
-        # vcs = vici.Session()
-        # try:
-        #     for i in vcs.terminate(
-        #         {"ike": f"{network_instance.id}-{connection.id}".encode()},
-        #     ):
-        #         logger.info(i)
-        # except vici.exception.CommandException:
-        #     logger.warning(
-        #         "OK exception occurred while using a VICI command",
-        #         exc_info=True,
-        #     )
+        config_file.unlink(missing_ok=True)
 
     def intf_name(
         self,
@@ -145,44 +136,59 @@ class ConnectionConfigWireGuard(BaseModel):
         connection: connections.Connection,
     ) -> dict[str, Any]:
         """Get the connection status."""
-        # vcs = vici.Session()
-        # sa: dict[str, Any] = next(
-        #     iter(vcs.list_sas({"ike": f"{network_instance.id}-{connection.id}"})),
-        # )
+        if_name = self.intf_name(network_instance, connection)
+        output = json.loads(
+            subprocess.run(  # noqa: S603
+                [
+                    "/usr/sbin/ip",
+                    "--json",
+                    "--netns",
+                    network_instance.id,
+                    "address",
+                    "show",
+                    "dev",
+                    if_name,
+                ],
+                stdout=subprocess.PIPE,
+                check=True,
+            ).stdout,
+        )[0]
 
-        # if_name = self.intf_name(network_instance, connection)
-        # output = json.loads(
-        #     subprocess.run(
-        #         [
-        #             "/usr/sbin/ip",
-        #             "--json",
-        #             "--netns",
-        #             network_instance.id,
-        #             "address",
-        #             "show",
-        #             "dev",
-        #             if_name,
-        #         ],
-        #         stdout=subprocess.PIPE,
-        #         check=True,
-        #     ).stdout,
-        # )[0]
+        proc = pyroute2.NSPopen(
+            network_instance.id,
+            ["wg", "show", if_name, "dump"],
+            stdout=subprocess.PIPE,
+        )
+        wg_output, _ = proc.communicate()
+        proc.release()
+        wg_list = wg_output.split()
+        (
+            priv,
+            pub,
+            local_port,
+            _,
+            rpub,
+            _,
+            remote_addr,
+            allowed_ips,
+            last_handshake,
+            transfer,
+            received,
+            keepalive,
+        ) = wg_list
+        last_handshake_obj = datetime.datetime.fromtimestamp(int(last_handshake))
+        now = datetime.datetime.now() - datetime.timedelta(minutes=2)
+        output_dict: dict[str, Any] = {
+            "tenant": f"{network_instance.id.split('-')[0]}",
+            "network-instance": network_instance.id,
+            "connection": connection.id,
+            "type": self.type.name,
+            "status": "ACTIVE" if last_handshake_obj >= now else "INACTIVE",
+            "interface-name": if_name,
+            "interface-ip": [
+                f"{x['local']}/{x['prefixlen']}" for x in output["addr_info"]
+            ],
+            "remote-addr": remote_addr,
+        }
 
-        # status: str = sa[f"{network_instance.id}-{connection.id}"]["state"].decode()
-        # remote_addr: str = sa[f"{network_instance.id}-{connection.id}"][
-        #     "remote-host"
-        # ].decode()
-        # output_dict: dict[str, Any] = {
-        #     "tenant": f"{network_instance.id.split('-')[0]}",
-        #     "network-instance": network_instance.id,
-        #     "connection": connection.id,
-        #     "type": self.type.name,
-        #     "status": status,
-        #     "interface-name": if_name,
-        #     "interface-ip": [
-        #         f"{x['local']}/{x['prefixlen']}" for x in output["addr_info"]
-        #     ],
-        #     "remote-addr": remote_addr,
-        # }
-
-        # return output_dict
+        return output_dict

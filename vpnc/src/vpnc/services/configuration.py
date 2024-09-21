@@ -200,7 +200,7 @@ def delete_downlink_tenant(path: pathlib.Path) -> None:
             ni.id,
             # connection.id,
         )
-        downlink_path = config.VPN_CONFIG_DIR.joinpath(f"{ni.id}.conf")
+        downlink_path = config.IPSEC_CONFIG_DIR.joinpath(f"{ni.id}.conf")
         downlink_path.unlink(missing_ok=True)
         time.sleep(0.1)
         # run the network instance remove commands
