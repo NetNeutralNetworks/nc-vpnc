@@ -10,7 +10,7 @@ import sys
 import time
 
 from vpnc import config, shared
-from vpnc.models import enums
+from vpnc.models import enums, tenant
 from vpnc.services import configuration, frr, strongswan, vpncmangle, wireguard
 
 logger = logging.getLogger("vpnc")
@@ -18,10 +18,11 @@ logger = logging.getLogger("vpnc")
 
 def concentrator() -> None:
     """Set up the DEFAULT tenant."""
+    default_tenant = tenant.get_default_tenant()
     logger.info("#" * 100)
     logger.info(
         "Starting ncubed vpnc daemon in %s mode.",
-        config.VPNC_CONFIG_SERVICE.mode.name,
+        default_tenant.mode,
     )
 
     # Mount the DEFAULT network instance with it's alias. This makes for consistent
@@ -41,7 +42,7 @@ def concentrator() -> None:
 
     # Create and mount the EXTERNAL network instance.
     # This provides VPN connectivity
-    external_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.EXTERNAL_NI]
+    external_ni = default_tenant.network_instances[config.EXTERNAL_NI]
     try:
         external_ni.set(None)
     except ValueError:
@@ -61,22 +62,23 @@ def concentrator() -> None:
 
     # Create and mount the CORE network instance. This provides the management
     # connectivity. The CORE namespace has no internet connectivity.
-    core_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
+    core_ni = default_tenant.network_instances[config.CORE_NI]
     try:
         core_ni.set(None)
     except ValueError:
         sys.exit(1)
-    if config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.ENDPOINT:
-        endpoint_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.ENDPOINT_NI]
+    if default_tenant.mode == enums.ServiceMode.ENDPOINT:
+        endpoint_ni = default_tenant.network_instances[config.ENDPOINT_NI]
         try:
             endpoint_ni.set(None)
         except ValueError:
             sys.exit(1)
 
-    if config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.HUB:
+    if default_tenant.mode == enums.ServiceMode.HUB:
         # VPNC in hub mode performs NAT64 using Jool. The kernel module must be loaded
         # before it can be used.
-        # Load the NAT64 kernel module (jool).
+        # Load the NAT64 kernel module (jool). This may cause the program to exit if
+        # it fails to start
         logger.info("Loading kernel module Jool.")
         proc = subprocess.run(  # noqa: S603
             ["/usr/sbin/modprobe", "jool"],

@@ -35,7 +35,7 @@ ENDPOINT_NI = "ENDPOINT"  # name of the ENDPOINT network instance
 EXTERNAL_NI = "EXTERNAL"  # name of the EXTERNAL untrusted network instance
 
 # Match only non-default tenants
-DOWNLINK_TEN_RE = re.compile(r"^[2-9A-F]\d{4}$")
+TENANT_RE = re.compile(r"^([2-9A-F]\d{4}|DEFAULT)$")
 # Match only non-default tenant configuration files
 DOWNLINK_TEN_FILE_RE = r".+\/[2-9A-F]\d{4}\.yaml$"
 # Match only non-default tenant network instances
@@ -62,5 +62,8 @@ VPNC_C_CONFIG_DIR = Path("/opt/ncubed/config/vpnc/candidate/")
 VPNC_C_CONFIG_PATH_SERVICE = VPNC_C_CONFIG_DIR.joinpath(f"{DEFAULT_TENANT}.yaml")
 
 # Variables used for shared configuration
-VPNC_CONFIG_SERVICE: tenant.ServiceEndpoint | tenant.ServiceHub
-VPNC_CONFIG_TENANT: dict[str, tenant.Tenant] = {}
+# VPNC_CONFIG_SERVICE: tenant.ServiceEndpoint | tenant.ServiceHub
+VPNC_CONFIG_TENANT: dict[
+    str,
+    tenant.Tenant | tenant.ServiceHub | tenant.ServiceEndpoint,
+] = {}

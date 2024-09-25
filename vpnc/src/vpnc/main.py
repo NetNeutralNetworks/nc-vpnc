@@ -7,7 +7,6 @@ import sys
 from logging.handlers import RotatingFileHandler
 
 from vpnc import config, core, helpers
-from vpnc.models import tenant
 
 # LOGGER
 # Get logger
@@ -43,8 +42,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Load the global configuration from file and check for required kernel modules.
-    tenant.load_service_config(config.VPNC_A_CONFIG_PATH_SERVICE)
+    # check for required kernel modules.
     helpers.check_system_requirements()
 
     # Used to gracefully shutdown, allows the atexit commands to run when a

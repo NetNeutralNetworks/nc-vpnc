@@ -25,7 +25,7 @@ from pydantic_core import PydanticCustomError
 
 import vpnc.shared
 from vpnc import config
-from vpnc.models import connections, enums, ssh
+from vpnc.models import connections, enums, ssh, tenant
 from vpnc.network import namespace, route
 from vpnc.services import configuration, frr, routes, strongswan
 
@@ -165,6 +165,7 @@ class NetworkInstance(BaseModel):
             ):
                 self._set_network_instance_link()
 
+        self.set_iptables()
         routes.start(self.id)
         with vpnc.shared.NI_LOCK[self.id]:
             self._set_network_instance_connections(active_network_instance)
@@ -328,6 +329,7 @@ class NetworkInstance(BaseModel):
         self,
     ) -> None:
         """Create a link and routes between a DOWNLINK and the CORE network instance."""
+        default_tenant = tenant.get_default_tenant()
         veth_c = f"{self.id}_C"
         veth_d = f"{self.id}_D"
 
@@ -339,6 +341,7 @@ class NetworkInstance(BaseModel):
         with pyroute2.NetNS(netns=self.id) as ni_dl, pyroute2.NetNS(
             netns=config.CORE_NI,
         ) as ni_core:
+            tenant.get_default_tenant()
             # add veth interfaces between CORE and DOWNLINK network instance
             logger.info("Adding veth pair %s and %s.", veth_c, veth_d)
             if not ni_core.link_lookup(ifname=veth_c):
@@ -369,7 +372,7 @@ class NetworkInstance(BaseModel):
             ni_core.addr("replace", index=ifidx_core, address="fe80::", prefixlen=64)
             ni_dl.addr("replace", index=ifidx_dl, address="fe80::1", prefixlen=64)
 
-            if config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.ENDPOINT:
+            if default_tenant.mode == enums.ServiceMode.ENDPOINT:
                 # assign IP addresses to veth interfaces
                 logger.info(
                     "Setting veth pair %s and %s interface IPv4 addresses.",
@@ -389,7 +392,7 @@ class NetworkInstance(BaseModel):
                     prefixlen=30,
                 )
 
-            core_ni = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
+            core_ni = default_tenant.network_instances[config.CORE_NI]
             # add route from DOWNLINK to MGMT/uplink network via CORE network instance
             for connection in core_ni.connections.values():
                 for route6 in connection.routes.ipv6:
@@ -406,7 +409,7 @@ class NetworkInstance(BaseModel):
                         gateway=IPv6Address("fe80::"),
                         ifname=veth_d,
                     )
-                if config.VPNC_CONFIG_SERVICE.mode != enums.ServiceMode.HUB:
+                if default_tenant.mode != enums.ServiceMode.HUB:
                     for route4 in connection.routes.ipv4:
                         logger.info(
                             "Setting DOWNLINK to CORE route: %s, gateway 169.254.0.1,"
@@ -509,6 +512,7 @@ class NetworkInstanceCore(NetworkInstance):
         active_network_instance: NetworkInstance | None,
     ) -> bool:
         """Configure the CORE network instance (Linux namespace)."""
+        default_tenant = tenant.get_default_tenant()
         # Set the network instance
         super().set_network_instance(
             active_network_instance,
@@ -522,7 +526,7 @@ class NetworkInstanceCore(NetworkInstance):
         logger.info("Setting up VPN tunnels.")
         strongswan.generate_config(self)
 
-        if config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.HUB:
+        if default_tenant.mode == enums.ServiceMode.HUB:
             # FRR
             frr.generate_config()
 
@@ -541,11 +545,13 @@ class NetworkInstanceCore(NetworkInstance):
         network instance (Linux namespace), but does accept traffic originating from
         its uplink.
         """
+        default_tenant = tenant.get_default_tenant()
+
         interfaces = self._get_network_instance_connections()
 
         iptables_template = TEMPLATES_ENV.get_template("iptables-core.conf.j2")
         iptables_configs: dict[str, Any] = {
-            "mode": config.VPNC_CONFIG_SERVICE.mode,
+            "mode": default_tenant.mode,
             "network_instance_name": self.id,
             "interfaces": sorted(interfaces),
         }
@@ -607,7 +613,9 @@ class NetworkInstanceDownlink(NetworkInstance):
         The DOWNLINK network instance blocks all traffic except for traffic from the
         CORE network instance and ICMPv6.
         """
-        mode = config.VPNC_CONFIG_SERVICE.mode
+        default_tenant = tenant.get_default_tenant()
+
+        mode = default_tenant.mode
         core_interfaces = [f"{self.id}_D"]
         downlink_interfaces = self._get_network_instance_connections()
 
@@ -640,9 +648,11 @@ class NetworkInstanceDownlink(NetworkInstance):
         self,
     ) -> tuple[bool, list[connections.RouteIPv6]]:
         """Calculate the NPTv6 translations for a network instance (Linux namespace)."""
+        default_tenant = tenant.get_default_tenant()
+
         updated = False
         nptv6_list: list[connections.RouteIPv6] = []
-        if config.VPNC_CONFIG_SERVICE.mode != enums.ServiceMode.HUB:
+        if default_tenant.mode != enums.ServiceMode.HUB:
             return updated, nptv6_list
 
         # Get NPTv6 prefix for this network instance
@@ -731,7 +741,9 @@ class NetworkInstanceDownlink(NetworkInstance):
 
     def _set_downlink_nat64(self) -> None:
         """Add NAT64 rules to a network instance (Linux namespace)."""
-        if config.VPNC_CONFIG_SERVICE.mode != enums.ServiceMode.HUB:
+        default_tenant = tenant.get_default_tenant()
+
+        if default_tenant.mode != enums.ServiceMode.HUB:
             logger.debug("Not running in hub mode. Not configuring NAT64.")
             return
 
@@ -822,7 +834,9 @@ class NetworkInstanceEndpoint(NetworkInstance):
         The ENDPOINT network instance blocks all traffic except for traffic from the
         CORE network instance and ICMPv6.
         """
-        mode = config.VPNC_CONFIG_SERVICE.mode
+        default_tenant = tenant.get_default_tenant()
+
+        mode = default_tenant.mode
         core_interfaces = [f"{self.id}_D"]
         downlink_interfaces = self._get_network_instance_connections()
 

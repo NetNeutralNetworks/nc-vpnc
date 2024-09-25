@@ -10,7 +10,7 @@ apt-get install -y bridge-utils python3-pytest
 # jool-tools
 
 if [[ -z "${GITHUB_ACTIONS}" ]]; then
-apt-get install -y docker-compose-v2 docker-buildx
+apt-get install -y docker-compose-v2 docker-buildx wireguard
 fi
 
 # Install the Jool kernel module on the host so it's available in containers.

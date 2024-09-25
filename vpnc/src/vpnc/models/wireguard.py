@@ -46,12 +46,6 @@ class ConnectionConfigWireGuard(BaseModel):
     ) -> str:
         """Create an XFRM interface."""
         wg = self.intf_name(network_instance, connection)
-        # vpn_id = int(f"0x1000000{connection.id}", 16)
-        # if network_instance.type == enums.NetworkInstanceType.DOWNLINK:
-        #     vpn_id = int(
-        #         f"0x{network_instance.id.replace('-', '')}{connection.id}",
-        #         16,
-        #     )
 
         if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
             network_instance,
@@ -78,7 +72,7 @@ class ConnectionConfigWireGuard(BaseModel):
 
             ni_dl.link(
                 "set",
-                index=ifid_ext_wg,
+                index=ifidx_wg,
                 state="up",
             )
 

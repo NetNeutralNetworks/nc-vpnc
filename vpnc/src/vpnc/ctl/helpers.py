@@ -97,10 +97,7 @@ def get_tenant_config(
     | vpnc.models.tenant.Tenant
 ):
     """Get the tenant configuration from a file."""
-    if (
-        not config.DOWNLINK_TEN_RE.match(tenant_id)
-        and tenant_id != config.DEFAULT_TENANT
-    ):
+    if not config.TENANT_RE.match(tenant_id) and tenant_id != config.DEFAULT_TENANT:
         ctx.fail(f"Tenant name '{tenant_id}' is invalid.")
 
     config_path = path.joinpath(f"{tenant_id}.yaml")

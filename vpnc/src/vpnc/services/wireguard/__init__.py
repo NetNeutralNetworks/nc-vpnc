@@ -87,9 +87,6 @@ def generate_config(
 ) -> None:
     """Generate wireguard configurations."""
     wg_template = TEMPLATES_ENV.get_template("wireguard.conf.j2")
-    # vpn_id = int("0x10000000", 16)
-    # if network_instance.type == enums.NetworkInstanceType.DOWNLINK:
-    #     vpn_id = int(f"0x{network_instance.id.replace('-', '')}0", 16)
 
     for connection in network_instance.connections.values():
         if connection.config.type != enums.ConnectionType.WIREGUARD:

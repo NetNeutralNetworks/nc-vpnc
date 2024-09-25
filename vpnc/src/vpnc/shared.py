@@ -13,3 +13,6 @@ NI_LOCK: dict[str, threading.Lock] = {}
 # Lock used to create the NI_LOCK as that step can happen concurrently if files
 # are edited quickly.
 NI_START_LOCK = threading.Lock()
+
+# Lock to update/reload the vpncmangle configuration.
+VPNCMANGLE_LOCK = threading.Lock()

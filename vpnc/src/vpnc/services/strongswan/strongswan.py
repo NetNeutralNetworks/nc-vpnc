@@ -8,7 +8,6 @@ import os
 import pathlib
 import subprocess
 import sys
-import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -19,7 +18,7 @@ from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 
 from vpnc import config
-from vpnc.models import enums
+from vpnc.models import enums, tenant
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
@@ -31,8 +30,6 @@ logger = logging.getLogger("vpnc")
 BASE_DIR = pathlib.Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR.joinpath("templates")
 TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True)
-
-SW_LOCK = threading.Lock()
 
 
 def observe() -> BaseObserver:
@@ -59,14 +56,14 @@ def observe() -> BaseObserver:
 
         def reload_config(self) -> None:
             """Load all swanctl strongswan configurations."""
-            with SW_LOCK:
-                logger.debug("Loading all swanctl connections.")
-                proc = subprocess.run(  # noqa: S603
-                    ["/usr/sbin/swanctl", "--load-all", "--clear"],
-                    stdout=subprocess.PIPE,
-                    check=True,
-                )
-                logger.debug(proc.stdout)
+            # with SW_LOCK:
+            logger.debug("Loading all swanctl connections.")
+            proc = subprocess.run(  # noqa: S603
+                ["/usr/sbin/swanctl", "--load-all", "--clear"],
+                stdout=subprocess.PIPE,
+                check=True,
+            )
+            logger.debug(proc.stdout)
 
     # Create the observer object. This doesn't start the handler.
     observer: BaseObserver = Observer()
@@ -88,6 +85,7 @@ def generate_config(
     network_instance: NetworkInstance,
 ) -> None:
     """Generate swanctl configurations."""
+    default_tenant = tenant.get_default_tenant()
     swanctl_template = TEMPLATES_ENV.get_template("swanctl.conf.j2")
     swanctl_cfgs: list[dict[str, Any]] = []
     vpn_id = int("0x10000000", 16)
@@ -99,7 +97,7 @@ def generate_config(
             continue
         swanctl_cfg: dict[str, Any] = {
             "connection": f"{network_instance.id}-{connection.id}",
-            "local_id": config.VPNC_CONFIG_SERVICE.local_id,
+            "local_id": default_tenant.local_id,
             "remote_peer_ip": ",".join(
                 [str(x) for x in connection.config.remote_addrs],
             ),
@@ -182,7 +180,7 @@ def start() -> None:
         proc = pyroute2.NSPopen(
             config.EXTERNAL_NI,
             # Stop Strongswan in the EXTERNAL network instance.
-            ["ipsec", "start"],
+            ["/usr/sbin/ipsec", "start"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -190,8 +188,16 @@ def start() -> None:
             "Starting Strongswan in network instance %s.",
             config.EXTERNAL_NI,
         )
-        stdout, stderr = proc.communicate()
+        stdout_output, stderr_output = proc.communicate()
+        if proc.returncode != 0:
+            logger.critical("Could not start Strongswan\n%s", stderr_output.decode())
+            sys.exit(1)
+        if isinstance(stdout_output, bytes):
+            stdout = stdout_output.decode()
+        if isinstance(stderr_output, bytes):
+            stderr = stderr_output.decode()
         logger.debug(stdout, stderr)
+
     finally:
         proc.wait()
         proc.release()

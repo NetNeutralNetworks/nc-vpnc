@@ -16,8 +16,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from vpnc import config
-from vpnc.models import enums, info
+from vpnc.models import enums, info, tenant
 from vpnc.models.ipsec import ConnectionConfigIPsec  # noqa: TCH001
 from vpnc.models.physical import ConnectionConfigPhysical  # noqa: TCH001
 from vpnc.models.ssh import ConnectionConfigSSH
@@ -136,6 +135,7 @@ class Connection(BaseModel):
         network_instance: network_instance.NetworkInstance,
     ) -> tuple[list[IPv4Interface], list[IPv6Interface]]:
         """Calculate Interface IP addresses for a DOWNLINK if not configured."""
+        default_tenant = tenant.get_default_tenant()
         is_downlink: bool = network_instance.type == enums.NetworkInstanceType.DOWNLINK
         ni_info: TenantInformation | None = None
         if is_downlink:
@@ -147,9 +147,9 @@ class Connection(BaseModel):
             not self.interface.ipv4  # pylint: disable=no-member
             and is_downlink
             and ni_info
-            and config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.HUB
+            and default_tenant.mode == enums.ServiceMode.HUB
         ):
-            pdi4 = config.VPNC_CONFIG_SERVICE.prefix_downlink_interface_v4
+            pdi4 = default_tenant.prefix_downlink_interface_v4
             network_instance_id = ni_info.network_instance_id
             if network_instance_id is None:
                 logger.critical(
@@ -172,7 +172,7 @@ class Connection(BaseModel):
             not self.interface.ipv6  # pylint: disable=no-member
             and is_downlink
             and ni_info
-            and config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.HUB
+            and default_tenant.mode == enums.ServiceMode.HUB
         ):
             network_instance_id = ni_info.network_instance_id
             if network_instance_id is None:
@@ -181,7 +181,7 @@ class Connection(BaseModel):
                     "Something has gone horribly wrong.",
                 )
                 raise ValueError
-            pdi6 = config.VPNC_CONFIG_SERVICE.prefix_downlink_interface_v6
+            pdi6 = default_tenant.prefix_downlink_interface_v6
             ipv6_ni_network_list = list(pdi6.subnets(new_prefix=48))
             ipv6_ni_network: IPv6Network = ipv6_ni_network_list[network_instance_id]
             interface_ipv6_address = [

@@ -74,10 +74,10 @@ def observe_configuration() -> BaseObserver:
 
 def manage_tenant(path: pathlib.Path) -> None:
     """Configure tenants."""
+    default_tenant = vpnc.models.tenant.get_default_tenant()
     tenant_info = None
     tenant_info = vpnc.models.tenant.load_tenant_config(path)
-    if tenant_info == (None, None):
-        tenant_info = vpnc.models.tenant.load_service_config(path)
+
     if not tenant_info:
         return
 
@@ -85,7 +85,7 @@ def manage_tenant(path: pathlib.Path) -> None:
     if not tenant:
         return
 
-    if config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.ENDPOINT and not getattr(
+    if default_tenant.mode == enums.ServiceMode.ENDPOINT and not getattr(
         tenant,
         "mode",
         None,
@@ -127,8 +127,9 @@ def manage_tenant(path: pathlib.Path) -> None:
         for network_instance in tenant.network_instances.values()
     ]
 
+    config.VPNC_CONFIG_TENANT[tenant.id] = tenant
     if (
-        config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.HUB
+        default_tenant.mode == enums.ServiceMode.HUB
         and tenant.name != config.DEFAULT_TENANT
     ):
         # DNS mangling
@@ -166,8 +167,10 @@ def manage_tenant(path: pathlib.Path) -> None:
 
 def delete_downlink_tenant(path: pathlib.Path) -> None:
     """Remove downlink VPN connections."""
+    default_tenant = vpnc.models.tenant.get_default_tenant()
+
     tenant_id = path.stem
-    if not config.DOWNLINK_TEN_RE.match(tenant_id):
+    if not config.TENANT_RE.match(tenant_id):
         logger.error(
             "Invalid filename found in %s. Skipping.",
             tenant_id,
@@ -183,7 +186,7 @@ def delete_downlink_tenant(path: pathlib.Path) -> None:
     if active_tenant := config.VPNC_CONFIG_TENANT.pop(tenant_id, None):
         active_network_instances = list(active_tenant.network_instances.values())
 
-    if config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.ENDPOINT and not getattr(
+    if default_tenant.mode == enums.ServiceMode.ENDPOINT and not getattr(
         active_tenant,
         "mode",
         None,
@@ -206,6 +209,8 @@ def delete_downlink_tenant(path: pathlib.Path) -> None:
         # run the network instance remove commands
         ni.delete()
 
+    config.VPNC_CONFIG_TENANT.pop(tenant_id, None)
+
 
 def get_network_instance_nat64_scope(
     network_instance: vpnc.models.network_instance.NetworkInstance,
@@ -214,10 +219,12 @@ def get_network_instance_nat64_scope(
 
     This scope  is always a /48.
     """
+    default_tenant = vpnc.models.tenant.get_default_tenant()
+
     if network_instance.type != enums.NetworkInstanceType.DOWNLINK:
         return None
 
-    if config.VPNC_CONFIG_SERVICE.mode != enums.ServiceMode.HUB:
+    if default_tenant.mode != enums.ServiceMode.HUB:
         return None
 
     ni_info = info.parse_downlink_network_instance_name(
@@ -228,7 +235,7 @@ def get_network_instance_nat64_scope(
     tenant_id = ni_info.tenant_id  # remote identifier
     network_instance_id = ni_info.network_instance_id  # connection number
 
-    nat64_prefix = config.VPNC_CONFIG_SERVICE.prefix_downlink_nat64
+    nat64_prefix = default_tenant.prefix_downlink_nat64
     nat64_network_address = int(nat64_prefix[0])
     offset = f"0:0:{tenant_ext}:{tenant_id:x}:{network_instance_id}::"
     nat64_offset = int(IPv6Address(offset))
@@ -248,7 +255,9 @@ def get_network_instance_nptv6_scope(
     ):
         return None
 
-    if config.VPNC_CONFIG_SERVICE.mode != enums.ServiceMode.HUB:
+    default_tenant = vpnc.models.tenant.get_default_tenant()
+
+    if default_tenant.mode != enums.ServiceMode.HUB:
         return None
 
     ni_info = info.parse_downlink_network_instance_name(
@@ -259,7 +268,7 @@ def get_network_instance_nptv6_scope(
     tenant_id = ni_info.tenant_id
     network_instance_id = ni_info.network_instance_id
 
-    nptv6_superscope = config.VPNC_CONFIG_SERVICE.prefix_downlink_nptv6
+    nptv6_superscope = default_tenant.prefix_downlink_nptv6
     nptv6_network_address = int(nptv6_superscope[0])
     offset = f"{tenant_ext}:{tenant_id:x}:{network_instance_id}::"
     nptv6_offset = int(IPv6Address(offset))

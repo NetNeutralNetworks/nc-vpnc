@@ -251,99 +251,77 @@ class Service(BaseModel):
 class Tenants(BaseModel):
     """Union type to help with loading config."""
 
-    config: dict[str, Tenant]
+    config: Tenant | ServiceHub | ServiceEndpoint
 
 
-def load_service_config(
-    config_path: pathlib.Path,
+def load_tenant_config(
+    path: pathlib.Path,
 ) -> tuple[
-    ServiceHub | ServiceEndpoint,
-    ServiceEndpoint | ServiceHub | None,
+    ServiceHub | ServiceEndpoint | Tenant | None,
+    ServiceHub | ServiceEndpoint | Tenant | None,
 ]:
     """Load the global configuration."""
-    logger.info("Loading configuration file from %s.", config_path)
+    logger.info("Loading configuration file from %s.", path)
+    if not config.TENANT_RE.match(path.stem):
+        logger.exception("Invalid filename found in %s. Skipping.", path)
+        return None, None
     try:
-        with config_path.open(encoding="utf-8") as f:
+        with path.open(encoding="utf-8") as f:
             try:
-                new_cfg_dict = yaml.safe_load(f)
+                config_yaml = yaml.safe_load(f)
             except (yaml.YAMLError, TypeError):
                 logger.critical(
                     "Configuration is not valid '%s'.",
-                    config_path,
+                    path,
                     exc_info=True,
                 )
                 sys.exit(1)
     except FileNotFoundError:
         logger.critical(
             "Configuration file could not be found at '%s'.",
-            config_path,
+            path,
             exc_info=True,
         )
-        sys.exit(1)
+        return None, None
 
     try:
-        if hasattr(config, "VPNC_CONFIG_SERVICE"):
-            active_tenant = config.VPNC_CONFIG_SERVICE.model_copy(deep=True)
-            config.VPNC_CONFIG_SERVICE = Service(config=new_cfg_dict).config
-        else:
-            config.VPNC_CONFIG_SERVICE = Service(config=new_cfg_dict).config
-            active_tenant = None
+        tenant = Tenants(config=config_yaml).config
     except pydantic_core.ValidationError:
         logger.critical(
             "Configuration file '%s' doesn't adhere to the schema",
-            config_path,
+            path,
             exc_info=True,
-        )
-        sys.exit(1)
-
-    return config.VPNC_CONFIG_SERVICE, active_tenant
-
-
-def load_tenant_config(
-    path: pathlib.Path,
-) -> tuple[Tenant | None, Tenant | None]:
-    """Load tenant configuration."""
-    if not config.DOWNLINK_TEN_RE.match(path.stem):
-        logger.exception("Invalid filename found in %s. Skipping.", path)
-        return None, None
-
-    # Open the configuration file and check if it's valid YAML.
-    try:
-        with path.open(encoding="utf-8") as f:
-            try:
-                config_yaml = yaml.safe_load(f)
-            except yaml.YAMLError:
-                logger.exception("Invalid YAML found in %s. Skipping.", path)
-                return None, None
-    except FileNotFoundError:
-        logger.exception(
-            "Configuration file could not be found at '%s'. Skipping",
-            path,
-        )
-        return None, None
-
-    # Parse the YAML file to a DOWNLINK object and validate the input.
-    try:
-        tenant = Tenant(**config_yaml)
-    except (TypeError, ValueError):
-        logger.exception(
-            "Invalid configuration found in '%s'. Skipping.",
-            path,
-        )
-        return None, None
-
-    if tenant.id != path.stem:
-        logger.error(
-            (
-                "VPN identifier '%s' and configuration file name"
-                " '%s' do not match. Skipping."
-            ),
-            tenant.id,
-            path.stem,
         )
         return None, None
 
     active_tenant = config.VPNC_CONFIG_TENANT.get(tenant.id)
-    config.VPNC_CONFIG_TENANT[tenant.id] = tenant
+    # config.VPNC_CONFIG_TENANT[tenant.id] = tenant
 
     return tenant, active_tenant
+
+
+def get_default_tenant() -> ServiceHub | ServiceEndpoint:
+    """Return the default tenant configuration."""
+    if not (default_tenant := config.VPNC_CONFIG_TENANT.get(config.DEFAULT_TENANT)):
+        default_tenant, _ = load_tenant_config(
+            config.VPNC_A_CONFIG_PATH_SERVICE,
+        )
+    if not isinstance(
+        default_tenant,
+        (ServiceHub, ServiceEndpoint),
+    ):
+        logger.critical(
+            "Service isn't configured correctly. Data class is not of a service type.",
+        )
+        sys.exit(1)
+    return default_tenant
+
+
+def get_tenant(tenant_id: str) -> Tenant | ServiceHub | ServiceEndpoint:
+    """Return the default tenant configuration."""
+    if not (tenant := config.VPNC_CONFIG_TENANT.get(tenant_id)):
+        tenant, _ = load_tenant_config(
+            config.VPNC_A_CONFIG_PATH_SERVICE,
+        )
+
+    return tenant

@@ -50,7 +50,7 @@ def parse_downlink_network_instance_name(
             connection=None,
             connection_id=None,
         )
-    if config.DOWNLINK_TEN_RE.match(name):
+    if config.TENANT_RE.match(name):
         return TenantInformation(
             tenant=name[:5],
             tenant_ext=int(name[0], 16),

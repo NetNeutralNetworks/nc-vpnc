@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import atexit
 import logging
-import threading
 from ipaddress import IPv4Address, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -12,6 +11,7 @@ import pyroute2
 from pyroute2.netlink.rtnl.ifinfmsg import ifinfmsg
 
 import vpnc.models.connections
+import vpnc.models.tenant
 from vpnc import config
 from vpnc.models import enums, info
 from vpnc.network import route
@@ -40,6 +40,8 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
         Tries to resolve the current routes as in the FDB and what should be advertised.
         If the connection is down, the advertisements should be retracted.
         """
+        default_tenant = vpnc.models.tenant.get_default_tenant()
+
         connection_event: str = event["event"]
         if connection_event not in ("RTM_NEWLINK", "RTM_DELLINK"):
             return
@@ -51,14 +53,14 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
             config.EXTERNAL_NI,
         ):
             tenant_id = "DEFAULT"
-            net_inst = config.VPNC_CONFIG_SERVICE.network_instances[network_instance_id]
+            net_inst = default_tenant.network_instances[network_instance_id]
         else:
             ni_info = info.parse_downlink_network_instance_name(
                 network_instance_id,
             )
             tenant_id = ni_info.tenant
             net_inst = None
-            if tenant := config.VPNC_CONFIG_TENANT.get(tenant_id):
+            if tenant := vpnc.models.tenant.get_tenant(tenant_id):
                 net_inst = tenant.network_instances.get(network_instance_id)
 
         active_net_inst, ni_handler = NI_ROUTE_MONITORS[network_instance_id]
@@ -137,9 +139,11 @@ def set_routes_up(
     active_connection: vpnc.models.connections.Connection | None,
 ) -> None:
     """Activates routes when connections go down."""
+    default_tenant = vpnc.models.tenant.get_default_tenant()
+
     if (
         net_inst.type == enums.NetworkInstanceType.CORE
-        and config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.HUB
+        and default_tenant.mode == enums.ServiceMode.HUB
     ):
         return
 
@@ -238,9 +242,11 @@ def set_routes_down(
     active_connection: vpnc.models.connections.Connection | None,
 ) -> None:
     """Disables/blackholes routes when connections go down."""
+    default_tenant = vpnc.models.tenant.get_default_tenant()
+
     if (
         net_inst.type == enums.NetworkInstanceType.CORE
-        and config.VPNC_CONFIG_SERVICE.mode == enums.ServiceMode.HUB
+        and default_tenant.mode == enums.ServiceMode.HUB
     ):
         return
     nat64_scope = configuration.get_network_instance_nat64_scope(net_inst)

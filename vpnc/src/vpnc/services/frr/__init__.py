@@ -13,7 +13,7 @@ from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
 from vpnc import config
-from vpnc.models import enums
+from vpnc.models import enums, tenant
 
 if TYPE_CHECKING:
     from ipaddress import IPv4Network, IPv6Network
@@ -82,12 +82,14 @@ def observe() -> BaseObserver:
 
 def generate_config() -> None:
     """Generate FRR configuration."""
-    if config.VPNC_CONFIG_SERVICE.mode != enums.ServiceMode.HUB:
+    default_tenant = tenant.get_default_tenant()
+
+    if default_tenant.mode != enums.ServiceMode.HUB:
         return
 
     neighbors: list[dict[str, Any]] = []
-    net_instance = config.VPNC_CONFIG_SERVICE.network_instances[config.CORE_NI]
-    for neighbor in config.VPNC_CONFIG_SERVICE.bgp.neighbors:
+    net_instance = default_tenant.network_instances[config.CORE_NI]
+    for neighbor in default_tenant.bgp.neighbors:
         neighbor_cfg: dict[str, Any] = {
             "neighbor_ip": neighbor.neighbor_address,
             "neighbor_asn": neighbor.neighbor_asn,
@@ -105,12 +107,12 @@ def generate_config() -> None:
     frr_cfg: dict[str, Any] = {
         "core_ni": config.CORE_NI,
         "external_ni": config.EXTERNAL_NI,
-        "router_id": config.VPNC_CONFIG_SERVICE.bgp.globals.router_id,
-        "as": config.VPNC_CONFIG_SERVICE.bgp.globals.asn,
+        "router_id": default_tenant.bgp.globals.router_id,
+        "as": default_tenant.bgp.globals.asn,
         "neighbors": neighbors,
         "prefix_core": prefix_core,
-        "prefix_downlink_nat64": config.VPNC_CONFIG_SERVICE.prefix_downlink_nat64,
-        "prefix_downlink_nptv6": config.VPNC_CONFIG_SERVICE.prefix_downlink_nptv6,
+        "prefix_downlink_nat64": default_tenant.prefix_downlink_nat64,
+        "prefix_downlink_nptv6": default_tenant.prefix_downlink_nptv6,
     }
 
     logger.info("Generating FRR configuration.")
@@ -146,7 +148,6 @@ def start() -> None:
         ["/usr/lib/frr/frrinit.sh", "start"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        shell=False,
     )
     logger.debug(proc.args)
     time.sleep(5)

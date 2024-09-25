@@ -21,7 +21,11 @@ while [[ $count -ne 0 ]] ; do
     docker exec clab-vpnc-mgt00 ping -c 1 -q 2001:db8:c58::ffff > /dev/null && \
     docker exec clab-vpnc-mgt01 ping -c 1 -q 2001:db8:c58::ffff > /dev/null && \
     docker exec clab-vpnc-mgt00 ping -c 1 -q fd6c:1:1::ffff > /dev/null && \
-    docker exec clab-vpnc-mgt01 ping -c 1 -q fd6c:1:1::ffff > /dev/null
+    docker exec clab-vpnc-mgt01 ping -c 1 -q fd6c:1:1::ffff > /dev/null && \
+    docker exec clab-vpnc-mgt00 ping -c 1 -q fd00:1:2:: > /dev/null && \
+    docker exec clab-vpnc-mgt00 ping -c 1 -q fd00:1:2::2 > /dev/null && \
+    docker exec clab-vpnc-mgt01 ping -c 1 -q fd00:1:2::1:0 > /dev/null && \
+    docker exec clab-vpnc-mgt01 ping -c 1 -q fd00:1:2::1:2 > /dev/null
     rc=$?
     if [[ $rc -eq 0 ]] ; then
         ((count = 1))                                       # If okay, flag loop exit.
@@ -33,7 +37,7 @@ done
 
 if [[ $rc -eq 0 ]] ; then                                   # Make final determination.
     echo -e "\n[SUCCESS] VPN and route advertisements are up"
-    sleep 15
+    sleep 20
 else
     echo -e "\n[WARNING] Not all connections are functional after ${init_count} tries"
 fi

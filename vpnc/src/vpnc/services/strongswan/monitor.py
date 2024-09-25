@@ -26,7 +26,7 @@ Event: TypeAlias = tuple[EventType, IkeData]
 
 
 class Monitor(threading.Thread):
-    """Monitors the strongswan service and components.
+    """Monitor the strongswan service and components.
 
     This is blocking and as such, runs in separate threads.
     """
@@ -37,6 +37,7 @@ class Monitor(threading.Thread):
             try:
                 logger.info("Starting VPNC Strongswan monitors")
                 asyncio.run(self.monitor())
+            # TODO @draggeta: make sure this doesn't infinitely retry
             except Exception:  # noqa: BLE001, PERF203
                 logger.warning("VPNC strongswan monitor crashed", exc_info=True)
                 time.sleep(1)
