@@ -8,13 +8,14 @@ TABLES4_HUB = [
             "-P FORWARD DROP\n"
             "-P OUTPUT DROP\n"
             "-A INPUT -p esp -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 4500 -j ACCEPT\n"
             "-A INPUT -p udp -m udp --dport 51820:51899 -j ACCEPT\n"
             "-A OUTPUT -p esp -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
-            "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT"
+            "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT\n"
+            "-A OUTPUT -p udp -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
         ),
     ),
     # No IPv4 in CORE
@@ -54,13 +55,14 @@ TABLES4_HUB = [
             "-P FORWARD DROP\n"
             "-P OUTPUT DROP\n"
             "-A INPUT -p esp -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 4500 -j ACCEPT\n"
             "-A INPUT -p udp -m udp --dport 51820:51899 -j ACCEPT\n"
             "-A OUTPUT -p esp -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
-            "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT"
+            "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT\n"
+            "-A OUTPUT -p udp -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
         ),
     ),
     # No IPv4 in CORE
@@ -103,13 +105,14 @@ TABLES4_ENDPOINT = [
             "-P FORWARD DROP\n"
             "-P OUTPUT DROP\n"
             "-A INPUT -p esp -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 4500 -j ACCEPT\n"
             "-A INPUT -p udp -m udp --dport 51820:51899 -j ACCEPT\n"
             "-A OUTPUT -p esp -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
-            "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT"
+            "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT\n"
+            "-A OUTPUT -p udp -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
         ),
     ),
     # No IPv4 in CORE
@@ -149,13 +152,14 @@ TABLES4_ENDPOINT = [
             "-P FORWARD DROP\n"
             "-P OUTPUT DROP\n"
             "-A INPUT -p esp -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 4500 -j ACCEPT\n"
             "-A INPUT -p udp -m udp --dport 51820:51899 -j ACCEPT\n"
             "-A OUTPUT -p esp -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
-            "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT"
+            "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT\n"
+            "-A OUTPUT -p udp -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
         ),
     ),
     # No IPv4 in CORE
@@ -219,14 +223,15 @@ TABLES6_HUB = [
             "-A INPUT -p ipv6-icmp -j icmpv6-in-out\n"
             # Allow IPSec
             "-A INPUT -p esp -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 4500 -j ACCEPT\n"
             "-A INPUT -p udp -m udp --dport 51820:51899 -j ACCEPT\n"
             "-A OUTPUT -p ipv6-icmp -j icmpv6-in-out\n"
             "-A OUTPUT -p esp -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT\n"
+            "-A OUTPUT -p udp -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             f"{TABLES6_ICMPV6_IN_OUT}"
         ),
     ),
@@ -309,14 +314,15 @@ TABLES6_HUB = [
             "-A INPUT -p ipv6-icmp -j icmpv6-in-out\n"
             # Allow IPSec
             "-A INPUT -p esp -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 4500 -j ACCEPT\n"
             "-A INPUT -p udp -m udp --dport 51820:51899 -j ACCEPT\n"
             "-A OUTPUT -p ipv6-icmp -j icmpv6-in-out\n"
             "-A OUTPUT -p esp -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT\n"
+            "-A OUTPUT -p udp -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             f"{TABLES6_ICMPV6_IN_OUT}"
         ),
     ),
@@ -401,14 +407,15 @@ TABLES6_ENDPOINT = [
             "-A INPUT -p ipv6-icmp -j icmpv6-in-out\n"
             # Allow IPSec
             "-A INPUT -p esp -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 4500 -j ACCEPT\n"
             "-A INPUT -p udp -m udp --dport 51820:51899 -j ACCEPT\n"
             "-A OUTPUT -p ipv6-icmp -j icmpv6-in-out\n"
             "-A OUTPUT -p esp -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT\n"
+            "-A OUTPUT -p udp -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             f"{TABLES6_ICMPV6_IN_OUT}"
         ),
     ),
@@ -467,14 +474,15 @@ TABLES6_ENDPOINT = [
             "-A INPUT -p ipv6-icmp -j icmpv6-in-out\n"
             # Allow IPSec
             "-A INPUT -p esp -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
-            "-A INPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 500 -j ACCEPT\n"
+            "-A INPUT -p udp -m udp --dport 4500 -j ACCEPT\n"
             "-A INPUT -p udp -m udp --dport 51820:51899 -j ACCEPT\n"
             "-A OUTPUT -p ipv6-icmp -j icmpv6-in-out\n"
             "-A OUTPUT -p esp -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 500 --dport 500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 4500 --dport 4500 -j ACCEPT\n"
             "-A OUTPUT -p udp -m udp --sport 51820:51899 -j ACCEPT\n"
+            "-A OUTPUT -p udp -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
             f"{TABLES6_ICMPV6_IN_OUT}"
         ),
     ),

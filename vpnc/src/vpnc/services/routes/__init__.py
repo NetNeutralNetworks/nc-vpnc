@@ -40,6 +40,7 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
         Tries to resolve the current routes as in the FDB and what should be advertised.
         If the connection is down, the advertisements should be retracted.
         """
+        nonlocal network_instance_id
         default_tenant = vpnc.models.tenant.get_default_tenant()
 
         connection_event: str = event["event"]
