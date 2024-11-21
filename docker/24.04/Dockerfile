@@ -23,7 +23,7 @@ RUN echo "Compile required modules"                                     && \
 FROM ubuntu:noble-20240801
 
 LABEL maintainer="beheer@ncubed.nl"
-LABEL version="0.1.2"
+LABEL version="0.1.3"
 LABEL description="vpnc VPN concentrator"
 
 SHELL ["/bin/bash", "-c"]
