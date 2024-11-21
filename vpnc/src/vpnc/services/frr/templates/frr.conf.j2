@@ -13,7 +13,9 @@ vrf {{ external_ni }}
 router bgp {{ as }} vrf {{ core_ni }}
   bgp router-id {{ router_id }}
   neighbor UPLINK peer-group
+{%- if bfd is sameas true %}
   neighbor UPLINK bfd
+{%- endif %}
   neighbor UPLINK advertisement-interval 0
   neighbor UPLINK timers 10 30
 {%- for neighbor in neighbors %}
@@ -72,12 +74,14 @@ route-map REDIS-RM-STATIC-TO-BGP permit 1
   match ipv6 address prefix-list REDIS-PL-IN
 exit
 !
+{%- if bfd is sameas true %}
 bfd
-{%- for neighbor in neighbors %}
+    {%- for neighbor in neighbors %}
   peer {{ neighbor.neighbor_ip }} vrf {{ core_ni }}
-{%- endfor %}
+    {%- endfor %}
   exit
   !
 exit
 !
+{%- endif %}
 end

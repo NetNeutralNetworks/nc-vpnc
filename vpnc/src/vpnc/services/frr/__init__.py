@@ -109,6 +109,7 @@ def generate_config() -> None:
         "external_ni": config.EXTERNAL_NI,
         "router_id": default_tenant.bgp.globals.router_id,
         "as": default_tenant.bgp.globals.asn,
+        "bfd": default_tenant.bgp.globals.bfd,
         "neighbors": neighbors,
         "prefix_core": prefix_core,
         "prefix_downlink_nat64": default_tenant.prefix_downlink_nat64,

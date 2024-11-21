@@ -6,6 +6,7 @@ import datetime
 import json
 import logging
 import subprocess
+from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal
 
 import pyroute2
@@ -16,8 +17,6 @@ from vpnc.models import connections, enums
 from vpnc.services import wireguard
 
 if TYPE_CHECKING:
-    from ipaddress import IPv4Address, IPv6Address
-
     import vpnc.models.network_instance
 
 logger = logging.getLogger("vpnc")

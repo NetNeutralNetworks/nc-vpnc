@@ -211,11 +211,11 @@ exit
 !
 router bgp ${BGP_AS}
   neighbor MGMT-TRANSIT peer-group
-  neighbor MGMT-TRANSIT bfd
   neighbor MGMT-TRANSIT advertisement-interval 0
   neighbor MGMT-TRANSIT timers 10 30
   neighbor ${BGP_PEER_IP_0} remote-as ${BGP_PEER_AS_0}
   neighbor ${BGP_PEER_IP_0} peer-group MGMT-TRANSIT
+  neighbor ${BGP_PEER_IP_0} bfd
   neighbor ${BGP_PEER_IP_1} remote-as ${BGP_PEER_AS_1}
   neighbor ${BGP_PEER_IP_1} peer-group MGMT-TRANSIT
   address-family ipv6 unicast
@@ -231,7 +231,6 @@ exit
 !
 bfd
   peer ${BGP_PEER_IP_0}
-  peer ${BGP_PEER_IP_1}
 exit
 !
 end

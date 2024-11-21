@@ -73,6 +73,7 @@ class BGPGlobal(BaseModel):
 
     asn: int = 4200000000
     router_id: IPv4Address
+    bfd: bool = False
 
 
 class BGPNeighbor(BaseModel):

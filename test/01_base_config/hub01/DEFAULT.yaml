@@ -143,6 +143,7 @@ bgp:
   globals:
     asn: 4266666666
     router_id: 6.6.6.6
+    bfd: false
   neighbors:
   - neighbor_asn: 4233333333
     neighbor_address: fd00:1:2::3

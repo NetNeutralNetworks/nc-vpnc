@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess
 from enum import Enum
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING, Any, Literal
 
 import pyroute2
@@ -17,8 +18,6 @@ from vpnc import config
 from vpnc.models import connections, enums
 
 if TYPE_CHECKING:
-    from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
-
     import vpnc.models.network_instance
 
 logger = logging.getLogger("vpnc")

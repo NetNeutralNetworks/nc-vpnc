@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from typing import TYPE_CHECKING, Any, Literal
+from ipaddress import IPv4Address, IPv6Address
+from typing import Any, Literal
 
 import pyroute2
 from pydantic import BaseModel, field_validator
@@ -13,10 +14,6 @@ from pydantic import BaseModel, field_validator
 import vpnc.models.network_instance
 import vpnc.services.ssh
 from vpnc.models import connections, enums
-
-if TYPE_CHECKING:
-    from ipaddress import IPv4Address, IPv6Address
-
 
 logger = logging.getLogger("vpnc")
 
