@@ -20,7 +20,7 @@ import vpnc.models.network_instance
 import vpnc.models.tenant
 from vpnc import config
 from vpnc.models import enums, info
-from vpnc.services import vpncmangle
+from vpnc.services import frr, vpncmangle
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
@@ -210,6 +210,11 @@ def delete_downlink_tenant(path: pathlib.Path) -> None:
         ni.delete()
 
     config.VPNC_CONFIG_TENANT.pop(tenant_id, None)
+
+    # Remove routes when the tenant is deleted.
+    if default_tenant.mode == enums.ServiceMode.HUB:
+        # FRR
+        frr.generate_config()
 
 
 def get_network_instance_nat64_scope(
