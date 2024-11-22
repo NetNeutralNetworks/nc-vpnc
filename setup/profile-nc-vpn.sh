@@ -26,6 +26,8 @@ vpnctl --install-completion > /dev/null
 printf "\n"
 print_service_state "ncubed-vpnc"
 
+DEFAULT="\e[0m"
+BOLD="\e[1m"
 printf "\e[1m
                    _               _
                   | |             | |
@@ -40,54 +42,36 @@ This directory contains the active and candidate configuration directories.
 
 Manage the configuration by using the 'vpnctl' command. This binary has autocompletion.
 
-> vpnctl remote
-shows a list of all configured remote VPNs
+$BOLD> vpnctl tenants$DEFAULT
+List the configured tenants
 
-> vpnctl remote C0001 show (--active) (--full)
-shows the C0001 (active) remote VPN configuration without the VPN tunnel configuration
-full shows the tunnel configurations as well
+$BOLD> vpnctl tenants C0001 [network-instances C0001-00 [connections 0]] show [--active] [--full]$DEFAULT
+Show a tenant configuration
+Full shows the connection configurations when run against the tenant and not a specific network instance.
 
-> vpnctl remote C0001 add/delete/set/unset
-add a new remote
-delete a remote
-set a remote property
-remove a remote property
+$BOLD> vpnctl tenants C0001 [network-instances C0001-00 [connections 0]] summary$DEFAULT
+Show connection status summary
 
-> vpnctl remote C0001 edit
-opens the default editor for editing the remote configuration. These edits are validated. Invalid
-configurations cannot be applied and will be rolled back.
+$BOLD> vpnctl tenants C0001 nat$DEFAULT
+Show used NAT translations
 
-> vpnctl remote C0001 connection
-shows a list of all configured tunnels for a remote
+$BOLD> vpnctl tenants C0001 (add|delete)$DEFAULT
+Add or delete a tenant
 
-> vpnctl remote C0001 connection 0 show
-shows the C0001 remote tunnel 0 VPN configuration
+$BOLD> vpnctl tenants C0001 edit$DEFAULT
+Open the default editor to edit the tenant configuration.
+The edited configuration is validated.
+Invalid configurations cannot be applied and will be rolled back.
 
-> vpnctl remote C0001 connection 0 add/delete/set/unset
-add a new connection
-delete a connection
-set a connection property
-remove a connection property
+$BOLD> vpnctl tenants C0001 commit [--dry-run] [--diff] [--revert]$DEFAULT
+Copy the candidate configuration to the active configuration
+Reverting the candidate configuration, dry-runs and diffs are possible
 
-> vpnctl remote C0001 commit
-copy the candidate configuration to the active configuration
-reverting the candidate configuration, dry-runs and diffs are possible
+$BOLD> vpnctl bgp show$DEFAULT
+Show the BGP configuration
 
-> vpnctl service show (--active)
-shows the (active) service configuration
+$BOLD> vpnctl bgp summary$DEFAULT
+Show the BGP status summary
 
-> vpnctl service bgp show
-shows the bgp configuration
-
-> vpnctl service uplink
-shows all provider/management connections
-
-> vpnctl service edit
-opens the default editor for editing the service configuration. These edits are validated. Invalid
-configurations cannot be applied and will be rolled back.
-
-> vpnctl service commit
-copy the candidate configuration to the active configuration
-reverting the candidate configuration, dry-runs and diffs are possible
 
 "

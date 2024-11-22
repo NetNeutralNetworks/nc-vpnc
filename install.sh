@@ -295,3 +295,18 @@ function install_vpnc () {
 # Run migrations to current version
 # ${SCRIPTDIR}/setup/migrate.sh
 # ${INSTALLDIR}/bin/python3 ${SCRIPTDIR}/setup/migrate.py
+
+
+case $1 in
+hub)
+    install_vpnc hub
+    ;;
+endpoint)
+    install_vpnc endpoint
+    ;;
+addon)
+    install_vpnc addon
+    ;;
+*)
+    ;;
+esac
