@@ -1,22 +1,29 @@
 [build-system]
-requires = ["setuptools >= 61.0.0"]
+requires = ["setuptools >= 64.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "vpncmangle"
-description = "Runs a process to mangle DNS responses"
+description = "Runs vpncmangle to edit DNS responses"
 readme = "README.md"
 authors = [{ name="Tony Fortes Ramos", email="tony.fortesramos@ncubed.nl" }]
 requires-python = ">=3.10"
 keywords = ["ncubed", "vpncmangle", "mangle"]
-license = {text = "GNU General Public License v3 (GPLv3)"}
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "Natural Language :: English",
     "Operating System :: Linux",
+
+    # Pick your license as you wish (see also "license" above)
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+
+    "Topic :: System :: Networking",
 ]
 dependencies = [
     "NetfilterQueue~=1.1",
@@ -26,6 +33,7 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 dev = [
+    "pytest",
     "ruff",
 ]
 
