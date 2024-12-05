@@ -167,8 +167,8 @@ function create_vpnc_config () {
     cp -n ${SCRIPTDIR}/config/${SERVICENAME}/config/config-${MODE}.yaml.example \
         ${BASEDIR}/config/${SERVICENAME}/candidate/DEFAULT.yaml || true
     # cp --update=none ${BASEDIR}/config/${SERVICENAME}/candidate/service/config-$1.yaml.example \
-    cp -n ${SCRIPTDIR}/config/${SERVICENAME}/config/config-${MODE}.yaml.example \
-        ${BASEDIR}/config/${SERVICENAME}/active/DEFAULT.yaml || true
+    # cp -n ${SCRIPTDIR}/config/${SERVICENAME}/config/config-${MODE}.yaml.example \
+    #     ${BASEDIR}/config/${SERVICENAME}/active/DEFAULT.yaml || true
     if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
         cp -n ${SCRIPTDIR}/config/${SERVICENAME}/units/ncubed-${SERVICENAME}.service \
             ${BASEDIR}/config/${SERVICENAME}/units/ncubed-${SERVICENAME}.service || true

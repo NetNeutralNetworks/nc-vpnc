@@ -32,6 +32,9 @@ A basic setup looks like this:
 
 ### Installation/upgrade
 
+The system where a hub will be installed requires two logical interfaces. One interface is used for IPsec connections.
+The other interface is used for management.
+
 The service and command line tools are installed with the included bash script in the root: `install.sh`
 
 The service can be installed in `hub` and `endpoint` mode (see architecture for more information).
@@ -75,6 +78,48 @@ While the configuration files can be edited directly, it is strongly recommeded 
 The files in active are active config. The files in candidate are candidate configuration. 
 
 If you don't want to use `vpnctl` to manage configuration files, edit the candidate configuration and then commit the configuration with `vpnctl`. This is because `vpnctl` validates the configuration before moving it to active. -->
+
+### Service configuration
+
+A default configuration is placed in the candidate configuration directory ('opt/ncubed/config/vpnc/candidate/DEFAULT.yaml'), but not committed. 
+Before committing the configuration, edit it to fit your needs by running the following command:
+
+```bash
+~$ vpnctl tenants DEFAULT edit
+```
+
+vpnc will open the configuration using the default editor. In the editor, edit the following items:
+
+```yaml
+network_instances:
+  EXTERNAL:
+    connections:
+      0:
+        config:
+          interface_name: eth1 # Change to the actual external interface name
+          type: physical
+        id: 0
+        interface:
+          ipv4:
+          - 192.0.2.6/24 # Assign an IPv4 address to the interface if desired, otherwise leave blank
+          ipv6:
+          - 2001:db8::6/64 # Assign an IPv6 address to the interface if desired, otherwise leave blank
+        metadata: {}
+        routes:
+          ipv4:
+          - to: 0.0.0.0/0 # Add IPv4 routes if needed
+            via: 192.0.2.1
+          ipv6:
+          - nptv6: false
+            nptv6_prefix: null
+            to: ::/0  # Add IPv6 routes if needed
+            via: 2001:db8::1 
+    id: EXTERNAL
+    metadata: {}
+    type: external
+```
+
+Edit the default configuration
 
 ### Tenants
 
@@ -197,7 +242,7 @@ Add or delete a tenant
 ~$ vpnctl tenants C0001 (add|delete)
 ```
 
-Open the default editor to edit the tenant configuration. 
+Open the default editor to edit the tenant configuration.
 The edited configuration is validated.
 Invalid configurations cannot be applied and will be rolled back.
 
