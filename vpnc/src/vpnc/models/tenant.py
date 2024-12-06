@@ -31,10 +31,10 @@ from vpnc.models.enums import ServiceMode
 
 # Needed for pydantim ports and type checking
 from vpnc.models.network_instance import (
-    NetworkInstanceCore,  # noqa: TCH001
-    NetworkInstanceDownlink,  # noqa: TCH001
-    NetworkInstanceEndpoint,  # noqa: TCH001
-    NetworkInstanceExternal,  # noqa: TCH001
+    NetworkInstanceCore,
+    NetworkInstanceDownlink,
+    NetworkInstanceEndpoint,
+    NetworkInstanceExternal,
 )
 
 if TYPE_CHECKING:
@@ -72,7 +72,7 @@ class BGPGlobal(BaseModel):
     """Define BGP global data structure."""
 
     asn: int = 4200000000
-    router_id: IPv4Address
+    router_id: IPv4Address = IPv4Address("0.0.0.0")  # noqa: S104
     bfd: bool = False
 
 
@@ -86,11 +86,45 @@ class BGPNeighbor(BaseModel):
     priority: int = Field(0, ge=0, le=9)
 
 
+class Prefix(BaseModel):
+    """Prefixes accepted by BGP.
+
+    The masklength by default is 'exact', meaning it only accepts routes matching
+    exactly.
+
+    A tuple of two integers can be specified to give a range. This range is inclusive.
+    """
+
+    prefix: IPv6Network | IPv6Address
+    masklength_range: Literal["exact"] | tuple[int, int] = "exact"
+
+    @field_validator("masklength_range")
+    @classmethod
+    def _validate_is_default(
+        cls,
+        v: Literal["exact"] | tuple[int, int],
+    ) -> Literal["exact"] | tuple[int, int]:
+        if v == "exact":
+            return v
+
+        lower = v[0]
+        upper = v[1]
+
+        if lower <= upper and 0 <= lower <= 128 and 0 <= upper <= 128:
+            return v
+
+        raise PydanticCustomError(
+            "prefix_set_error",
+            "The 'masklength_range' property should be 'exact' or a tuple of two integers from 0 to 128 inclusive.",
+        )
+
+
 class BGP(BaseModel):
     """Define a BGP data structure."""
 
-    neighbors: list[BGPNeighbor]
     globals: BGPGlobal
+    prefix_set: list[Prefix] = Field(default_factory=list)
+    neighbors: list[BGPNeighbor] = Field(default_factory=list)
 
 
 class ServiceEndpoint(Tenant):
@@ -140,6 +174,9 @@ class ServiceHub(Tenant):
         NetworkInstanceDownlink | NetworkInstanceCore | NetworkInstanceExternal,
     ] = Field(default_factory=dict)
 
+    ## BGP config
+    bgp: BGP
+
     # VPN CONFIG
     # IKE local identifier for VPNs
     local_id: str = r"%any"
@@ -158,9 +195,6 @@ class ServiceHub(Tenant):
     # IPv6 prefix for NPTv6. Must be a /12 or larger. Will be subnetted into /48s per
     # downlink per tunnel.
     prefix_downlink_nptv6: IPv6Network = IPv6Network("660::/12")
-
-    ## BGP config
-    bgp: BGP
 
     @field_validator("mode", mode="before")
     @classmethod

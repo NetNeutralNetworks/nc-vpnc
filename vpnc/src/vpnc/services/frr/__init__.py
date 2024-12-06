@@ -5,7 +5,7 @@ import logging
 import pathlib
 import subprocess
 import time
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
@@ -14,9 +14,6 @@ from watchdog.observers.api import BaseObserver
 
 from vpnc import config
 from vpnc.models import enums, tenant
-
-if TYPE_CHECKING:
-    from ipaddress import IPv4Network, IPv6Network
 
 logger = logging.getLogger("vpnc")
 
@@ -100,9 +97,7 @@ def generate_config() -> None:
     # FRR/BGP CONFIG
     frr_template = TEMPLATES_ENV.get_template("frr.conf.j2")
     # Subnets expected on the CORE side
-    prefix_core: list[IPv4Network | IPv6Network] = []
-    for connection in net_instance.connections.values():
-        prefix_core = [route.to for route in connection.routes.ipv6]
+    prefix_core = default_tenant.bgp.prefix_set
 
     frr_cfg: dict[str, Any] = {
         "core_ni": config.CORE_NI,

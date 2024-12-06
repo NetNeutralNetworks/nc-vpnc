@@ -108,8 +108,8 @@ if VERSION is not None and Version("0.0.12") > VERSION:
                 }
 
         fa.seek(0)
-        yaml.dump(v12_svc, fa, explicit_start=True, explicit_end=True)
-        yaml.dump(v12_svc, fc, explicit_start=True, explicit_end=True)
+        yaml.dump(v12_svc, fa, explicit_start=True, explicit_end=True, sort_keys=False)
+        yaml.dump(v12_svc, fc, explicit_start=True, explicit_end=True, sort_keys=False)
         fa.truncate()
         fc.truncate()
 
@@ -153,7 +153,19 @@ if VERSION is not None and Version("0.0.12") > VERSION:
                 }
 
             fa.seek(0)
-            yaml.dump(v12_rem, fa, explicit_start=True, explicit_end=True)
-            yaml.dump(v12_rem, fc, explicit_start=True, explicit_end=True)
+            yaml.dump(
+                v12_rem,
+                fa,
+                explicit_start=True,
+                explicit_end=True,
+                sort_keys=False,
+            )
+            yaml.dump(
+                v12_rem,
+                fc,
+                explicit_start=True,
+                explicit_end=True,
+                sort_keys=False,
+            )
             fa.truncate()
             fc.truncate()
