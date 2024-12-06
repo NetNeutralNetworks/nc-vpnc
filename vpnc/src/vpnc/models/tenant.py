@@ -23,7 +23,6 @@ from pydantic import (
     ValidationInfo,
     field_serializer,
     field_validator,
-    model_serializer,
 )
 from pydantic_core import PydanticCustomError
 
@@ -32,10 +31,10 @@ from vpnc.models.enums import ServiceMode
 
 # Needed for pydantim ports and type checking
 from vpnc.models.network_instance import (
-    NetworkInstanceCore,  # noqa: TC001
-    NetworkInstanceDownlink,  # noqa: TC001
-    NetworkInstanceEndpoint,  # noqa: TC001
-    NetworkInstanceExternal,  # noqa: TC001
+    NetworkInstanceCore,
+    NetworkInstanceDownlink,
+    NetworkInstanceEndpoint,
+    NetworkInstanceExternal,
 )
 
 if TYPE_CHECKING:
@@ -68,33 +67,13 @@ class Tenant(BaseModel):
     def _version_to_str(self, v: Version) -> str:
         return str(v)
 
-    @model_serializer(when_used="json")
-    def sort_model(self) -> dict[str, Any]:
-        """Ordered serialization of properties."""
-        return {
-            "version": self.version,
-            "id": self.id,
-            "name": self.name,
-            "metadata": self.metadata,
-            "network_instances": self.network_instances,
-        }
-
 
 class BGPGlobal(BaseModel):
     """Define BGP global data structure."""
 
     asn: int = 4200000000
-    router_id: IPv4Address
+    router_id: IPv4Address = IPv4Address("0.0.0.0")  # noqa: S104
     bfd: bool = False
-
-    @model_serializer(when_used="json")
-    def sort_model(self) -> dict[str, Any]:
-        """Ordered serialization of properties."""
-        return {
-            "asn": self.asn,
-            "router_id": self.router_id,
-            "bfd": self.bfd,
-        }
 
 
 class BGPNeighbor(BaseModel):
@@ -106,29 +85,46 @@ class BGPNeighbor(BaseModel):
     # defaults to 0, max is 9
     priority: int = Field(0, ge=0, le=9)
 
-    @model_serializer(when_used="json")
-    def sort_model(self) -> dict[str, Any]:
-        """Ordered serialization of properties."""
-        return {
-            "neighbor_asn": self.neighbor_asn,
-            "neighbor_address": self.neighbor_address,
-            "priority": self.priority,
-        }
+
+class Prefix(BaseModel):
+    """Prefixes accepted by BGP.
+
+    The masklength by default is 'exact', meaning it only accepts routes matching
+    exactly.
+
+    A tuple of two integers can be specified to give a range. This range is inclusive.
+    """
+
+    prefix: IPv6Network | IPv6Address
+    masklength_range: Literal["exact"] | tuple[int, int] = "exact"
+
+    @field_validator("masklength_range")
+    @classmethod
+    def _validate_is_default(
+        cls,
+        v: Literal["exact"] | tuple[int, int],
+    ) -> Literal["exact"] | tuple[int, int]:
+        if v == "exact":
+            return v
+
+        lower = v[0]
+        upper = v[1]
+
+        if lower <= upper and 0 <= lower <= 128 and 0 <= upper <= 128:
+            return v
+
+        raise PydanticCustomError(
+            "prefix_set_error",
+            "The 'masklength_range' property should be 'exact' or a tuple of two integers from 0 to 128 inclusive.",
+        )
 
 
 class BGP(BaseModel):
     """Define a BGP data structure."""
 
     globals: BGPGlobal
-    neighbors: list[BGPNeighbor]
-
-    @model_serializer(when_used="json")
-    def sort_model(self) -> dict[str, Any]:
-        """Ordered serialization of properties."""
-        return {
-            "globals": self.globals,
-            "neighbors": self.neighbors,
-        }
+    prefix_set: list[Prefix] = Field(default_factory=list)
+    neighbors: list[BGPNeighbor] = Field(default_factory=list)
 
 
 class ServiceEndpoint(Tenant):
@@ -164,18 +160,6 @@ class ServiceEndpoint(Tenant):
             )
         return v
 
-    @model_serializer(when_used="json")
-    def sort_model(self) -> dict[str, Any]:
-        """Ordered serialization of properties."""
-        return {
-            "version": self.version,
-            "id": self.id,
-            "name": self.name,
-            "mode": self.mode,
-            "metadata": self.metadata,
-            "network_instances": self.network_instances,
-        }
-
 
 class ServiceHub(Tenant):
     """Define a service data structure."""
@@ -189,6 +173,9 @@ class ServiceHub(Tenant):
         str,
         NetworkInstanceDownlink | NetworkInstanceCore | NetworkInstanceExternal,
     ] = Field(default_factory=dict)
+
+    ## BGP config
+    bgp: BGP
 
     # VPN CONFIG
     # IKE local identifier for VPNs
@@ -208,27 +195,6 @@ class ServiceHub(Tenant):
     # IPv6 prefix for NPTv6. Must be a /12 or larger. Will be subnetted into /48s per
     # downlink per tunnel.
     prefix_downlink_nptv6: IPv6Network = IPv6Network("660::/12")
-
-    ## BGP config
-    bgp: BGP
-
-    @model_serializer(when_used="json")
-    def sort_model(self) -> dict[str, Any]:
-        """Ordered serialization of properties."""
-        return {
-            "version": self.version,
-            "id": self.id,
-            "name": self.name,
-            "mode": self.mode,
-            "metadata": self.metadata,
-            "network_instances": self.network_instances,
-            "prefix_downlink_interface_v4": self.prefix_downlink_interface_v4,
-            "prefix_downlink_interface_v6": self.prefix_downlink_interface_v6,
-            "prefix_downlink_nat64": self.prefix_downlink_nat64,
-            "prefix_downlink_nptv6": self.prefix_downlink_nptv6,
-            "local_id": self.local_id,
-            "bgp": self.bgp,
-        }
 
     @field_validator("mode", mode="before")
     @classmethod

@@ -39,7 +39,9 @@ def show(
         bgp = service.bgp
 
     output = bgp.model_dump(mode="json")
-    print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
+    print(
+        yaml.safe_dump(output, explicit_start=True, explicit_end=True, sort_keys=False),
+    )
 
 
 @app.command()
@@ -125,7 +127,7 @@ def summary(
 #     output = yaml.safe_dump(
 #         service.model_dump(mode="json"),
 #         explicit_start=True,
-#         explicit_end=True,
+#         explicit_end=True, sort_keys=False,
 #     )
 #     with path.open("w+", encoding="utf-8") as f:
 #         f.write(output)

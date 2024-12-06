@@ -99,10 +99,24 @@ def show(
 
     output = tenant.model_dump(mode="json")
     if full:
-        print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
+        print(
+            yaml.safe_dump(
+                output,
+                explicit_start=True,
+                explicit_end=True,
+                sort_keys=False,
+            ),
+        )
     else:
         output["network_instance_count"] = len(output.pop("network_instances"))
-        print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
+        print(
+            yaml.safe_dump(
+                output,
+                explicit_start=True,
+                explicit_end=True,
+                sort_keys=False,
+            ),
+        )
 
 
 @app.command()
@@ -144,6 +158,7 @@ def edit(ctx: typer.Context) -> None:
                 tenant.model_dump(mode="json"),
                 explicit_start=True,
                 explicit_end=True,
+                sort_keys=False,
             ),
         )
         tf.flush()
@@ -187,6 +202,7 @@ def edit(ctx: typer.Context) -> None:
         edited_config.model_dump(mode="json"),
         explicit_start=True,
         explicit_end=True,
+        sort_keys=False,
     )
     with path.joinpath(f"{tenant_id}.yaml").open(mode="w", encoding="utf-8") as f:
         f.write(output)
@@ -228,6 +244,7 @@ def add(
         tenant.model_dump(mode="json"),
         explicit_start=True,
         explicit_end=True,
+        sort_keys=False,
     )
     with path.open("w+", encoding="utf-8") as f:
         f.write(output)
@@ -264,7 +281,7 @@ def add(
 #     updated_remote.metadata.update(all_metadata)
 
 #     output = yaml.safe_dump(
-#         updated_remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
+#         updated_remote.model_dump(mode="json"), explicit_start=True, explicit_end=True, sort_keys=False,
 #     )
 #     with open(path, "w+", encoding="utf-8") as f:
 #         f.write(output)
@@ -311,7 +328,7 @@ def add(
 #     updated_remote = vpnc.models.tenant.Tenant(**remote_dict)
 
 #     output = yaml.safe_dump(
-#         updated_remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
+#         updated_remote.model_dump(mode="json"), explicit_start=True, explicit_end=True, sort_keys=False,
 #     )
 #     with open(path, "w+", encoding="utf-8") as f:
 #         f.write(output)
@@ -347,6 +364,7 @@ def delete(
         tenant.model_dump(mode="json"),
         explicit_start=True,
         explicit_end=True,
+        sort_keys=False,
     )
     print(output)
     if dry_run:
@@ -378,7 +396,9 @@ def commit(
     path_active_tenant = path_active.joinpath(f"{tenant_id}.yaml")
     if not path_candidate_tenant.exists():
         tenant_config_candidate = vpnc.models.tenant.Tenant(
-            id=tenant_id, name="", version="0.1.0"
+            id=tenant_id,
+            name="",
+            version="0.1.0",
         )
     else:
         tenant_config_candidate = helpers.get_tenant_config(
@@ -389,7 +409,9 @@ def commit(
 
     if not path_active_tenant.exists():
         tenant_config_active = vpnc.models.tenant.Tenant(
-            id=tenant_id, name="", version="0.1.0"
+            id=tenant_id,
+            name="",
+            version="0.1.0",
         )
     else:
         tenant_config_active = helpers.get_tenant_config(ctx, tenant_id, path_active)
@@ -421,6 +443,7 @@ def commit(
                     tenant_config_active.model_dump(mode="json"),
                     explicit_start=True,
                     explicit_end=True,
+                    sort_keys=False,
                 ),
             )
         print("Revert succeeded.")
@@ -449,6 +472,7 @@ def commit(
                 tenant_config_candidate.model_dump(mode="json"),
                 explicit_start=True,
                 explicit_end=True,
+                sort_keys=False,
             ),
         )
     print("Commit succeeded.")

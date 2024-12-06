@@ -57,9 +57,10 @@ network_instances:
         # List of IPv4 and IPv6 networks natively reachable via this connection.
         # IPv4 prefixes are ignored for core and downlink in hub mode.
         routes:
-          ipv6:
+          ipv6: []
           # IP prefixes for provider client subnets initiating administration traffic to tenants.
-          - to: fd00::/16
+          # Using BGP is preferred over static routes.
+          # - to: fd00::/16
           #   via: fd00:1:2::1 # Optional, ignored for tunnel interfaces
           # IPv4 prefixes are ignored for core and downlink in hub mode.
           ipv4: []
@@ -102,9 +103,10 @@ network_instances:
         # List of IPv4 and IPv6 networks natively reachable via this connection.
         # IPv4 prefixes are ignored for core and downlink in hub mode.
         routes:
-          ipv6:
+          ipv6: []
           # IP prefixes for provider client subnets initiating administration traffic to tenants.
-          - to: fd00::/16
+          # Using BGP is preferred over static routes.
+          # - to: fd00::/16
           #   via: fd00:1:2::1 # Optional, ignored for tunnel interfaces
           # IPv4 prefixes are ignored for core and downlink in hub mode.
           ipv4: []
@@ -144,6 +146,10 @@ bgp:
     asn: 4266666666
     router_id: 6.6.6.6
     bfd: false
+  # Prefixes to accept from neighbors. Preferred over static routes.
+  prefix_set:
+  - prefix: fd00::/16
+    masklength_range: [16, 128] # exact | [int, int]
   neighbors:
   - neighbor_asn: 4233333333
     neighbor_address: fd00:1:2::3
