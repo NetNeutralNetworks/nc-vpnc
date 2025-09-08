@@ -64,9 +64,35 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
             if tenant := vpnc.models.tenant.get_tenant(tenant_id):
                 net_inst = tenant.network_instances.get(network_instance_id)
 
+            logger.debug(
+                {
+                    "function": "resolve_route_advertisements",
+                    "tenant": tenant_id,
+                    "network_instance": network_instance_id,
+                    "message": "debug info",
+                    "data": {
+                        "tenant": tenant if tenant else None,
+                        "net_inst": net_inst,
+                        "ni_info": ni_info if ni_info else None,
+                    },
+                },
+            )
         active_net_inst, ni_handler = NI_ROUTE_MONITORS[network_instance_id]
         ni_dl = pyroute2.NetNS(network_instance_id)
         ni_core = pyroute2.NetNS(config.CORE_NI)
+
+        logger.debug(
+            {
+                "function": "resolve_route_advertisements",
+                "tenant": tenant_id,
+                "network_instance": network_instance_id,
+                "message": "debug info",
+                "data": {
+                    "net_inst": net_inst,
+                    "active_net_inst": active_net_inst,
+                },
+            },
+        )
 
         connection: vpnc.models.connections.Connection | None = None
         active_connection: vpnc.models.connections.Connection | None = None
@@ -93,23 +119,51 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
                     active_connection = conn
                     break
 
-        logger.info("Acquiring lock for %s", network_instance_id)
+        logger.info(
+            {
+                "function": "resolve_route_advertisements",
+                "tenant": tenant_id,
+                "network_instance": network_instance_id,
+                "message": "Acquiring lock",
+            },
+        )
         with ni_dl, ni_core, NI_LOCK[network_instance_id]:
             # Connection is deleted
             if active_connection and connection_event == "RTM_DELLINK":
+                logger.debug(
+                    {
+                        "function": "resolve_route_advertisements",
+                        "tenant": tenant_id,
+                        "network_instance": network_instance_id,
+                        "message": "Deleting all routes",
+                        "data": {"connection_event": connection_event},
+                    },
+                )
                 delete_all_routes(
                     ni_dl,
                     ni_core,
                     active_net_inst,
                     active_connection,
                 )
-
-            if (
+            elif (
                 net_inst
                 and connection_event == "RTM_NEWLINK"
                 and interface_state == "up"
                 and connection
             ):
+                logger.debug(
+                    {
+                        "function": "resolve_route_advertisements",
+                        "tenant": tenant_id,
+                        "network_instance": network_instance_id,
+                        "message": "Setting routes up",
+                        "data": {
+                            "connection_event": connection_event,
+                            "interface_state": interface_state,
+                            "connection": connection,
+                        },
+                    },
+                )
                 set_routes_up(
                     ni_dl,
                     ni_core,
@@ -118,14 +172,49 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
                     active_connection,
                 )
 
-            if (
+            elif (
                 net_inst
                 and connection_event == "RTM_NEWLINK"
                 and interface_state == "down"
                 and connection
             ):
+                logger.debug(
+                    {
+                        "function": "resolve_route_advertisements",
+                        "tenant": tenant_id,
+                        "network_instance": network_instance_id,
+                        "message": "Setting routes down",
+                        "data": {
+                            "connection_event": connection_event,
+                            "interface_state": interface_state,
+                            "connection": connection,
+                        },
+                    },
+                )
                 set_routes_down(ni_dl, ni_core, net_inst, connection, active_connection)
-        logger.info("Releasing lock for %s", network_instance_id)
+            else:
+                logger.debug(
+                    {
+                        "function": "resolve_route_advertisements",
+                        "tenant": tenant_id,
+                        "network_instance": network_instance_id,
+                        "message": "Huh?",
+                        "data": {
+                            "connection_event": connection_event,
+                            "interface_state": interface_state,
+                            "connection": connection,
+                            "network_instance": net_inst,
+                        },
+                    },
+                )
+        logger.info(
+            {
+                "function": "resolve_route_advertisements",
+                "tenant": tenant_id,
+                "network_instance": network_instance_id,
+                "message": "Releasing lock",
+            },
+        )
 
         NI_ROUTE_MONITORS[network_instance_id] = (net_inst, ni_handler)
 

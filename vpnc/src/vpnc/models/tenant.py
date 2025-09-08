@@ -23,6 +23,7 @@ from pydantic import (
     ValidationInfo,
     field_serializer,
     field_validator,
+    model_validator,
 )
 from pydantic_core import PydanticCustomError
 
@@ -31,10 +32,10 @@ from vpnc.models.enums import ServiceMode
 
 # Needed for pydantim ports and type checking
 from vpnc.models.network_instance import (
-    NetworkInstanceCore,  # noqa: TCH001
-    NetworkInstanceDownlink,  # noqa: TCH001
-    NetworkInstanceEndpoint,  # noqa: TCH001
-    NetworkInstanceExternal,  # noqa: TCH001
+    NetworkInstanceCore,  # noqa: TC001
+    NetworkInstanceDownlink,  # noqa: TC001
+    NetworkInstanceEndpoint,  # noqa: TC001
+    NetworkInstanceExternal,  # noqa: TC001
 )
 
 if TYPE_CHECKING:
@@ -62,6 +63,20 @@ class Tenant(BaseModel):
     @classmethod
     def _coerce_version(cls, v: str) -> Version:
         return Version(v)
+
+    @model_validator(mode="before")
+    def validate_network_instances_keys(
+        cls,
+        values: dict[str, Any],
+    ) -> dict[str, Any]:
+        model_id = values.get("id")
+        data = values.get("network_instances")
+        if model_id and model_id != "DEFAULT" and data:
+            for key in data:
+                if not key.startswith(model_id):
+                    msg = f"Network instance key '{key}' does not start with id '{model_id}'"
+                    raise ValueError(msg)
+        return values
 
     @field_serializer("version")
     def _version_to_str(self, v: Version) -> str:
@@ -318,11 +333,21 @@ def get_default_tenant() -> ServiceHub | ServiceEndpoint:
     return default_tenant
 
 
-def get_tenant(tenant_id: str) -> Tenant | ServiceHub | ServiceEndpoint:
-    """Return the default tenant configuration."""
-    if not (tenant := config.VPNC_CONFIG_TENANT.get(tenant_id)):
-        tenant, _ = load_tenant_config(
-            config.VPNC_A_CONFIG_PATH_SERVICE,
+def get_tenant(tenant_id: str) -> Tenant | ServiceHub | ServiceEndpoint | None:
+    """Return the tenant configuration."""
+    if tenant := config.VPNC_CONFIG_TENANT.get(tenant_id):
+        logger.debug(
+            {
+                "function": "get_tenant",
+                "tenant": tenant_id,
+                # "network_instance": network_instance_id,
+                "message": "debug info",
+                "data": [
+                    config.VPNC_CONFIG_TENANT.keys(),
+                    config.VPNC_CONFIG_TENANT.get(tenant_id),
+                ],
+            },
         )
+        return tenant
 
-    return tenant
+    return None

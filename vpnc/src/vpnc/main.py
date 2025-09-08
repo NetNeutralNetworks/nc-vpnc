@@ -16,7 +16,7 @@ logger = logging.getLogger()
 def main() -> None:
     """Run the VPNC service."""
     # Configure logging
-    logger.setLevel(level=logging.INFO)
+    logger.setLevel(level=logging.DEBUG)
     formatter = logging.Formatter(
         fmt=(
             "%(asctime)s(File:%(name)s,Line:%(lineno)d,"
