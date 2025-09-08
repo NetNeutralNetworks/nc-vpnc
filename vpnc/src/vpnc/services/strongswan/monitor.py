@@ -137,11 +137,13 @@ class Monitor(threading.Thread):
             timeout=0.1,
         ):
             if shared.STOP_EVENT.is_set():
+                logger.info("Shutting down 'monitor_duplicate_sa_events'")
                 return
             if event == (None, None):
                 continue
             event_type, event_data = event
             if event_type is None or event_data is None:
+                logger.debug("Skipped monitor_duplicate_sa_event as one of the attributes is empty:\ntype: %s\ndata: %s" % event_type,event_data)
                 continue
             match event_type:
                 # check for duplicate IKE associations
@@ -165,13 +167,19 @@ class Monitor(threading.Thread):
             timeout=0.1,
         ):
             if shared.STOP_EVENT.is_set():
+                logger.info("Shutting down 'monitor_xfrm_interface_state'")
                 return
-            if event == (None, None):
-                continue
-            event_type, event_data = event
-            if event_type is None or event_data is None:
-                continue
-            self.resolve_xfrm_interface_state(event_data)
+            try:
+                if event == (None, None):
+                    continue
+                event_type, event_data = event
+                if event_type is None or event_data is None:
+                    logger.debug("Skipped monitor_xfrm_interface_state as one of the attributes is empty:\ntype: %s\ndata: %s" % event_type,event_data)
+                    continue
+                self.resolve_xfrm_interface_state(event_data)
+            except Exception as err:
+                logger.error('monitor_xfrm_interface_state exception occurred.', exc_info=True )
+
 
     def resolve_xfrm_interface_state(self, ike_event: IkeData) -> None:
         """Resolve route advertisement statuses.
@@ -185,6 +193,7 @@ class Monitor(threading.Thread):
         if len(keys := ike_event.keys()) == 2:  # noqa: PLR2004
             _, ike_name = list(keys)
         else:
+            logger.debug('Skipping ike_event resolve_xfrm_interface_state event')
             ike_name = next(iter(keys))
 
         if ike_name.startswith(config.CORE_NI):
@@ -204,6 +213,8 @@ class Monitor(threading.Thread):
             if not tenant_config_file.exists():
                 logger.info("No configuration file found for '%s'", tenant_id)
                 return
+
+        logger.debug({'function': 'resolve_xfrm_interface_state', 'tenant': tenant_id,'network_instance': network_instance_name, 'connection': connection_id})
 
         vcs = self.connect()
 
@@ -228,6 +239,7 @@ class Monitor(threading.Thread):
                     ifname,
                 )
                 return
+
             ifidx = iflookup[0]
             if (
                 ike_data.get("state", b"") == b"ESTABLISHED"
@@ -237,11 +249,8 @@ class Monitor(threading.Thread):
             else:
                 action = "down"
 
-            logger.info(
-                "Bringing interface 'xfrm%s' %s.",
-                connection_id,
-                action,
-            )
+            logger.info({'function': 'resolve_xfrm_interface_state', 'tenant': tenant_id,'network_instance': network_instance_name, 'connection': connection_id, 'message': f"Bringing interface 'xfrm{connection_id}' {action}."})
+
             netns.link("set", index=ifidx, state=action)
 
     def resolve_duplicate_ike_sa(self, ike_event: IkeData) -> None:

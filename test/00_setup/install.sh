@@ -21,12 +21,14 @@ fi
 # wget https://github.com/NICMx/Jool/releases/download/v4.1.11/jool-dkms_4.1.11-1_all.deb -O /tmp/jool-dkms_4.1.11-1_all.deb
 # apt-get install -y /tmp/jool-dkms_4.1.11-1_all.deb
 # fi
-wget https://github.com/NICMx/Jool/releases/download/v4.1.11/jool-dkms_4.1.11-1_all.deb -O /tmp/jool-dkms_4.1.11-1_all.deb
-apt-get install -y /tmp/jool-dkms_4.1.11-1_all.deb
+# wget https://github.com/NICMx/Jool/releases/download/v4.1.11/jool-dkms_4.1.11-1_all.deb -O /tmp/jool-dkms_4.1.11-1_all.deb
+apt-get install -y jool-dkms
 modprobe jool
 
 # Install containerlab
 bash -c "$(curl -sL https://get.containerlab.dev)"
+
+sudo usermod -aG clab_admins ${USER} && newgrp clab_admins
 
 # Add a network bridge for containerlab intra-container "internet" communication
 echo "
