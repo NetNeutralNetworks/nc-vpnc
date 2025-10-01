@@ -137,7 +137,7 @@ metadata:
   environment: test
 name: Tenant
 network_instance_count: 2
-version: 0.1.3
+version: 0.1.4
 ...
 
 # full active configuration

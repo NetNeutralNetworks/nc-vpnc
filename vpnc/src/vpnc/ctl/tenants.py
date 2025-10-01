@@ -229,7 +229,7 @@ def add(
         explicit_start=True,
         explicit_end=True,
     )
-    with path.open("w+", encoding="utf-8") as f:
+    with tenant_path.open("w+", encoding="utf-8") as f:
         f.write(output)
 
     show(ctx)
