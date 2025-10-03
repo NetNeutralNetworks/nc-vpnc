@@ -31,6 +31,8 @@ function install_apt_defaults () {
         # Disable/Mask the IPsec service
         /usr/bin/systemctl mask ipsec.service
         /usr/bin/systemctl stop ipsec.service
+        /usr/bin/systemctl mask strongswan-starter.service
+        /usr/bin/systemctl stop strongswan-starter.service
     fi
 
     groupadd swan
