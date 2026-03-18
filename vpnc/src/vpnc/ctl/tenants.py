@@ -215,6 +215,53 @@ def add(
     if tenant_id == config.DEFAULT_TENANT:
         print(f"Tenant '{tenant_id}' already exists.")
         return
+
+    all_args["network_instances"] = {
+        f"{tenant_id}-00": {
+            "connections": {
+                "0": {
+                    "config": {
+                        "ike_lifetime": 86400,
+                        "ike_proposal": "aes256-sha384-ecp384",
+                        "ike_version": "2",
+                        "initiation": "start",
+                        "ipsec_lifetime": 3600,
+                        "ipsec_proposal": "aes256gcm-prfsha384-ecp384",
+                        "local_id": None,
+                        "psk": "PSK-STRING",
+                        "remote_addrs": [
+                            "127.0.0.1",
+                        ],
+                        "remote_id": None,
+                        "traffic_selectors": {
+                            "local": [],
+                            "remote": [],
+                        },
+                        "type": "ipsec",
+                    },
+                    "id": 0,
+                    "interface": {
+                        "ipv4": [],
+                        "ipv6": [],
+                    },
+                    "metadata": {},
+                    "routes": {
+                        "ipv4": [
+                            {
+                                "to": "0.0.0.0/0",
+                                "via": None,
+                            },
+                        ],
+                        "ipv6": [],
+                    },
+                },
+            },
+            "id": f"{tenant_id}-00",
+            "metadata": {},
+            "type": "downlink",
+        },
+    }
+
     path = helpers.get_config_path(ctx, active=False)
     tenant_path = path.joinpath(f"{tenant_id}.yaml")
     if tenant_path.exists():
