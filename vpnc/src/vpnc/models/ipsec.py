@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import pyroute2
 import vici
 import vici.exception
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from vpnc import config
 from vpnc.models import connections, enums
@@ -61,7 +61,7 @@ class ConnectionConfigIPsec(BaseModel):
     ipsec_proposal: str = "aes256gcm16-prfsha384-ecp384"
     ipsec_lifetime: int = 3600
     initiation: Initiation = Initiation.INITIATOR
-    psk: str
+    psk: SecretStr
     traffic_selectors: TrafficSelectors = Field(default_factory=TrafficSelectors)
 
     @field_validator("type", mode="before")
