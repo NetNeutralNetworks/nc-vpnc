@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Generator
 from subprocess import call
-from typing import Any, Generator, Optional
+from typing import Annotated, Any, Optional
 
 import tabulate
 import typer
@@ -14,7 +15,6 @@ import yaml
 from deepdiff import DeepDiff
 from pydantic import ValidationError
 from rich import print
-from typing_extensions import Annotated
 
 import vpnc.models.tenant
 from vpnc import config
