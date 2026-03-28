@@ -140,14 +140,6 @@ def set_routes_up(
     active_connection: vpnc.models.connections.Connection | None,
 ) -> None:
     """Activates routes when connections go down."""
-    default_tenant = vpnc.models.tenant.get_default_tenant()
-
-    if (
-        net_inst.type == enums.NetworkInstanceType.CORE
-        and default_tenant.mode == enums.ServiceMode.HUB
-    ):
-        return
-
     interface_name_downlink = connection.intf_name(net_inst)
     interface_name_core = f"{net_inst.id}_C"
 

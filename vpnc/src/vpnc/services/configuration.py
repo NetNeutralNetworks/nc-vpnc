@@ -151,14 +151,18 @@ def manage_tenant(path: pathlib.Path) -> None:
             output = tenant.model_dump(mode="json")
             try:
                 fha.write(
-                    yaml.safe_dump(output, explicit_start=True, explicit_end=True),
+                    yaml.safe_dump(
+                        output, explicit_start=True, explicit_end=True, sort_keys=False
+                    ),
                 )
             except yaml.YAMLError:
                 logger.exception("Invalid YAML found in %s. Skipping.", path)
                 return
             try:
                 fhb.write(
-                    yaml.safe_dump(output, explicit_start=True, explicit_end=True),
+                    yaml.safe_dump(
+                        output, explicit_start=True, explicit_end=True, sort_keys=False
+                    ),
                 )
             except yaml.YAMLError:
                 logger.exception("Invalid YAML found in %s. Skipping.", path)

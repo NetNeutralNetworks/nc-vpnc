@@ -35,7 +35,11 @@ router bgp {{ as }} vrf {{ core_ni }}
 exit
 !
 {%- for prefix in prefix_core %}
-ipv6 prefix-list UPLINK-PL-IN seq {{ 10 * loop.index }} permit {{ prefix }} le 64
+    {%- if prefix.masklength_range == "exact" %}
+ipv6 prefix-list UPLINK-PL-IN seq {{ 10 * loop.index }} permit {{ prefix.prefix }}
+    {%- else %}
+ipv6 prefix-list UPLINK-PL-IN seq {{ 10 * loop.index }} permit {{ prefix.prefix }} ge {{ prefix.masklength_range[0] }} le {{ prefix.masklength_range[1] }}
+    {%- endif %}
 {%- endfor %}
 ipv6 prefix-list UPLINK-PL-OUT seq 10 permit 2000::/3 ge 32
 ipv6 prefix-list UPLINK-PL-OUT seq 20 permit {{ prefix_downlink_nat64 }} ge 96 le 96

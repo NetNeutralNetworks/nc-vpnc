@@ -111,6 +111,7 @@ def show(
             connection.model_dump(mode="json"),
             explicit_start=True,
             explicit_end=True,
+            sort_keys=False,
         ),
     )
 

@@ -107,7 +107,9 @@ def show(
     if not network_instance:
         return
     output = {instance_id: network_instance.model_dump(mode="json")}
-    print(yaml.safe_dump(output, explicit_start=True, explicit_end=True))
+    print(
+        yaml.safe_dump(output, explicit_start=True, explicit_end=True, sort_keys=False),
+    )
 
 
 @app.command()
@@ -206,7 +208,7 @@ class IkeVersion(str, Enum):
 #     remote.connections[tunnel_id] = tunnel
 
 #     output = yaml.safe_dump(
-#         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
+#         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True, sort_keys=False,
 #     )
 #     with open(path, "w+", encoding="utf-8") as f:
 #         f.write(output)
@@ -284,7 +286,7 @@ class IkeVersion(str, Enum):
 #     remote.connections[tunnel_id] = updated_tunnel
 
 #     output = yaml.safe_dump(
-#         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
+#         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True, sort_keys=False,
 #     )
 #     with open(path, "w+", encoding="utf-8") as f:
 #         f.write(output)
@@ -367,7 +369,7 @@ class IkeVersion(str, Enum):
 #     remote.connections[tunnel_id] = updated_tunnel
 
 #     output = yaml.safe_dump(
-#         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
+#         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True, sort_keys=False,
 #     )
 #     with open(path, "w+", encoding="utf-8") as f:
 #         f.write(output)
@@ -403,7 +405,7 @@ class IkeVersion(str, Enum):
 #     remote.connections.pop(tunnel_id)
 
 #     output = yaml.safe_dump(
-#         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True
+#         remote.model_dump(mode="json"), explicit_start=True, explicit_end=True, sort_keys=False,
 #     )
 #     print(yaml.safe_dump({tunnel_id: tunnel.model_dump(mode="json")}))
 #     if dry_run:
