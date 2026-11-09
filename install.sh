@@ -23,7 +23,7 @@ function install_apt_defaults () {
     strongswan strongswan-swanctl \
     strongswan-starter strongswan-charon \
     python3-packaging \
-    ssh autossh \
+    ssh \
     wireguard
 
     # Remove cached apt list after install

@@ -10,10 +10,19 @@ if TEST_DIR not in sys.path:
     sys.path.insert(0, TEST_DIR)
 
 from lab_helpers import (  # noqa: E402
+    close_ssh_sessions,
     run_cmd,
     run_cmd_shell,
     run_cmd_vtysh,
+    ssh_server_down,
     wait_until,
 )
 
-__all__ = ["run_cmd", "run_cmd_shell", "run_cmd_vtysh", "wait_until"]
+__all__ = [
+    "close_ssh_sessions",
+    "run_cmd",
+    "run_cmd_shell",
+    "run_cmd_vtysh",
+    "ssh_server_down",
+    "wait_until",
+]

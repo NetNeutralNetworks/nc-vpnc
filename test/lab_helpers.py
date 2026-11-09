@@ -5,16 +5,24 @@ Run commands in the containerlab containers and wait for the lab to reach a stat
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 import time
 from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
 T = TypeVar("T")
 
 CONTAINER_PREFIX = "clab-vpnc-"
+
+# Server of the hubs' SSH tunnels.
+SSH_SERVER = "cli00"
+SSH_REJECT_NEW = (
+    "INPUT -i eth1 -p tcp --dport 22 -m conntrack --ctstate NEW"
+    " -j REJECT --reject-with tcp-reset"
+)
 
 
 def run_cmd(host: str, command: str) -> str:
@@ -86,3 +94,24 @@ def wait_until(
             msg = f"Timed out after {timeout}s waiting for {message}. Last: {last!r}"
             raise TimeoutError(msg)
         time.sleep(interval)
+
+
+def close_ssh_sessions() -> None:
+    """Close all SSH sessions on the SSH server, as a server restart would."""
+    # OpenSSH 10 names session processes "sshd-session", older ones "sshd".
+    closed = run_cmd_shell(
+        SSH_SERVER,
+        "pkill -c -f '^sshd(-session)?: .*@notty' || true",
+    ).strip()
+    assert closed not in ("", "0"), "No SSH sessions to close"
+
+
+@contextlib.contextmanager
+def ssh_server_down() -> Iterator[None]:
+    """Close the SSH sessions and reject new ones until the context exits."""
+    run_cmd_shell(SSH_SERVER, f"iptables -I {SSH_REJECT_NEW}")
+    try:
+        close_ssh_sessions()
+        yield
+    finally:
+        run_cmd_shell(SSH_SERVER, f"iptables -D {SSH_REJECT_NEW}")
