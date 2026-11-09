@@ -40,7 +40,10 @@ def observe() -> BaseObserver:
     # Configure the event handler that watches directories. This doesn't start
     # the handler.
     observer.schedule(
-        event_handler=VpnmanglerHandler(patterns=["*.json"], ignore_directories=True),
+        event_handler=VpnmanglerHandler(
+            patterns=["**/*.json"],
+            ignore_directories=True,
+        ),
         path=config.CONFIG_PATH.parent,
         recursive=False,
     )

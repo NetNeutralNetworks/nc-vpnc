@@ -71,7 +71,7 @@ def observe() -> BaseObserver:
     # Configure the event handler that watches directories.
     # This doesn't start the handler.
     observer.schedule(
-        event_handler=SwanctlHandler(patterns=["*.conf"], ignore_directories=True),
+        event_handler=SwanctlHandler(patterns=["**/*.conf"], ignore_directories=True),
         path=config.IPSEC_CONFIG_DIR,
         recursive=False,
     )

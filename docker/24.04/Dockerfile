@@ -1,4 +1,4 @@
-FROM ubuntu:noble-20240801 AS build
+FROM ubuntu:noble-20261024.1 AS build
 
 SHELL ["/bin/bash", "-c"]
 
@@ -20,7 +20,7 @@ RUN echo "Compile required modules"                                     && \
 
 
 # Multi-stage build
-FROM ubuntu:noble-20240801
+FROM ubuntu:noble-20261024.1
 
 LABEL maintainer="beheer@ncubed.nl"
 LABEL version="0.1.4"
