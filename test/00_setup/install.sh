@@ -11,18 +11,26 @@ apt-get install -y bridge-utils python3-pytest
 
 if [[ -z "${GITHUB_ACTIONS}" ]]; then
 apt-get install -y docker-compose-v2 docker-buildx wireguard
+# GitHub runners ship Docker; a fresh VM doesn't.
+if ! command -v docker > /dev/null; then
+  apt-get install -y docker.io
+fi
+if [[ -n "${SUDO_USER}" ]]; then
+  usermod -aG docker "${SUDO_USER}"
+fi
 fi
 
 # Install the Jool kernel module on the host so it's available in containers.
-# if [[ "$(lsb_release -r | awk '{ print $2; }')" == "22.04" ]]; then
-# wget https://github.com/NICMx/Jool/releases/download/v4.1.7/jool-dkms_4.1.7-1_all.deb -O /tmp/jool-dkms_4.1.7-1_all.deb
-# apt-get install -y /tmp/jool-dkms_4.1.7-1_all.deb
-# elif [[ "$(lsb_release -r | awk '{ print $2; }')" == "24.04" ]]; then
-# wget https://github.com/NICMx/Jool/releases/download/v4.1.11/jool-dkms_4.1.11-1_all.deb -O /tmp/jool-dkms_4.1.11-1_all.deb
-# apt-get install -y /tmp/jool-dkms_4.1.11-1_all.deb
-# fi
-wget https://github.com/NICMx/Jool/releases/download/v4.1.11/jool-dkms_4.1.11-1_all.deb -O /tmp/jool-dkms_4.1.11-1_all.deb
-apt-get install -y /tmp/jool-dkms_4.1.11-1_all.deb
+# Ubuntu 26.04 (kernel 7.0) ships jool-dkms 4.1.15; the 4.1.11 deb from GitHub
+# doesn't target that kernel. The 4.1.11 jool-tools inside the noble-based
+# image work with the 4.1.15 module.
+source /etc/os-release
+if [[ "${VERSION_ID}" == "24.04" ]]; then
+  wget https://github.com/NICMx/Jool/releases/download/v4.1.11/jool-dkms_4.1.11-1_all.deb -O /tmp/jool-dkms_4.1.11-1_all.deb
+  apt-get install -y /tmp/jool-dkms_4.1.11-1_all.deb
+else
+  apt-get install -y jool-dkms jool-tools
+fi
 modprobe jool
 
 # Install containerlab
