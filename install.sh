@@ -9,6 +9,9 @@ FRRVER="frr-stable"
 
 function install_apt_defaults () {
     # update and install general packages
+    # vpnc starts charon with "ipsec start". From Ubuntu 26.04 the strongswan
+    # metapackage installs charon-systemd instead of the starter and charon
+    # daemon, so install those explicitly.
 
     apt-get update
     # If systemd is the init system
@@ -18,6 +21,7 @@ function install_apt_defaults () {
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
     iptables iproute2 \
     strongswan strongswan-swanctl \
+    strongswan-starter strongswan-charon \
     ssh autossh \
     wireguard
 
