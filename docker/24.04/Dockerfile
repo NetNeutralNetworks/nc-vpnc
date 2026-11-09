@@ -56,5 +56,5 @@ FROM vpnc AS lab
 
 RUN apt-get update                                                      && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y                      \
-    bind9 dnsutils iproute2 iptables iputils-ping openssh-server        && \
+    bind9 bind9-dnsutils iproute2 iptables iputils-ping openssh-server  && \
     rm -rf /var/lib/apt/lists/*
