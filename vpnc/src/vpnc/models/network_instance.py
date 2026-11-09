@@ -231,57 +231,32 @@ class NetworkInstance(BaseModel):
             self._delete_network_instance_connections(
                 active_network_instance,
             )
+        for connection in self.connections.values():
+            logger.info(
+                "Setting up network instance %s connection %s.",
+                self.id,
+                connection.id,
+            )
+            # Add connection
+            try:
+                interface = connection.add(
+                    network_instance=self,
+                )
+                interfaces.append(interface)
+            except (ValueError, Exception):
+                logger.exception(
+                    "Failed to set up connection '%s' interface(s)",
+                    connection,
+                )
+                continue
+            time.sleep(0.01)
+
+        # Set the routes of all connections at once: the advertisements depend on
+        # the state of all connections in the network instance.
         ni_dl = pyroute2.NetNS(self.id)
         ni_core = pyroute2.NetNS(config.CORE_NI)
         with ni_dl, ni_core:
-            for connection in self.connections.values():
-                logger.info(
-                    "Setting up network instance %s connection %s.",
-                    self.id,
-                    connection.id,
-                )
-                active_connection = None
-                # Match the configured connection to an active, running connection,
-                # if it exists).
-                if active_network_instance and active_network_instance.connections:
-                    active_connection = active_network_instance.connections.get(
-                        connection.id,
-                    )
-                # Add connection
-                try:
-                    interface = connection.add(
-                        network_instance=self,
-                    )
-                    interfaces.append(interface)
-                    intf = []
-                    if if_idx := ni_dl.link_lookup(ifname=interface):
-                        intf = ni_dl.get_links(if_idx[0])
-                    connection_state: str = "down"
-                    if intf:
-                        connection_state = intf[0].get("state")
-                    if connection_state == "up":
-                        routes.set_routes_up(
-                            ni_dl,
-                            ni_core,
-                            self,
-                            connection,
-                            active_connection,
-                        )
-                    else:
-                        routes.set_routes_down(
-                            ni_dl,
-                            ni_core,
-                            self,
-                            connection,
-                            active_connection,
-                        )
-                except (ValueError, Exception):
-                    logger.exception(
-                        "Failed to set up connection '%s' interface(s)",
-                        connection,
-                    )
-                    continue
-                time.sleep(0.01)
+            routes.reconcile_routes(ni_dl, ni_core, self, active_network_instance)
 
     def _delete_network_instance_connections(
         self,
