@@ -24,6 +24,12 @@ IkeData: TypeAlias = MappingProxyType[str, bytes | IkeProperties]
 EventType: TypeAlias = bytes
 Event: TypeAlias = tuple[EventType, IkeData]
 
+# Interval in seconds at which all XFRM interface states are checked against the
+# state of their tunnels, to correct missed events.
+XFRM_RESYNC_INTERVAL = 30
+# Interface flag (linux/if.h).
+IFF_UP = 0x1
+
 
 class Monitor(threading.Thread):
     """Monitor the strongswan service and components.
@@ -33,6 +39,20 @@ class Monitor(threading.Thread):
 
     def run(self) -> None:
         """Override and entrypoint of the threading.Thread class."""
+        # The event listeners restart themselves, so they're started only once.
+        logger.info("Starting duplicate SA monitor.")
+        threading.Thread(
+            target=self.supervise,
+            args=("Duplicate SA monitor", self.monitor_duplicate_sa_events),
+            daemon=True,
+        ).start()
+        logger.info("Starting interface state monitor.")
+        threading.Thread(
+            target=self.supervise,
+            args=("Interface state monitor", self.monitor_xfrm_interface_state),
+            daemon=True,
+        ).start()
+
         while not shared.STOP_EVENT.is_set():
             try:
                 logger.info("Starting VPNC Strongswan monitors")
@@ -44,32 +64,9 @@ class Monitor(threading.Thread):
         logger.info("Exiting VPNC Strongswan monitor")
 
     async def monitor(self) -> None:
-        """Test function."""
-        # Get the current event loop for the thread.
-        loop = asyncio.get_running_loop()
-
-        # Run the task to monitor the security associations for duplicates.
-        logger.info("Starting duplicate SA monitor.")
-        duplicates = threading.Thread(
-            target=self.monitor_duplicate_sa_events,
-            daemon=True,
-        )
-        duplicates.start()
-
-        # Run the task to monitor the XFRM interface state.
-        logger.info("Starting interface state monitor.")
-        interface_state = threading.Thread(
-            target=self.monitor_xfrm_interface_state,
-            daemon=True,
-        )
-        interface_state.start()
-
-        # Run the task to check for inactive and active connections every interval.
+        """Check for inactive and active connections every interval."""
         logger.info("Starting inactive/active connection monitor.")
-        inactives = loop.create_task(
-            self.repeat(30, self.monitor_connections, init_wait=False),
-        )
-        await inactives
+        await self.repeat(30, self.monitor_connections, init_wait=False)
 
     async def repeat(
         self,
@@ -126,6 +123,20 @@ class Monitor(threading.Thread):
             logger.info("Terminating connection '%s'", sa)
             self.terminate_sa(vcs=vcs, ike=sa)
 
+    def supervise(self, name: str, func: Callable[[], None]) -> None:
+        """Run func until stopped, restarting it if it fails or returns.
+
+        The listeners depend on the VICI socket. When charon restarts or the socket
+        breaks, they raise; without a restart their state would never update again.
+        """
+        while not shared.STOP_EVENT.is_set():
+            try:
+                func()
+            except Exception:
+                logger.warning("%s failed. Restarting.", name, exc_info=True)
+            if not shared.STOP_EVENT.is_set():
+                time.sleep(1)
+
     def monitor_duplicate_sa_events(self) -> None:
         """Monitor for SA events.
 
@@ -152,20 +163,28 @@ class Monitor(threading.Thread):
                     self.resolve_duplicate_ipsec_sa(event_data)
 
     def monitor_xfrm_interface_state(self) -> None:
-        """Monitor VPN tunnel state and set interface state accordingly."""
+        """Monitor VPN tunnel state and set interface state accordingly.
+
+        Acts on IKE/child up/down events, and every XFRM_RESYNC_INTERVAL seconds
+        checks all configured connections, so a missed event or a wrong interface
+        state is corrected.
+        """
         vcs = self.connect()
 
-        # At startup check for interface states
-        for i in vcs.list_sas():
-            self.resolve_xfrm_interface_state(i)
+        # At startup check all interface states
+        self.resync_xfrm_interface_states()
+        last_resync = time.monotonic()
 
         # Then check the queue for new events
         for event in vcs.listen(
             event_types=["ike-updown", "child-updown"],
-            timeout=0.1,
+            timeout=1,
         ):
             if shared.STOP_EVENT.is_set():
                 return
+            if time.monotonic() - last_resync >= XFRM_RESYNC_INTERVAL:
+                self.resync_xfrm_interface_states()
+                last_resync = time.monotonic()
             if event == (None, None):
                 continue
             event_type, event_data = event
@@ -173,22 +192,38 @@ class Monitor(threading.Thread):
                 continue
             self.resolve_xfrm_interface_state(event_data)
 
+    def resync_xfrm_interface_states(self) -> None:
+        """Set the XFRM interface state of all configured connections."""
+        vcs = self.connect()
+        for ike_name in vcs.get_conns()["conns"]:
+            self.set_xfrm_interface_state(ike_name.decode(), missing_ok=True)
+
     def resolve_xfrm_interface_state(self, ike_event: IkeData) -> None:
-        """Resolve route advertisement statuses.
-
-        Used by monitor monitor_route_advertisements.
-
-        Tries to resolve the current routes as in the FDB and what should be advertised.
-        If the connection is down, the advertisements should be retracted.
-        """
+        """Set the XFRM interface state for the connection of an IKE/child event."""
         ike_name: str
         if len(keys := ike_event.keys()) == 2:  # noqa: PLR2004
             _, ike_name = list(keys)
         else:
             ike_name = next(iter(keys))
+        self.set_xfrm_interface_state(ike_name)
 
+    def set_xfrm_interface_state(
+        self,
+        ike_name: str,
+        *,
+        missing_ok: bool = False,
+    ) -> None:
+        """Set a connection's XFRM interface up if its tunnel is up, down otherwise.
+
+        The tunnel is up if any IKE SA of the connection is established and has an
+        installed child SA. During rekeying, reauthentication or with duplicate SAs
+        there are multiple SAs, some of which are being deleted, so all of them must
+        be checked.
+
+        The routes service reacts to the interface state, so a wrong state leaves
+        routes blackholed or advertised.
+        """
         if ike_name.startswith(config.CORE_NI):
-            tenant_id = "DEFAULT"
             network_instance_name: str | None = config.CORE_NI
             connection_id: str | None = ike_name[-1]
         else:
@@ -206,36 +241,33 @@ class Monitor(threading.Thread):
                 return
 
         vcs = self.connect()
-
-        # Get VPN state
-        vpn: dict[str, Any] = {}
-        if v := list(vcs.list_sas({"ike": ike_name, "child": ike_name})):
-            vpn = v[0]
-        ike_data: dict[str, Any] = vpn.get(ike_name, {})
-        list_child_sas: list[str]
-        if list_child_sas := list(ike_data.get("child-sas", {}).keys()):
-            child_id: str = list_child_sas[0]
-        else:
-            child_id = ""
-        child_data = ike_data.get("child-sas", {}).get(child_id, {})
+        tunnel_up = False
+        for ike_sa in vcs.list_sas({"ike": ike_name}):
+            ike_data: dict[str, Any] = ike_sa.get(ike_name, {})
+            if ike_data.get("state", b"") != b"ESTABLISHED":
+                continue
+            if any(
+                child.get("state", b"") == b"INSTALLED"
+                for child in ike_data.get("child-sas", {}).values()
+            ):
+                tunnel_up = True
+                break
+        action = "up" if tunnel_up else "down"
 
         with pyroute2.NetNS(network_instance_name) as netns:
             ifname = f"xfrm{connection_id}"
             if not (iflookup := netns.link_lookup(ifname=ifname)):
-                logger.warning(
+                log = logger.debug if missing_ok else logger.warning
+                log(
                     "Network instance %s interface %s doesn't exist.",
                     network_instance_name,
                     ifname,
                 )
                 return
             ifidx = iflookup[0]
-            if (
-                ike_data.get("state", b"") == b"ESTABLISHED"
-                and child_data.get("state", b"") == b"INSTALLED"
-            ):
-                action = "up"
-            else:
-                action = "down"
+            is_up = bool(netns.get_links(ifidx)[0]["flags"] & IFF_UP)
+            if is_up == tunnel_up:
+                return
 
             logger.info(
                 "Bringing network instance %s interface '%s' %s.",
