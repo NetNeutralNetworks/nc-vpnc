@@ -18,8 +18,6 @@ from . import conftest
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-VPNC_LOG = "/var/log/ncubed/vpnc/vpnc.log"
-
 # XFRM interfaces that carry global addresses, with the addresses they must keep.
 # The CORE ones hold the BGP peering addresses towards mgt00/mgt01.
 XFRM_ADDRESSES = {
@@ -104,15 +102,6 @@ def bgp_all_established(host: str) -> dict[str, str]:
     return {}
 
 
-def count_monitor_actions(host: str, netns: str, ifname: str, action: str) -> int:
-    """Count how often the strongSwan monitor set an XFRM interface up or down."""
-    line = f"Bringing network instance {netns} interface '{ifname}' {action}."
-    return int(
-        conftest.run_cmd_shell(host, f'grep -cF "{line}" {VPNC_LOG} || true').strip()
-        or 0,
-    )
-
-
 def assert_interface_recovered(host: str, netns: str, ifname: str) -> None:
     """Check addresses, connected routes and (for CORE) BGP after recovery."""
     expected = XFRM_ADDRESSES[(host, netns, ifname)]
@@ -194,7 +183,6 @@ class TestIkeSaRecovery:
     ) -> None:
         """The XFRM interface comes back up with its addresses, and BGP recovers."""
         assert sa_installed(host, ike), f"{ike} on {host} isn't up before the test"
-        downs_before = count_monitor_actions(host, netns, ifname, "down")
 
         with ike_blocked(host):
             # --force: don't wait for the peer to confirm the DELETE, which can't
@@ -203,16 +191,12 @@ class TestIkeSaRecovery:
                 host,
                 f"swanctl --terminate --ike {ike} --force > /dev/null 2>&1 || true",
             )
-            # The monitor must react to the SA going away; otherwise this test
-            # doesn't exercise the down/up path.
+            # Ensure the down/up path is exercised.
             conftest.wait_until(
-                lambda: (
-                    count_monitor_actions(host, netns, ifname, "down") > downs_before
-                ),
+                lambda: not is_admin_up(host, netns, ifname),
                 timeout=30,
-                message=f"monitor to set {host} {netns} {ifname} down",
+                message=f"{host} {netns} {ifname} to go down",
             )
-            assert not is_admin_up(host, netns, ifname)
 
         conftest.wait_until(
             lambda: sa_installed(host, ike) and is_admin_up(host, netns, ifname),

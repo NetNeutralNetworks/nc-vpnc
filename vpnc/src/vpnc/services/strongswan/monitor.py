@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import socket
+import subprocess
 import threading
 import time
 from types import MappingProxyType
-from typing import Any, Awaitable, Callable, TypeAlias
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, TypeAlias
 
 import pyroute2
 import vici
@@ -15,6 +18,9 @@ import vici.exception
 
 from vpnc import config, shared
 from vpnc.models import info
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger("vpnc")
 
@@ -29,6 +35,33 @@ Event: TypeAlias = tuple[EventType, IkeData]
 XFRM_RESYNC_INTERVAL = 30
 # Interface flag (linux/if.h).
 IFF_UP = 0x1
+
+VICI_SOCKET = "/var/run/charon.vici"
+# Seconds before a VICI request fails, so a hanging charon can't block vpnc.
+VICI_TIMEOUT = 10
+SWANCTL_CONNECTION_RE = re.compile(r"^    (\S+) \{$")
+
+
+def swanctl_connection_names(path: Path) -> set[str]:
+    """Return the connection names in a generated swanctl file."""
+    names: set[str] = set()
+    in_connections = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line == "connections {":
+            in_connections = True
+        elif line == "}":
+            in_connections = False
+        elif in_connections and (match := SWANCTL_CONNECTION_RE.match(line)):
+            names.add(match.group(1))
+    return names
+
+
+def is_initiator(connection: dict[str, Any]) -> bool:
+    """Return whether a list-conns entry is an initiator (close_action=start)."""
+    return any(
+        child.get("close_action") == b"start"
+        for child in connection.get("children", {}).values()
+    )
 
 
 class Monitor(threading.Thread):
@@ -92,36 +125,57 @@ class Monitor(threading.Thread):
             )
 
     async def monitor_connections(self) -> None:
-        """Monitor for inactive connections.
-
-        Monitor for inactive connection definitions where the connection is set to
-        initiate/start.
-        This doesn't check for IKE SAs without IPsec SAs.
-        Also checks for SAs that aren't configured and removes these
-        """
+        """Reload connections, initiate missing initiator SAs, remove unknown SAs."""
         vcs = self.connect()
-        conns: list[str] = [x.decode() for x in vcs.get_conns()["conns"]]
-        sas: list[str] = [next(iter(i.keys())) for i in vcs.list_sas()]
-        logger.debug("Configured connections: %s", conns)
+        self.load_connections(vcs)
+
+        conns: dict[str, dict[str, Any]] = {
+            name: details for conn in vcs.list_conns() for name, details in conn.items()
+        }
+        sas: set[str] = {name for sa in vcs.list_sas() for name in sa}
+        logger.debug("Configured connections: %s", list(conns))
         logger.debug("Active connections: %s", sas)
 
         # TODO@draggeta: Implement IKE SA without IPsec SAs check?
 
-        # For each configured connection, check if there is a SA. If not, start
-        # the connection.
-        for con in conns:
+        for con, details in conns.items():
             if con in sas:
+                continue
+            if not is_initiator(details):
+                logger.debug("Waiting for the peer of connection '%s'.", con)
                 continue
             logger.info("Initiating connection '%s'", con)
             self.initiate_sa(vcs=vcs, ike=con, child=con)
 
-        # For each SA, check if there is a configured connection. If not, delete
-        # the connection.
-        for sa in sas:
-            if sa in conns:
-                continue
+        for sa in sas - conns.keys():
             logger.info("Terminating connection '%s'", sa)
             self.terminate_sa(vcs=vcs, ike=sa)
+
+    def load_connections(self, vcs: vici.Session) -> None:
+        """Reload the swanctl files if charon's connections differ from them."""
+        expected: set[str] = set()
+        for path in config.IPSEC_CONFIG_DIR.glob("*.conf"):
+            expected |= swanctl_connection_names(path)
+        loaded = {name.decode() for name in vcs.get_conns()["conns"]}
+        if expected == loaded:
+            return
+
+        logger.warning(
+            "Reloading swanctl config (missing: %s, unknown: %s).",
+            sorted(expected - loaded),
+            sorted(loaded - expected),
+        )
+        proc = subprocess.run(
+            ["/usr/sbin/swanctl", "--load-all", "--clear"],
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+        if proc.returncode:
+            logger.error(
+                "Loading the swanctl configuration failed: %s",
+                proc.stderr.decode(errors="replace"),
+            )
 
     def supervise(self, name: str, func: Callable[[], None]) -> None:
         """Run func until stopped, restarting it if it fails or returns.
@@ -142,7 +196,7 @@ class Monitor(threading.Thread):
 
         check if there are duplicates and take action accordingly.
         """
-        vcs = self.connect()
+        vcs = self.connect(timeout=None)
         for event in vcs.listen(
             event_types=["ike-updown", "child-updown"],
             timeout=0.1,
@@ -154,13 +208,9 @@ class Monitor(threading.Thread):
             event_type, event_data = event
             if event_type is None or event_data is None:
                 continue
-            match event_type:
-                # check for duplicate IKE associations
-                case b"ike-updown":
-                    self.resolve_duplicate_ike_sa(event_data)
-                # check for duplicate IPSec associations
-                case b"child-updown":
-                    self.resolve_duplicate_ipsec_sa(event_data)
+            keys = list(event_data.keys())
+            ike_name = keys[1] if len(keys) == 2 else keys[0]  # noqa: PLR2004
+            self.resolve_duplicate_sas(ike_name)
 
     def monitor_xfrm_interface_state(self) -> None:
         """Monitor VPN tunnel state and set interface state accordingly.
@@ -169,7 +219,7 @@ class Monitor(threading.Thread):
         checks all configured connections, so a missed event or a wrong interface
         state is corrected.
         """
-        vcs = self.connect()
+        vcs = self.connect(timeout=None)
 
         # At startup check all interface states
         self.resync_xfrm_interface_states()
@@ -277,113 +327,84 @@ class Monitor(threading.Thread):
             )
             netns.link("set", index=ifidx, state=action)
 
-    def resolve_duplicate_ike_sa(self, ike_event: IkeData) -> None:
-        """Check for duplicate IPsec security associations.
+    def resolve_duplicate_sas(self, ike_name: str) -> None:
+        """Keep the newest IKE/CHILD SA of an initiator connection, terminate the rest.
 
-        If SAs need be removed, the older ones are removed in favor of the youngest.
+        Only initiators resolve, so both peers don't delete different SAs.
         """
         vcs: vici.Session = self.connect()
-        if len(keys := ike_event.keys()) == 2:  # noqa: PLR2004
-            ike_name = list(keys)[1]
-        else:
-            ike_name = next(iter(keys))
-
-        logger.debug("IKE event received for SA '%s'", ike_name)
-
-        ike_sas: list[IkeData] = list(vcs.list_sas({"ike": ike_name}))
-
-        if len(ike_sas) <= 1:
-            logger.debug(
-                "Skipping IKE event for SA '%s'. Two or fewer SAs active.",
-                ike_name,
-            )
+        conns = [
+            c[ike_name] for c in vcs.list_conns({"ike": ike_name}) if ike_name in c
+        ]
+        if not conns or not is_initiator(conns[0]):
             return
 
-        best_ike_sa_event: IkeData = {}
-
-        for idx, ike_sa_event in enumerate(ike_sas):
-            for ike_name, ike_sa in ike_sa_event.items():
-                # First item has nothing to compare to.
-                if idx == 0:
-                    best_ike_sa_event = ike_sa_event
+        ike_sas: list[dict[str, Any]] = [
+            sa[ike_name] for sa in vcs.list_sas({"ike": ike_name}) if ike_name in sa
+        ]
+        established = [sa for sa in ike_sas if sa.get("state") == b"ESTABLISHED"]
+        if len(established) > 1:
+            keep = min(
+                established,
+                key=lambda sa: (int(sa.get("established", 0)), sa.get("initiator-spi")),
+            )
+            for sa in established:
+                if sa is keep:
                     continue
+                logger.info("Terminating duplicate IKE SA of '%s'.", ike_name)
+                self.terminate_sa(vcs=vcs, ike_id=sa["uniqueid"])
+            established = [keep]
 
-                # Compare the seconds since the SA was established. Choose the most
-                # recent one.
-                try:
-                    ike_sa_established = int(ike_sa["established"])
-                    best_sa_established = int(
-                        best_ike_sa_event[ike_name]["established"],
-                    )
-                except TypeError:
+        for ike_sa in established:
+            self.resolve_duplicate_child_sas(vcs, ike_name, ike_sa)
+
+    def resolve_duplicate_child_sas(
+        self,
+        vcs: vici.Session,
+        ike_name: str,
+        ike_sa: dict[str, Any],
+    ) -> None:
+        """Terminate all but the most recent CHILD SA per traffic selector pair."""
+        per_ts: dict[str, list[dict[str, Any]]] = {}
+        for child in ike_sa.get("child-sas", {}).values():
+            if child.get("state") != b"INSTALLED":
+                continue
+            ts_key = str((child.get("local-ts"), child.get("remote-ts")))
+            per_ts.setdefault(ts_key, []).append(child)
+        for children in per_ts.values():
+            if len(children) <= 1:
+                continue
+            keep = min(
+                children,
+                key=lambda c: (
+                    int(c.get("install-time", 0)),
+                    sorted((c.get("spi-in", b""), c.get("spi-out", b""))),
+                ),
+            )
+            for child in children:
+                if child is keep:
                     continue
-                except KeyError:
-                    continue
+                logger.info("Terminating duplicate CHILD SA of '%s'.", ike_name)
+                self.terminate_sa(vcs=vcs, child_id=child["uniqueid"])
 
-                if ike_sa_established <= best_sa_established:
-                    self.terminate_sa(
-                        vcs=vcs,
-                        ike_id=best_ike_sa_event[ike_name]["uniqueid"],
-                    )
-                    best_ike_sa_event = ike_sa_event
-                else:
-                    self.terminate_sa(vcs=vcs, ike_id=ike_sa["uniqueid"])
-
-    def resolve_duplicate_ipsec_sa(self, ike_event: IkeData) -> None:
-        """Check for duplicate IPsec security associations.
-
-        If SAs need be removed, the older ones are removed in favor of the youngest.
-        """
-        vcs = self.connect()
-        if len(keys := ike_event.keys()) == 2:  # noqa: PLR2004
-            _, ike_name = list(keys)
-        else:
-            ike_name = next(iter(keys))
-        ike_sas: list[IkeData] = list(vcs.list_sas({"ike": ike_name}))
-
-        for ike_sa in ike_sas:
-            ike_sa_props = ike_sa[ike_name]
-
-            # Get the most recent SA for each TS pair.
-            ts_unique: dict[str, Any] = {}
-
-            for ipsec_sa in ike_sa_props["child-sas"].values():
-                # The check must be done per traffic selector pair.
-                # If this is the first time seeing the traffic selector for the IKE SA,
-                # don't do anything.
-                ts_key = str((ipsec_sa["local-ts"], ipsec_sa["remote-ts"]))
-                if ts_key not in ts_unique:
-                    ts_unique[ts_key] = ipsec_sa
-                    continue
-
-                # Compare the seconds since the SA was established. Choose the most
-                # recent one.
-                try:
-                    ipsec_sa_established = int(ipsec_sa["install-time"])
-                    best_sa_established = int(ts_unique[ts_key]["install-time"])
-                except TypeError:
-                    continue
-                except KeyError:
-                    continue
-
-                if ipsec_sa_established <= best_sa_established:
-                    self.terminate_sa(vcs=vcs, child_id=ts_unique[ts_key]["uniqueid"])
-                    ts_unique[ts_key] = ipsec_sa
-                else:
-                    self.terminate_sa(vcs=vcs, child_id=ipsec_sa["uniqueid"])
-
-    def connect(self, tries: int = 10, delay: int = 2) -> vici.Session:
-        """Try to connect to the VICI socket."""
+    def connect(
+        self,
+        tries: int = 10,
+        delay: int = 2,
+        timeout: float | None = VICI_TIMEOUT,
+    ) -> vici.Session:
+        """Connect to the VICI socket. Use timeout=None for event listeners."""
         for i in range(tries):
+            sock = socket.socket(socket.AF_UNIX)
+            sock.settimeout(timeout)
             try:
-                return vici.Session()
-            except (ConnectionRefusedError, FileNotFoundError) as err:  # noqa: PERF203
-                if i >= tries:
-                    logger.warning(
-                        "VICI socket not available after %s tries. Exiting.",
-                        tries,
-                    )
-                    raise ConnectionError from err
+                sock.connect(VICI_SOCKET)
+                return vici.Session(sock)
+            except (ConnectionRefusedError, FileNotFoundError, TimeoutError) as err:  # noqa: PERF203
+                sock.close()
+                if i >= tries - 1:
+                    msg = f"VICI socket not available after {tries} tries."
+                    raise ConnectionError(msg) from err
                 logger.info("VICI socket is not yet available. Retrying.")
                 time.sleep(delay)
 
@@ -407,6 +428,8 @@ class Monitor(threading.Thread):
             _filter.update({"child": child})
 
         logger.info("Initiating SA with parameters: '%s'", _filter)
+        # Don't wait: an unreachable peer would block forever.
+        _filter["timeout"] = b"-1"
         try:
             for i in vcs.initiate(_filter):
                 logger.debug(i)
@@ -441,6 +464,8 @@ class Monitor(threading.Thread):
             _filter.update({"child-id": child_id})
 
         logger.info("Terminating SA with parameters: '%s'", _filter)
+        # Don't wait for an unreachable peer to confirm.
+        _filter["timeout"] = b"-1"
         try:
             for i in vcs.terminate(_filter):
                 logger.debug(i)

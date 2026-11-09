@@ -211,7 +211,7 @@ def start() -> None:
             vici.Session()
             break
         except (ConnectionRefusedError, FileNotFoundError):
-            if i >= tries:
+            if i >= tries - 1:
                 logger.critical(
                     "VICI socket not available after %s tries. Exiting.",
                     tries,
