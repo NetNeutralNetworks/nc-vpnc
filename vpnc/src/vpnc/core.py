@@ -11,20 +11,14 @@ import time
 
 from vpnc import config, shared
 from vpnc.models import enums, tenant
+from vpnc.network import namespace
 from vpnc.services import configuration, frr, strongswan, vpncmangle, wireguard
 
 logger = logging.getLogger("vpnc")
 
 
-def concentrator() -> None:
-    """Set up the DEFAULT tenant."""
-    default_tenant = tenant.get_default_tenant()
-    logger.info("#" * 100)
-    logger.info(
-        "Starting ncubed vpnc daemon in %s mode.",
-        default_tenant.mode,
-    )
-
+def prepare_namespaces() -> None:
+    """Mount the DEFAULT namespace and create the CORE namespace."""
     # Mount the DEFAULT network instance with it's alias. This makes for consistent
     # operation between all network instances
     logger.info("Mounting default namespace as %s", config.DEFAULT_NI)
@@ -39,6 +33,21 @@ def concentrator() -> None:
         check=True,
     )
     logger.debug(proc.stdout)
+
+    # Create CORE up front: threads opening it concurrently would race to create it.
+    namespace.add(name=config.CORE_NI)
+
+
+def concentrator() -> None:
+    """Set up the DEFAULT tenant."""
+    default_tenant = tenant.get_default_tenant()
+    logger.info("#" * 100)
+    logger.info(
+        "Starting ncubed vpnc daemon in %s mode.",
+        default_tenant.mode,
+    )
+
+    prepare_namespaces()
 
     # Create and mount the EXTERNAL network instance.
     # This provides VPN connectivity
