@@ -133,3 +133,45 @@ class TestRoutes:
         routes = get_routes(host, network_instance)
 
         assert routes == expected
+
+
+# Network instances that route traffic. vpnc sets these sysctls when it creates them.
+ROUTED_NETWORK_INSTANCES = [
+    ("hub00", "CORE"),
+    ("hub00", "C0001-00"),
+    ("hub00", "C0001-01"),
+    ("hub01", "CORE"),
+    ("hub01", "C0001-00"),
+    ("hub01", "C0001-01"),
+    ("end00", "CORE"),
+    ("end00", "ENDPOINT"),
+    ("end01", "CORE"),
+    ("end01", "ENDPOINT"),
+]
+
+ROUTED_NETWORK_INSTANCE_SYSCTLS = {
+    "net.ipv4.conf.all.forwarding": "1",
+    "net.ipv6.conf.all.forwarding": "1",
+    # Keep IPv6 addresses when the monitor sets an XFRM interface down.
+    "net.ipv6.conf.all.keep_addr_on_down": "1",
+    "net.ipv6.conf.default.keep_addr_on_down": "1",
+}
+
+
+class TestSysctls:
+    """Test if network instances that route traffic have the right sysctls."""
+
+    @pytest.mark.parametrize(("host", "network_instance"), ROUTED_NETWORK_INSTANCES)
+    def test_sysctls(self, host: str, network_instance: str) -> None:
+        """Forwarding and keep_addr_on_down are enabled."""
+        output = conftest.run_cmd(
+            host,
+            f"ip netns exec {network_instance} sysctl"
+            f" {' '.join(ROUTED_NETWORK_INSTANCE_SYSCTLS)}",
+        )
+        sysctls = {
+            key.strip(): value.strip()
+            for key, value in (line.split("=", 1) for line in output.splitlines())
+        }
+
+        assert sysctls == ROUTED_NETWORK_INSTANCE_SYSCTLS
