@@ -17,13 +17,23 @@ jobs:
         run: sudo test/00_setup/install.sh
       - name: Set up Docker CLI
         uses: docker/setup-buildx-action@v3
-      - name: Build and cache Docker images/layers
+      - name: Build vpnc image
         uses: docker/build-push-action@v6
         with:
           load: true
           context: .
           file: docker/${{ matrix.version }}/Dockerfile
+          target: vpnc
           tags: nc-vpnc:latest
+          cache-from: type=gha,scope=$GITHUB_REF_NAME-${{ matrix.version }}
+      - name: Build lab image and cache layers
+        uses: docker/build-push-action@v6
+        with:
+          load: true
+          context: .
+          file: docker/${{ matrix.version }}/Dockerfile
+          target: lab
+          tags: nc-vpnc-lab:latest
           cache-from: type=gha,scope=$GITHUB_REF_NAME-${{ matrix.version }}
           cache-to: type=gha,scope=$GITHUB_REF_NAME-${{ matrix.version }},mode=max
       - name: Run containerlab test environment

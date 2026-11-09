@@ -15,12 +15,12 @@ topology:
   nodes:
     mgt00:
       kind: linux
-      image: nc-vpnc:latest
+      image: nc-vpnc-lab:latest
       cmd: /nc-vpnc/test/01_base_config/mgt/mgt00.sh
       startup-delay: 10
     mgt01:
       kind: linux
-      image: nc-vpnc:latest
+      image: nc-vpnc-lab:latest
       cmd: /nc-vpnc/test/01_base_config/mgt/mgt01.sh
       startup-delay: 10
     hub00:
@@ -44,12 +44,12 @@ topology:
       startup-delay: 20
     cli00:
       kind: linux
-      image: ubuntu:24.04
+      image: nc-vpnc-lab:latest
       cmd: /nc-vpnc/test/01_base_config/cli/cli00.sh
       startup-delay: 30
     cli01:
       kind: linux
-      image: ubuntu:24.04
+      image: nc-vpnc-lab:latest
       cmd: /nc-vpnc/test/01_base_config/cli/cli01.sh
       startup-delay: 30
     br-nc-vpnc:

@@ -1,12 +1,16 @@
 #! /bin/sh
-# add FRR GPG key
-apt update
-apt install -y curl lsb-release
-curl -s https://deb.frrouting.org/frr/keys.asc | apt-key add -
+PACKAGES="dnsutils iproute2 iputils-ping strongswan strongswan-swanctl frr frr-pythontools frr-snmp"
+# Packages are in the lab image; only install when missing.
+if ! dpkg -s $PACKAGES > /dev/null 2>&1; then
+    # add FRR GPG key
+    apt update
+    apt install -y curl lsb-release
+    curl -s https://deb.frrouting.org/frr/keys.asc | apt-key add -
 
-# Add FRR and other required services to the installation
-echo deb https://deb.frrouting.org/frr $(lsb_release -s -c) $FRRVER | tee /etc/apt/sources.list.d/frr.list
-DEBIAN_FRONTEND=noninteractive apt install -y dnsutils iproute2 iputils-ping strongswan strongswan-swanctl frr frr-pythontools frr-snmp
+    # Add FRR and other required services to the installation
+    echo deb https://deb.frrouting.org/frr $(lsb_release -s -c) $FRRVER | tee /etc/apt/sources.list.d/frr.list
+    DEBIAN_FRONTEND=noninteractive apt install -y $PACKAGES
+fi
 # If systemd is the init system
 if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
   # Disable the strongswan service, as we will be starting it in another namespace.
@@ -59,6 +63,8 @@ charon-systemd {
 # Create the EXTERNAL namespace, configure routing and start the strongswan daemon
 mkdir -p /var/run/netns
 ip netns add EXTERNAL
+# Wait for containerlab to attach the lab interface.
+for i in $(seq 120); do ip link show ${EXTERNAL_IF} > /dev/null 2>&1 && break; sleep 0.5; done
 ip link set ${EXTERNAL_IF} netns EXTERNAL
 # ip -netns EXTERNAL address add ${EXTERNAL_IP}/29 dev ${EXTERNAL_IF}
 ip -netns EXTERNAL address add ${EXTERNAL_IF_IP4} dev ${EXTERNAL_IF}

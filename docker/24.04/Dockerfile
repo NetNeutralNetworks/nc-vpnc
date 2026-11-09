@@ -20,7 +20,7 @@ RUN echo "Compile required modules"                                     && \
 
 
 # Multi-stage build
-FROM ubuntu:noble-20240801
+FROM ubuntu:noble-20240801 AS vpnc
 
 LABEL maintainer="beheer@ncubed.nl"
 LABEL version="0.1.4"
@@ -48,3 +48,13 @@ COPY --from=build /opt/ncubed/ /opt/ncubed/
 VOLUME /opt/ncubed/config/vpnc /var/log/ncubed/vpnc
 
 CMD ["/opt/ncubed/vpnc/bin/vpnc"]
+
+
+# Lab test nodes (mgt, cli): vpnc image plus test tools, so nodes don't install
+# packages at startup.
+FROM vpnc AS lab
+
+RUN apt-get update                                                      && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y                      \
+    bind9 dnsutils iproute2 iptables iputils-ping openssh-server        && \
+    rm -rf /var/lib/apt/lists/*
