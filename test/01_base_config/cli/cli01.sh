@@ -1,8 +1,15 @@
 #! /bin/bash
 SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 
-apt update
-DEBIAN_FRONTEND=noninteractive apt install -y iproute2 bind9 dnsutils openssh-server iptables
+PACKAGES="iproute2 bind9 dnsutils openssh-server iptables"
+# Packages are in the lab image; only install when missing.
+if ! dpkg -s $PACKAGES > /dev/null 2>&1; then
+    apt update
+    DEBIAN_FRONTEND=noninteractive apt install -y $PACKAGES
+fi
+
+# Wait for containerlab to attach the lab interface.
+for i in $(seq 120); do ip link show eth1 > /dev/null 2>&1 && break; sleep 0.5; done
 
 # Enable forwarding
 sysctl -w net.ipv4.conf.all.forwarding=1

@@ -1,4 +1,6 @@
 #! /bin/bash
 SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 
-docker build -f ${SCRIPTDIR}/../../docker/24.04/Dockerfile ${SCRIPTDIR}/../../ -t nc-vpnc:latest
+DOCKERFILE=${SCRIPTDIR}/../../docker/24.04/Dockerfile
+docker build -f ${DOCKERFILE} ${SCRIPTDIR}/../../ --target vpnc -t nc-vpnc:latest
+docker build -f ${DOCKERFILE} ${SCRIPTDIR}/../../ --target lab -t nc-vpnc-lab:latest
