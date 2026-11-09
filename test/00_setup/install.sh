@@ -21,17 +21,26 @@ fi
 fi
 
 # Install the Jool kernel module on the host so it's available in containers.
-# Ubuntu 26.04 (kernel 7.0) ships jool-dkms 4.1.15; the 4.1.11 deb from GitHub
-# doesn't target that kernel. The 4.1.11 jool-tools inside the noble-based
-# image work with the 4.1.15 module.
+# The containers only ship jool-tools; userspace 4.1.x works with any 4.1.x module.
+# Ubuntu 26.04 ships jool-dkms 4.1.15. On 24.04 use the 4.1.15 release from
+# GitHub: the distro and older releases (e.g. 4.1.11) don't build on newer
+# kernels such as the 7.0 HWE kernel on GitHub's ubuntu-24.04 runners.
+JOOL_VERSION="4.1.15"
+apt-get install -y "linux-headers-$(uname -r)"
 source /etc/os-release
 if [[ "${VERSION_ID}" == "24.04" ]]; then
-  wget https://github.com/NICMx/Jool/releases/download/v4.1.11/jool-dkms_4.1.11-1_all.deb -O /tmp/jool-dkms_4.1.11-1_all.deb
-  apt-get install -y /tmp/jool-dkms_4.1.11-1_all.deb
+  wget "https://github.com/NICMx/Jool/releases/download/v${JOOL_VERSION}/jool-dkms_${JOOL_VERSION}-1_all.deb" \
+    -O "/tmp/jool-dkms_${JOOL_VERSION}-1_all.deb"
+  apt-get install -y "/tmp/jool-dkms_${JOOL_VERSION}-1_all.deb"
 else
   apt-get install -y jool-dkms jool-tools
 fi
-modprobe jool
+# Fail here instead of later in the lab when the module didn't build.
+if ! modprobe jool; then
+  echo "ERROR: could not load the Jool kernel module for kernel $(uname -r)." >&2
+  dkms status >&2 || true
+  exit 1
+fi
 
 # Install containerlab
 bash -c "$(curl -sL https://get.containerlab.dev)"

@@ -30,3 +30,16 @@ jobs:
         run: cd test/00_setup && sudo containerlab deploy && cd $OLDPWD && sudo test/00_setup/healthcheck.sh
       - name: Run tests
         run: sudo python3 -m pytest -v
+      - name: Show lab diagnostics
+        if: failure()
+        run: |
+          uname -a
+          lsmod | grep -E '^(jool|xfrm|wireguard)' || true
+          sudo docker ps -a
+          for c in $(sudo docker ps -a --format '{{.Names}}' | grep '^clab-vpnc-' | sort); do
+            echo "::group::${c}"
+            sudo docker inspect --format 'restarts={{.RestartCount}} state={{.State.Status}} exit={{.State.ExitCode}}' "${c}"
+            sudo docker logs --tail 300 "${c}" 2>&1
+            sudo docker exec "${c}" tail -n 300 /var/log/ncubed/vpnc/vpnc.log 2>/dev/null || true
+            echo "::endgroup::"
+          done
