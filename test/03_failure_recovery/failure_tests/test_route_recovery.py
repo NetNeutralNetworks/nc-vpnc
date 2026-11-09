@@ -10,16 +10,11 @@ to their healthy state before it finishes.
 
 from __future__ import annotations
 
-import contextlib
 import json
-from typing import TYPE_CHECKING
 
 import pytest
 
 from . import conftest
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 HUBS = ["hub00", "hub01"]
 
@@ -28,7 +23,6 @@ HUBS = ["hub00", "hub01"]
 NETWORK_INSTANCE = "C0001-00"
 XFRM_INTERFACE = "xfrm0"
 SSH_INTERFACE = "tun1"
-SSH_CONTROL_PATH = "/run/vpnc/ssh/C0001-00-1.sock"
 CORE_INTERFACE = f"{NETWORK_INSTANCE}_C"
 
 ROUTE_TIMEOUT = 30
@@ -95,25 +89,6 @@ def set_link(host: str, ifname: str, state: str) -> None:
     )
 
 
-@contextlib.contextmanager
-def ssh_tunnel_broken(host: str) -> Iterator[None]:
-    """Break the SSH tunnel so its tun interface loses carrier.
-
-    autossh is paused so it doesn't reconnect right away, then the ssh client is
-    killed. On exit autossh is resumed and reconnects.
-    """
-    autossh = f"autossh .*{SSH_CONTROL_PATH}"
-    conftest.run_cmd_shell(host, f"pkill -STOP -f '{autossh}'")
-    try:
-        conftest.run_cmd_shell(
-            host,
-            f"pkill -f '^/usr/bin/ssh .*{SSH_CONTROL_PATH} -o Tunnel'",
-        )
-        yield
-    finally:
-        conftest.run_cmd_shell(host, f"pkill -CONT -f '{autossh}'")
-
-
 @pytest.mark.parametrize("host", HUBS)
 class TestRouteRecovery:
     """Routes recover regardless of the order of failures."""
@@ -158,7 +133,7 @@ class TestRouteRecovery:
             core_blackholes = {r[0] for r in routes["CORE"] if r[1] == "blackhole"}
             return via_tun <= ni_blackholes and advertised <= core_blackholes
 
-        with ssh_tunnel_broken(host):
+        with conftest.ssh_server_down():
             conftest.wait_until(
                 blackholed,
                 timeout=ROUTE_TIMEOUT,
