@@ -1,5 +1,5 @@
 #! /bin/sh
-PACKAGES="dnsutils iproute2 iputils-ping strongswan strongswan-swanctl frr frr-pythontools frr-snmp"
+PACKAGES="bind9-dnsutils iproute2 iputils-ping strongswan strongswan-swanctl frr frr-pythontools frr-snmp"
 # Packages are in the lab image; only install when missing.
 if ! dpkg -s $PACKAGES > /dev/null 2>&1; then
     # add FRR GPG key

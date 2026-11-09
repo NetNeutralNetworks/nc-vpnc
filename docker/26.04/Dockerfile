@@ -1,4 +1,4 @@
-FROM ubuntu:jammy-20240808 AS build
+FROM ubuntu:resolute-20261024.1 AS build
 
 SHELL ["/bin/bash", "-c"]
 
@@ -20,7 +20,7 @@ RUN echo "Compile required modules"                                     && \
 
 
 # Multi-stage build
-FROM ubuntu:jammy-20240808
+FROM ubuntu:resolute-20261024.1 AS vpnc
 
 LABEL maintainer="beheer@ncubed.nl"
 LABEL version="0.1.4"
@@ -39,7 +39,7 @@ RUN --mount=type=bind,source=install.sh,target=/tmp/repo/install.sh        \
     install_apt_frr                                                     && \
     create_misc_config && create_vpnc_config
 
-COPY --from=build /opt/ncubed/vpnc /opt/ncubed/vpnc
+COPY --from=build /opt/ncubed/ /opt/ncubed/
 
 # # Make sure to use the virtualenv:
 # ENV PATH="/opt/ncubed/vpnc/bin:$PATH"
@@ -48,3 +48,13 @@ COPY --from=build /opt/ncubed/vpnc /opt/ncubed/vpnc
 VOLUME /opt/ncubed/config/vpnc /var/log/ncubed/vpnc
 
 CMD ["/opt/ncubed/vpnc/bin/vpnc"]
+
+
+# Lab test nodes (mgt, cli): vpnc image plus test tools, so nodes don't install
+# packages at startup.
+FROM vpnc AS lab
+
+RUN apt-get update                                                      && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y                      \
+    bind9 bind9-dnsutils iproute2 iptables iputils-ping openssh-server  && \
+    rm -rf /var/lib/apt/lists/*

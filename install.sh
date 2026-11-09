@@ -9,6 +9,9 @@ FRRVER="frr-stable"
 
 function install_apt_defaults () {
     # update and install general packages
+    # strongswan-starter/-charon: vpnc uses "ipsec start"; from 26.04 the
+    # strongswan metapackage installs charon-systemd instead.
+    # python3-packaging: the venv uses system site packages, so pip relies on it.
 
     apt-get update
     # If systemd is the init system
@@ -18,6 +21,8 @@ function install_apt_defaults () {
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
     iptables iproute2 \
     strongswan strongswan-swanctl \
+    strongswan-starter strongswan-charon \
+    python3-packaging \
     ssh autossh \
     wireguard
 

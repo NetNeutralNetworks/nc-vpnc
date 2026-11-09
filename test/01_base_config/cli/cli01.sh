@@ -1,7 +1,7 @@
 #! /bin/bash
 SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 
-PACKAGES="iproute2 bind9 dnsutils openssh-server iptables"
+PACKAGES="iproute2 bind9 bind9-dnsutils openssh-server iptables"
 # Packages are in the lab image; only install when missing.
 if ! dpkg -s $PACKAGES > /dev/null 2>&1; then
     apt update
