@@ -36,6 +36,23 @@ BASE_DIR = pathlib.Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR.joinpath("templates")
 TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True)
 
+# Sysctls for network instances that route traffic (CORE, DOWNLINK, ENDPOINT).
+#
+# keep_addr_on_down: the strongSwan monitor sets XFRM interfaces administratively
+# down when their IPsec SA goes away and up again when it returns. By default the
+# kernel flushes all global IPv6 addresses from an interface when it goes down and
+# doesn't restore them on up (IPv4 addresses are kept). That leaves e.g. the
+# uplink XFRM interface without its BGP peering address after an outage, so BGP
+# never re-establishes. With keep_addr_on_down=1 the addresses, and their prefix
+# routes, survive a down/up. "all" is honoured for every interface in the
+# namespace; "default" is set too so newly created interfaces inherit it.
+ROUTED_NETWORK_INSTANCE_SYSCTLS = (
+    "net.ipv6.conf.all.forwarding=1",
+    "net.ipv4.conf.all.forwarding=1",
+    "net.ipv6.conf.all.keep_addr_on_down=1",
+    "net.ipv6.conf.default.keep_addr_on_down=1",
+)
+
 
 class NetworkInstance(BaseModel):
     """Define a network instance data structure."""
@@ -134,30 +151,11 @@ class NetworkInstance(BaseModel):
                 enums.NetworkInstanceType.ENDPOINT,
             ):
                 logger.info(
-                    "Enabling network instance %s IPv6 forwarding.",
+                    "Setting network instance %s sysctls: %s.",
                     self.id,
+                    ", ".join(ROUTED_NETWORK_INSTANCE_SYSCTLS),
                 )
-                proc = pyroute2.NSPopen(
-                    self.id,
-                    ["sysctl", "-w", "net.ipv6.conf.all.forwarding=1"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                proc.wait()
-                proc.release()
-
-                logger.info(
-                    "Enabling network instance %s IPv4 forwarding.",
-                    self.id,
-                )
-                proc = pyroute2.NSPopen(
-                    self.id,
-                    ["sysctl", "-w", "net.ipv4.conf.all.forwarding=1"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                proc.wait()
-                proc.release()
+                self._set_sysctls(ROUTED_NETWORK_INSTANCE_SYSCTLS)
 
             if self.type in (
                 enums.NetworkInstanceType.DOWNLINK,
@@ -171,6 +169,26 @@ class NetworkInstance(BaseModel):
             self._set_network_instance_connections(active_network_instance)
 
         return False
+
+    def _set_sysctls(self, sysctls: tuple[str, ...]) -> None:
+        """Apply 'key=value' sysctls inside the network instance."""
+        proc = pyroute2.NSPopen(
+            self.id,
+            ["sysctl", "-w", *sysctls],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            _, stderr = proc.communicate()
+            if proc.returncode:
+                logger.error(
+                    "Failed to set network instance %s sysctls (rc=%s): %s",
+                    self.id,
+                    proc.returncode,
+                    stderr.decode(errors="replace").strip(),
+                )
+        finally:
+            proc.release()
 
     def delete_network_instance(self) -> None:
         """Delete a network instance (Linux namespace)."""

@@ -238,8 +238,9 @@ class Monitor(threading.Thread):
                 action = "down"
 
             logger.info(
-                "Bringing interface 'xfrm%s' %s.",
-                connection_id,
+                "Bringing network instance %s interface '%s' %s.",
+                network_instance_name,
+                ifname,
                 action,
             )
             netns.link("set", index=ifidx, state=action)
