@@ -30,3 +30,6 @@ jobs:
         run: cd test/00_setup && sudo containerlab deploy && cd $OLDPWD && sudo test/00_setup/healthcheck.sh
       - name: Run tests
         run: sudo python3 -m pytest -v
+      - name: Show lab diagnostics
+        if: failure()
+        run: sudo test/00_setup/diagnostics.sh
