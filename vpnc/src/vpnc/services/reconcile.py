@@ -22,8 +22,7 @@ from pyroute2 import netns
 from vpnc import config, shared
 from vpnc.models import enums, tenant
 from vpnc.models.network_instance import jool_instances
-from vpnc.network import namespace, state
-from vpnc.network.events import LinkMonitor
+from vpnc.network import events, namespace, state
 from vpnc.services import configuration, frr, strongswan
 
 if TYPE_CHECKING:
@@ -150,8 +149,8 @@ class Reconciler:
 
 # The configuration last applied per network instance, to remove what's gone.
 APPLIED: dict[str, NetworkInstance] = {}
-# Link monitor per network instance.
-MONITORS: dict[str, LinkMonitor] = {}
+# Network instances whose link and address events are watched.
+WATCHED: set[str] = set()
 
 
 def configured_network_instances() -> dict[str, tuple[str, NetworkInstance]]:
@@ -258,31 +257,35 @@ def watch(ni_id: str) -> None:
 
     Link changes only affect its routes.
     """
-    if ni_id in MONITORS:
+    if ni_id in WATCHED:
         return
 
-    def on_event(event: Any) -> None:  # noqa: ANN401
+    def on_event(event: dict[str, Any]) -> None:
         state.changed(ni_id)
         if event["event"] in ("RTM_NEWLINK", "RTM_DELLINK"):
             RECONCILER.trigger("routes", ni_id)
+        elif event["event"] == events.RESYNC:
+            RECONCILER.trigger("routes", ni_id)
+            RECONCILER.trigger("network_instances", ni_id)
         elif (
-            event["event"] in ("RTM_NEWADDR", "RTM_DELADDR")
+            event["event"] in events.ADDRESS_EVENTS
             and event["scope"] == state.RT_SCOPE_UNIVERSE
         ):
             RECONCILER.trigger("network_instances", ni_id)
 
     logger.info("Monitoring the links of network instance %s.", ni_id)
-    MONITORS[ni_id] = LinkMonitor(ni_id, on_event)
-    MONITORS[ni_id].start()
+    events.MONITOR.watch(ni_id, on_event)
+    WATCHED.add(ni_id)
     # Registered after the namespace cleanup, so it runs before it.
     atexit.register(unwatch, ni_id)
 
 
 def unwatch(ni_id: str) -> None:
     """Stop monitoring the links of a network instance."""
-    if (monitor := MONITORS.pop(ni_id, None)) is not None:
+    if ni_id in WATCHED:
+        WATCHED.discard(ni_id)
         logger.info("Stopped monitoring the links of network instance %s.", ni_id)
-        monitor.stop()
+        events.MONITOR.unwatch(ni_id)
 
 
 def reconcile_routes(
