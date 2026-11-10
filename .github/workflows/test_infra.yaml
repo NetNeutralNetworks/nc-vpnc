@@ -67,7 +67,8 @@ jobs:
               --ignore=test/02_reliability/reliability_tests/test_vpn_recovery.py
           - name: performance
             lab: scale
-            tests: test/03_performance
+            # -rP shows the measurements (printed by passing tests).
+            tests: test/03_performance -rP
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
