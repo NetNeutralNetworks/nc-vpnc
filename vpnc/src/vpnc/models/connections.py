@@ -12,7 +12,7 @@ from ipaddress import (
     IPv6Interface,
     IPv6Network,
 )
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -27,6 +27,17 @@ if TYPE_CHECKING:
     from vpnc.models.info import TenantInformation
 
 logger = logging.getLogger("vpnc")
+
+Net = TypeVar("Net", IPv4Network, IPv6Network)
+
+
+def nth_subnet(network: Net, new_prefix: int, n: int) -> Net:
+    """Return subnet n of a network, like list(network.subnets(new_prefix))[n]."""
+    if not 0 <= n < 1 << (new_prefix - network.prefixlen):
+        msg = f"{network} has no subnet {n} of length /{new_prefix}"
+        raise IndexError(msg)
+    size = 1 << (network.max_prefixlen - new_prefix)
+    return type(network)((int(network.network_address) + n * size, new_prefix))
 
 
 class Interface(BaseModel):
@@ -158,10 +169,8 @@ class Connection(BaseModel):
                 )
                 raise ValueError
 
-            ipv4_ni_network: IPv4Network = list(pdi4.subnets(new_prefix=24))[
-                network_instance_id
-            ]
-            ipv4_con_network = list(ipv4_ni_network.subnets(new_prefix=28))[self.id]
+            ipv4_ni_network = nth_subnet(pdi4, 24, network_instance_id)
+            ipv4_con_network = nth_subnet(ipv4_ni_network, 28, self.id)
             interface_ipv4_address = [
                 ipaddress.IPv4Interface(f"{ipv4_con_network[1]}/28"),
             ]
@@ -182,12 +191,9 @@ class Connection(BaseModel):
                 )
                 raise ValueError
             pdi6 = default_tenant.prefix_downlink_interface_v6
-            ipv6_ni_network_list = list(pdi6.subnets(new_prefix=48))
-            ipv6_ni_network: IPv6Network = ipv6_ni_network_list[network_instance_id]
+            ipv6_ni_network = nth_subnet(pdi6, 48, network_instance_id)
             interface_ipv6_address = [
-                ipaddress.IPv6Interface(
-                    list(ipv6_ni_network.subnets(new_prefix=64))[self.id],
-                ),
+                ipaddress.IPv6Interface(nth_subnet(ipv6_ni_network, 64, self.id)),
             ]
         else:
             interface_ipv6_address = self.interface.ipv6  # pylint: disable=no-member
