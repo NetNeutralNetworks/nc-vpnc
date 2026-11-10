@@ -53,6 +53,8 @@ REMOVE_TIMEOUT = 300
 # Share of one core vpnc may use when nothing changes.
 IDLE_CPU_LIMIT = 0.10
 CPU_SAMPLE = 90
+# After the tunnels came up, links go up and routes follow for a while.
+SETTLE = 60
 
 # Prints per scale namespace its addresses and routes as JSON lines, and the
 # WireGuard handshakes.
@@ -79,8 +81,11 @@ def is_wireguard(index: int) -> bool:
 
 
 def wireguard_port(index: int) -> int:
-    """Return hub00's port of WireGuard connection index (vpnc allows 51820-51899)."""
-    return 51820 + index // WIREGUARD_EVERY
+    """Return hub00's port of WireGuard connection index.
+
+    Outside 51820-51899 on purpose: vpnc accepts exactly the configured ports.
+    """
+    return 52000 + index // WIREGUARD_EVERY
 
 
 def hub_initiates(index: int) -> bool:
@@ -431,6 +436,7 @@ class TestScale:
 
     def test_idle_cpu(self) -> None:
         """Little CPU is used when nothing changes."""
+        time.sleep(SETTLE)
         before = vpnc_cpu_seconds()
         time.sleep(CPU_SAMPLE)
         used = (vpnc_cpu_seconds() - before) / CPU_SAMPLE
