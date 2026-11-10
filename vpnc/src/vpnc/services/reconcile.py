@@ -10,18 +10,20 @@ Checks run one at a time in a single worker thread, in registration order.
 
 from __future__ import annotations
 
+import atexit
 import logging
 import threading
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pyroute2 import netns
 
 from vpnc import config, shared
 from vpnc.models import enums, tenant
-from vpnc.network import namespace
-from vpnc.services import configuration, frr, routes
+from vpnc.network import namespace, state
+from vpnc.network.events import LinkMonitor
+from vpnc.services import configuration, frr
 
 if TYPE_CHECKING:
     from vpnc.models.network_instance import NetworkInstance
@@ -133,6 +135,8 @@ class Reconciler:
 
 # The configuration last applied per network instance, to remove what's gone.
 APPLIED: dict[str, NetworkInstance] = {}
+# Link monitor per network instance.
+MONITORS: dict[str, LinkMonitor] = {}
 
 
 def configured_network_instances() -> dict[str, tuple[str, NetworkInstance]]:
@@ -144,6 +148,20 @@ def configured_network_instances() -> dict[str, tuple[str, NetworkInstance]]:
     }
 
 
+def apply_network_instance(network_instance: NetworkInstance) -> bool:
+    """Reconcile a network instance and its routes.
+
+    Returns whether the configuration was updated (new NPTv6 prefixes).
+    """
+    previous = APPLIED.get(network_instance.id)
+    updated = network_instance.reconcile(previous)
+    # Monitor before reading the links, so no change is missed.
+    watch(network_instance.id)
+    reconcile_routes(network_instance, previous)
+    APPLIED[network_instance.id] = network_instance
+    return updated
+
+
 def check_network_instances(keys: set[str] | None) -> None:
     """Reconcile network instances; remove the ones no longer configured."""
     configured = configured_network_instances()
@@ -152,9 +170,8 @@ def check_network_instances(keys: set[str] | None) -> None:
         if keys is not None and ni_id not in keys:
             continue
         try:
-            if network_instance.reconcile(APPLIED.get(ni_id)):
+            if apply_network_instance(network_instance):
                 updated_tenants.add(tenant_id)
-            APPLIED[ni_id] = network_instance
         except Exception:
             logger.exception("Reconciling network instance %s failed.", ni_id)
 
@@ -183,38 +200,133 @@ def remove_unconfigured(
     for name in netns.listnetns():
         if config.DOWNLINK_NI_RE.match(name) and name not in configured:
             logger.warning("Removing unknown network instance %s.", name)
-            routes.stop(name)
+            unwatch(name)
             namespace.delete(name)
-    routes.delete_stale_core_routes([ni for _, ni in configured.values()])
+    delete_stale_core_routes([ni for _, ni in configured.values()])
 
 
 def remove_network_instance(network_instance: NetworkInstance) -> None:
-    """Remove a network instance with its connections, VPN and routing config."""
+    """Remove a network instance with its connections, routes and VPN config."""
     config.IPSEC_CONFIG_DIR.joinpath(f"{network_instance.id}.conf").unlink(
         missing_ok=True,
     )
+    unwatch(network_instance.id)
     network_instance.delete()
+    delete_core_routes(network_instance)
     if tenant.get_default_tenant().mode == enums.ServiceMode.HUB:
         frr.generate_config()
 
 
+def watch(ni_id: str) -> None:
+    """Reconcile the routes of a network instance when its links change."""
+    if ni_id in MONITORS:
+        return
+
+    def on_link_event(event: Any) -> None:  # noqa: ANN401
+        if event["event"] in ("RTM_NEWLINK", "RTM_DELLINK"):
+            RECONCILER.trigger("routes", ni_id)
+
+    logger.info("Monitoring the links of network instance %s.", ni_id)
+    MONITORS[ni_id] = LinkMonitor(ni_id, on_link_event)
+    MONITORS[ni_id].start()
+    # Registered after the namespace cleanup, so it runs before it.
+    atexit.register(unwatch, ni_id)
+
+
+def unwatch(ni_id: str) -> None:
+    """Stop monitoring the links of a network instance."""
+    if (monitor := MONITORS.pop(ni_id, None)) is not None:
+        logger.info("Stopped monitoring the links of network instance %s.", ni_id)
+        monitor.stop()
+
+
+def reconcile_routes(
+    net_inst: NetworkInstance,
+    previous: NetworkInstance | None = None,
+) -> None:
+    """Make the routes of a network instance, and its routes in CORE, as desired.
+
+    Routes of removed connections or destinations are deleted. In CORE only this
+    network instance's destinations (current and previous) and routes via its link
+    are managed, as CORE holds the routes of all network instances.
+    """
+    if (
+        net_inst.type == enums.NetworkInstanceType.CORE
+        and tenant.get_default_tenant().mode == enums.ServiceMode.HUB
+    ):
+        return
+
+    with (
+        namespace.IPRoute(net_inst.id) as ni_dl,
+        namespace.IPRoute(config.CORE_NI) as ni_core,
+    ):
+        ni_state = state.NetnsState.read(ni_dl)
+        ni_routes, core_routes = net_inst.desired_routes(ni_state.links)
+        previous_ni: list[state.Route] = []
+        previous_core: list[state.Route] = []
+        if previous:
+            previous_ni, previous_core = previous.desired_routes({})
+
+        if net_inst.type == enums.NetworkInstanceType.CORE:
+            # CORE also holds other network instances' routes.
+            managed = {r.dst for r in [*ni_routes, *previous_ni]}
+            state.ensure_routes(ni_dl, ni_state, ni_routes, managed=managed)
+            return
+        state.ensure_routes(ni_dl, ni_state, ni_routes)
+
+        core_state = state.NetnsState.read(ni_core)
+        core_link = f"{net_inst.id}_C"
+        managed = {r.dst for r in [*core_routes, *previous_core]} | {
+            dst for dst, route in core_state.routes.items() if route.dev == core_link
+        }
+        state.ensure_routes(ni_core, core_state, core_routes, managed=managed)
+
+
+def delete_core_routes(net_inst: NetworkInstance) -> None:
+    """Delete a network instance's routes in CORE."""
+    if net_inst.type not in (
+        enums.NetworkInstanceType.DOWNLINK,
+        enums.NetworkInstanceType.ENDPOINT,
+    ):
+        return
+    _, core_routes = net_inst.desired_routes({})
+    core_link = f"{net_inst.id}_C"
+    with namespace.IPRoute(config.CORE_NI) as ni_core:
+        core_state = state.NetnsState.read(ni_core)
+        managed = {r.dst for r in core_routes} | {
+            dst for dst, route in core_state.routes.items() if route.dev == core_link
+        }
+        state.ensure_routes(ni_core, core_state, [], managed=managed)
+
+
+def delete_stale_core_routes(network_instances: list[NetworkInstance]) -> None:
+    """Delete vpnc's routes in CORE that no configured network instance wants."""
+    wanted: set[state.IPNetwork] = set()
+    for net_inst in network_instances:
+        ni_routes, core_routes = net_inst.desired_routes({})
+        wanted |= {r.dst for r in core_routes}
+        if net_inst.id == config.CORE_NI:
+            wanted |= {r.dst for r in ni_routes}
+    with namespace.IPRoute(config.CORE_NI) as ni_core:
+        core_state = state.NetnsState.read(ni_core)
+        stale = set(core_state.routes) - wanted
+        if stale:
+            state.ensure_routes(ni_core, core_state, [], managed=stale)
+
+
 def check_routes(keys: set[str] | None) -> None:
-    """Reconcile the routes of network instances (after link changes)."""
+    """Reconcile the routes of network instances whose links changed.
+
+    Full checks skip this: check_network_instances already reconciles all routes.
+    """
+    if keys is None:
+        return
     for ni_id, (_, network_instance) in configured_network_instances().items():
-        if keys is not None and ni_id not in keys:
-            continue
-        if not namespace.exists(ni_id):
-            continue
-        with (
-            namespace.IPRoute(ni_id) as ni_dl,
-            namespace.IPRoute(config.CORE_NI) as ni_core,
-        ):
-            routes.reconcile_routes(ni_dl, ni_core, network_instance, None)
+        if ni_id in keys and namespace.exists(ni_id):
+            reconcile_routes(network_instance)
 
 
 # The reconciler of the service.
 RECONCILER = Reconciler()
 RECONCILER.register("network_instances", check_network_instances)
 RECONCILER.register("routes", check_routes)
-# Link changes (e.g. a tunnel going down) only affect routes.
-routes.ON_LINK_EVENT = lambda ni_id: RECONCILER.trigger("routes", ni_id)
