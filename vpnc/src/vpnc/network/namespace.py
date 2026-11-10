@@ -6,12 +6,19 @@ import atexit
 import logging
 import os
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, TypeVar
 
-from pyroute2 import NSPopen, netns
+from pyroute2 import netns
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger("vpnc")
+
+T = TypeVar("T")
 
 NETNS_DIR = Path("/var/run/netns")
 # Namespaces deleted when vpnc stops.
@@ -60,39 +67,81 @@ class Result:
     stderr: str
 
 
+def call(name: str, func: Callable[[], T]) -> T:
+    """Call a function in a namespace and return its result.
+
+    The network namespace is per thread, so func runs in a short-lived thread
+    moved into the namespace. Processes started there inherit the namespace.
+    """
+    result: list[T] = []
+    error: list[BaseException] = []
+
+    def target() -> None:
+        try:
+            netns.setns(name, flags=0)
+            result.append(func())
+        except BaseException as e:  # noqa: BLE001
+            error.append(e)
+
+    thread = threading.Thread(target=target, name=f"netns-{name}")
+    thread.start()
+    thread.join()
+    if error:
+        raise error[0]
+    return result[0]
+
+
 def run(name: str, args: list[str], timeout: float = 30) -> Result:
     """Run a program in a namespace and wait for it."""
-    proc = NSPopen(name, args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-        return Result(
-            proc.returncode,
-            stdout.decode(errors="replace"),
-            stderr.decode(errors="replace"),
-        )
-    finally:
-        proc.release()
+    proc = call(
+        name,
+        lambda: subprocess.run(  # noqa: S603
+            args,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        ),
+    )
+    return Result(
+        proc.returncode,
+        proc.stdout.decode(errors="replace"),
+        proc.stderr.decode(errors="replace"),
+    )
 
 
-def popen(name: str, args: list[str]) -> NSPopen:
-    """Start a long-running program in a namespace; release() it when done."""
-    return NSPopen(name, args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def popen(name: str, args: list[str]) -> subprocess.Popen[bytes]:
+    """Start a long-running program in a namespace."""
+    return call(
+        name,
+        lambda: subprocess.Popen(  # noqa: S603
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ),
+    )
+
+
+def _sysctl_path(key: str) -> Path:
+    return Path("/proc/sys", key.replace(".", "/"))
 
 
 def ensure_sysctls(name: str, sysctls: dict[str, str]) -> bool:
     """Set the sysctls of a namespace that differ from the desired values."""
-    current = run(name, ["/usr/sbin/sysctl", *sysctls])
-    values = {
-        key.strip(): value.strip()
-        for key, _, value in (
-            line.partition("=") for line in current.stdout.splitlines()
-        )
-    }
-    changed = [f"{k}={v}" for k, v in sysctls.items() if values.get(k) != v]
-    if not changed:
+
+    def apply() -> list[str]:
+        changed = []
+        for key, value in sysctls.items():
+            path = _sysctl_path(key)
+            if path.read_text().strip() != value:
+                path.write_text(value)
+                changed.append(f"{key}={value}")
+        return changed
+
+    try:
+        changed = call(name, apply)
+    except OSError as e:
+        logger.error("Setting sysctls in %s failed: %s", name, e)  # noqa: TRY400
         return False
-    logger.info("Setting sysctls in %s: %s.", name, ", ".join(changed))
-    result = run(name, ["/usr/sbin/sysctl", "-w", *changed])
-    if result.returncode:
-        logger.error("Setting sysctls in %s failed: %s", name, result.stderr.strip())
-    return True
+    if changed:
+        logger.info("Set sysctls in %s: %s.", name, ", ".join(changed))
+    return bool(changed)
