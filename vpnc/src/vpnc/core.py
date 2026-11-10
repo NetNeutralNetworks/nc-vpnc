@@ -18,7 +18,6 @@ from vpnc.services import (
     reconcile,
     strongswan,
     vpncmangle,
-    wireguard,
 )
 
 logger = logging.getLogger("vpnc")
@@ -100,10 +99,6 @@ def concentrator() -> None:
         "strongswan",
         lambda _: sa_mon.reconcile_connections(),
     )
-
-    logger.info("Starting WireGuard monitor")
-    wg_mon = wireguard.observe()
-    wg_mon.start()
 
     # Create and mount the CORE network instance. This provides the management
     # connectivity. The CORE namespace has no internet connectivity.

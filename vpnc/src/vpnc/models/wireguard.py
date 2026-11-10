@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from vpnc import config
 from vpnc.models import connections, enums
 from vpnc.models.secret import Secret
-from vpnc.network import namespace, state
+from vpnc.network import state
 from vpnc.services import wireguard
 
 if TYPE_CHECKING:
@@ -65,15 +65,7 @@ class ConnectionConfigWireGuard(BaseModel):
             state.ensure_addresses(ni_dl, ni_state, wg, [*if_ipv4, *if_ipv6])
 
         wireguard.generate_config(network_instance)
-        # Apply only differences (keeps sessions), also after missed file events or
-        # manual changes.
-        conf = config.WIREGUARD_CONFIG_DIR.joinpath(f"{wg}.conf")
-        result = namespace.run(
-            network_instance.id,
-            ["/usr/bin/wg", "syncconf", wg, str(conf)],
-        )
-        if result.returncode:
-            logger.error("Syncing %s failed: %s", wg, result.stderr.strip())
+        wireguard.sync(network_instance, connection, wg)
 
         return wg
 
@@ -126,25 +118,8 @@ class ConnectionConfigWireGuard(BaseModel):
             ).stdout,
         )[0]
 
-        wg_list = namespace.run(
-            network_instance.id,
-            ["wg", "show", if_name, "dump"],
-        ).stdout.split()
-        (
-            priv,
-            pub,
-            local_port,
-            _,
-            rpub,
-            _,
-            remote_addr,
-            allowed_ips,
-            last_handshake,
-            transfer,
-            received,
-            keepalive,
-        ) = wg_list
-        last_handshake_obj = datetime.datetime.fromtimestamp(int(last_handshake))
+        peer = wireguard.peer_status(network_instance.id, if_name)
+        last_handshake_obj = datetime.datetime.fromtimestamp(peer["last_handshake"])
         now = datetime.datetime.now() - datetime.timedelta(minutes=2)
         output_dict: dict[str, Any] = {
             "tenant": f"{network_instance.id.split('-')[0]}",
@@ -156,7 +131,7 @@ class ConnectionConfigWireGuard(BaseModel):
             "interface-ip": [
                 f"{x['local']}/{x['prefixlen']}" for x in output["addr_info"]
             ],
-            "remote-addr": remote_addr,
+            "remote-addr": peer["endpoint"],
         }
 
         return output_dict
