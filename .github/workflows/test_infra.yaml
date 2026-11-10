@@ -45,7 +45,7 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  # Each shard deploys its own lab, as the failure tests disrupt it.
+  # Each shard deploys its own lab, as the reliability tests disrupt it.
   test:
     needs: build
     name: test (${{ matrix.version }}, ${{ matrix.shard.name }})
@@ -54,14 +54,20 @@ jobs:
       matrix:
         version: ["24.04", "26.04"]
         shard:
-          - name: base
-            tests: test/01_base_config test/02_high_availability
+          - name: sanity
+            lab: base
+            tests: test/01_sanity
           - name: vpn-recovery
-            tests: test/03_failure_recovery/failure_tests/test_vpn_recovery.py
-          - name: other-recovery
+            lab: base
+            tests: test/02_reliability/reliability_tests/test_vpn_recovery.py
+          - name: reliability
+            lab: base
             tests: >-
-              test/03_failure_recovery
-              --ignore=test/03_failure_recovery/failure_tests/test_vpn_recovery.py
+              test/02_reliability
+              --ignore=test/02_reliability/reliability_tests/test_vpn_recovery.py
+          - name: performance
+            lab: scale
+            tests: test/03_performance
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -72,8 +78,11 @@ jobs:
           name: images-${{ matrix.version }}
       - name: Load images
         run: zstd -dc images.tar.zst | docker load
-      - name: Run containerlab test environment
-        run: cd test/00_setup && sudo containerlab deploy && cd $OLDPWD && sudo test/00_setup/healthcheck.sh
+      - name: Deploy the ${{ matrix.shard.lab }} lab
+        run: sudo test/00_setup/deploy-${{ matrix.shard.lab }}.sh
+      - name: Wait for the base lab
+        if: matrix.shard.lab == 'base'
+        run: sudo test/00_setup/healthcheck.sh
       - name: Run tests
         run: sudo python3 -m pytest -v ${{ matrix.shard.tests }}
       - name: Show lab diagnostics
