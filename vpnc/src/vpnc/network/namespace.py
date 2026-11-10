@@ -3,16 +3,19 @@
 pyroute2 forks the process to create a namespace or open a socket in one. Forking
 a multithreaded process can deadlock the child, so this is done in a short-lived
 thread moved into the namespace instead (the network namespace is per thread).
+Within worker() one thread stays in the namespace for all calls.
 """
 
 from __future__ import annotations
 
 import atexit
+import contextlib
 import logging
 import os
 import socket
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
@@ -22,7 +25,7 @@ from pyroute2 import netns
 from pyroute2.netlink import NETLINK_ROUTE
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
 logger = logging.getLogger("vpnc")
 
@@ -102,11 +105,38 @@ def _create(name: str) -> None:
     _in_thread(name, create)
 
 
+# Per calling thread, the worker threads that stay in a namespace.
+_WORKERS = threading.local()
+
+
+@contextlib.contextmanager
+def worker(name: str) -> Iterator[None]:
+    """Run this thread's calls for a namespace in one thread, until the end."""
+    workers: dict[str, ThreadPoolExecutor] = getattr(_WORKERS, "executors", None) or {}
+    _WORKERS.executors = workers
+    if name in workers:
+        yield
+        return
+    workers[name] = ThreadPoolExecutor(
+        max_workers=1,
+        thread_name_prefix=f"netns-{name}",
+        initializer=netns.setns,
+        initargs=(name, 0),
+    )
+    try:
+        yield
+    finally:
+        workers.pop(name).shutdown(wait=False)
+
+
 def call(name: str, func: Callable[[], T]) -> T:
     """Call a function in a namespace and return its result.
 
     Processes and sockets created by func are in the namespace.
     """
+    workers: dict[str, ThreadPoolExecutor] = getattr(_WORKERS, "executors", None) or {}
+    if (executor := workers.get(name)) is not None:
+        return executor.submit(func).result()
 
     def target() -> T:
         netns.setns(name, flags=0)

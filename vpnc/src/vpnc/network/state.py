@@ -190,14 +190,24 @@ def changed(name: str) -> None:
 
 
 class Netns:
-    """A socket in a namespace and its snapshot, read on first use."""
+    """A socket in a namespace, its snapshot (read on first use) and a thread in it.
+
+    Calls for the namespace (programs, sysctls, nftables) run in that thread.
+    """
 
     def __init__(self, name: str) -> None:
-        """Open a socket in the namespace."""
+        """Open a socket in the namespace (FileNotFoundError if missing)."""
         self.name = name
         self.ipr = namespace.IPRoute(name)
+        self._worker = contextlib.ExitStack()
+        self._worker.enter_context(namespace.worker(name))
         self._state: NetnsState | None = None
         self._generation = 0
+
+    def close(self) -> None:
+        """Close the socket and stop the thread."""
+        self.ipr.close()
+        self._worker.close()
 
     @property
     def state(self) -> NetnsState:
@@ -233,7 +243,7 @@ def session() -> Iterator[None]:
         yield
     finally:
         for name in set(opened) - before:
-            opened.pop(name).ipr.close()
+            opened.pop(name).close()
         if outermost:
             _SESSION.open = None
 
@@ -244,8 +254,10 @@ def netns(name: str) -> Iterator[Netns]:
     opened: dict[str, Netns] | None = getattr(_SESSION, "open", None)
     if opened is None:
         ns = Netns(name)
-        with ns.ipr:
+        try:
             yield ns
+        finally:
+            ns.close()
         return
     if name not in opened:
         opened[name] = Netns(name)
