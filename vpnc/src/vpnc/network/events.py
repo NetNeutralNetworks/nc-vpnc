@@ -9,7 +9,11 @@ import threading
 from typing import TYPE_CHECKING, Any
 
 from pyroute2 import AsyncIPRoute
-from pyroute2.netlink.rtnl import RTMGRP_LINK
+from pyroute2.netlink.rtnl import (
+    RTMGRP_IPV4_IFADDR,
+    RTMGRP_IPV6_IFADDR,
+    RTMGRP_LINK,
+)
 
 from vpnc.network import namespace
 
@@ -25,7 +29,7 @@ START_TIMEOUT = 5
 
 
 class LinkMonitor(threading.Thread):
-    """Call a function for every link event in a network namespace.
+    """Call a function for every link and address event in a network namespace.
 
     Events are received in an asyncio loop and handled in a separate thread, so
     the callback can use the synchronous IPRoute (which runs its own loop).
@@ -65,13 +69,15 @@ class LinkMonitor(threading.Thread):
             self.loop.close()
 
     async def listen(self) -> None:
-        """Receive link events, reopening the socket after failures."""
+        """Receive events, reopening the socket after failures."""
         while True:
             try:
                 async with AsyncIPRoute(
                     fileno=namespace.netlink_socket(self.netns),
                 ) as ipr:
-                    await ipr.bind(groups=RTMGRP_LINK)
+                    await ipr.bind(
+                        groups=RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR,
+                    )
                     self.ready.set()
                     while True:
                         async for msg in ipr.get():

@@ -242,16 +242,24 @@ def remove_network_instance(network_instance: NetworkInstance) -> None:
 
 
 def watch(ni_id: str) -> None:
-    """Reconcile the routes of a network instance when its links change."""
+    """Reconcile a network instance when its links or global addresses change.
+
+    Link changes only affect its routes.
+    """
     if ni_id in MONITORS:
         return
 
-    def on_link_event(event: Any) -> None:  # noqa: ANN401
+    def on_event(event: Any) -> None:  # noqa: ANN401
         if event["event"] in ("RTM_NEWLINK", "RTM_DELLINK"):
             RECONCILER.trigger("routes", ni_id)
+        elif (
+            event["event"] in ("RTM_NEWADDR", "RTM_DELADDR")
+            and event["scope"] == state.RT_SCOPE_UNIVERSE
+        ):
+            RECONCILER.trigger("network_instances", ni_id)
 
     logger.info("Monitoring the links of network instance %s.", ni_id)
-    MONITORS[ni_id] = LinkMonitor(ni_id, on_link_event)
+    MONITORS[ni_id] = LinkMonitor(ni_id, on_event)
     MONITORS[ni_id].start()
     # Registered after the namespace cleanup, so it runs before it.
     atexit.register(unwatch, ni_id)
