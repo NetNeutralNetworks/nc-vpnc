@@ -316,13 +316,3 @@ def get_default_tenant() -> ServiceHub | ServiceEndpoint:
         )
         sys.exit(1)
     return default_tenant
-
-
-def get_tenant(tenant_id: str) -> Tenant | ServiceHub | ServiceEndpoint:
-    """Return the default tenant configuration."""
-    if not (tenant := config.VPNC_CONFIG_TENANT.get(tenant_id)):
-        tenant, _ = load_tenant_config(
-            config.VPNC_A_CONFIG_PATH_SERVICE,
-        )
-
-    return tenant
