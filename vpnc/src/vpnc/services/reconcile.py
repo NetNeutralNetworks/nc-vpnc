@@ -16,7 +16,6 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-import pyroute2
 from pyroute2 import netns
 
 from vpnc import config, shared
@@ -207,8 +206,8 @@ def check_routes(keys: set[str] | None) -> None:
         if not namespace.exists(ni_id):
             continue
         with (
-            pyroute2.IPRoute(netns=ni_id, flags=0) as ni_dl,
-            pyroute2.IPRoute(netns=config.CORE_NI, flags=0) as ni_core,
+            namespace.IPRoute(ni_id) as ni_dl,
+            namespace.IPRoute(config.CORE_NI) as ni_core,
         ):
             routes.reconcile_routes(ni_dl, ni_core, network_instance, None)
 

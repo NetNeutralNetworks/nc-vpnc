@@ -11,8 +11,6 @@ from abc import abstractmethod
 from ipaddress import IPv4Interface, IPv6Interface
 from typing import Any, Literal
 
-import pyroute2
-import pyroute2.netns
 from jinja2 import Environment, FileSystemLoader
 from pydantic import (
     BaseModel,
@@ -183,7 +181,7 @@ class NetworkInstance(BaseModel):
     def _delete_unconfigured_interfaces(self) -> None:
         """Delete connection interfaces (XFRM, tun, WireGuard) no longer configured."""
         configured = set(self._get_network_instance_connections())
-        with pyroute2.IPRoute(netns=self.id, flags=0) as ni_dl:
+        with namespace.IPRoute(self.id) as ni_dl:
             ni_state = state.NetnsState.read(ni_dl)
             for name, link in list(ni_state.links.items()):
                 if link.kind in ("xfrm", "tun", "wireguard") and name not in configured:
@@ -266,8 +264,8 @@ class NetworkInstance(BaseModel):
 
         # Set the routes of all connections at once: the advertisements depend on
         # the state of all connections in the network instance.
-        ni_dl = pyroute2.IPRoute(netns=self.id, flags=0)
-        ni_core = pyroute2.IPRoute(netns=config.CORE_NI, flags=0)
+        ni_dl = namespace.IPRoute(self.id)
+        ni_core = namespace.IPRoute(config.CORE_NI)
         with ni_dl, ni_core:
             routes.reconcile_routes(ni_dl, ni_core, self, active_network_instance)
 
@@ -325,8 +323,8 @@ class NetworkInstance(BaseModel):
             config.CORE_NI,
         )
         with (
-            pyroute2.IPRoute(netns=self.id, flags=0) as ni_dl,
-            pyroute2.IPRoute(netns=config.CORE_NI, flags=0) as ni_core,
+            namespace.IPRoute(self.id) as ni_dl,
+            namespace.IPRoute(config.CORE_NI) as ni_core,
         ):
             core_state = state.NetnsState.read(ni_core)
             dl_state = state.NetnsState.read(ni_dl)
@@ -356,7 +354,7 @@ class NetworkInstance(BaseModel):
         self,
     ) -> None:
         """Delete a link between a DOWNLINK and the CORE network instance."""
-        with pyroute2.IPRoute(netns=self.id, flags=0) as ni_dl:
+        with namespace.IPRoute(self.id) as ni_dl:
             state.delete_link(ni_dl, state.NetnsState.read(ni_dl), f"{self.id}_D")
         namespace.run(self.id, ["jool", "instance", "remove", self.id])
 
