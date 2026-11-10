@@ -58,6 +58,17 @@ def run_cmd_shell(host: str, command: str) -> str:
     ).stdout
 
 
+def write_file(host: str, path: str, content: str) -> None:
+    """Write a file in the docker container."""
+    subprocess.run(  # noqa: S603
+        ["docker", "exec", "-i", f"{CONTAINER_PREFIX}{host}", "tee", path],  # noqa: S607
+        input=content,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
 def run_cmd_vtysh(host: str, command: str) -> str:
     """Run a vtysh command in the docker container and return its output."""
     cmd = ["docker", "exec", f"{CONTAINER_PREFIX}{host}", "vtysh", "-c", command]
