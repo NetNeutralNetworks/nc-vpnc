@@ -6,7 +6,6 @@ before it finishes, so the tests that run after them see a healthy lab.
 
 from __future__ import annotations
 
-import contextlib
 import ipaddress
 import json
 from typing import TYPE_CHECKING
@@ -16,7 +15,7 @@ import pytest
 from . import conftest
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    import contextlib
 
 # XFRM interfaces that carry global addresses, with the addresses they must keep.
 # The CORE ones hold the BGP peering addresses towards mgt00/mgt01.
@@ -119,27 +118,12 @@ def assert_interface_recovered(host: str, netns: str, ifname: str) -> None:
         )
 
 
-IKE_BLOCK_RULE = "INPUT -p udp -m multiport --dports 500,4500 -j DROP"
-
-
-@contextlib.contextmanager
-def ike_blocked(host: str) -> Iterator[None]:
+def ike_blocked(host: str) -> contextlib.AbstractContextManager[None]:
     """Drop incoming IKE (and NAT-T) on the host's EXTERNAL network instance.
 
     Stops either side from re-establishing an SA, like an ISP outage does.
-    If a run is interrupted and the rule stays behind, remove it with
-    'ip netns exec EXTERNAL ip(6)tables -D <IKE_BLOCK_RULE>'.
     """
-    for iptables in ("iptables", "ip6tables"):
-        conftest.run_cmd(host, f"ip netns exec EXTERNAL {iptables} -I {IKE_BLOCK_RULE}")
-    try:
-        yield
-    finally:
-        for iptables in ("iptables", "ip6tables"):
-            conftest.run_cmd_shell(
-                host,
-                f"ip netns exec EXTERNAL {iptables} -D {IKE_BLOCK_RULE} || true",
-            )
+    return conftest.nft_drop(host, "EXTERNAL", "udp dport { 500, 4500 }")
 
 
 class TestXfrmInterfaceDownUp:

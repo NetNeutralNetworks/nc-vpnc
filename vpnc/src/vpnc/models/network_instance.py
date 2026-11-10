@@ -114,10 +114,7 @@ class NetworkInstance(BaseModel):
         cleanup: bool = False,
     ) -> bool:
         """Add a network instance (Linux namespace) and enable forwarding if needed."""
-        with vpnc.shared.NI_START_LOCK:
-            if self.id not in vpnc.shared.NI_LOCK:
-                vpnc.shared.NI_LOCK[self.id] = threading.Lock()
-
+        self._ensure_lock()
         logger.info("Acquiring lock for %s", self.id)
         with vpnc.shared.NI_LOCK[self.id]:
             if self == active_network_instance:
@@ -128,35 +125,7 @@ class NetworkInstance(BaseModel):
                 return False
 
             logger.info("Setting up the %s network instance.", self.id)
-            namespace.add(name=self.id, cleanup=cleanup)
-
-            attempts = 20
-            for attempt in range(attempts):
-                if self.id in pyroute2.netns.listnetns():
-                    break
-                if attempt == attempts - 1:
-                    logger.error(
-                        "Network instance %s did not instantiate correctly."
-                        " Not configured.",
-                        self.id,
-                    )
-                    raise ValueError
-                time.sleep(0.05)
-
-            # IPv6 and IPv4 routing is enabled on the network instance only for CORE,
-            # DOWNLINK and ENDPOINT.
-            if self.type in (
-                enums.NetworkInstanceType.CORE,
-                enums.NetworkInstanceType.DOWNLINK,
-                enums.NetworkInstanceType.ENDPOINT,
-            ):
-                namespace.ensure_sysctls(self.id, ROUTED_NETWORK_INSTANCE_SYSCTLS)
-
-            if self.type in (
-                enums.NetworkInstanceType.DOWNLINK,
-                enums.NetworkInstanceType.ENDPOINT,
-            ):
-                self._set_network_instance_link()
+            self._ensure_namespace(cleanup=cleanup)
 
         self.set_iptables()
         routes.start(self.id)
@@ -164,6 +133,60 @@ class NetworkInstance(BaseModel):
             self._set_network_instance_connections(active_network_instance)
 
         return False
+
+    def reconcile(self) -> None:
+        """Make the network instance match its configuration; only fixes differences."""
+        self._ensure_lock()
+        with vpnc.shared.NI_LOCK[self.id]:
+            self._ensure_namespace(cleanup=False)
+        self.set_iptables()
+        routes.start(self.id)
+        with vpnc.shared.NI_LOCK[self.id]:
+            self._set_network_instance_connections(None)
+            self._delete_unconfigured_interfaces()
+        self._reconcile_services()
+
+    def _reconcile_services(self) -> None:
+        """Reconcile the services of the network instance type (NAT64, VPN, ...)."""
+
+    def _ensure_lock(self) -> None:
+        with vpnc.shared.NI_START_LOCK:
+            if self.id not in vpnc.shared.NI_LOCK:
+                vpnc.shared.NI_LOCK[self.id] = threading.Lock()
+
+    def _ensure_namespace(self, *, cleanup: bool) -> None:
+        """Ensure the namespace, its sysctls and its link to CORE."""
+        namespace.add(name=self.id, cleanup=cleanup)
+        if not namespace.exists(self.id):
+            logger.error(
+                "Network instance %s did not instantiate correctly. Not configured.",
+                self.id,
+            )
+            raise ValueError
+
+        # IPv6 and IPv4 routing is enabled on the network instance only for CORE,
+        # DOWNLINK and ENDPOINT.
+        if self.type in (
+            enums.NetworkInstanceType.CORE,
+            enums.NetworkInstanceType.DOWNLINK,
+            enums.NetworkInstanceType.ENDPOINT,
+        ):
+            namespace.ensure_sysctls(self.id, ROUTED_NETWORK_INSTANCE_SYSCTLS)
+
+        if self.type in (
+            enums.NetworkInstanceType.DOWNLINK,
+            enums.NetworkInstanceType.ENDPOINT,
+        ):
+            self._set_network_instance_link()
+
+    def _delete_unconfigured_interfaces(self) -> None:
+        """Delete connection interfaces (XFRM, tun, WireGuard) no longer configured."""
+        configured = set(self._get_network_instance_connections())
+        with pyroute2.IPRoute(netns=self.id, flags=0) as ni_dl:
+            ni_state = state.NetnsState.read(ni_dl)
+            for name, link in list(ni_state.links.items()):
+                if link.kind in ("xfrm", "tun", "wireguard") and name not in configured:
+                    state.delete_link(ni_dl, ni_state, name)
 
     def delete_network_instance(self) -> None:
         """Delete a network instance (Linux namespace)."""
@@ -226,7 +249,7 @@ class NetworkInstance(BaseModel):
                 active_network_instance,
             )
         for connection in self.connections.values():
-            logger.info(
+            logger.debug(
                 "Setting up network instance %s connection %s.",
                 self.id,
                 connection.id,
@@ -429,6 +452,11 @@ class NetworkInstanceCore(NetworkInstance):
 
         return False
 
+    def _reconcile_services(self) -> None:
+        strongswan.generate_config(self)
+        if tenant.get_default_tenant().mode == enums.ServiceMode.HUB:
+            frr.generate_config()
+
     def delete(self) -> None:
         """Delete a CORE network instance."""
         self.delete_network_instance()
@@ -498,6 +526,10 @@ class NetworkInstanceDownlink(NetworkInstance):
         strongswan.generate_config(self)
 
         return updated
+
+    def _reconcile_services(self) -> None:
+        self._set_downlink_nat64()
+        strongswan.generate_config(self)
 
     def delete(self) -> None:
         """Delete a DOWNLINK network instance."""
@@ -708,7 +740,7 @@ class NetworkInstanceEndpoint(NetworkInstance):
         return False
 
     def delete(self) -> None:
-        """Delete a DOWNLINK network instance."""
+        """Delete an ENDPOINT network instance."""
         self.delete_network_instance()
 
     def set_iptables(self) -> bool:

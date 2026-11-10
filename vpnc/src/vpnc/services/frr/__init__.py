@@ -12,7 +12,7 @@ from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from vpnc import config
+from vpnc import config, files
 from vpnc.models import enums, tenant
 
 if TYPE_CHECKING:
@@ -116,12 +116,9 @@ def generate_config() -> None:
         "prefix_downlink_nptv6": default_tenant.prefix_downlink_nptv6,
     }
 
-    logger.info("Generating FRR configuration.")
     frr_render = frr_template.render(**frr_cfg)
-    logger.debug(frr_render)
-
-    with config.FRR_CONFIG_PATH.open("w+", encoding="utf-8") as f:
-        f.write(frr_render)
+    if files.ensure_file(config.FRR_CONFIG_PATH, frr_render):
+        logger.info("Generated FRR configuration.")
 
 
 def stop() -> None:

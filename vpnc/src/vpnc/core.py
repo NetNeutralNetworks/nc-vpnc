@@ -12,7 +12,14 @@ import time
 from vpnc import config, shared
 from vpnc.models import enums, tenant
 from vpnc.network import namespace
-from vpnc.services import configuration, frr, strongswan, vpncmangle, wireguard
+from vpnc.services import (
+    configuration,
+    frr,
+    reconcile,
+    strongswan,
+    vpncmangle,
+    wireguard,
+)
 
 logger = logging.getLogger("vpnc")
 
@@ -113,6 +120,13 @@ def concentrator() -> None:
     config_files = list(config.VPNC_A_CONFIG_DIR.glob(pattern="*.yaml"))
     for file_path in config_files:
         configuration.manage_tenant(file_path)
+
+    # Correct differences from the configuration (missed events, manual changes).
+    reconcile.RECONCILER.register(
+        "network_instances",
+        reconcile.check_network_instances,
+    )
+    reconcile.RECONCILER.start()
 
     # Keep the program running, but terminate if needed.
     try:

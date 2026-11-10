@@ -273,7 +273,6 @@ def assert_drift_corrected(tamper: str) -> None:
     )
 
 
-@pytest.mark.xfail(run=False, reason="Needs the reconciler's full check.")
 class TestDrift:
     """Manual changes are corrected by the full check."""
 

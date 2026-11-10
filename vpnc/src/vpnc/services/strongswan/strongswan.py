@@ -16,7 +16,7 @@ from jinja2 import Environment, FileSystemLoader
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 
-from vpnc import config
+from vpnc import config, files
 from vpnc.models import enums, tenant
 from vpnc.network import namespace
 
@@ -135,16 +135,13 @@ def generate_config(
         swanctl_path.unlink(missing_ok=True)
         return
 
-    logger.info(
-        "Generating network instance %s Strongswan configuration.",
-        network_instance.id,
-    )
     swanctl_render = swanctl_template.render(connections=swanctl_cfgs)
-    logger.debug(swanctl_render)
-    with swanctl_path.open("w", encoding="utf-8") as f:
-        f.write(swanctl_render)
-
-    os.chown(swanctl_path, config.IPSEC_USER, config.IPSEC_GROUP)
+    if files.ensure_file(swanctl_path, swanctl_render):
+        logger.info(
+            "Generated network instance %s Strongswan configuration.",
+            network_instance.id,
+        )
+        os.chown(swanctl_path, config.IPSEC_USER, config.IPSEC_GROUP)
 
 
 def stop() -> None:
