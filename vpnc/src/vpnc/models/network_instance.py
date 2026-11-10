@@ -38,7 +38,8 @@ logger = logging.getLogger("vpnc")
 
 BASE_DIR = pathlib.Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR.joinpath("templates")
-TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True)
+# Config files, not HTML: values must be written as they are.
+TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=False)  # noqa: S701
 
 # Sysctls for network instances that route traffic (CORE, DOWNLINK, ENDPOINT).
 #

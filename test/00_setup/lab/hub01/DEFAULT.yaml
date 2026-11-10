@@ -83,7 +83,7 @@ network_instances:
           ipsec_lifetime: 90
           # Optional, defaults to start. Start means inititate and respond, none means respond only.
           # initiation: start
-          psk: secretpasswordcore
+          psk: "secret&pass<word>core"
           # Optional
           # traffic_selectors:
           #   local:
@@ -113,7 +113,7 @@ network_instances:
           remote_addrs: [2001:db8::4]
           ike_lifetime: 300
           ipsec_lifetime: 90
-          psk: secretpasswordcore
+          psk: "secret&pass<word>core"
 
 
 # VPN CONFIG

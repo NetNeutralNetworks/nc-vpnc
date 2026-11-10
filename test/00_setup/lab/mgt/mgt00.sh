@@ -12,7 +12,7 @@ export LOOPBACK_IF_IP="fd00::3/128"
 export BGP_AS="4233333333"
 export BGP_ROUTER_ID="3.3.3.3"
 
-export VPN_PEER_PSK="secretpasswordcore"
+export VPN_PEER_PSK="secret&pass<word>core"
 
 export VPN_TUNNEL_IF_IP_0="fd00:1:2::1/127"
 export VPN_PEER_IP4_0="192.0.2.5"
