@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import logging
 import re
@@ -10,8 +9,9 @@ import socket
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import pyroute2
 import vici
@@ -132,10 +132,12 @@ class Monitor(threading.Thread):
     This is blocking and as such, runs in separate threads.
     """
 
+    # Policies without a child SA at the previous check.
+    stale_policies: frozenset[XfrmPolicy] = frozenset()
+
     def run(self) -> None:
         """Override and entrypoint of the threading.Thread class."""
         # Policies without a child SA at the previous check.
-        self.stale_policies: set[XfrmPolicy] = set()
         # The event listeners restart themselves, so they're started only once.
         logger.info("Starting duplicate SA monitor.")
         threading.Thread(
@@ -150,45 +152,7 @@ class Monitor(threading.Thread):
             daemon=True,
         ).start()
 
-        while not shared.STOP_EVENT.is_set():
-            try:
-                logger.info("Starting VPNC Strongswan monitors")
-                asyncio.run(self.monitor())
-            # TODO @draggeta: make sure this doesn't infinitely retry
-            except Exception:  # noqa: BLE001, PERF203
-                logger.warning("VPNC strongswan monitor crashed", exc_info=True)
-                time.sleep(1)
-        logger.info("Exiting VPNC Strongswan monitor")
-
-    async def monitor(self) -> None:
-        """Check for inactive and active connections every interval."""
-        logger.info("Starting inactive/active connection monitor.")
-        await self.repeat(30, self.monitor_connections, init_wait=False)
-
-    async def repeat(
-        self,
-        interval: int,
-        func: Callable[[], Awaitable[None]],
-        *args: Any,  # noqa: ANN401
-        init_wait: bool = False,
-        **kwargs: Any,  # noqa: ANN401
-    ) -> None:
-        """Run func every interval seconds.
-
-        If func has not finished before *interval*, will run again
-        immediately when the previous iteration finished.
-
-        *args and **kwargs are passed as the arguments to func.
-        """
-        if init_wait:
-            await asyncio.sleep(interval)
-        while not shared.STOP_EVENT.is_set():
-            await asyncio.gather(
-                func(*args, **kwargs),
-                asyncio.sleep(interval),
-            )
-
-    async def monitor_connections(self) -> None:
+    def reconcile_connections(self) -> None:
         """Reload connections, initiate missing initiator SAs, remove unknown SAs."""
         vcs = self.connect()
         self.load_connections(vcs)
@@ -235,7 +199,7 @@ class Monitor(threading.Thread):
         for policy in stale & self.stale_policies:
             logger.warning("Deleting stale XFRM policy %s.", policy)
             delete_xfrm_policy(policy)
-        self.stale_policies = stale - self.stale_policies
+        self.stale_policies = frozenset(stale - self.stale_policies)
 
     def load_connections(self, vcs: vici.Session) -> None:
         """Reload the swanctl files if charon's connections differ from them."""

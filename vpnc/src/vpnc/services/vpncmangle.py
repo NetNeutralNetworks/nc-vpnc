@@ -49,12 +49,21 @@ def generate_config() -> None:
             json.dump(output, f)
 
 
-def stop(proc: pyroute2.NSPopen) -> None:
+# The running vpncmangle process.
+PROCESS: pyroute2.NSPopen | None = None
+
+
+def stop() -> None:
     """Shut down the vpncmangle service when terminating the program."""
+    if PROCESS is None:
+        return
     logger.info("Stopping vpncmangle process in network instance %s.", config.CORE_NI)
-    proc.terminate()
-    proc.wait()
-    proc.release()
+    PROCESS.terminate()
+    PROCESS.wait()
+    PROCESS.release()
+
+
+atexit.register(stop)
 
 
 def start() -> None:
@@ -68,4 +77,15 @@ def start() -> None:
         [f"{config.VPNC_INSTALL_DIR}/bin/vpncmangle"],
     )
 
-    atexit.register(stop, proc)
+    global PROCESS  # noqa: PLW0603
+    PROCESS = proc
+
+
+def ensure_running() -> None:
+    """Restart vpncmangle if it isn't running."""
+    if PROCESS is not None and PROCESS.poll() is None:
+        return
+    logger.warning("vpncmangle isn't running. Starting it.")
+    if PROCESS is not None:
+        PROCESS.release()
+    start()

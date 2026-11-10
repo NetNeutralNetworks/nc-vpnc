@@ -293,3 +293,34 @@ class TestDrift:
     def test_deleted_core_link(self) -> None:
         """A deleted link between CORE and a network instance is recreated."""
         assert_drift_corrected(f"ip --netns CORE link del {DRIFT_NI}_C")
+
+    def test_removed_wireguard_peer(self) -> None:
+        """A WireGuard peer removed by hand is restored."""
+        wg = "ip netns exec C0001-01 wg show wg-C0001-01-0 peers"
+        peer = conftest.run_cmd_shell(HOST, wg).strip()
+        assert peer, "No WireGuard peer before the test"
+        conftest.run_cmd_shell(
+            HOST,
+            f"ip netns exec C0001-01 wg set wg-C0001-01-0 peer {peer} remove",
+        )
+        assert not conftest.run_cmd_shell(HOST, wg).strip()
+        conftest.wait_until(
+            lambda: conftest.run_cmd_shell(HOST, wg).strip() == peer,
+            timeout=DRIFT_TIMEOUT,
+            message="WireGuard peer to be restored",
+        )
+
+    def test_killed_vpncmangle(self) -> None:
+        """A killed vpncmangle process is restarted."""
+        pgrep = "pgrep -f bin/vpncmangle || true"
+        before = conftest.run_cmd_shell(HOST, pgrep).split()
+        assert before, "vpncmangle not running"
+        conftest.run_cmd_shell(HOST, "pkill -f bin/vpncmangle")
+        conftest.wait_until(
+            lambda: (
+                (pids := conftest.run_cmd_shell(HOST, pgrep).split())
+                and not set(pids) & set(before)
+            ),
+            timeout=DRIFT_TIMEOUT,
+            message="vpncmangle to be restarted",
+        )
