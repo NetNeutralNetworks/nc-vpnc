@@ -26,7 +26,7 @@ from pydantic_core import PydanticCustomError
 import vpnc.shared
 from vpnc import config
 from vpnc.models import connections, enums, ssh, tenant
-from vpnc.network import namespace, route
+from vpnc.network import namespace, route, state
 from vpnc.services import configuration, frr, routes, strongswan
 
 # Needed for pydantim ports and type checking
@@ -46,12 +46,12 @@ TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=T
 # never re-establishes. With keep_addr_on_down=1 the addresses, and their prefix
 # routes, survive a down/up. "all" is honoured for every interface in the
 # namespace; "default" is set too so newly created interfaces inherit it.
-ROUTED_NETWORK_INSTANCE_SYSCTLS = (
-    "net.ipv6.conf.all.forwarding=1",
-    "net.ipv4.conf.all.forwarding=1",
-    "net.ipv6.conf.all.keep_addr_on_down=1",
-    "net.ipv6.conf.default.keep_addr_on_down=1",
-)
+ROUTED_NETWORK_INSTANCE_SYSCTLS = {
+    "net.ipv6.conf.all.forwarding": "1",
+    "net.ipv4.conf.all.forwarding": "1",
+    "net.ipv6.conf.all.keep_addr_on_down": "1",
+    "net.ipv6.conf.default.keep_addr_on_down": "1",
+}
 
 
 class NetworkInstance(BaseModel):
@@ -150,12 +150,7 @@ class NetworkInstance(BaseModel):
                 enums.NetworkInstanceType.DOWNLINK,
                 enums.NetworkInstanceType.ENDPOINT,
             ):
-                logger.info(
-                    "Setting network instance %s sysctls: %s.",
-                    self.id,
-                    ", ".join(ROUTED_NETWORK_INSTANCE_SYSCTLS),
-                )
-                self._set_sysctls(ROUTED_NETWORK_INSTANCE_SYSCTLS)
+                namespace.ensure_sysctls(self.id, ROUTED_NETWORK_INSTANCE_SYSCTLS)
 
             if self.type in (
                 enums.NetworkInstanceType.DOWNLINK,
@@ -169,26 +164,6 @@ class NetworkInstance(BaseModel):
             self._set_network_instance_connections(active_network_instance)
 
         return False
-
-    def _set_sysctls(self, sysctls: tuple[str, ...]) -> None:
-        """Apply 'key=value' sysctls inside the network instance."""
-        proc = pyroute2.NSPopen(
-            self.id,
-            ["sysctl", "-w", *sysctls],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        try:
-            _, stderr = proc.communicate()
-            if proc.returncode:
-                logger.error(
-                    "Failed to set network instance %s sysctls (rc=%s): %s",
-                    self.id,
-                    proc.returncode,
-                    stderr.decode(errors="replace").strip(),
-                )
-        finally:
-            proc.release()
 
     def delete_network_instance(self) -> None:
         """Delete a network instance (Linux namespace)."""
@@ -423,22 +398,9 @@ class NetworkInstance(BaseModel):
         self,
     ) -> None:
         """Delete a link between a DOWNLINK and the CORE network instance."""
-        # run the netns remove commands
-        proc = subprocess.run(  # noqa: S602
-            f"""
-            # remove veth interfaces
-            /usr/sbin/ip --brief -netns {self.id} link show type veth |
-                awk -F '@' '{{print $1}}' |
-                xargs -I {{}} sudo /usr/sbin/ip -netns {self.id} link del {{}}
-            # remove NAT64
-            /usr/sbin/ip netns exec {self.id} jool instance remove {self.id}
-            """,
-            capture_output=True,
-            shell=True,
-            check=False,
-        )
-        logger.info(proc.args)
-        logger.debug(proc.stdout, proc.stderr)
+        with pyroute2.IPRoute(netns=self.id, flags=0) as ni_dl:
+            state.delete_link(ni_dl, state.NetnsState.read(ni_dl), f"{self.id}_D")
+        namespace.run(self.id, ["jool", "instance", "remove", self.id])
 
 
 class NetworkInstanceExternal(NetworkInstance):
@@ -747,52 +709,38 @@ class NetworkInstanceDownlink(NetworkInstance):
                 self.id,
             )
             return
-        # configure NAT64 for the DOWNLINK network instance
-        try:
-            proc = pyroute2.NSPopen(
+        # Configure NAT64 (Jool) only if the instance differs.
+        current = namespace.run(
+            self.id,
+            ["jool", "-i", self.id, "global", "display", "--csv"],
+        )
+        if current.returncode == 0:
+            if f"pool6,{nat64_scope}" in current.stdout.splitlines():
+                return
+            namespace.run(self.id, ["jool", "instance", "remove", self.id])
+        logger.info(
+            "Configuring network instance %s NAT64 scope %s",
+            self.id,
+            nat64_scope,
+        )
+        result = namespace.run(
+            self.id,
+            [
+                "jool",
+                "instance",
+                "add",
                 self.id,
-                # Stop Strongswan in the EXTERNAL network instance.
-                ["jool", "instance", "flush"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            logger.info(
-                "Executing in network instance %s: %s",
+                "--netfilter",
+                "--pool6",
+                str(nat64_scope),
+            ],
+        )
+        if result.returncode:
+            logger.error(
+                "Configuring NAT64 in %s failed: %s",
                 self.id,
-                proc.args,
+                result.stderr.strip(),
             )
-        finally:
-            proc.wait()
-            proc.release()
-        try:
-            logger.info(
-                "Configuring network instance %s NAT64 scope %s",
-                self.id,
-                nat64_scope,
-            )
-            proc = pyroute2.NSPopen(
-                self.id,
-                # Stop Strongswan in the EXTERNAL network instance.
-                [
-                    "jool",
-                    "instance",
-                    "add",
-                    self.id,
-                    "--netfilter",
-                    "--pool6",
-                    str(nat64_scope),
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            logger.info(
-                "Executing in network instance %s: %s",
-                self.id,
-                proc.args,
-            )
-        finally:
-            proc.wait()
-            proc.release()
 
 
 class NetworkInstanceEndpoint(NetworkInstance):

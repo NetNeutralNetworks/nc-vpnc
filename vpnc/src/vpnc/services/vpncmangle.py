@@ -4,13 +4,13 @@ import atexit
 import json
 import logging
 import pathlib
-import subprocess
 from ipaddress import IPv4Network
 from typing import Any
 
 import pyroute2
 
 from vpnc import config, shared
+from vpnc.network import namespace
 from vpnc.services import configuration
 
 logger = logging.getLogger("vpnc")
@@ -54,6 +54,7 @@ def stop(proc: pyroute2.NSPopen) -> None:
     logger.info("Stopping vpncmangle process in network instance %s.", config.CORE_NI)
     proc.terminate()
     proc.wait()
+    proc.release()
 
 
 def start() -> None:
@@ -62,12 +63,9 @@ def start() -> None:
     # Start the VPNC mangle process in the CORE network instance.
     # This process mangles DNS responses to translate A responses to AAAA responses.
     logger.info("Starting vpncmangle process in network instance %s.", config.CORE_NI)
-    proc = pyroute2.NSPopen(
+    proc = namespace.popen(
         config.CORE_NI,
-        # Stop Strongswan in the EXTERNAL network instance.
         [f"{config.VPNC_INSTALL_DIR}/bin/vpncmangle"],
-        stderr=subprocess.PIPE,
-        stdout=subprocess.PIPE,
     )
 
     atexit.register(stop, proc)
