@@ -12,6 +12,7 @@ function install_apt_defaults () {
     # strongswan-starter/-charon: vpnc uses "ipsec start"; from 26.04 the
     # strongswan metapackage installs charon-systemd instead.
     # python3-packaging: the venv uses system site packages, so pip relies on it.
+    # kmod: vpnc runs modinfo and modprobe.
 
     apt-get update
     # If systemd is the init system
@@ -19,7 +20,7 @@ function install_apt_defaults () {
         apt-get upgrade -y
     fi
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    iptables iproute2 \
+    iptables iproute2 kmod \
     strongswan strongswan-swanctl \
     strongswan-starter strongswan-charon \
     python3-packaging \
