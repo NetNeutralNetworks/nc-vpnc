@@ -54,7 +54,7 @@ class ConnectionConfigSSH(BaseModel):
             network_instance,
         )
 
-        with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
+        with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
             if not ni_dl.link_lookup(ifname=tun):
                 ni_dl.link("add", ifname=tun, kind="tuntap", mode="tun")
             ifidx: int = ni_dl.link_lookup(ifname=tun)[0]
@@ -88,7 +88,7 @@ class ConnectionConfigSSH(BaseModel):
         """Delete a connection."""
         vpnc.services.ssh.stop(network_instance, connection)
         interface_name = self.intf_name(network_instance, connection)
-        with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
+        with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
             if not ni_dl.link_lookup(ifname=interface_name):
                 return
             ifidx = ni_dl.link_lookup(ifname=interface_name)[0]

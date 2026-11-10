@@ -51,9 +51,10 @@ class ConnectionConfigWireGuard(BaseModel):
             network_instance,
         )
 
-        with pyroute2.NetNS(netns=network_instance.id) as ni_dl, pyroute2.NetNS(
-            netns=config.EXTERNAL_NI,
-        ) as ni_ext:
+        with (
+            pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl,
+            pyroute2.IPRoute(netns=config.EXTERNAL_NI, flags=0) as ni_ext,
+        ):
             if not ni_dl.link_lookup(ifname=wg):
                 ni_ext.link(
                     "add",
@@ -104,7 +105,7 @@ class ConnectionConfigWireGuard(BaseModel):
         """Delete a connection."""
         interface_name = self.intf_name(network_instance, connection)
         # run the commands
-        with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
+        with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
             if not ni_dl.link_lookup(ifname=interface_name):
                 return
             ifidx = ni_dl.link_lookup(ifname=interface_name)[0]

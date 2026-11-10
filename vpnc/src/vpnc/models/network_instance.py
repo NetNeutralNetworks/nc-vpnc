@@ -271,8 +271,8 @@ class NetworkInstance(BaseModel):
 
         # Set the routes of all connections at once: the advertisements depend on
         # the state of all connections in the network instance.
-        ni_dl = pyroute2.NetNS(self.id)
-        ni_core = pyroute2.NetNS(config.CORE_NI)
+        ni_dl = pyroute2.IPRoute(netns=self.id, flags=0)
+        ni_core = pyroute2.IPRoute(netns=config.CORE_NI, flags=0)
         with ni_dl, ni_core:
             routes.reconcile_routes(ni_dl, ni_core, self, active_network_instance)
 
@@ -331,9 +331,10 @@ class NetworkInstance(BaseModel):
             self.id,
             config.CORE_NI,
         )
-        with pyroute2.NetNS(netns=self.id) as ni_dl, pyroute2.NetNS(
-            netns=config.CORE_NI,
-        ) as ni_core:
+        with (
+            pyroute2.IPRoute(netns=self.id, flags=0) as ni_dl,
+            pyroute2.IPRoute(netns=config.CORE_NI, flags=0) as ni_core,
+        ):
             tenant.get_default_tenant()
             # add veth interfaces between CORE and DOWNLINK network instance
             logger.info("Adding veth pair %s and %s.", veth_c, veth_d)

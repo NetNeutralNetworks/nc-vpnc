@@ -390,7 +390,7 @@ class Monitor(threading.Thread):
                 break
         action = "up" if tunnel_up else "down"
 
-        with pyroute2.NetNS(network_instance_name) as netns:
+        with pyroute2.IPRoute(netns=network_instance_name, flags=0) as netns:
             ifname = f"xfrm{connection_id}"
             if not (iflookup := netns.link_lookup(ifname=ifname)):
                 log = logger.debug if missing_ok else logger.warning

@@ -8,13 +8,13 @@ from ipaddress import IPv4Address, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING, Any, Callable
 
 import pyroute2
-from pyroute2.netlink.rtnl.ifinfmsg import ifinfmsg
 
 import vpnc.models.connections
 import vpnc.models.tenant
 from vpnc import config
 from vpnc.models import enums, info
 from vpnc.network import route
+from vpnc.network.events import LinkMonitor
 from vpnc.services import configuration
 from vpnc.shared import NI_LOCK
 
@@ -25,14 +25,14 @@ logger = logging.getLogger("vpnc")
 
 NI_ROUTE_MONITORS: dict[
     str,
-    tuple[vpnc.models.network_instance.NetworkInstance, pyroute2.NDB],
+    tuple[vpnc.models.network_instance.NetworkInstance | None, LinkMonitor],
 ] = {}
 
 
 def create_handler(network_instance_id: str) -> Callable[..., None]:
     """Closure to add the network instance id to the handler function."""
 
-    def resolve_route_advertisements(_: str, event: dict[str, Any]) -> None:
+    def resolve_route_advertisements(event: Any) -> None:  # noqa: ANN401
         """Resolve route advertisement statuses.
 
         Used by monitor monitor_route_advertisements.
@@ -65,15 +65,15 @@ def create_handler(network_instance_id: str) -> Callable[..., None]:
                 net_inst = tenant.network_instances.get(network_instance_id)
 
         active_net_inst, ni_handler = NI_ROUTE_MONITORS[network_instance_id]
-        connection_name: str = event["attrs"][0][1]
+        connection_name: str = event.get("ifname")
 
         # Only connection interfaces affect routes (configured or still active).
         active_connection = _find_connection(active_net_inst, connection_name)
         if not (_find_connection(net_inst, connection_name) or active_connection):
             return
 
-        ni_dl = pyroute2.NetNS(network_instance_id)
-        ni_core = pyroute2.NetNS(config.CORE_NI)
+        ni_dl = pyroute2.IPRoute(netns=network_instance_id, flags=0)
+        ni_core = pyroute2.IPRoute(netns=config.CORE_NI, flags=0)
         logger.info("Acquiring lock for %s", network_instance_id)
         with ni_dl, ni_core, NI_LOCK[network_instance_id]:
             # The interface of a connection is deleted.
@@ -117,7 +117,7 @@ def _find_connection(
     return None
 
 
-def interface_is_up(ni: pyroute2.NetNS, interface_name: str) -> bool:
+def interface_is_up(ni: pyroute2.IPRoute, interface_name: str) -> bool:
     """Return whether an interface can pass traffic.
 
     The interface must be administratively up and have carrier (lower layer up).
@@ -133,8 +133,8 @@ def interface_is_up(ni: pyroute2.NetNS, interface_name: str) -> bool:
 
 
 def reconcile_routes(
-    ni_dl: pyroute2.NetNS,
-    ni_core: pyroute2.NetNS,
+    ni_dl: pyroute2.IPRoute,
+    ni_core: pyroute2.IPRoute,
     net_inst: vpnc.models.network_instance.NetworkInstance,
     active_net_inst: vpnc.models.network_instance.NetworkInstance | None,
 ) -> None:
@@ -216,8 +216,8 @@ def _core_ipv6_advertisement(
 
 
 def _set_connection_routes_up(
-    ni_dl: pyroute2.NetNS,
-    ni_core: pyroute2.NetNS,
+    ni_dl: pyroute2.IPRoute,
+    ni_core: pyroute2.IPRoute,
     net_inst: vpnc.models.network_instance.NetworkInstance,
     connection: vpnc.models.connections.Connection,
     *,
@@ -275,8 +275,8 @@ def _set_connection_routes_up(
 
 
 def _set_connection_routes_down(
-    ni_dl: pyroute2.NetNS,
-    ni_core: pyroute2.NetNS,
+    ni_dl: pyroute2.IPRoute,
+    ni_core: pyroute2.IPRoute,
     net_inst: vpnc.models.network_instance.NetworkInstance,
     connection: vpnc.models.connections.Connection,
 ) -> None:
@@ -298,8 +298,8 @@ def _set_connection_routes_down(
 
 
 def delete_all_routes(
-    ni_dl: pyroute2.NetNS,
-    ni_core: pyroute2.NetNS,
+    ni_dl: pyroute2.IPRoute,
+    ni_core: pyroute2.IPRoute,
     net_inst: vpnc.models.network_instance.NetworkInstance,
     connection: vpnc.models.connections.Connection,
 ) -> None:
@@ -377,11 +377,9 @@ def start(network_instance_id: str) -> None:
         "Starting network instance %s routes monitor.",
         network_instance_id,
     )
-    ndb = pyroute2.NDB(sources=[{"netns": network_instance_id}])
-    NI_ROUTE_MONITORS[network_instance_id] = (None, ndb)
-
-    handler = create_handler(network_instance_id)
-    ndb.task_manager.register_handler(ifinfmsg, handler)
+    monitor = LinkMonitor(network_instance_id, create_handler(network_instance_id))
+    NI_ROUTE_MONITORS[network_instance_id] = (None, monitor)
+    monitor.start()
 
     atexit.register(stop, network_instance_id=network_instance_id)
 
@@ -400,5 +398,5 @@ def stop(network_instance_id: str) -> None:
         network_instance_id,
     )
 
-    NI_ROUTE_MONITORS[network_instance_id][1].close()
+    NI_ROUTE_MONITORS[network_instance_id][1].stop()
     del NI_ROUTE_MONITORS[network_instance_id]
