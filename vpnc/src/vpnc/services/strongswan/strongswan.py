@@ -109,7 +109,7 @@ def generate_config(
             "ipsec_proposal": connection.config.ipsec_proposal,
             "ipsec_lifetime": connection.config.ipsec_lifetime,
             "initiation": connection.config.initiation.value,
-            "psk": connection.config.psk,
+            "psk": connection.config.psk.get_secret_value(),
         }
 
         # Check for the connection specific remote id

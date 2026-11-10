@@ -110,7 +110,7 @@ def generate_config(
             # "remote_addrs": ",".join(remote_addrs_list),
             "remote_addrs": f"{connection.config.remote_addrs[0]}:{connection.config.remote_port}",
             "routes": ",".join(routes_list),
-            "private_key": connection.config.private_key,
+            "private_key": connection.config.private_key.get_secret_value(),
             "public_key": connection.config.public_key,
         }
 

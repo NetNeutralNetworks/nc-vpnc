@@ -19,6 +19,7 @@ from typing_extensions import Annotated
 import vpnc.models.tenant
 from vpnc import config
 from vpnc.ctl import helpers, tenants_nat, tenants_ni
+from vpnc.models.secret import REVEAL
 
 app = typer.Typer()
 app.add_typer(tenants_ni.app, name="network-instances")
@@ -141,7 +142,7 @@ def edit(ctx: typer.Context) -> None:
     with tempfile.NamedTemporaryFile(suffix=".tmp", mode="w+", encoding="utf-8") as tf:
         tf.write(
             yaml.safe_dump(
-                tenant.model_dump(mode="json"),
+                tenant.model_dump(mode="json", context=REVEAL),
                 explicit_start=True,
                 explicit_end=True,
             ),
@@ -184,7 +185,7 @@ def edit(ctx: typer.Context) -> None:
     print("Edited file")
 
     output = yaml.safe_dump(
-        edited_config.model_dump(mode="json"),
+        edited_config.model_dump(mode="json", context=REVEAL),
         explicit_start=True,
         explicit_end=True,
     )
@@ -272,7 +273,7 @@ def add(
     tenant = vpnc.models.tenant.Tenant(**all_args)
 
     output = yaml.safe_dump(
-        tenant.model_dump(mode="json"),
+        tenant.model_dump(mode="json", context=REVEAL),
         explicit_start=True,
         explicit_end=True,
     )
@@ -465,7 +466,7 @@ def commit(
         with path_candidate_tenant.open("w", encoding="utf-8") as f:
             f.write(
                 yaml.dump(
-                    tenant_config_active.model_dump(mode="json"),
+                    tenant_config_active.model_dump(mode="json", context=REVEAL),
                     explicit_start=True,
                     explicit_end=True,
                 ),
@@ -493,7 +494,7 @@ def commit(
     with path_active_tenant.open("w", encoding="utf-8") as f:
         f.write(
             yaml.dump(
-                tenant_config_candidate.model_dump(mode="json"),
+                tenant_config_candidate.model_dump(mode="json", context=REVEAL),
                 explicit_start=True,
                 explicit_end=True,
             ),
