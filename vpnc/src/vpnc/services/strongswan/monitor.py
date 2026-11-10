@@ -6,12 +6,11 @@ import contextlib
 import logging
 import re
 import socket
-import subprocess
 import threading
 import time
 from collections.abc import Callable
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import Any, TypeAlias
 
 import vici
 import vici.exception
@@ -19,9 +18,6 @@ import vici.exception
 from vpnc import config, shared
 from vpnc.models import info
 from vpnc.network import namespace
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 logger = logging.getLogger("vpnc")
 
@@ -40,26 +36,11 @@ IFF_UP = 0x1
 VICI_SOCKET = "/var/run/charon.vici"
 # Seconds before a VICI request fails, so a hanging charon can't block vpnc.
 VICI_TIMEOUT = 10
-SWANCTL_CONNECTION_RE = re.compile(r"^    (\S+) \{$")
 POLICY_DIR_RE = re.compile(r"^\s+dir (\w+)")
 POLICY_IF_ID_RE = re.compile(r"^\s+if_id (0x[0-9a-f]+)")
 
 # An XFRM policy: (selector, direction, if_id).
 XfrmPolicy: TypeAlias = tuple[str, str, int]
-
-
-def swanctl_connection_names(path: Path) -> set[str]:
-    """Return the connection names in a generated swanctl file."""
-    names: set[str] = set()
-    in_connections = False
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line == "connections {":
-            in_connections = True
-        elif line == "}":
-            in_connections = False
-        elif in_connections and (match := SWANCTL_CONNECTION_RE.match(line)):
-            names.add(match.group(1))
-    return names
 
 
 def is_initiator(connection: dict[str, Any]) -> bool:
@@ -140,9 +121,12 @@ class Monitor(threading.Thread):
         ).start()
 
     def reconcile_connections(self) -> None:
-        """Reload connections, initiate missing initiator SAs, remove unknown SAs."""
+        """Sync connections, initiate missing initiator SAs, remove unknown SAs."""
+        # Imported here: the package imports this module first.
+        from vpnc.services.strongswan import strongswan  # noqa: PLC0415
+
         vcs = self.connect()
-        self.load_connections(vcs)
+        strongswan.sync(vcs)
 
         conns: dict[str, dict[str, Any]] = {
             name: details for conn in vcs.list_conns() for name, details in conn.items()
@@ -187,32 +171,6 @@ class Monitor(threading.Thread):
             logger.warning("Deleting stale XFRM policy %s.", policy)
             delete_xfrm_policy(policy)
         self.stale_policies = frozenset(stale - self.stale_policies)
-
-    def load_connections(self, vcs: vici.Session) -> None:
-        """Reload the swanctl files if charon's connections differ from them."""
-        expected: set[str] = set()
-        for path in config.IPSEC_CONFIG_DIR.glob("*.conf"):
-            expected |= swanctl_connection_names(path)
-        loaded = {name.decode() for name in vcs.get_conns()["conns"]}
-        if expected == loaded:
-            return
-
-        logger.warning(
-            "Reloading swanctl config (missing: %s, unknown: %s).",
-            sorted(expected - loaded),
-            sorted(loaded - expected),
-        )
-        proc = subprocess.run(
-            ["/usr/sbin/swanctl", "--load-all", "--clear"],
-            capture_output=True,
-            check=False,
-            timeout=30,
-        )
-        if proc.returncode:
-            logger.error(
-                "Loading the swanctl configuration failed: %s",
-                proc.stderr.decode(errors="replace"),
-            )
 
     def supervise(self, name: str, func: Callable[[], None]) -> None:
         """Run func until stopped, restarting it if it fails or returns.
