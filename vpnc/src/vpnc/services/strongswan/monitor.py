@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import socket
@@ -40,6 +41,11 @@ VICI_SOCKET = "/var/run/charon.vici"
 # Seconds before a VICI request fails, so a hanging charon can't block vpnc.
 VICI_TIMEOUT = 10
 SWANCTL_CONNECTION_RE = re.compile(r"^    (\S+) \{$")
+POLICY_DIR_RE = re.compile(r"^\s+dir (\w+)")
+POLICY_IF_ID_RE = re.compile(r"^\s+if_id (0x[0-9a-f]+)")
+
+# An XFRM policy: (selector, direction, if_id).
+XfrmPolicy: TypeAlias = tuple[str, str, int]
 
 
 def swanctl_connection_names(path: Path) -> set[str]:
@@ -64,6 +70,62 @@ def is_initiator(connection: dict[str, Any]) -> bool:
     )
 
 
+def xfrm_policies() -> set[XfrmPolicy]:
+    """Return the XFRM policies with an if_id in the EXTERNAL network instance."""
+    output = subprocess.run(  # noqa: S603
+        [
+            "/usr/sbin/ip",
+            "netns",
+            "exec",
+            config.EXTERNAL_NI,
+            "/usr/sbin/ip",
+            "xfrm",
+            "policy",
+            "list",
+            "nosock",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    ).stdout
+    policies: set[XfrmPolicy] = set()
+    selector = direction = ""
+    for line in output.splitlines():
+        if not line[:1].isspace():
+            selector, direction = line.strip(), ""
+        elif match := POLICY_DIR_RE.match(line):
+            direction = match.group(1)
+        elif (match := POLICY_IF_ID_RE.match(line)) and selector and direction:
+            policies.add((selector, direction, int(match.group(1), 16)))
+    return policies
+
+
+def delete_xfrm_policy(policy: XfrmPolicy) -> None:
+    """Delete an XFRM policy in the EXTERNAL network instance."""
+    selector, direction, if_id = policy
+    subprocess.run(  # noqa: S603
+        [
+            "/usr/sbin/ip",
+            "netns",
+            "exec",
+            config.EXTERNAL_NI,
+            "/usr/sbin/ip",
+            "xfrm",
+            "policy",
+            "delete",
+            "dir",
+            direction,
+            *selector.split(),
+            "if_id",
+            hex(if_id),
+        ],
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+
+
 class Monitor(threading.Thread):
     """Monitor the strongswan service and components.
 
@@ -72,6 +134,8 @@ class Monitor(threading.Thread):
 
     def run(self) -> None:
         """Override and entrypoint of the threading.Thread class."""
+        # Policies without a child SA at the previous check.
+        self.stale_policies: set[XfrmPolicy] = set()
         # The event listeners restart themselves, so they're started only once.
         logger.info("Starting duplicate SA monitor.")
         threading.Thread(
@@ -150,6 +214,28 @@ class Monitor(threading.Thread):
         for sa in sas - conns.keys():
             logger.info("Terminating connection '%s'", sa)
             self.terminate_sa(vcs=vcs, ike=sa)
+
+        self.remove_stale_policies(vcs)
+
+    def remove_stale_policies(self, vcs: vici.Session) -> None:
+        """Delete XFRM policies whose if_id has had no child SA for two checks.
+
+        Policies don't expire, so they stay when charon dies and the SA doesn't
+        come back. Waiting a check avoids racing an SA that is being set up.
+        """
+        active: set[int] = set()
+        for sa in vcs.list_sas():
+            for ike in sa.values():
+                for child in ike.get("child-sas", {}).values():
+                    for key in ("if-id-in", "if-id-out"):
+                        with contextlib.suppress(KeyError, ValueError):
+                            active.add(int(child[key], 16))
+
+        stale = {p for p in xfrm_policies() if p[2] not in active}
+        for policy in stale & self.stale_policies:
+            logger.warning("Deleting stale XFRM policy %s.", policy)
+            delete_xfrm_policy(policy)
+        self.stale_policies = stale - self.stale_policies
 
     def load_connections(self, vcs: vici.Session) -> None:
         """Reload the swanctl files if charon's connections differ from them."""
