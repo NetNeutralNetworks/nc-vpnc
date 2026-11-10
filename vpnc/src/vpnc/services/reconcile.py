@@ -182,8 +182,17 @@ def check_network_instances(keys: set[str] | None) -> None:
 
     A full check runs triggered checks between network instances, so changes don't
     wait for it. The configuration is looked up per network instance, as it can
-    change meanwhile.
+    change meanwhile. It reads CORE, which holds every network instance's link and
+    routes, once instead of per network instance.
     """
+    if keys is None:
+        with state.session(), state.netns(config.CORE_NI):
+            _check_network_instances(keys)
+    else:
+        _check_network_instances(keys)
+
+
+def _check_network_instances(keys: set[str] | None) -> None:
     updated_tenants: set[str] = set()
     for ni_id in list(configured_network_instances()):
         if keys is not None and ni_id not in keys:
@@ -226,6 +235,8 @@ def remove_unconfigured(
             logger.warning("Removing unknown network instance %s.", name)
             unwatch(name)
             namespace.delete(name)
+            # The kernel deleted its link to CORE.
+            state.changed(config.CORE_NI)
     delete_stale_core_routes([ni for _, ni in configured.values()])
 
 
@@ -236,6 +247,8 @@ def remove_network_instance(network_instance: NetworkInstance) -> None:
     )
     unwatch(network_instance.id)
     network_instance.delete()
+    # The kernel deleted its link to CORE.
+    state.changed(config.CORE_NI)
     delete_core_routes(network_instance)
     if tenant.get_default_tenant().mode == enums.ServiceMode.HUB:
         frr.generate_config()
@@ -250,6 +263,7 @@ def watch(ni_id: str) -> None:
         return
 
     def on_event(event: Any) -> None:  # noqa: ANN401
+        state.changed(ni_id)
         if event["event"] in ("RTM_NEWLINK", "RTM_DELLINK"):
             RECONCILER.trigger("routes", ni_id)
         elif (
@@ -288,11 +302,13 @@ def reconcile_routes(
     ):
         return
 
+    # A new session: the links of the network instance are read again.
     with (
-        namespace.IPRoute(net_inst.id) as ni_dl,
-        namespace.IPRoute(config.CORE_NI) as ni_core,
+        state.session(),
+        state.netns(net_inst.id) as dl,
+        state.netns(config.CORE_NI) as core,
     ):
-        ni_state = state.NetnsState.read(ni_dl)
+        ni_dl, ni_state = dl.ipr, dl.state
         ni_routes, core_routes = net_inst.desired_routes(ni_state.links)
         previous_ni: list[state.Route] = []
         previous_core: list[state.Route] = []
@@ -306,7 +322,7 @@ def reconcile_routes(
             return
         state.ensure_routes(ni_dl, ni_state, ni_routes)
 
-        core_state = state.NetnsState.read(ni_core)
+        ni_core, core_state = core.ipr, core.state
         core_link = f"{net_inst.id}_C"
         managed = {r.dst for r in [*core_routes, *previous_core]} | {
             dst for dst, route in core_state.routes.items() if route.dev == core_link
@@ -323,12 +339,11 @@ def delete_core_routes(net_inst: NetworkInstance) -> None:
         return
     _, core_routes = net_inst.desired_routes({})
     core_link = f"{net_inst.id}_C"
-    with namespace.IPRoute(config.CORE_NI) as ni_core:
-        core_state = state.NetnsState.read(ni_core)
+    with state.netns(config.CORE_NI) as core:
         managed = {r.dst for r in core_routes} | {
-            dst for dst, route in core_state.routes.items() if route.dev == core_link
+            dst for dst, route in core.state.routes.items() if route.dev == core_link
         }
-        state.ensure_routes(ni_core, core_state, [], managed=managed)
+        state.ensure_routes(core.ipr, core.state, [], managed=managed)
 
 
 def delete_stale_core_routes(network_instances: list[NetworkInstance]) -> None:
@@ -339,11 +354,10 @@ def delete_stale_core_routes(network_instances: list[NetworkInstance]) -> None:
         wanted |= {r.dst for r in core_routes}
         if net_inst.id == config.CORE_NI:
             wanted |= {r.dst for r in ni_routes}
-    with namespace.IPRoute(config.CORE_NI) as ni_core:
-        core_state = state.NetnsState.read(ni_core)
-        stale = set(core_state.routes) - wanted
+    with state.netns(config.CORE_NI) as core:
+        stale = set(core.state.routes) - wanted
         if stale:
-            state.ensure_routes(ni_core, core_state, [], managed=stale)
+            state.ensure_routes(core.ipr, core.state, [], managed=stale)
 
 
 def check_routes(keys: set[str] | None) -> None:
