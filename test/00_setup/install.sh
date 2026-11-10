@@ -6,7 +6,7 @@ apt-get update
 if [[ -z "${GITHUB_ACTIONS}" ]]; then
 apt-get upgrade -y
 fi
-apt-get install -y bridge-utils python3-pytest
+apt-get install -y bridge-utils python3-pytest python3-yaml
 # jool-tools
 
 if [[ -z "${GITHUB_ACTIONS}" ]]; then

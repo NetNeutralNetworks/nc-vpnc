@@ -1,3 +1,5 @@
+# Base lab: two hubs, two endpoints, management and clients. Deploy it with
+# deploy-base.sh.
 name: vpnc
 
 # mgmt:
@@ -15,42 +17,42 @@ topology:
   nodes:
     mgt00:
       kind: linux
-      image: nc-vpnc-lab:latest
-      cmd: /nc-vpnc/test/01_base_config/mgt/mgt00.sh
+      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_setup/lab/mgt/mgt00.sh
       startup-delay: 10
     mgt01:
       kind: linux
-      image: nc-vpnc-lab:latest
-      cmd: /nc-vpnc/test/01_base_config/mgt/mgt01.sh
+      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_setup/lab/mgt/mgt01.sh
       startup-delay: 10
     hub00:
       kind: linux
       # image: vrnetlab/vr-ubuntu:jammy
-      image: nc-vpnc:latest
-      cmd: /nc-vpnc/test/01_base_config/hub00/config.sh
+      image: nc-vpnc:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_setup/lab/hub00/config.sh
     hub01:
       kind: linux
-      image: nc-vpnc:latest
-      cmd: /nc-vpnc/test/01_base_config/hub01/config.sh
+      image: nc-vpnc:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_setup/lab/hub01/config.sh
     end00:
       kind: linux
-      image: nc-vpnc:latest
-      cmd: /nc-vpnc/test/01_base_config/end00/config.sh
+      image: nc-vpnc:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_setup/lab/end00/config.sh
       startup-delay: 20
     end01:
       kind: linux
-      image: nc-vpnc:latest
-      cmd: /nc-vpnc/test/01_base_config/end01/config.sh
+      image: nc-vpnc:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_setup/lab/end01/config.sh
       startup-delay: 20
     cli00:
       kind: linux
-      image: nc-vpnc-lab:latest
-      cmd: /nc-vpnc/test/01_base_config/cli/cli00.sh
+      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_setup/lab/cli/cli00.sh
       startup-delay: 30
     cli01:
       kind: linux
-      image: nc-vpnc-lab:latest
-      cmd: /nc-vpnc/test/01_base_config/cli/cli01.sh
+      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_setup/lab/cli/cli01.sh
       startup-delay: 30
     br-nc-vpnc:
       kind: bridge

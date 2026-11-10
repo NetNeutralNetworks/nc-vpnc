@@ -19,6 +19,7 @@ for c in $(docker ps -a --format '{{.Names}}' | grep '^clab-vpnc-' | sort); do
 done
 
 for h in hub00 hub01; do
+  docker inspect "clab-vpnc-${h}" &> /dev/null || continue
   section "${h} state"
   in_node "${h}" 'swanctl --list-sas 2>/dev/null | grep -E "^[A-Za-z0-9-]+: #"'
   for ni in CORE C0001-00 C0001-01; do
