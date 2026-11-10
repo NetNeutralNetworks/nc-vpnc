@@ -13,7 +13,7 @@ import vpnc.models.connections
 import vpnc.models.tenant
 from vpnc import config
 from vpnc.models import enums
-from vpnc.network import state
+from vpnc.network import namespace, state
 from vpnc.network.events import LinkMonitor
 from vpnc.services import configuration
 
@@ -198,7 +198,7 @@ def delete_core_routes(
     """Delete a network instance's routes in CORE (e.g. when it's removed)."""
     _, core_routes = desired_routes(net_inst, {})
     core_link = f"{net_inst.id}_C"
-    with pyroute2.IPRoute(netns=config.CORE_NI, flags=0) as ni_core:
+    with namespace.IPRoute(config.CORE_NI) as ni_core:
         core_state = state.NetnsState.read(ni_core)
         managed = {r.dst for r in core_routes} | {
             dst for dst, route in core_state.routes.items() if route.dev == core_link
@@ -216,7 +216,7 @@ def delete_stale_core_routes(
         wanted |= {r.dst for r in core_routes}
         if net_inst.id == config.CORE_NI:
             wanted |= {r.dst for r in ni_routes}
-    with pyroute2.IPRoute(netns=config.CORE_NI, flags=0) as ni_core:
+    with namespace.IPRoute(config.CORE_NI) as ni_core:
         core_state = state.NetnsState.read(ni_core)
         stale = set(core_state.routes) - wanted
         if stale:

@@ -1,17 +1,25 @@
-"""Manage network namespaces and run programs in them."""
+"""Manage network namespaces and run programs in them.
+
+pyroute2 forks the process to create a namespace or open a socket in one. Forking
+a multithreaded process can deadlock the child, so this is done in a short-lived
+thread moved into the namespace instead (the network namespace is per thread).
+"""
 
 from __future__ import annotations
 
 import atexit
 import logging
 import os
+import socket
 import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
+import pyroute2
 from pyroute2 import netns
+from pyroute2.netlink import NETLINK_ROUTE
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -36,7 +44,7 @@ def add(name: str, cleanup: bool = False) -> str:  # noqa: FBT001, FBT002
         path.unlink(missing_ok=True)
 
     if name not in netns.listnetns():
-        netns.create(name)
+        _create(name)
 
     if cleanup and name not in _CLEANUP:
         _CLEANUP.add(name)
@@ -67,18 +75,13 @@ class Result:
     stderr: str
 
 
-def call(name: str, func: Callable[[], T]) -> T:
-    """Call a function in a namespace and return its result.
-
-    The network namespace is per thread, so func runs in a short-lived thread
-    moved into the namespace. Processes started there inherit the namespace.
-    """
+def _in_thread(name: str, func: Callable[[], T]) -> T:
+    """Call a function in a new thread and return its result."""
     result: list[T] = []
     error: list[BaseException] = []
 
     def target() -> None:
         try:
-            netns.setns(name, flags=0)
             result.append(func())
         except BaseException as e:  # noqa: BLE001
             error.append(e)
@@ -89,6 +92,44 @@ def call(name: str, func: Callable[[], T]) -> T:
     if error:
         raise error[0]
     return result[0]
+
+
+def _create(name: str) -> None:
+    def create() -> None:
+        os.unshare(os.CLONE_NEWNET)
+        netns.attach(name, "thread-self")
+
+    _in_thread(name, create)
+
+
+def call(name: str, func: Callable[[], T]) -> T:
+    """Call a function in a namespace and return its result.
+
+    Processes and sockets created by func are in the namespace.
+    """
+
+    def target() -> T:
+        netns.setns(name, flags=0)
+        return func()
+
+    return _in_thread(name, target)
+
+
+class IPRoute(pyroute2.IPRoute):
+    """pyroute2 IPRoute for a namespace."""
+
+    def __init__(self, name: str) -> None:
+        """Open a netlink socket in the namespace (FileNotFoundError if missing)."""
+        super().__init__(fileno=netlink_socket(name))
+        self.netns = name
+
+
+def netlink_socket(name: str) -> int:
+    """Return the file descriptor of a new rtnetlink socket in a namespace."""
+    return call(
+        name,
+        lambda: socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, NETLINK_ROUTE),
+    ).detach()
 
 
 def run(name: str, args: list[str], timeout: float = 30) -> Result:

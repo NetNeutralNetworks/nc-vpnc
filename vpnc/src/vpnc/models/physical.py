@@ -11,7 +11,7 @@ import pyroute2
 from pydantic import BaseModel, field_validator
 
 from vpnc.models import connections, enums
-from vpnc.network import state
+from vpnc.network import namespace, state
 
 if TYPE_CHECKING:
     import vpnc.models.network_instance
@@ -46,7 +46,7 @@ class ConnectionConfigPhysical(BaseModel):
         ifname = connection.config.interface_name
         if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(network_instance)
         with (
-            pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl,
+            namespace.IPRoute(network_instance.id) as ni_dl,
             pyroute2.IPRoute() as ni_default,
         ):
             ni_state = state.NetnsState.read(ni_dl)
@@ -67,7 +67,7 @@ class ConnectionConfigPhysical(BaseModel):
         """Delete a connection."""
         interface_name = self.intf_name(network_instance, connection)
         # run the commands
-        with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
+        with namespace.IPRoute(network_instance.id) as ni_dl:
             if not ni_dl.link_lookup(ifname=interface_name):
                 return
             ifidx = ni_dl.link_lookup(ifname=interface_name)[0]

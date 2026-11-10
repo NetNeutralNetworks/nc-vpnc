@@ -9,7 +9,6 @@ from enum import Enum
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING, Any, Literal
 
-import pyroute2
 import vici
 import vici.exception
 from pydantic import BaseModel, Field, field_validator
@@ -17,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from vpnc import config
 from vpnc.models import connections, enums
 from vpnc.models.secret import Secret
-from vpnc.network import state
+from vpnc.network import namespace, state
 
 if TYPE_CHECKING:
     import vpnc.models.network_instance
@@ -105,8 +104,8 @@ class ConnectionConfigIPsec(BaseModel):
         )
 
         with (
-            pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl,
-            pyroute2.IPRoute(netns=config.EXTERNAL_NI, flags=0) as ni_ext,
+            namespace.IPRoute(network_instance.id) as ni_dl,
+            namespace.IPRoute(config.EXTERNAL_NI) as ni_ext,
         ):
             ni_state = state.NetnsState.read(ni_dl)
             state.ensure_xfrm(ni_dl, ni_ext, ni_state, xfrm, vpn_id)
@@ -121,7 +120,7 @@ class ConnectionConfigIPsec(BaseModel):
     ) -> None:
         """Delete a connection."""
         interface_name = self.intf_name(network_instance, connection)
-        with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
+        with namespace.IPRoute(network_instance.id) as ni_dl:
             state.delete_link(ni_dl, state.NetnsState.read(ni_dl), interface_name)
 
         vcs = vici.Session()

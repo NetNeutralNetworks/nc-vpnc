@@ -9,7 +9,6 @@ import subprocess
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal
 
-import pyroute2
 from pydantic import BaseModel, Field, field_validator
 
 from vpnc import config
@@ -53,8 +52,8 @@ class ConnectionConfigWireGuard(BaseModel):
         )
 
         with (
-            pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl,
-            pyroute2.IPRoute(netns=config.EXTERNAL_NI, flags=0) as ni_ext,
+            namespace.IPRoute(network_instance.id) as ni_dl,
+            namespace.IPRoute(config.EXTERNAL_NI) as ni_ext,
         ):
             ni_state = state.NetnsState.read(ni_dl)
             state.ensure_wireguard(ni_dl, ni_ext, ni_state, wg)
@@ -81,7 +80,7 @@ class ConnectionConfigWireGuard(BaseModel):
     ) -> None:
         """Delete a connection."""
         interface_name = self.intf_name(network_instance, connection)
-        with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
+        with namespace.IPRoute(network_instance.id) as ni_dl:
             state.delete_link(ni_dl, state.NetnsState.read(ni_dl), interface_name)
 
         config_file = config.WIREGUARD_CONFIG_DIR.joinpath(f"{interface_name}.conf")

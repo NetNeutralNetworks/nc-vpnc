@@ -13,12 +13,12 @@ from collections.abc import Callable
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-import pyroute2
 import vici
 import vici.exception
 
 from vpnc import config, shared
 from vpnc.models import info
+from vpnc.network import namespace
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -354,7 +354,7 @@ class Monitor(threading.Thread):
                 break
         action = "up" if tunnel_up else "down"
 
-        with pyroute2.IPRoute(netns=network_instance_name, flags=0) as netns:
+        with namespace.IPRoute(network_instance_name) as netns:
             ifname = f"xfrm{connection_id}"
             if not (iflookup := netns.link_lookup(ifname=ifname)):
                 log = logger.debug if missing_ok else logger.warning

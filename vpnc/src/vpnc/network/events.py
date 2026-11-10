@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 from pyroute2 import AsyncIPRoute
 from pyroute2.netlink.rtnl import RTMGRP_LINK
 
+from vpnc.network import namespace
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -66,7 +68,9 @@ class LinkMonitor(threading.Thread):
         """Receive link events, reopening the socket after failures."""
         while True:
             try:
-                async with AsyncIPRoute(netns=self.netns, flags=0) as ipr:
+                async with AsyncIPRoute(
+                    fileno=namespace.netlink_socket(self.netns),
+                ) as ipr:
                     await ipr.bind(groups=RTMGRP_LINK)
                     self.ready.set()
                     while True:

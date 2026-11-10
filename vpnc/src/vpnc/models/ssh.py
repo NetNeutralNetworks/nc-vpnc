@@ -8,13 +8,12 @@ import subprocess
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Literal
 
-import pyroute2
 from pydantic import BaseModel, field_validator
 
 import vpnc.models.network_instance
 import vpnc.services.ssh
 from vpnc.models import connections, enums
-from vpnc.network import state
+from vpnc.network import namespace, state
 
 logger = logging.getLogger("vpnc")
 
@@ -55,7 +54,7 @@ class ConnectionConfigSSH(BaseModel):
             network_instance,
         )
 
-        with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
+        with namespace.IPRoute(network_instance.id) as ni_dl:
             ni_state = state.NetnsState.read(ni_dl)
             state.ensure_tun(ni_dl, ni_state, tun)
             state.ensure_link_state(ni_dl, ni_state, tun, up=True)
@@ -72,7 +71,7 @@ class ConnectionConfigSSH(BaseModel):
         """Delete a connection."""
         vpnc.services.ssh.stop(network_instance, connection)
         interface_name = self.intf_name(network_instance, connection)
-        with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
+        with namespace.IPRoute(network_instance.id) as ni_dl:
             state.delete_link(ni_dl, state.NetnsState.read(ni_dl), interface_name)
 
     def intf_name(

@@ -13,12 +13,13 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
+import pyroute2
 from pyroute2.netlink.exceptions import NetlinkError
+
+from vpnc.network import namespace
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
-
-    import pyroute2
 
 logger = logging.getLogger("vpnc")
 
@@ -89,9 +90,9 @@ class NetnsState:
     routes: dict[IPNetwork, Route] = field(default_factory=dict)
 
     @classmethod
-    def read(cls, ipr: pyroute2.IPRoute) -> NetnsState:
+    def read(cls, ipr: namespace.IPRoute) -> NetnsState:
         """Read the state of the namespace of ipr."""
-        state = cls(name=ipr.status["netns"])
+        state = cls(name=ipr.netns)
         names: dict[int, str] = {}
         for msg in ipr.get_links():
             name = msg.get("ifname")
@@ -237,7 +238,14 @@ def ensure_tun(ipr: pyroute2.IPRoute, state: NetnsState, name: str) -> bool:
         return False
     delete_link(ipr, state, name)
     logger.info("Creating tun interface %s in %s.", name, state.name)
-    ipr.link("add", ifname=name, kind="tuntap", mode="tun")
+
+    # pyroute2 creates tun interfaces via /dev/net/tun in the calling thread's
+    # namespace, not via netlink.
+    def create() -> None:
+        with pyroute2.IPRoute() as ipr_ns:
+            ipr_ns.link("add", ifname=name, kind="tuntap", mode="tun")
+
+    namespace.call(state.name, create)
     refresh_link(ipr, state, name)
     return True
 
