@@ -2,14 +2,16 @@
 
 Each ensure function compares the desired state with a snapshot (NetnsState),
 changes only what differs, keeps the snapshot up to date and returns whether it
-changed something. Reading a namespace once and reusing the snapshot keeps a
-full check cheap.
+changed something. Within a session() a namespace is read once and its socket
+and snapshot are shared, which keeps a full check cheap.
 """
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -19,7 +21,7 @@ from pyroute2.netlink.exceptions import NetlinkError
 from vpnc.network import namespace
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
 
 logger = logging.getLogger("vpnc")
 
@@ -121,6 +123,67 @@ class NetnsState:
         return state
 
 
+class Netns:
+    """A socket in a namespace and its snapshot, read on first use."""
+
+    def __init__(self, name: str) -> None:
+        """Open a socket in the namespace."""
+        self.ipr = namespace.IPRoute(name)
+        self._state: NetnsState | None = None
+
+    @property
+    def state(self) -> NetnsState:
+        """Return the snapshot of the namespace."""
+        if self._state is None:
+            self._state = NetnsState.read(self.ipr)
+        return self._state
+
+    def invalidate(self) -> None:
+        """Read the namespace again on the next use."""
+        self._state = None
+
+
+_SESSION = threading.local()
+
+
+@contextlib.contextmanager
+def session() -> Iterator[None]:
+    """Share one socket and snapshot per namespace in this thread until the end.
+
+    Only changes made through the ensure functions are seen meanwhile.
+    """
+    if getattr(_SESSION, "open", None) is not None:
+        yield
+        return
+    _SESSION.open = {}
+    try:
+        yield
+    finally:
+        opened: dict[str, Netns] = _SESSION.open
+        _SESSION.open = None
+        for netns in opened.values():
+            netns.ipr.close()
+
+
+@contextlib.contextmanager
+def netns(name: str) -> Iterator[Netns]:
+    """Open a namespace; within a session() the shared one."""
+    opened: dict[str, Netns] | None = getattr(_SESSION, "open", None)
+    if opened is None:
+        ns = Netns(name)
+        with ns.ipr:
+            yield ns
+        return
+    if name not in opened:
+        opened[name] = Netns(name)
+    try:
+        yield opened[name]
+    except BaseException:
+        # A failed change may have left the snapshot behind.
+        opened[name].invalidate()
+        raise
+
+
 def _route_from_msg(msg: dict, names: dict[int, str]) -> Route:  # type: ignore[type-arg]
     dst = msg.get("dst") or ("::" if msg["family"] == 10 else "0.0.0.0")  # noqa: PLR2004, S104
     network = ipaddress.ip_network(f"{dst}/{msg['dst_len']}")
@@ -176,6 +239,8 @@ def delete_link(ipr: pyroute2.IPRoute, state: NetnsState, name: str) -> bool:
     state.links.pop(name, None)
     state.addresses.pop(name, None)
     state.link_local.pop(name, None)
+    # The kernel deleted the routes via the interface.
+    refresh_routes(ipr, state)
     return True
 
 

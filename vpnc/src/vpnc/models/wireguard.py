@@ -52,11 +52,11 @@ class ConnectionConfigWireGuard(BaseModel):
         )
 
         with (
-            namespace.IPRoute(network_instance.id) as ni_dl,
-            namespace.IPRoute(config.EXTERNAL_NI) as ni_ext,
+            state.netns(network_instance.id) as dl,
+            state.netns(config.EXTERNAL_NI) as ext,
         ):
-            ni_state = state.NetnsState.read(ni_dl)
-            state.ensure_wireguard(ni_dl, ni_ext, ni_state, wg)
+            ni_dl, ni_state = dl.ipr, dl.state
+            state.ensure_wireguard(ni_dl, ext.ipr, ni_state, wg)
             state.ensure_link_state(ni_dl, ni_state, wg, up=True)
             state.ensure_addresses(ni_dl, ni_state, wg, [*if_ipv4, *if_ipv6])
 
@@ -80,8 +80,8 @@ class ConnectionConfigWireGuard(BaseModel):
     ) -> None:
         """Delete a connection."""
         interface_name = self.intf_name(network_instance, connection)
-        with namespace.IPRoute(network_instance.id) as ni_dl:
-            state.delete_link(ni_dl, state.NetnsState.read(ni_dl), interface_name)
+        with state.netns(network_instance.id) as dl:
+            state.delete_link(dl.ipr, dl.state, interface_name)
 
         config_file = config.WIREGUARD_CONFIG_DIR.joinpath(f"{interface_name}.conf")
         config_file.unlink(missing_ok=True)

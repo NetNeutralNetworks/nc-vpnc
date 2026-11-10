@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from vpnc import config
 from vpnc.models import connections, enums
 from vpnc.models.secret import Secret
-from vpnc.network import namespace, state
+from vpnc.network import state
 
 if TYPE_CHECKING:
     import vpnc.models.network_instance
@@ -104,11 +104,11 @@ class ConnectionConfigIPsec(BaseModel):
         )
 
         with (
-            namespace.IPRoute(network_instance.id) as ni_dl,
-            namespace.IPRoute(config.EXTERNAL_NI) as ni_ext,
+            state.netns(network_instance.id) as dl,
+            state.netns(config.EXTERNAL_NI) as ext,
         ):
-            ni_state = state.NetnsState.read(ni_dl)
-            state.ensure_xfrm(ni_dl, ni_ext, ni_state, xfrm, vpn_id)
+            ni_dl, ni_state = dl.ipr, dl.state
+            state.ensure_xfrm(ni_dl, ext.ipr, ni_state, xfrm, vpn_id)
             state.ensure_addresses(ni_dl, ni_state, xfrm, [*if_ipv4, *if_ipv6])
 
         return xfrm
@@ -120,8 +120,8 @@ class ConnectionConfigIPsec(BaseModel):
     ) -> None:
         """Delete a connection."""
         interface_name = self.intf_name(network_instance, connection)
-        with namespace.IPRoute(network_instance.id) as ni_dl:
-            state.delete_link(ni_dl, state.NetnsState.read(ni_dl), interface_name)
+        with state.netns(network_instance.id) as dl:
+            state.delete_link(dl.ipr, dl.state, interface_name)
 
         vcs = vici.Session()
         try:
