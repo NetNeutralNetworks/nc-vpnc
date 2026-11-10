@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from vpnc import config
 from vpnc.models import connections, enums
+from vpnc.models.secret import Secret
 from vpnc.services import wireguard
 
 if TYPE_CHECKING:
@@ -30,7 +31,7 @@ class ConnectionConfigWireGuard(BaseModel):
     local_port: int = Field(default=51820, ge=0, le=65535)
     remote_addrs: list[IPv4Address | IPv6Address]
     remote_port: int = Field(default=51820, ge=0, le=65535)
-    private_key: str
+    private_key: Secret
     public_key: str
 
     @field_validator("type", mode="before")

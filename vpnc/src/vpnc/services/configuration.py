@@ -20,6 +20,7 @@ import vpnc.models.network_instance
 import vpnc.models.tenant
 from vpnc import config
 from vpnc.models import enums, info
+from vpnc.models.secret import REVEAL
 from vpnc.services import frr, vpncmangle
 
 if TYPE_CHECKING:
@@ -148,7 +149,7 @@ def manage_tenant(path: pathlib.Path) -> None:
             "w",
             encoding="utf-8",
         ) as fhb:
-            output = tenant.model_dump(mode="json")
+            output = tenant.model_dump(mode="json", context=REVEAL)
             try:
                 fha.write(
                     yaml.safe_dump(output, explicit_start=True, explicit_end=True),
