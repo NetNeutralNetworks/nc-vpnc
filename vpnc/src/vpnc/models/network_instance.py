@@ -453,7 +453,7 @@ class NetworkInstance(BaseModel):
         """Delete a link between a DOWNLINK and the CORE network instance."""
         with namespace.IPRoute(self.id) as ni_dl:
             state.delete_link(ni_dl, state.NetnsState.read(ni_dl), f"{self.id}_D")
-        namespace.run(self.id, ["jool", "instance", "remove", self.id])
+        namespace.run(self.id, ["/usr/bin/jool", "instance", "remove", self.id])
 
 
 class NetworkInstanceExternal(NetworkInstance):
@@ -675,12 +675,12 @@ class NetworkInstanceDownlink(NetworkInstance):
         # Configure NAT64 (Jool) only if the instance differs.
         current = namespace.run(
             self.id,
-            ["jool", "-i", self.id, "global", "display", "--csv"],
+            ["/usr/bin/jool", "-i", self.id, "global", "display", "--csv"],
         )
         if current.returncode == 0:
             if f"pool6,{nat64_scope}" in current.stdout.splitlines():
                 return
-            namespace.run(self.id, ["jool", "instance", "remove", self.id])
+            namespace.run(self.id, ["/usr/bin/jool", "instance", "remove", self.id])
         logger.info(
             "Configuring network instance %s NAT64 scope %s",
             self.id,
@@ -689,7 +689,7 @@ class NetworkInstanceDownlink(NetworkInstance):
         result = namespace.run(
             self.id,
             [
-                "jool",
+                "/usr/bin/jool",
                 "instance",
                 "add",
                 self.id,
