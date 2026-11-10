@@ -72,23 +72,15 @@ def is_initiator(connection: dict[str, Any]) -> bool:
 
 def xfrm_policies() -> set[XfrmPolicy]:
     """Return the XFRM policies with an if_id in the EXTERNAL network instance."""
-    output = subprocess.run(  # noqa: S603
-        [
-            "/usr/sbin/ip",
-            "netns",
-            "exec",
-            config.EXTERNAL_NI,
-            "/usr/sbin/ip",
-            "xfrm",
-            "policy",
-            "list",
-            "nosock",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
+    result = namespace.run(
+        config.EXTERNAL_NI,
+        ["/usr/sbin/ip", "xfrm", "policy", "list", "nosock"],
         timeout=10,
-    ).stdout
+    )
+    if result.returncode:
+        msg = f"Listing the XFRM policies failed: {result.stderr.strip()}"
+        raise RuntimeError(msg)
+    output = result.stdout
     policies: set[XfrmPolicy] = set()
     selector = direction = ""
     for line in output.splitlines():
@@ -104,12 +96,9 @@ def xfrm_policies() -> set[XfrmPolicy]:
 def delete_xfrm_policy(policy: XfrmPolicy) -> None:
     """Delete an XFRM policy in the EXTERNAL network instance."""
     selector, direction, if_id = policy
-    subprocess.run(  # noqa: S603
+    namespace.run(
+        config.EXTERNAL_NI,
         [
-            "/usr/sbin/ip",
-            "netns",
-            "exec",
-            config.EXTERNAL_NI,
             "/usr/sbin/ip",
             "xfrm",
             "policy",
@@ -120,8 +109,6 @@ def delete_xfrm_policy(policy: XfrmPolicy) -> None:
             "if_id",
             hex(if_id),
         ],
-        capture_output=True,
-        check=False,
         timeout=10,
     )
 
