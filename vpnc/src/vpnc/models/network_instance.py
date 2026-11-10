@@ -497,7 +497,7 @@ class NetworkInstanceCore(NetworkInstance):
     type: Literal[enums.NetworkInstanceType.CORE] = enums.NetworkInstanceType.CORE
 
     def _reconcile_services(self) -> None:
-        strongswan.generate_config(self)
+        strongswan.apply(self)
         if tenant.get_default_tenant().mode == enums.ServiceMode.HUB:
             frr.generate_config()
 
@@ -539,7 +539,7 @@ class NetworkInstanceDownlink(NetworkInstance):
 
     def _reconcile_services(self) -> None:
         self._set_downlink_nat64()
-        strongswan.generate_config(self)
+        strongswan.apply(self)
 
     def delete(self) -> None:
         """Delete a DOWNLINK network instance."""

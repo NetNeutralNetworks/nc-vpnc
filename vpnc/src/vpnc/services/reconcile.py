@@ -23,7 +23,7 @@ from vpnc import config, shared
 from vpnc.models import enums, tenant
 from vpnc.network import namespace, state
 from vpnc.network.events import LinkMonitor
-from vpnc.services import configuration, frr
+from vpnc.services import configuration, frr, strongswan
 
 if TYPE_CHECKING:
     from vpnc.models.network_instance import NetworkInstance
@@ -242,9 +242,7 @@ def remove_unconfigured(
 
 def remove_network_instance(network_instance: NetworkInstance) -> None:
     """Remove a network instance with its connections, routes and VPN config."""
-    config.IPSEC_CONFIG_DIR.joinpath(f"{network_instance.id}.conf").unlink(
-        missing_ok=True,
-    )
+    strongswan.remove(network_instance.id)
     unwatch(network_instance.id)
     network_instance.delete()
     # The kernel deleted its link to CORE.
