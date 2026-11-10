@@ -168,8 +168,9 @@ def apply_network_instance(network_instance: NetworkInstance) -> bool:
     Returns whether the configuration was updated (new NPTv6 prefixes).
     """
     previous = APPLIED.get(network_instance.id)
-    updated = network_instance.reconcile(previous)
-    # Monitor before reading the links, so no change is missed.
+    with state.session():
+        updated = network_instance.reconcile(previous)
+    # Monitor before reading the links again, so no change is missed.
     watch(network_instance.id)
     reconcile_routes(network_instance, previous)
     APPLIED[network_instance.id] = network_instance

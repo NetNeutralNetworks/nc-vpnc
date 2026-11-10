@@ -288,11 +288,10 @@ class NetworkInstance(BaseModel):
     def _delete_unconfigured_interfaces(self) -> None:
         """Delete connection interfaces (XFRM, tun, WireGuard) no longer configured."""
         configured = set(self._get_network_instance_connections())
-        with namespace.IPRoute(self.id) as ni_dl:
-            ni_state = state.NetnsState.read(ni_dl)
-            for name, link in list(ni_state.links.items()):
+        with state.netns(self.id) as dl:
+            for name, link in list(dl.state.links.items()):
                 if link.kind in ("xfrm", "tun", "wireguard") and name not in configured:
-                    state.delete_link(ni_dl, ni_state, name)
+                    state.delete_link(dl.ipr, dl.state, name)
 
     def delete_network_instance(self) -> None:
         """Delete a network instance (Linux namespace)."""
@@ -418,11 +417,11 @@ class NetworkInstance(BaseModel):
             config.CORE_NI,
         )
         with (
-            namespace.IPRoute(self.id) as ni_dl,
-            namespace.IPRoute(config.CORE_NI) as ni_core,
+            state.netns(self.id) as dl,
+            state.netns(config.CORE_NI) as core,
         ):
-            core_state = state.NetnsState.read(ni_core)
-            dl_state = state.NetnsState.read(ni_dl)
+            ni_dl, dl_state = dl.ipr, dl.state
+            ni_core, core_state = core.ipr, core.state
             state.ensure_veth(ni_core, core_state, veth_c, veth_d, self.id)
             state.refresh_link(ni_dl, dl_state, veth_d)
             state.ensure_link_state(ni_core, core_state, veth_c, up=True)
@@ -449,8 +448,8 @@ class NetworkInstance(BaseModel):
         self,
     ) -> None:
         """Delete a link between a DOWNLINK and the CORE network instance."""
-        with namespace.IPRoute(self.id) as ni_dl:
-            state.delete_link(ni_dl, state.NetnsState.read(ni_dl), f"{self.id}_D")
+        with state.netns(self.id) as dl:
+            state.delete_link(dl.ipr, dl.state, f"{self.id}_D")
         namespace.run(self.id, ["/usr/bin/jool", "instance", "remove", self.id])
 
 
