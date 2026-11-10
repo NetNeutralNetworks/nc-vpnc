@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import pathlib
 import re
-import subprocess
 import time
 from abc import abstractmethod
 from ipaddress import (
@@ -252,12 +251,10 @@ class NetworkInstance(BaseModel):
             return False
         logger.info("Configuring network instance %s iptables rules.", self.id)
         logger.debug(script)
-        subprocess.run(  # noqa: S602
-            script,
-            stdout=subprocess.PIPE,
-            shell=True,
-            check=True,
-        )
+        result = namespace.run(self.id, ["/bin/sh", "-c", script])
+        if result.returncode:
+            msg = f"Configuring iptables failed: {result.stderr.strip()}"
+            raise RuntimeError(msg)
         IPTABLES_APPLIED[self.id] = (script, _iptables_rules(self.id))
         return True
 

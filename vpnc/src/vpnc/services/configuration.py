@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import pathlib
-import subprocess
 import time
 from ipaddress import AddressValueError, IPv4Network, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING
@@ -21,6 +20,7 @@ import vpnc.models.tenant
 from vpnc import config, files
 from vpnc.models import enums, info
 from vpnc.models.secret import REVEAL
+from vpnc.network import namespace
 from vpnc.services import vpncmangle
 
 if TYPE_CHECKING:
@@ -251,24 +251,20 @@ def get_network_instance_nat64_mappings_state(
     network_instance_name: str,
 ) -> tuple[IPv6Network, IPv4Network] | None:
     """Retrieve the live NAT64 mapping configured in Jool."""
-    proc = subprocess.run(  # noqa: S602
-        (
-            f"/usr/sbin/ip netns exec {network_instance_name}"
-            f" jool --instance {network_instance_name} global display |"
-            " grep pool6 |"
-            " awk '{ print $2 }'"
-        ),
-        capture_output=True,
-        text=True,
-        shell=True,
-        check=False,
-    )
-
-    if not proc.stdout.strip():
+    output = namespace.run(
+        network_instance_name,
+        ["jool", "--instance", network_instance_name, "global", "display"],
+    ).stdout
+    pool6 = [
+        fields[1]
+        for fields in map(str.split, output.splitlines())
+        if len(fields) > 1 and "pool6" in fields[0]
+    ]
+    if len(pool6) != 1:
         return None
     try:
-        return IPv6Network(proc.stdout.strip()), IPv4Network("0.0.0.0/0")
-    except AddressValueError:
+        return IPv6Network(pool6[0]), IPv4Network("0.0.0.0/0")
+    except (AddressValueError, ValueError):
         return None
 
 
@@ -276,29 +272,19 @@ def get_network_instance_nptv6_mappings_state(
     network_instance_name: str,
 ) -> list[tuple[IPv6Network, IPv6Network]]:
     """Retrieve the live NPTv6 mapping configured in ip6tables."""
-    proc = subprocess.run(  # noqa: S602
-        (
-            f"/usr/sbin/ip netns exec {network_instance_name}"
-            " ip6tables -t nat -L |"
-            " grep NETMAP |"
-            " awk '{print $5,$6}'"
-        ),
-        stdout=subprocess.PIPE,
-        shell=True,
-        check=False,
-    )
-
-    output: list[tuple[IPv6Network, IPv6Network]] = []
-
-    if not proc.stdout:
-        return output
-    try:
-        for mapping_str in proc.stdout.decode().strip().split("\n"):
-            mapping: list[str] = mapping_str.split()
-            local = IPv6Network(mapping[0])
-            remote = IPv6Network(mapping[1].split("to:", maxsplit=1)[1])
-
-            output.append((local, remote))
-    except AddressValueError:
-        return output
-    return output
+    output = namespace.run(
+        network_instance_name,
+        ["/usr/sbin/ip6tables", "-t", "nat", "-n", "-L"],
+    ).stdout
+    mappings: list[tuple[IPv6Network, IPv6Network]] = []
+    for line in output.splitlines():
+        if "NETMAP" not in line:
+            continue
+        fields = line.split()
+        try:
+            local = IPv6Network(fields[4])
+            remote = IPv6Network(fields[5].split("to:", maxsplit=1)[1])
+        except (AddressValueError, ValueError, IndexError):
+            return mappings
+        mappings.append((local, remote))
+    return mappings
