@@ -49,8 +49,8 @@ def check_system_requirements() -> None:
     if tenant_config.mode != enums.ServiceMode.HUB:
         return
 
-    # vpncmangle queues DNS responses with ip6tables.
-    hub_module_list: list[str] = ["xt_NFQUEUE"]
+    # vpncmangle queues DNS responses with nftables.
+    hub_module_list: list[str] = ["nft_queue"]
     try:
         for module in hub_module_list:
             logger.debug("Verifying kernel module %s is installed", module)
