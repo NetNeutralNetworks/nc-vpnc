@@ -6,7 +6,6 @@ import logging
 import pathlib
 import re
 import subprocess
-import sys
 import time
 from abc import abstractmethod
 from ipaddress import IPv4Interface, IPv6Interface
@@ -109,11 +108,6 @@ class NetworkInstance(BaseModel):
         return v
 
     @abstractmethod
-    def set(self, active_network_instance: NetworkInstance | None) -> bool:
-        """Set a network instance."""
-        raise NotImplementedError
-
-    @abstractmethod
     def delete(self) -> None:
         """Delete a network instance."""
         raise NotImplementedError
@@ -123,29 +117,14 @@ class NetworkInstance(BaseModel):
         """Add ip(6)table rules for the namespace."""
         raise NotImplementedError
 
-    def set_network_instance(
-        self,
-        active_network_instance: NetworkInstance | None,
-        *,
-        cleanup: bool = False,
-    ) -> bool:
-        """Set up the network instance at startup (before the reconciler runs)."""
-        if self == active_network_instance:
-            return False
-        logger.info("Setting up the %s network instance.", self.id)
-        self._ensure_namespace(cleanup=cleanup)
-        self.set_iptables()
-        routes.start(self.id)
-        self._set_network_instance_connections(active_network_instance)
-        return False
-
     def reconcile(self, previous: NetworkInstance | None = None) -> bool:
         """Make the network instance match its configuration; only fixes differences.
 
         previous is the configuration applied before, to remove what's gone.
         Returns whether the configuration was updated (new NPTv6 prefixes).
         """
-        self._ensure_namespace(cleanup=False)
+        # DOWNLINK namespaces are removed when vpnc stops.
+        self._ensure_namespace(cleanup=self.type == enums.NetworkInstanceType.DOWNLINK)
         updated = self.set_iptables()
         routes.start(self.id)
         self._set_network_instance_connections(previous)
@@ -321,16 +300,14 @@ class NetworkInstance(BaseModel):
         sorted_connections = ssh_connections + other_connections
 
         for conn in sorted_connections:
+            interface_name = conn.intf_name(self)
+            if not interface_name or interface_name in configured_connections:
+                continue
             logger.info(
                 "Deleting network instance %s connection %s.",
                 active_network_instance.id,
                 conn.id,
             )
-            interface_name = conn.intf_name(self)
-            if not interface_name:
-                continue
-            if interface_name in configured_connections:
-                continue
 
             conn.delete(active_network_instance)
 
@@ -342,7 +319,7 @@ class NetworkInstance(BaseModel):
         veth_c = f"{self.id}_C"
         veth_d = f"{self.id}_D"
 
-        logger.info(
+        logger.debug(
             "Setting up the connection between %s and the %s network instance",
             self.id,
             config.CORE_NI,
@@ -391,24 +368,6 @@ class NetworkInstanceExternal(NetworkInstance):
         enums.NetworkInstanceType.EXTERNAL
     )
 
-    def set(
-        self,
-        active_network_instance: NetworkInstance | None,
-    ) -> bool:
-        """Set an EXTERNAL network instance."""
-        try:
-            super().set_network_instance(active_network_instance, cleanup=False)
-        except ValueError:
-            logger.critical(
-                "Setting up the %s network instance failed.",
-                config.EXTERNAL_NI,
-            )
-            sys.exit(1)
-
-        _ = self.set_iptables()
-
-        return False
-
     def delete(self) -> None:
         """Delete an EXTERNAL network instance."""
         self.delete_network_instance()
@@ -432,31 +391,6 @@ class NetworkInstanceCore(NetworkInstance):
     """Define a CORE network instance data structure."""
 
     type: Literal[enums.NetworkInstanceType.CORE] = enums.NetworkInstanceType.CORE
-
-    def set(
-        self,
-        active_network_instance: NetworkInstance | None,
-    ) -> bool:
-        """Configure the CORE network instance (Linux namespace)."""
-        default_tenant = tenant.get_default_tenant()
-        # Set the network instance
-        super().set_network_instance(
-            active_network_instance,
-            cleanup=False,
-        )
-
-        # IP(6)TABLES RULES
-        _ = self.set_iptables()
-
-        # VPN
-        logger.info("Setting up VPN tunnels.")
-        strongswan.generate_config(self)
-
-        if default_tenant.mode == enums.ServiceMode.HUB:
-            # FRR
-            frr.generate_config()
-
-        return False
 
     def _reconcile_services(self) -> None:
         strongswan.generate_config(self)
@@ -498,29 +432,6 @@ class NetworkInstanceDownlink(NetworkInstance):
     type: Literal[enums.NetworkInstanceType.DOWNLINK] = (
         enums.NetworkInstanceType.DOWNLINK
     )
-
-    def set(
-        self,
-        active_network_instance: NetworkInstance | None,
-    ) -> bool:
-        """Configure the DOWNLINKnetwork instance (Linux namespace)."""
-        # Set the network instance
-        super().set_network_instance(
-            active_network_instance,
-            cleanup=True,
-        )
-
-        # IP(6)TABLES RULES including NPTv6
-        updated = self.set_iptables()
-
-        # Configure NAT64
-        self._set_downlink_nat64()
-
-        # VPN
-        logger.info("Setting up VPN tunnels.")
-        strongswan.generate_config(self)
-
-        return updated
 
     def _reconcile_services(self) -> None:
         self._set_downlink_nat64()
@@ -706,22 +617,6 @@ class NetworkInstanceEndpoint(NetworkInstance):
     type: Literal[enums.NetworkInstanceType.ENDPOINT] = (
         enums.NetworkInstanceType.ENDPOINT
     )
-
-    def set(
-        self,
-        active_network_instance: NetworkInstance | None,
-    ) -> bool:
-        """Configure the DOWNLINKnetwork instance (Linux namespace)."""
-        # Set the network instance
-        super().set_network_instance(
-            active_network_instance,
-            cleanup=False,
-        )
-
-        # IP(6)TABLES RULES including NPTv6
-        self.set_iptables()
-
-        return False
 
     def delete(self) -> None:
         """Delete an ENDPOINT network instance."""
