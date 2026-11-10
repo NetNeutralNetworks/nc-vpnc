@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import pathlib
 import re
-import time
 from abc import abstractmethod
 from ipaddress import (
     IPv4Address,
@@ -364,7 +363,6 @@ class NetworkInstance(BaseModel):
                     connection,
                 )
                 continue
-            time.sleep(0.01)
 
     def _delete_network_instance_connections(
         self,
