@@ -1,24 +1,25 @@
-"""Manages VPN connections and observers used to monitor file changes."""
+"""Configures WireGuard interfaces over netlink and writes their files.
+
+The files (wg-*.conf) are for operators; vpnc doesn't read them.
+"""
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import pathlib
-import time
 from ipaddress import IPv4Address
 from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, FileSystemLoader
-from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
-from watchdog.observers import Observer
+from pyroute2 import WireGuard
 
 from vpnc import config, files
 from vpnc.models import enums
 from vpnc.network import namespace
 
 if TYPE_CHECKING:
-    from watchdog.observers.api import BaseObserver
-
+    from vpnc.models.connections import Connection
     from vpnc.models.network_instance import NetworkInstance
 
 logger = logging.getLogger("vpnc")
@@ -26,57 +27,6 @@ logger = logging.getLogger("vpnc")
 BASE_DIR = pathlib.Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR.joinpath("templates")
 TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True)
-
-
-def observe() -> BaseObserver:
-    """Create the observer for wireguard configuration."""
-
-    # Define what should happen when downlink files are created, modified or deleted.
-    class WireGuardHandler(PatternMatchingEventHandler):
-        """Handler for the event monitoring."""
-
-        def on_created(self, event: FileSystemEvent) -> None:
-            logger.info("File %s: %s", event.event_type, event.src_path)
-            time.sleep(0.1)
-            self.reload_config(event.src_path)
-
-        def on_modified(self, event: FileSystemEvent) -> None:
-            logger.info("File %s: %s", event.event_type, event.src_path)
-            time.sleep(0.1)
-            self.reload_config(event.src_path)
-
-        # ###########################################################################################
-        # def on_deleted(self, event: FileSystemEvent) -> None:
-        #     logger.info("File %s: %s", event.event_type, event.src_path)
-        #     time.sleep(0.1)
-        #     self.reload_config(event.src_path)
-
-        def reload_config(self, file: str) -> None:
-            """Load wireguard connection configurations."""
-            intf_name = pathlib.Path(file).stem
-            logger.info("Loading wireguard connection %s.", intf_name)
-            network_instance_name = intf_name[3:-2]
-            result = namespace.run(
-                network_instance_name,
-                ["/usr/bin/wg", "setconf", intf_name, file],
-            )
-            if result.returncode:
-                logger.error("Loading %s failed: %s", intf_name, result.stderr.strip())
-
-    # Create the observer object. This doesn't start the handler.
-    observer: BaseObserver = Observer()
-
-    # Configure the event handler that watches directories.
-    # This doesn't start the handler.
-    observer.schedule(
-        event_handler=WireGuardHandler(patterns=["wg*.conf"], ignore_directories=True),
-        path=config.WIREGUARD_CONFIG_DIR,
-        recursive=False,
-    )
-    # The handler should exit on main thread close
-    observer.daemon = True
-
-    return observer
 
 
 def generate_config(
@@ -122,3 +72,96 @@ def generate_config(
                 network_instance.id,
                 connection.id,
             )
+
+
+KEEPALIVE = 25
+
+
+def _peer(connection: Connection) -> dict[str, Any]:
+    """Return the desired peer of a connection, as pyroute2 sets it."""
+    cfg = connection.config
+    return {
+        "public_key": cfg.public_key,
+        "endpoint_addr": str(cfg.remote_addrs[0]),
+        "endpoint_port": cfg.remote_port,
+        "persistent_keepalive": KEEPALIVE,
+        "allowed_ips": [
+            str(route.to) for route in connection.routes.ipv4 + connection.routes.ipv6
+        ],
+        "replace_allowed_ips": True,
+    }
+
+
+def _peers(device: Any) -> dict[str, Any]:  # noqa: ANN401
+    return {
+        peer.get("WGPEER_A_PUBLIC_KEY").decode(): peer
+        for peer in device.get("WGDEVICE_A_PEERS") or []
+    }
+
+
+def _peer_differs(current: Any, desired: dict[str, Any]) -> bool:  # noqa: ANN401
+    endpoint = current.get("WGPEER_A_ENDPOINT") or {}
+    allowed = {
+        ipaddress.ip_network(a["addr"])
+        for a in current.get("WGPEER_A_ALLOWEDIPS") or []
+    }
+    return (
+        endpoint.get("port") != desired["endpoint_port"]
+        or endpoint.get("addr") is None
+        or ipaddress.ip_address(endpoint["addr"])
+        != ipaddress.ip_address(desired["endpoint_addr"])
+        or current.get("WGPEER_A_PERSISTENT_KEEPALIVE_INTERVAL") != KEEPALIVE
+        or allowed != {ipaddress.ip_network(a) for a in desired["allowed_ips"]}
+    )
+
+
+def sync(
+    network_instance: NetworkInstance, connection: Connection, ifname: str
+) -> None:
+    """Configure a WireGuard interface as desired, changing only what differs.
+
+    Unchanged peers keep their session.
+    """
+    cfg = connection.config
+    private_key = cfg.private_key.get_secret_value()
+    desired = _peer(connection)
+
+    def run() -> None:
+        # The socket is opened in this thread's namespace.
+        with WireGuard() as wg:
+            device = wg.info(ifname)[0]
+            settings: dict[str, Any] = {}
+            if (device.get("WGDEVICE_A_PRIVATE_KEY") or b"").decode() != private_key:
+                settings["private_key"] = private_key
+            if device.get("WGDEVICE_A_LISTEN_PORT") != cfg.local_port:
+                settings["listen_port"] = cfg.local_port
+            peers = _peers(device)
+            current = peers.pop(cfg.public_key, None)
+            if current is None or _peer_differs(current, desired):
+                settings["peer"] = desired
+            if settings:
+                logger.info("Configuring WireGuard interface %s.", ifname)
+                wg.set(ifname, **settings)
+            for public_key in peers:
+                logger.info("Removing peer %s from %s.", public_key, ifname)
+                wg.set(ifname, peer={"public_key": public_key, "remove": True})
+
+    namespace.call(network_instance.id, run)
+
+
+def peer_status(network_instance_id: str, ifname: str) -> dict[str, Any]:
+    """Return the endpoint and last handshake (Unix time) of an interface's peer."""
+
+    def run() -> dict[str, Any]:
+        with WireGuard() as wg:
+            peers = list(_peers(wg.info(ifname)[0]).values())
+        if not peers:
+            return {"endpoint": None, "last_handshake": 0}
+        endpoint = peers[0].get("WGPEER_A_ENDPOINT") or {}
+        handshake = peers[0].get("WGPEER_A_LAST_HANDSHAKE_TIME") or {}
+        return {
+            "endpoint": endpoint.get("addr"),
+            "last_handshake": handshake.get("tv_sec", 0),
+        }
+
+    return namespace.call(network_instance_id, run)
