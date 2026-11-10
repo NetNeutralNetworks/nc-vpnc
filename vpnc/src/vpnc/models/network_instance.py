@@ -8,7 +8,13 @@ import re
 import subprocess
 import time
 from abc import abstractmethod
-from ipaddress import IPv4Interface, IPv6Interface
+from ipaddress import (
+    IPv4Address,
+    IPv4Interface,
+    IPv6Address,
+    IPv6Interface,
+    IPv6Network,
+)
 from typing import Any, Literal
 
 from jinja2 import Environment, FileSystemLoader
@@ -23,7 +29,7 @@ from pydantic_core import PydanticCustomError
 from vpnc import config
 from vpnc.models import connections, enums, tenant
 from vpnc.network import namespace, state
-from vpnc.services import configuration, frr, routes, strongswan
+from vpnc.services import configuration, frr, strongswan
 
 # Needed for pydantim ports and type checking
 logger = logging.getLogger("vpnc")
@@ -124,11 +130,116 @@ class NetworkInstance(BaseModel):
         # DOWNLINK namespaces are removed when vpnc stops.
         self._ensure_namespace(cleanup=self.type == enums.NetworkInstanceType.DOWNLINK)
         updated = self.set_iptables()
-        routes.start(self.id)
         self._set_network_instance_connections(previous)
         self._delete_unconfigured_interfaces()
         self._reconcile_services()
         return updated
+
+    def desired_routes(
+        self,
+        links: dict[str, state.Link],
+    ) -> tuple[list[state.Route], list[state.Route]]:
+        """Return the routes of the network instance and its routes in CORE.
+
+        A connection's routes go via its interface when it passes traffic, and are
+        blackholed otherwise. The advertisements in CORE (IPv6 prefixes and the NAT64
+        scope) are only active when all connections of the network instance are up.
+        """
+        core_link = f"{self.id}_C"
+        ni_routes: list[state.Route] = []
+        core_routes: list[state.Route] = []
+
+        def route_or_blackhole(dst, gateway, dev, *, up):  # noqa: ANN001, ANN202
+            return (
+                state.Route(dst, gateway=gateway, dev=dev)
+                if up
+                else state.Route.blackhole(dst)
+            )
+
+        connections_up = {
+            conn_id: (link := links.get(conn.intf_name(self))) is not None
+            and link.passes_traffic
+            for conn_id, conn in self.connections.items()
+        }
+        all_up = bool(connections_up) and all(connections_up.values())
+
+        for conn_id, conn in self.connections.items():
+            up = connections_up[conn_id]
+            dev = conn.intf_name(self)
+            for route6 in conn.routes.ipv6:
+                ni_routes.append(route_or_blackhole(route6.to, route6.via, dev, up=up))
+                if (adv6 := self._core_ipv6_advertisement(route6)) is not None:
+                    core_routes.append(
+                        route_or_blackhole(
+                            adv6,
+                            IPv6Address("fe80::1"),
+                            core_link,
+                            up=all_up,
+                        ),
+                    )
+            for route4 in conn.routes.ipv4:
+                ni_routes.append(route_or_blackhole(route4.to, route4.via, dev, up=up))
+                if self.type == enums.NetworkInstanceType.ENDPOINT:
+                    core_routes.append(
+                        route_or_blackhole(
+                            route4.to,
+                            IPv4Address("169.254.0.2"),
+                            core_link,
+                            up=up,
+                        ),
+                    )
+
+        nat64_scope = configuration.get_network_instance_nat64_scope(self)
+        if nat64_scope and self.type == enums.NetworkInstanceType.DOWNLINK:
+            core_routes.append(
+                route_or_blackhole(
+                    nat64_scope,
+                    IPv6Address("fe80::1"),
+                    core_link,
+                    up=all_up,
+                ),
+            )
+
+        ni_routes.extend(self._uplink_routes())
+        return ni_routes, core_routes
+
+    def _core_ipv6_advertisement(
+        self,
+        route6: connections.RouteIPv6,
+    ) -> IPv6Network | None:
+        """Return the prefix advertised in CORE for a connection's IPv6 route."""
+        if self.type == enums.NetworkInstanceType.DOWNLINK and route6.nptv6:
+            # None until the NPTv6 prefix has been calculated.
+            return route6.nptv6_prefix
+        if self.type in (
+            enums.NetworkInstanceType.DOWNLINK,
+            enums.NetworkInstanceType.ENDPOINT,
+        ):
+            return route6.to
+        return None
+
+    def _uplink_routes(self) -> list[state.Route]:
+        """Return the routes of a DOWNLINK/ENDPOINT network instance to the uplinks."""
+        if self.type not in (
+            enums.NetworkInstanceType.DOWNLINK,
+            enums.NetworkInstanceType.ENDPOINT,
+        ):
+            return []
+        default_tenant = tenant.get_default_tenant()
+        veth = f"{self.id}_D"
+        routes: list[state.Route] = []
+        core_ni = default_tenant.network_instances[config.CORE_NI]
+        for connection in core_ni.connections.values():
+            routes.extend(
+                state.Route(route6.to, gateway=IPv6Address("fe80::"), dev=veth)
+                for route6 in connection.routes.ipv6
+            )
+            if default_tenant.mode != enums.ServiceMode.HUB:
+                routes.extend(
+                    state.Route(route4.to, gateway=IPv4Address("169.254.0.1"), dev=veth)
+                    for route4 in connection.routes.ipv4
+                )
+        return routes
 
     def _apply_iptables(self, script: str) -> bool:
         """Run a rendered iptables script, unless it's already in effect.
@@ -189,15 +300,11 @@ class NetworkInstance(BaseModel):
 
     def delete_network_instance(self) -> None:
         """Delete a network instance (Linux namespace)."""
-        # run the network instance remove commands
-        routes.stop(self.id)
-
         if self.type in (
             enums.NetworkInstanceType.DOWNLINK,
             enums.NetworkInstanceType.ENDPOINT,
         ):
             self._delete_network_instance_link()
-            routes.delete_core_routes(self)
 
         # Break connections.
         ssh_connections = [
@@ -261,13 +368,6 @@ class NetworkInstance(BaseModel):
                 )
                 continue
             time.sleep(0.01)
-
-        # Set the routes of all connections at once: the advertisements depend on
-        # the state of all connections in the network instance.
-        ni_dl = namespace.IPRoute(self.id)
-        ni_core = namespace.IPRoute(config.CORE_NI)
-        with ni_dl, ni_core:
-            routes.reconcile_routes(ni_dl, ni_core, self, active_network_instance)
 
     def _delete_network_instance_connections(
         self,

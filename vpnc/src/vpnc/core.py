@@ -85,7 +85,7 @@ def concentrator() -> None:
     # This provides VPN connectivity
     external_ni = default_tenant.network_instances[config.EXTERNAL_NI]
     try:
-        external_ni.reconcile()
+        reconcile.apply_network_instance(external_ni)
     except ValueError:
         sys.exit(1)
 
@@ -109,13 +109,13 @@ def concentrator() -> None:
     # connectivity. The CORE namespace has no internet connectivity.
     core_ni = default_tenant.network_instances[config.CORE_NI]
     try:
-        core_ni.reconcile()
+        reconcile.apply_network_instance(core_ni)
     except ValueError:
         sys.exit(1)
     if default_tenant.mode == enums.ServiceMode.ENDPOINT:
         endpoint_ni = default_tenant.network_instances[config.ENDPOINT_NI]
         try:
-            endpoint_ni.reconcile()
+            reconcile.apply_network_instance(endpoint_ni)
         except ValueError:
             sys.exit(1)
 
