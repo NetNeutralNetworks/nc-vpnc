@@ -5,7 +5,8 @@ on:
   # push:
   #   branches: main
 jobs:
-  install-containerlab:
+  # Build the images once per Ubuntu version; the test jobs load them.
+  build:
     strategy:
       fail-fast: false
       matrix:
@@ -14,8 +15,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install runner dependencies (Jool, containerlab)
-        run: sudo test/00_setup/install.sh
       - name: Set up Docker CLI
         uses: docker/setup-buildx-action@v3
       - name: Build vpnc image
@@ -37,10 +36,46 @@ jobs:
           tags: nc-vpnc-lab:latest
           cache-from: type=gha,scope=$GITHUB_REF_NAME-${{ matrix.version }}
           cache-to: type=gha,scope=$GITHUB_REF_NAME-${{ matrix.version }},mode=max
+      - name: Save images
+        run: docker save nc-vpnc:latest nc-vpnc-lab:latest | zstd -T0 -3 > images.tar.zst
+      - uses: actions/upload-artifact@v4
+        with:
+          name: images-${{ matrix.version }}
+          path: images.tar.zst
+          retention-days: 1
+          compression-level: 0
+
+  # Each shard deploys its own lab, as the failure tests disrupt it.
+  test:
+    needs: build
+    name: test (${{ matrix.version }}, ${{ matrix.shard.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["24.04", "26.04"]
+        shard:
+          - name: base
+            tests: test/01_base_config test/02_high_availability
+          - name: vpn-recovery
+            tests: test/03_failure_recovery/failure_tests/test_vpn_recovery.py
+          - name: other-recovery
+            tests: >-
+              test/03_failure_recovery
+              --ignore=test/03_failure_recovery/failure_tests/test_vpn_recovery.py
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runner dependencies (Jool, containerlab)
+        run: sudo test/00_setup/install.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: images-${{ matrix.version }}
+      - name: Load images
+        run: zstd -dc images.tar.zst | docker load
       - name: Run containerlab test environment
         run: cd test/00_setup && sudo containerlab deploy && cd $OLDPWD && sudo test/00_setup/healthcheck.sh
       - name: Run tests
-        run: sudo python3 -m pytest -v
+        run: sudo python3 -m pytest -v ${{ matrix.shard.tests }}
       - name: Show lab diagnostics
         if: failure()
         run: sudo test/00_setup/diagnostics.sh
