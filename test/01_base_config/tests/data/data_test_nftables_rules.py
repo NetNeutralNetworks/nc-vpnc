@@ -560,11 +560,11 @@ TABLES = [
 
 TABLE_NAMES = [
     ("hub00", "EXTERNAL", ["table inet vpnc"]),
-    ("hub00", "CORE", ["table inet vpnc", "table ip6 mangle"]),
+    ("hub00", "CORE", ["table inet vpnc", "table ip6 vpncmangle"]),
     ("hub00", "C0001-00", ["table inet vpnc"]),
     ("hub00", "C0001-01", ["table inet vpnc"]),
     ("hub01", "EXTERNAL", ["table inet vpnc"]),
-    ("hub01", "CORE", ["table inet vpnc", "table ip6 mangle"]),
+    ("hub01", "CORE", ["table inet vpnc", "table ip6 vpncmangle"]),
     ("hub01", "C0001-00", ["table inet vpnc"]),
     ("hub01", "C0001-01", ["table inet vpnc"]),
     ("end00", "EXTERNAL", ["table inet vpnc"]),

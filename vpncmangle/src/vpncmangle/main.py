@@ -1,7 +1,6 @@
 """Mangle/doctor DNS responses."""
 
 import logging
-import subprocess
 import sys
 from ipaddress import IPv4Address, IPv6Address
 from logging.handlers import RotatingFileHandler
@@ -11,7 +10,7 @@ from typing import Any
 import scapy.all as sc
 from netfilterqueue import NetfilterQueue, Packet
 
-from . import config, helpers, observers
+from . import config, helpers, nftables, observers
 
 logger = logging.getLogger("vpncmangle")
 
@@ -20,34 +19,32 @@ QUERY_A = 1
 QUERY_AAAA = 28
 
 
-def setup_ip6tables(queue_number: int) -> None:
-    """Configure ip6tables to capture DNS responses."""
+TABLE = "ip6 vpncmangle"
+
+
+def setup_nftables(queue_number: int) -> None:
+    """Queue DNS responses to vpncmangle, and drop the old ip6tables rule."""
     # TODO@draggeta: fix DNS over TCP
-    proc = subprocess.run(  # noqa: S602
+    nftables.run(
         f"""
-        # Configure DNS64 mangle
-        /usr/sbin/ip6tables -t mangle -F
-        /usr/sbin/ip6tables -t mangle -A POSTROUTING -p udp -m udp --sport 53 -j NFQUEUE --queue-num {queue_number}
-        # /usr/sbin/ip6tables -t mangle -A POSTROUTING -p tcp -m tcp --sport 53 -j NFQUEUE --queue-num {queue_number}
-        """,
-        stdout=subprocess.PIPE,
-        shell=True,
-        check=True,
+table {TABLE}
+delete table {TABLE}
+destroy table ip6 mangle
+table {TABLE} {{
+    chain postrouting {{
+        type filter hook postrouting priority mangle; policy accept;
+        udp sport 53 queue num {queue_number}
+    }}
+}}
+""",
     )
-    logger.info(proc.args)
-    logger.debug(proc.stdout)
+    logger.info("Queueing DNS responses to netfilter queue %s.", queue_number)
 
 
-def clean_ip6tables() -> None:
-    """Remove ip6tables rules."""
-    # Configure DNS64 mangle iptable rules
-    proc = subprocess.run(  # noqa: S603
-        ["/usr/sbin/ip6tables", "-t", "mangle", "-F"],
-        stdout=subprocess.PIPE,
-        check=True,
-    )
-    logger.info(proc.args)
-    logger.debug(proc.stdout)
+def clean_nftables() -> None:
+    """Remove vpncmangle's table."""
+    nftables.run(f"destroy table {TABLE}\n")
+    logger.info("Removed table %s.", TABLE)
 
 
 def mangle_dns(pkt: Packet) -> None:
@@ -257,7 +254,7 @@ def main() -> None:
         for queue_number in range(retries):
             try:
                 nfqueue.bind(queue_number, mangle_dns)
-                setup_ip6tables(queue_number)
+                setup_nftables(queue_number)
                 break
             except ImportError:
                 logger.debug(
@@ -279,7 +276,7 @@ def main() -> None:
                 exc_info=True,
             )
         finally:
-            clean_ip6tables()
+            clean_nftables()
             nfqueue.unbind()
 
         sleep(0.1)

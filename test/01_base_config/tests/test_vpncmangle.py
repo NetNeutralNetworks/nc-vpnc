@@ -24,53 +24,27 @@ class TestVpncmangle:
             x = conftest.run_cmd(host, "pgrep --list-name vpncmangle")
 
 
-class TestIPTablesMangle:
+class TestNftablesMangle:
     """Tests if netfilter is set up correctly to forward traffic to vpncmangle."""
 
-    tables6_mangle_hub = (
-        # Perform NPTv6 before doing the masquerade. The masquerade always has to be at the end.
-        "-P PREROUTING ACCEPT\n"
-        "-P INPUT ACCEPT\n"
-        "-P FORWARD ACCEPT\n"
-        "-P OUTPUT ACCEPT\n"
-        "-P POSTROUTING ACCEPT\n"
-        "-A POSTROUTING -p udp -m udp --sport 53 -j NFQUEUE --queue-num 0\n"
+    table_hub = (
+        "table ip6 vpncmangle {\n"
+        "\tchain postrouting {\n"
+        "\t\ttype filter hook postrouting priority mangle; policy accept;\n"
+        "\t\tudp sport 53 queue to 0\n"
+        "\t}\n"
+        "}"
     )
 
-    @pytest.mark.parametrize("tables", [tables6_mangle_hub])
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
-    def test_ip6tables_mangle_hub(self, host: str, tables: str) -> None:
-        """Test if vpncmangle correctly adds the ip6table rule."""
-        rules_status = conftest.run_cmd(
+    def test_nftables_mangle_hub(self, host: str) -> None:
+        """Test if vpncmangle queues DNS responses."""
+        table_state = conftest.run_cmd(
             host,
-            "ip netns exec CORE ip6tables -t mangle -S",
-        )
+            "ip netns exec CORE nft list table ip6 vpncmangle",
+        ).strip()
 
-        assert rules_status == tables
-
-    # Perform NPTv6 before doing the masquerade. The masquerade always has to be at the end.
-    tables6_mangle_endpoint = (
-        "-P PREROUTING ACCEPT\n"
-        "-P INPUT ACCEPT\n"
-        "-P FORWARD ACCEPT\n"
-        "-P OUTPUT ACCEPT\n"
-        "-P POSTROUTING ACCEPT\n"
-    )
-
-    @pytest.mark.parametrize("tables", [tables6_mangle_endpoint])
-    @pytest.mark.parametrize("host", ["end00", "end01"])
-    def test_ip6tables_mangle_disabled_endpoints(
-        self,
-        host: str,
-        tables: str,
-    ) -> None:
-        """Test if vpncmangle correctly adds the ip6table rules."""
-        rules_status = conftest.run_cmd(
-            host,
-            "ip netns exec CORE ip6tables -t mangle -S",
-        )
-
-        assert rules_status == tables
+        assert table_state == self.table_hub
 
 
 class TestDNSMangle:
