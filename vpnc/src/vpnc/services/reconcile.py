@@ -122,6 +122,7 @@ class Reconciler:
             self.run_checks(pending)
 
     def _run(self) -> None:
+        state.keep_sockets()
         next_full_check = time.monotonic()
         while not shared.STOP_EVENT.is_set():
             with self._condition:
@@ -186,6 +187,7 @@ def check_network_instances(keys: set[str] | None) -> None:
     routes, and the Jool instances once instead of per network instance.
     """
     if keys is None:
+        state.forget_stale()
         with state.session(), state.netns(config.CORE_NI), jool_instances():
             _check_network_instances(keys)
     else:
@@ -244,6 +246,7 @@ def remove_network_instance(network_instance: NetworkInstance) -> None:
     """Remove a network instance with its connections, routes and VPN config."""
     strongswan.remove(network_instance.id)
     unwatch(network_instance.id)
+    state.forget(network_instance.id)
     network_instance.delete()
     # The kernel deleted its link to CORE.
     state.changed(config.CORE_NI)
