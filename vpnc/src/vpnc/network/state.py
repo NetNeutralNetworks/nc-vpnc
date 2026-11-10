@@ -30,8 +30,9 @@ IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 IFF_UP = 0x1
 IFF_LOWER_UP = 0x10000
 
-# Route protocol of the routes vpnc manages (unused by the kernel and routing
-# daemons). Routes with RTPROT_STATIC are vpnc's too: vpnc used it before.
+# Route protocol of the routes vpnc manages, unused by the kernel and routing
+# daemons ("vpnc" in /etc/iproute2/rt_protos.d/vpnc.conf). Routes with
+# RTPROT_STATIC are vpnc's too: vpnc used it before.
 RTPROT_STATIC = 4
 RTPROT_VPNC = 77
 OWNED_PROTOCOLS = (RTPROT_STATIC, RTPROT_VPNC)

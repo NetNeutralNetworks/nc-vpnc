@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import re
 import time
@@ -11,7 +10,7 @@ from typing import TYPE_CHECKING
 from . import conftest
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    import contextlib
 
 HOST = "hub00"
 # hub00 initiates CORE-0/CORE-1; end00 initiates C0001-00-0.
@@ -78,26 +77,20 @@ def wait_for_healthy(host: str, connections: set[str], timeout: float) -> None:
     )
 
 
-@contextlib.contextmanager
-def ike_blocked_from(host: str, addresses: tuple[str, ...]) -> Iterator[None]:
+def ike_blocked_from(
+    host: str,
+    addresses: tuple[str, ...],
+) -> contextlib.AbstractContextManager[None]:
     """Drop incoming IKE from the given peer addresses on the EXTERNAL network."""
-    rules = [
-        (
-            "ip6tables" if ":" in address else "iptables",
-            f"INPUT -s {address} -p udp -m multiport --dports 500,4500 -j DROP",
-        )
-        for address in addresses
-    ]
-    for iptables, rule in rules:
-        conftest.run_cmd(host, f"ip netns exec EXTERNAL {iptables} -I {rule}")
-    try:
-        yield
-    finally:
-        for iptables, rule in rules:
-            conftest.run_cmd_shell(
-                host,
-                f"ip netns exec EXTERNAL {iptables} -D {rule} || true",
-            )
+    return conftest.nft_drop(
+        host,
+        "EXTERNAL",
+        *(
+            f"{'ip6' if ':' in address else 'ip'} saddr {address}"
+            " udp dport { 500, 4500 }"
+            for address in addresses
+        ),
+    )
 
 
 def sas_appearing(host: str, name: str, seconds: float) -> list[str]:

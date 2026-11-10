@@ -266,6 +266,23 @@ def delete_core_routes(
         state.ensure_routes(ni_core, core_state, [], managed=managed)
 
 
+def delete_stale_core_routes(
+    network_instances: list[vpnc.models.network_instance.NetworkInstance],
+) -> None:
+    """Delete vpnc's routes in CORE that no configured network instance wants."""
+    wanted: set[state.IPNetwork] = set()
+    for net_inst in network_instances:
+        ni_routes, core_routes = desired_routes(net_inst, {})
+        wanted |= {r.dst for r in core_routes}
+        if net_inst.id == config.CORE_NI:
+            wanted |= {r.dst for r in ni_routes}
+    with pyroute2.IPRoute(netns=config.CORE_NI, flags=0) as ni_core:
+        core_state = state.NetnsState.read(ni_core)
+        stale = set(core_state.routes) - wanted
+        if stale:
+            state.ensure_routes(ni_core, core_state, [], managed=stale)
+
+
 def start(network_instance_id: str) -> None:
     """Start monitoring routes in a network_instance."""
     if network_instance_id in NI_ROUTE_MONITORS:

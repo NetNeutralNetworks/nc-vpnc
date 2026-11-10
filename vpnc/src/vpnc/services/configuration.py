@@ -120,6 +120,8 @@ def manage_tenant(path: pathlib.Path) -> None:
         delete_active_ni.delete()
 
     logger.info("Setting up tenant %s.", tenant.id)
+    # Store the new configuration first, so event handlers use it while it's applied.
+    config.VPNC_CONFIG_TENANT[tenant.id] = tenant
 
     update_check: list[bool] = [
         network_instance.set(
@@ -128,7 +130,6 @@ def manage_tenant(path: pathlib.Path) -> None:
         for network_instance in tenant.network_instances.values()
     ]
 
-    config.VPNC_CONFIG_TENANT[tenant.id] = tenant
     if (
         default_tenant.mode == enums.ServiceMode.HUB
         and tenant.name != config.DEFAULT_TENANT

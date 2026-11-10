@@ -26,6 +26,8 @@ SSH_INTERFACE = "tun1"
 CORE_INTERFACE = f"{NETWORK_INSTANCE}_C"
 
 ROUTE_TIMEOUT = 30
+# A previous test may leave the SSH tunnel reconnecting (backoff up to 30s).
+HEALTHY_TIMEOUT = 90
 # The strongSwan monitor resyncs XFRM interface states every 30 seconds.
 XFRM_RESYNC_TIMEOUT = 60
 
@@ -62,14 +64,19 @@ def get_all_routes(host: str) -> dict[str, frozenset[Route]]:
 
 
 def healthy_routes(host: str) -> dict[str, frozenset[Route]]:
-    """Return the current routes after checking that nothing is blackholed."""
-    routes = get_all_routes(host)
-    blackholed = {
-        netns: [r for r in netns_routes if r[1] == "blackhole"]
-        for netns, netns_routes in routes.items()
-    }
-    assert not any(blackholed.values()), f"{host} isn't healthy: {blackholed}"
-    return routes
+    """Wait until nothing is blackholed (e.g. after a previous test), return routes."""
+
+    def healthy() -> dict[str, frozenset[Route]] | None:
+        routes = get_all_routes(host)
+        if any(r[1] == "blackhole" for netns in routes.values() for r in netns):
+            return None
+        return routes
+
+    return conftest.wait_until(
+        healthy,
+        timeout=HEALTHY_TIMEOUT,
+        message=f"{host} to be healthy",
+    )
 
 
 def wait_for_routes(host: str, expected: dict[str, frozenset[Route]]) -> None:

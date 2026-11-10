@@ -11,6 +11,7 @@ if TEST_DIR not in sys.path:
 
 from lab_helpers import (  # noqa: E402
     close_ssh_sessions,
+    nft_drop,
     run_cmd,
     run_cmd_shell,
     run_cmd_vtysh,
@@ -20,6 +21,7 @@ from lab_helpers import (  # noqa: E402
 
 __all__ = [
     "close_ssh_sessions",
+    "nft_drop",
     "run_cmd",
     "run_cmd_shell",
     "run_cmd_vtysh",

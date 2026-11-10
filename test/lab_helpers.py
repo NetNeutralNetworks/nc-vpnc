@@ -6,6 +6,7 @@ Run commands in the containerlab containers and wait for the lab to reach a stat
 from __future__ import annotations
 
 import contextlib
+import itertools
 import subprocess
 import time
 from typing import TYPE_CHECKING, TypeVar
@@ -126,3 +127,26 @@ def ssh_server_down() -> Iterator[None]:
         yield
     finally:
         run_cmd_shell(SSH_SERVER, f"iptables -D {SSH_REJECT_NEW}")
+
+
+_nft_tables = itertools.count()
+
+
+@contextlib.contextmanager
+def nft_drop(host: str, netns: str, *matches: str) -> Iterator[None]:
+    """Drop incoming packets matching nft expressions in a network namespace.
+
+    Uses its own nftables table, which vpnc's iptables management leaves alone.
+    """
+    table = f"vpnc_test_{next(_nft_tables)}"
+    nft = f"ip netns exec {netns} nft"
+    rules = "; ".join(f"add rule inet {table} input {m} drop" for m in matches)
+    run_cmd_shell(
+        host,
+        f"{nft} 'add table inet {table}; add chain inet {table} input"
+        f" {{ type filter hook input priority -10; }}; {rules}'",
+    )
+    try:
+        yield
+    finally:
+        run_cmd_shell(host, f"{nft} delete table inet {table} || true")

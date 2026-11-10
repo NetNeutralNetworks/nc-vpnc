@@ -12,7 +12,7 @@ from jinja2 import Environment, FileSystemLoader
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 
-from vpnc import config
+from vpnc import config, files
 from vpnc.models import enums
 from vpnc.network import namespace
 
@@ -113,13 +113,12 @@ def generate_config(
 
         wg_render = wg_template.render(**wg_cfg)
 
-        logger.info(
-            "Generating network instance %s connection %s WireGuard configuration.",
-            network_instance.id,
-            connection.id,
-        )
         wg_path = config.WIREGUARD_CONFIG_DIR.joinpath(
             f"wg-{network_instance.id}-{connection.id}.conf",
         )
-        with wg_path.open("w", encoding="utf-8") as f:
-            f.write(wg_render)
+        if files.ensure_file(wg_path, wg_render):
+            logger.info(
+                "Generated network instance %s connection %s WireGuard configuration.",
+                network_instance.id,
+                connection.id,
+            )
