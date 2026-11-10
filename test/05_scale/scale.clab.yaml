@@ -1,0 +1,31 @@
+# Scale lab: hub00 with 200 network instances and 300 connections to peer00.
+# Runs next to the normal lab; deploy it with run.sh.
+name: vpnc-scale
+
+topology:
+  kinds:
+    linux:
+      binds:
+        - ../../:/nc-vpnc/
+        - /lib/modules/:/lib/modules
+  nodes:
+    mgt00:
+      kind: linux
+      image: nc-vpnc-lab:${VPNC_VERSION:=26.04}
+      cmd: /nc-vpnc/test/01_base_config/mgt/mgt00.sh
+      startup-delay: 10
+    hub00:
+      kind: linux
+      image: nc-vpnc:${VPNC_VERSION:=26.04}
+      cmd: /nc-vpnc/test/05_scale/hub00/config.sh
+    peer00:
+      kind: linux
+      image: nc-vpnc-lab:${VPNC_VERSION:=26.04}
+      cmd: /nc-vpnc/test/05_scale/peer00/config.sh
+    br-vpnc-scale:
+      kind: bridge
+
+  links:
+    - endpoints: ["mgt00:eth1", "br-vpnc-scale:scale-mgt00"]
+    - endpoints: ["hub00:eth1", "br-vpnc-scale:scale-hub00"]
+    - endpoints: ["peer00:eth1", "br-vpnc-scale:scale-peer00"]
