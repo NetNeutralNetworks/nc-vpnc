@@ -27,8 +27,8 @@ for h in hub00 hub01; do
   done
   echo "--- C0001-01 wireguard"
   in_node "${h}" 'ip netns exec C0001-01 wg show'
-  echo "--- CORE ip6tables mangle (NFQUEUE)"
-  in_node "${h}" 'ip netns exec CORE ip6tables -t mangle -L -v -n'
+  echo "--- CORE nftables (vpnc table, vpncmangle queue)"
+  in_node "${h}" 'ip netns exec CORE nft list ruleset'
   echo "--- vpncmangle translations.json"
   in_node "${h}" 'cat /opt/ncubed/config/vpncmangle/translations.json; echo'
   echo "--- vpncmangle.log"

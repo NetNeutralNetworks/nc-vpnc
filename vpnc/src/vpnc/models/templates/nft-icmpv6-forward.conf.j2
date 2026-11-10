@@ -1,0 +1,5 @@
+{#- ICMPv6 needed for IPv6 connectivity, for forwarded traffic. #}
+    chain icmpv6-forward {
+        icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, echo-reply } accept
+        meta l4proto ipv6-icmp drop
+    }

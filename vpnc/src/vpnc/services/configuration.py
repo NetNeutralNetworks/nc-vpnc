@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import re
 import time
 from ipaddress import AddressValueError, IPv4Network, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING
@@ -20,13 +21,16 @@ import vpnc.models.tenant
 from vpnc import config, files
 from vpnc.models import enums, info
 from vpnc.models.secret import REVEAL
-from vpnc.network import namespace
+from vpnc.network import namespace, nftables
 from vpnc.services import vpncmangle
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
 
 logger = logging.getLogger("vpnc")
+
+# An NPTv6 rule in vpnc's table: NPTv6 prefix and the network it maps to.
+NPTV6_RULE_RE = re.compile(r"ip6 daddr (\S+) dnat (?:ip6 )?prefix to (\S+)")
 
 
 def observe_configuration() -> BaseObserver:
@@ -271,20 +275,18 @@ def get_network_instance_nat64_mappings_state(
 def get_network_instance_nptv6_mappings_state(
     network_instance_name: str,
 ) -> list[tuple[IPv6Network, IPv6Network]]:
-    """Retrieve the live NPTv6 mapping configured in ip6tables."""
-    output = namespace.run(
-        network_instance_name,
-        ["/usr/sbin/ip6tables", "-t", "nat", "-n", "-L"],
-    ).stdout
+    """Retrieve the live NPTv6 mappings from vpnc's nftables table."""
+    try:
+        rules = nftables.run(
+            network_instance_name,
+            f"list chain {nftables.TABLE} prerouting",
+        )
+    except nftables.NftablesError:
+        return []
     mappings: list[tuple[IPv6Network, IPv6Network]] = []
-    for line in output.splitlines():
-        if "NETMAP" not in line:
-            continue
-        fields = line.split()
+    for match in NPTV6_RULE_RE.finditer(rules):
         try:
-            local = IPv6Network(fields[4])
-            remote = IPv6Network(fields[5].split("to:", maxsplit=1)[1])
-        except (AddressValueError, ValueError, IndexError):
-            return mappings
-        mappings.append((local, remote))
+            mappings.append((IPv6Network(match[1]), IPv6Network(match[2])))
+        except (AddressValueError, ValueError):
+            continue
     return mappings

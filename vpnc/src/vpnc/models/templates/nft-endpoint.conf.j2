@@ -1,0 +1,24 @@
+{#- ENDPOINT: traffic from CORE and return traffic; ICMP to the namespace; NAT. #}
+    chain input {
+        type filter hook input priority filter; policy drop;
+        meta l4proto ipv6-icmp jump icmpv6-in-out
+        meta l4proto icmp accept
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+{%- for interface in core_interfaces %}
+        iifname "{{ interface }}" accept
+{%- endfor %}
+        ct state established,related accept
+    }
+
+    chain output {
+        type filter hook output priority filter; policy drop;
+        meta l4proto ipv6-icmp jump icmpv6-in-out
+        ct state established,related accept
+    }
+
+{% include 'nft-icmpv6-in-out.conf.j2' %}
+
+{% include 'nft-nat.conf.j2' %}

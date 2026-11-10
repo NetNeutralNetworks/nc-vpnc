@@ -20,7 +20,7 @@ function install_apt_defaults () {
         apt-get upgrade -y
     fi
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    iptables iproute2 kmod \
+    nftables iproute2 kmod \
     strongswan strongswan-swanctl \
     strongswan-starter strongswan-charon \
     python3-packaging \

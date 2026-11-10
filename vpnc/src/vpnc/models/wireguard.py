@@ -44,7 +44,11 @@ class ConnectionConfigWireGuard(BaseModel):
         network_instance: vpnc.models.network_instance.NetworkInstance,
         connection: connections.Connection,
     ) -> str:
-        """Create an XFRM interface."""
+        """Create a WireGuard interface and accept its port in EXTERNAL."""
+        # Imported here: network_instance imports this module.
+        from vpnc.models.network_instance import open_wireguard_ports  # noqa: PLC0415
+
+        open_wireguard_ports()
         wg = self.intf_name(network_instance, connection)
 
         if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
@@ -85,6 +89,10 @@ class ConnectionConfigWireGuard(BaseModel):
 
         config_file = config.WIREGUARD_CONFIG_DIR.joinpath(f"{interface_name}.conf")
         config_file.unlink(missing_ok=True)
+
+        from vpnc.models.network_instance import open_wireguard_ports  # noqa: PLC0415
+
+        open_wireguard_ports()
 
     def intf_name(
         self,

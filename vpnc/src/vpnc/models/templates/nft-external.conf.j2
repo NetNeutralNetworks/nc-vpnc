@@ -1,0 +1,33 @@
+{#- EXTERNAL: only IKE, ESP and WireGuard (on the configured ports). #}
+    set wireguard_ports {
+        type inet_service
+{%- if wireguard_ports %}
+        elements = { {{ wireguard_ports | join(", ") }} }
+{%- endif %}
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+        meta l4proto ipv6-icmp jump icmpv6-in-out
+        meta l4proto esp accept
+        {#- No source port, so peers behind a NAT can connect. #}
+        udp dport { 500, 4500 } accept
+        udp dport @wireguard_ports accept
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+    }
+
+    chain output {
+        type filter hook output priority filter; policy drop;
+        meta l4proto ipv6-icmp jump icmpv6-in-out
+        meta l4proto esp accept
+        udp sport 500 udp dport 500 accept
+        udp sport 4500 udp dport 4500 accept
+        udp sport @wireguard_ports accept
+        {#- Return traffic to peers behind a NAT. #}
+        meta l4proto udp ct state established,related accept
+    }
+
+{% include 'nft-icmpv6-in-out.conf.j2' %}

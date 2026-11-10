@@ -1,0 +1,33 @@
+{#- CORE: IPv6 from the uplinks (BGP, management); no IPv4 except forwarding in ENDPOINT mode. #}
+    chain input {
+        type filter hook input priority filter; policy drop;
+        meta l4proto ipv6-icmp jump icmpv6-in-out
+{%- for interface in interfaces %}
+        meta nfproto ipv6 iifname "{{ interface }}" accept
+{%- endfor %}
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+        meta nfproto ipv6 jump icmpv6-forward
+{%- if mode.name == "ENDPOINT" %}
+  {%- for interface in interfaces %}
+        meta nfproto ipv4 iifname "{{ interface }}" accept
+  {%- endfor %}
+        meta nfproto ipv4 ct state established,related accept
+{%- endif %}
+{%- for interface in interfaces %}
+        meta nfproto ipv6 iifname "{{ interface }}" accept
+{%- endfor %}
+        meta nfproto ipv6 ct state established,related accept
+    }
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+        meta l4proto ipv6-icmp jump icmpv6-in-out
+        meta nfproto ipv4 drop
+    }
+
+{% include 'nft-icmpv6-in-out.conf.j2' %}
+
+{% include 'nft-icmpv6-forward.conf.j2' %}

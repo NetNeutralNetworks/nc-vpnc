@@ -22,8 +22,9 @@ def check_system_requirements() -> None:
     """Check if required kernel modules are installed."""
     module_list: list[str] = [
         "xfrm_interface",
-        "xt_MASQUERADE",
-        "xt_nat",
+        # nftables NAT and masquerading.
+        "nft_chain_nat",
+        "nft_masq",
         "veth",
         "wireguard",
     ]
@@ -48,7 +49,8 @@ def check_system_requirements() -> None:
     if tenant_config.mode != enums.ServiceMode.HUB:
         return
 
-    hub_module_list: list[str] = ["xt_NETMAP", "xt_NFQUEUE"]
+    # vpncmangle queues DNS responses with ip6tables.
+    hub_module_list: list[str] = ["xt_NFQUEUE"]
     try:
         for module in hub_module_list:
             logger.debug("Verifying kernel module %s is installed", module)
