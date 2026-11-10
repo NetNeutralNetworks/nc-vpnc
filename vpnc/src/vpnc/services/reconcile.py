@@ -21,6 +21,7 @@ from pyroute2 import netns
 
 from vpnc import config, shared
 from vpnc.models import enums, tenant
+from vpnc.models.network_instance import jool_instances
 from vpnc.network import namespace, state
 from vpnc.network.events import LinkMonitor
 from vpnc.services import configuration, frr, strongswan
@@ -183,10 +184,10 @@ def check_network_instances(keys: set[str] | None) -> None:
     A full check runs triggered checks between network instances, so changes don't
     wait for it. The configuration is looked up per network instance, as it can
     change meanwhile. It reads CORE, which holds every network instance's link and
-    routes, once instead of per network instance.
+    routes, and the Jool instances once instead of per network instance.
     """
     if keys is None:
-        with state.session(), state.netns(config.CORE_NI):
+        with state.session(), state.netns(config.CORE_NI), jool_instances():
             _check_network_instances(keys)
     else:
         _check_network_instances(keys)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import pathlib
 import subprocess
@@ -13,7 +14,7 @@ from ipaddress import (
     IPv6Interface,
     IPv6Network,
 )
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from jinja2 import Environment, FileSystemLoader
 from pydantic import (
@@ -28,6 +29,9 @@ from vpnc import config
 from vpnc.models import connections, enums, tenant
 from vpnc.network import namespace, nftables, state
 from vpnc.services import configuration, frr, strongswan
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # Needed for pydantim ports and type checking
 logger = logging.getLogger("vpnc")
@@ -52,6 +56,43 @@ ROUTED_NETWORK_INSTANCE_SYSCTLS = {
     "net.ipv6.conf.all.keep_addr_on_down": "1",
     "net.ipv6.conf.default.keep_addr_on_down": "1",
 }
+
+
+# Per network instance the NAT64 scope vpnc configured in Jool.
+NAT64_APPLIED: dict[str, IPv6Network] = {}
+# The Jool instances during a full check, see jool_instances().
+_JOOL_INSTANCES: set[str] | None = None
+
+
+@contextlib.contextmanager
+def jool_instances() -> Iterator[None]:
+    """List the Jool instances once, for all network instances of a full check.
+
+    Jool lists the instances of every namespace in one call; reading each
+    instance's settings would take a process per network instance.
+    """
+    global _JOOL_INSTANCES  # noqa: PLW0603
+    try:
+        result = subprocess.run(
+            ["/usr/bin/jool", "instance", "display", "--csv"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        logger.warning("Listing the Jool instances failed.", exc_info=True)
+        result = None
+    if result is not None and result.returncode == 0:
+        _JOOL_INSTANCES = {
+            fields[1]
+            for line in result.stdout.splitlines()[1:]
+            if len(fields := line.split(",")) >= 2  # noqa: PLR2004
+        }
+    try:
+        yield
+    finally:
+        _JOOL_INSTANCES = None
 
 
 # Per network instance the last nftables table and the ruleset it resulted in.
@@ -468,6 +509,7 @@ class NetworkInstance(BaseModel):
         with state.netns(self.id) as dl:
             state.delete_link(dl.ipr, dl.state, f"{self.id}_D")
         namespace.run(self.id, ["/usr/bin/jool", "instance", "remove", self.id])
+        NAT64_APPLIED.pop(self.id, None)
 
 
 class NetworkInstanceExternal(NetworkInstance):
@@ -651,6 +693,14 @@ class NetworkInstanceDownlink(NetworkInstance):
                 self.id,
             )
             return
+        # During a full check the instances are listed once (jool_instances()); an
+        # existing instance with the scope vpnc set needs no further check.
+        if (
+            _JOOL_INSTANCES is not None
+            and self.id in _JOOL_INSTANCES
+            and NAT64_APPLIED.get(self.id) == nat64_scope
+        ):
+            return
         # Configure NAT64 (Jool) only if the instance differs.
         current = namespace.run(
             self.id,
@@ -658,6 +708,7 @@ class NetworkInstanceDownlink(NetworkInstance):
         )
         if current.returncode == 0:
             if f"pool6,{nat64_scope}" in current.stdout.splitlines():
+                NAT64_APPLIED[self.id] = nat64_scope
                 return
             namespace.run(self.id, ["/usr/bin/jool", "instance", "remove", self.id])
         logger.info(
@@ -683,6 +734,8 @@ class NetworkInstanceDownlink(NetworkInstance):
                 self.id,
                 result.stderr.strip(),
             )
+            return
+        NAT64_APPLIED[self.id] = nat64_scope
 
 
 class NetworkInstanceEndpoint(NetworkInstance):
