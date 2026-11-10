@@ -11,6 +11,7 @@ import pyroute2
 from pydantic import BaseModel, field_validator
 
 from vpnc.models import connections, enums
+from vpnc.network import state
 
 if TYPE_CHECKING:
     import vpnc.models.network_instance
@@ -43,51 +44,18 @@ class ConnectionConfigPhysical(BaseModel):
             raise TypeError
 
         ifname = connection.config.interface_name
+        if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(network_instance)
         with (
             pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl,
             pyroute2.IPRoute() as ni_default,
         ):
-            if not ni_dl.link_lookup(ifname=ifname):
-                if not ni_default.link_lookup(
-                    ifname=ifname,
-                ):
-                    logger.critical("Physical interface %s not found.", ifname)
-                    raise ValueError
-                ifidx_default_phy = ni_default.link_lookup(
-                    ifname=ifname,
-                )[0]
-                ni_default.link(
-                    "set",
-                    index=ifidx_default_phy,
-                    net_ns_fd=network_instance.id,
-                )
-
-            ifidx_phy = ni_dl.link_lookup(ifname=ifname)[0]
-            ni_dl.flush_addr(index=ifidx_phy, scope=enums.IPRouteScope.GLOBAL.value)
-            ni_dl.link(
-                "set",
-                index=ifidx_phy,
-                state="up",
-            )
-
-            if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
-                network_instance,
-            )
-            for ipv4 in if_ipv4:
-                ni_dl.addr(
-                    "replace",
-                    index=ifidx_phy,
-                    address=str(ipv4.ip),
-                    prefixlen=ipv4.network.prefixlen,
-                )
-            # Add the configured IPv6 address to the XFRM interface.
-            for ipv6 in if_ipv6:
-                ni_dl.addr(
-                    "replace",
-                    index=ifidx_phy,
-                    address=str(ipv6.ip),
-                    prefixlen=ipv6.network.prefixlen,
-                )
+            ni_state = state.NetnsState.read(ni_dl)
+            state.ensure_moved(ni_dl, ni_default, ni_state, ifname)
+            if ifname not in ni_state.links:
+                logger.critical("Physical interface %s not found.", ifname)
+                raise ValueError
+            state.ensure_link_state(ni_dl, ni_state, ifname, up=True)
+            state.ensure_addresses(ni_dl, ni_state, ifname, [*if_ipv4, *if_ipv6])
 
         return ifname
 

@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 from vpnc import config
 from vpnc.models import connections, enums
 from vpnc.models.secret import Secret
-from vpnc.network import namespace
+from vpnc.network import namespace, state
 from vpnc.services import wireguard
 
 if TYPE_CHECKING:
@@ -56,43 +56,10 @@ class ConnectionConfigWireGuard(BaseModel):
             pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl,
             pyroute2.IPRoute(netns=config.EXTERNAL_NI, flags=0) as ni_ext,
         ):
-            if not ni_dl.link_lookup(ifname=wg):
-                ni_ext.link(
-                    "add",
-                    ifname=wg,
-                    kind="wireguard",
-                )
-                ifid_ext_wg = ni_ext.link_lookup(ifname=wg)[0]
-                ni_ext.link(
-                    "set",
-                    index=ifid_ext_wg,
-                    net_ns_fd=network_instance.id,
-                )
-
-            ifidx_wg = ni_dl.link_lookup(ifname=wg)[0]
-            ni_dl.flush_addr(index=ifidx_wg, scope=enums.IPRouteScope.GLOBAL.value)
-
-            ni_dl.link(
-                "set",
-                index=ifidx_wg,
-                state="up",
-            )
-
-            for ipv4 in if_ipv4:
-                ni_dl.addr(
-                    "replace",
-                    index=ifidx_wg,
-                    address=str(ipv4.ip),
-                    prefixlen=ipv4.network.prefixlen,
-                )
-            # Add the configured IPv6 address to the XFRM interface.
-            for ipv6 in if_ipv6:
-                ni_dl.addr(
-                    "replace",
-                    index=ifidx_wg,
-                    address=str(ipv6.ip),
-                    prefixlen=ipv6.network.prefixlen,
-                )
+            ni_state = state.NetnsState.read(ni_dl)
+            state.ensure_wireguard(ni_dl, ni_ext, ni_state, wg)
+            state.ensure_link_state(ni_dl, ni_state, wg, up=True)
+            state.ensure_addresses(ni_dl, ni_state, wg, [*if_ipv4, *if_ipv6])
 
         wireguard.generate_config(network_instance)
 
@@ -105,17 +72,10 @@ class ConnectionConfigWireGuard(BaseModel):
     ) -> None:
         """Delete a connection."""
         interface_name = self.intf_name(network_instance, connection)
-        # run the commands
         with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
-            if not ni_dl.link_lookup(ifname=interface_name):
-                return
-            ifidx = ni_dl.link_lookup(ifname=interface_name)[0]
-            ni_dl.link("del", index=ifidx)
+            state.delete_link(ni_dl, state.NetnsState.read(ni_dl), interface_name)
 
-        config_file = config.WIREGUARD_CONFIG_DIR.joinpath(
-            f"wg-{network_instance.id}-{connection.id}",
-        )
-
+        config_file = config.WIREGUARD_CONFIG_DIR.joinpath(f"{interface_name}.conf")
         config_file.unlink(missing_ok=True)
 
     def intf_name(

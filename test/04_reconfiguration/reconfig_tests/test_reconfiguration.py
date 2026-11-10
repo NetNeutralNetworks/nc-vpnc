@@ -177,7 +177,6 @@ class TestReconfiguration:
             message=f"tenant C0002 to be removed from {HOST}",
         )
 
-    @pytest.mark.xfail(strict=True, reason="Old state isn't removed yet.")
     def test_add_and_remove_connection(self) -> None:
         """A connection added to a network instance is set up, and removed again."""
         second = ipsec_connection(
@@ -205,7 +204,6 @@ class TestReconfiguration:
         )
         assert connection_applied(BASE_CONNECTION)
 
-    @pytest.mark.xfail(strict=True, reason="Old state isn't removed yet.")
     def test_change_routes(self) -> None:
         """Changed routes replace the old ones."""
         changed = ipsec_connection(

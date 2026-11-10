@@ -14,6 +14,7 @@ from pydantic import BaseModel, field_validator
 import vpnc.models.network_instance
 import vpnc.services.ssh
 from vpnc.models import connections, enums
+from vpnc.network import state
 
 logger = logging.getLogger("vpnc")
 
@@ -55,27 +56,10 @@ class ConnectionConfigSSH(BaseModel):
         )
 
         with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
-            if not ni_dl.link_lookup(ifname=tun):
-                ni_dl.link("add", ifname=tun, kind="tuntap", mode="tun")
-            ifidx: int = ni_dl.link_lookup(ifname=tun)[0]
-            ni_dl.link("set", index=ifidx, state="up")
-            ni_dl.flush_addr(index=ifidx, scope=enums.IPRouteScope.GLOBAL.value)
-
-            for ipv4 in if_ipv4:
-                ni_dl.addr(
-                    "replace",
-                    index=ifidx,
-                    address=str(ipv4.ip),
-                    prefixlen=ipv4.network.prefixlen,
-                )
-            # Add the configured IPv6 address to the TUN interface.
-            for ipv6 in if_ipv6:
-                ni_dl.addr(
-                    "replace",
-                    index=ifidx,
-                    address=str(ipv6.ip),
-                    prefixlen=ipv6.network.prefixlen,
-                )
+            ni_state = state.NetnsState.read(ni_dl)
+            state.ensure_tun(ni_dl, ni_state, tun)
+            state.ensure_link_state(ni_dl, ni_state, tun, up=True)
+            state.ensure_addresses(ni_dl, ni_state, tun, [*if_ipv4, *if_ipv6])
 
         vpnc.services.ssh.start(network_instance, connection)
         return tun
@@ -89,10 +73,7 @@ class ConnectionConfigSSH(BaseModel):
         vpnc.services.ssh.stop(network_instance, connection)
         interface_name = self.intf_name(network_instance, connection)
         with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
-            if not ni_dl.link_lookup(ifname=interface_name):
-                return
-            ifidx = ni_dl.link_lookup(ifname=interface_name)[0]
-            ni_dl.link("del", index=ifidx)
+            state.delete_link(ni_dl, state.NetnsState.read(ni_dl), interface_name)
 
     def intf_name(
         self,

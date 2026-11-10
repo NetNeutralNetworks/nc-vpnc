@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from abc import abstractmethod
-from ipaddress import IPv4Address, IPv6Address
+from ipaddress import IPv4Interface, IPv6Interface
 from typing import Any, Literal
 
 import pyroute2
@@ -25,8 +25,8 @@ from pydantic_core import PydanticCustomError
 
 import vpnc.shared
 from vpnc import config
-from vpnc.models import connections, enums, ssh, tenant
-from vpnc.network import namespace, route, state
+from vpnc.models import connections, enums, tenant
+from vpnc.network import namespace, state
 from vpnc.services import configuration, frr, routes, strongswan
 
 # Needed for pydantim ports and type checking
@@ -177,6 +177,7 @@ class NetworkInstance(BaseModel):
                 enums.NetworkInstanceType.ENDPOINT,
             ):
                 self._delete_network_instance_link()
+                routes.delete_core_routes(self)
 
             # Break connections.
             ssh_connections = [
@@ -187,7 +188,7 @@ class NetworkInstance(BaseModel):
             other_connections = [
                 x
                 for x in self.connections.values()
-                if x.config.type != ssh.ConnectionConfigSSH
+                if x.config.type != enums.ConnectionType.SSH
             ]
             sorted_connections = ssh_connections + other_connections
             for conn in sorted_connections:
@@ -310,89 +311,29 @@ class NetworkInstance(BaseModel):
             pyroute2.IPRoute(netns=self.id, flags=0) as ni_dl,
             pyroute2.IPRoute(netns=config.CORE_NI, flags=0) as ni_core,
         ):
-            tenant.get_default_tenant()
-            # add veth interfaces between CORE and DOWNLINK network instance
-            logger.info("Adding veth pair %s and %s.", veth_c, veth_d)
-            if not ni_core.link_lookup(ifname=veth_c):
-                ni_core.link(
-                    "add",
-                    ifname=veth_c,
-                    kind="veth",
-                    peer={"ifname": veth_d, "net_ns_fd": self.id},
-                )
-            # bring veth interfaces up
-            logger.info(
-                "Setting veth pair %s and %s interface status to up.",
+            core_state = state.NetnsState.read(ni_core)
+            dl_state = state.NetnsState.read(ni_dl)
+            state.ensure_veth(ni_core, core_state, veth_c, veth_d, self.id)
+            state.refresh_link(ni_dl, dl_state, veth_d)
+            state.ensure_link_state(ni_core, core_state, veth_c, up=True)
+            state.ensure_link_state(ni_dl, dl_state, veth_d, up=True)
+
+            # Link-local addresses for routing, and IPv4 in ENDPOINT mode.
+            endpoint = default_tenant.mode == enums.ServiceMode.ENDPOINT
+            state.ensure_addresses(
+                ni_core,
+                core_state,
                 veth_c,
-                veth_d,
+                [IPv4Interface("169.254.0.1/30")] if endpoint else [],
+                [IPv6Interface("fe80::/64")],
             )
-            ifidx_core: int = ni_core.link_lookup(ifname=veth_c)[0]
-            ifidx_dl: int = ni_dl.link_lookup(ifname=veth_d)[0]
-
-            ni_core.link("set", index=ifidx_core, state="up")
-            ni_dl.link("set", index=ifidx_dl, state="up")
-
-            # assign IP addresses to veth interfaces
-            logger.info(
-                "Setting veth pair %s and %s interface IPv6 addresses.",
-                veth_c,
+            state.ensure_addresses(
+                ni_dl,
+                dl_state,
                 veth_d,
+                [IPv4Interface("169.254.0.2/30")] if endpoint else [],
+                [IPv6Interface("fe80::1/64")],
             )
-            ni_core.addr("replace", index=ifidx_core, address="fe80::", prefixlen=64)
-            ni_dl.addr("replace", index=ifidx_dl, address="fe80::1", prefixlen=64)
-
-            if default_tenant.mode == enums.ServiceMode.ENDPOINT:
-                # assign IP addresses to veth interfaces
-                logger.info(
-                    "Setting veth pair %s and %s interface IPv4 addresses.",
-                    veth_c,
-                    veth_d,
-                )
-                ni_core.addr(
-                    "replace",
-                    index=ifidx_core,
-                    address="169.254.0.1",
-                    prefixlen=30,
-                )
-                ni_dl.addr(
-                    "replace",
-                    index=ifidx_dl,
-                    address="169.254.0.2",
-                    prefixlen=30,
-                )
-
-            core_ni = default_tenant.network_instances[config.CORE_NI]
-            # add route from DOWNLINK to MGMT/uplink network via CORE network instance
-            for connection in core_ni.connections.values():
-                for route6 in connection.routes.ipv6:
-                    logger.info(
-                        "Setting DOWNLINK to CORE route: %s, gateway fe80::,"
-                        " ifname %s interface.",
-                        route6.to,
-                        veth_d,
-                    )
-                    route.command(
-                        ni_dl,
-                        "replace",
-                        dst=route6.to,
-                        gateway=IPv6Address("fe80::"),
-                        ifname=veth_d,
-                    )
-                if default_tenant.mode != enums.ServiceMode.HUB:
-                    for route4 in connection.routes.ipv4:
-                        logger.info(
-                            "Setting DOWNLINK to CORE route: %s, gateway 169.254.0.1,"
-                            " ifname %s interface.",
-                            route4.to,
-                            veth_d,
-                        )
-                        route.command(
-                            ni_dl,
-                            "replace",
-                            dst=route4.to,
-                            gateway=IPv4Address("169.254.0.1"),
-                            ifname=veth_d,
-                        )
 
     def _delete_network_instance_link(
         self,

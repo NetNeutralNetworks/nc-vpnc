@@ -18,6 +18,8 @@ logger = logging.getLogger("vpnc")
 
 # Seconds before reopening the socket after a failure.
 RETRY_DELAY = 1
+# Seconds start() waits for the socket to be bound.
+START_TIMEOUT = 5
 
 
 class LinkMonitor(threading.Thread):
@@ -35,11 +37,18 @@ class LinkMonitor(threading.Thread):
         self.loop = asyncio.new_event_loop()
         self.task: asyncio.Task[None] | None = None
         self.events: queue.Queue[Any] = queue.Queue()
+        self.ready = threading.Event()
         self.worker = threading.Thread(
             target=self.work,
             name=f"links-{netns}-handler",
             daemon=True,
         )
+
+    def start(self) -> None:
+        """Start the monitor and wait until it receives events."""
+        super().start()
+        if not self.ready.wait(START_TIMEOUT):
+            logger.warning("Link monitor for %s isn't listening yet.", self.netns)
 
     def run(self) -> None:
         """Run the event loop until stopped."""
@@ -59,6 +68,7 @@ class LinkMonitor(threading.Thread):
             try:
                 async with AsyncIPRoute(netns=self.netns, flags=0) as ipr:
                     await ipr.bind(groups=RTMGRP_LINK)
+                    self.ready.set()
                     while True:
                         async for msg in ipr.get():
                             self.events.put(msg)
