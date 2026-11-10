@@ -2,12 +2,9 @@
 """Starts the service and runs it in either endpoint or hub mode."""
 
 import logging
-import multiprocessing
 import signal
 import sys
 from logging.handlers import RotatingFileHandler
-
-import pyroute2.config
 
 from vpnc import config, core, helpers
 
@@ -35,12 +32,6 @@ def main() -> None:
     rothandler.setFormatter(formatter)
     logger.addHandler(rothandler)
     logger.addHandler(logging.StreamHandler(sys.stdout))
-
-    # NSPopen starts its helper with multiprocessing. Use forkserver (the default
-    # from Python 3.14): forking a multithreaded process can deadlock the child.
-    context = multiprocessing.get_context("forkserver")
-    pyroute2.config.MpProcess = context.Process
-    pyroute2.config.MpQueue = context.Queue
 
     # Load the configuration
     logger.info("Loading configuration from '%s'.", config.VPNC_A_CONFIG_PATH_SERVICE)

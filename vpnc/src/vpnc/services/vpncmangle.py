@@ -4,10 +4,9 @@ import atexit
 import json
 import logging
 import pathlib
+import subprocess
 from ipaddress import IPv4Network
 from typing import Any
-
-import pyroute2
 
 from vpnc import config, shared
 from vpnc.network import namespace
@@ -50,7 +49,7 @@ def generate_config() -> None:
 
 
 # The running vpncmangle process.
-PROCESS: pyroute2.NSPopen | None = None
+PROCESS: subprocess.Popen[bytes] | None = None
 
 
 def stop() -> None:
@@ -60,7 +59,6 @@ def stop() -> None:
     logger.info("Stopping vpncmangle process in network instance %s.", config.CORE_NI)
     PROCESS.terminate()
     PROCESS.wait()
-    PROCESS.release()
 
 
 atexit.register(stop)
@@ -86,6 +84,4 @@ def ensure_running() -> None:
     if PROCESS is not None and PROCESS.poll() is None:
         return
     logger.warning("vpncmangle isn't running. Starting it.")
-    if PROCESS is not None:
-        PROCESS.release()
     start()
