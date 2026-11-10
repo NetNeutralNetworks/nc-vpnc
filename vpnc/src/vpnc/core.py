@@ -45,6 +45,31 @@ def prepare_namespaces() -> None:
     namespace.add(name=config.CORE_NI)
 
 
+def start_hub_services() -> None:
+    """Start Jool, vpncmangle and FRR (hub mode)."""
+    # VPNC in hub mode performs NAT64 using Jool. The kernel module must be loaded
+    # before it can be used.
+    # Load the NAT64 kernel module (jool). This may cause the program to exit if
+    # it fails to start
+    logger.info("Loading kernel module Jool.")
+    proc = subprocess.run(  # noqa: S603
+        ["/usr/sbin/modprobe", "jool"],
+        stdout=subprocess.PIPE,
+        check=True,
+    )
+    logger.debug(proc.stdout)
+
+    # VPNC in hub mode doctors DNS responses so requests are sent via the tunnel.
+    # Start the VPNC mangle process in the CORE network instance.
+    # This process mangles DNS responses to translate A responses to AAAA responses.
+    vpncmangle.start()
+    reconcile.RECONCILER.register("vpncmangle", lambda _: vpncmangle.ensure_running())
+
+    # VPNC in hub mode uses FRR to exchange routes. Start FRR to make sure it can
+    # load the CORE and EXTERNAL network instances
+    frr.start()
+
+
 def concentrator() -> None:
     """Set up the DEFAULT tenant."""
     default_tenant = tenant.get_default_tenant()
@@ -71,6 +96,10 @@ def concentrator() -> None:
     logger.info("Starting Strongswan monitor")
     sa_mon = strongswan.Monitor(daemon=True)
     sa_mon.start()
+    reconcile.RECONCILER.register(
+        "strongswan",
+        lambda _: sa_mon.reconcile_connections(),
+    )
 
     logger.info("Starting WireGuard monitor")
     wg_mon = wireguard.observe()
@@ -91,26 +120,7 @@ def concentrator() -> None:
             sys.exit(1)
 
     if default_tenant.mode == enums.ServiceMode.HUB:
-        # VPNC in hub mode performs NAT64 using Jool. The kernel module must be loaded
-        # before it can be used.
-        # Load the NAT64 kernel module (jool). This may cause the program to exit if
-        # it fails to start
-        logger.info("Loading kernel module Jool.")
-        proc = subprocess.run(  # noqa: S603
-            ["/usr/sbin/modprobe", "jool"],
-            stdout=subprocess.PIPE,
-            check=True,
-        )
-        logger.debug(proc.stdout)
-
-        # VPNC in hub mode doctors DNS responses so requests are sent via the tunnel.
-        # Start the VPNC mangle process in the CORE network instance.
-        # This process mangles DNS responses to translate A responses to AAAA responses.
-        vpncmangle.start()
-
-        # VPNC in hub mode uses FRR to exchange routes. Start FRR to make sure it can
-        # load the CORE and EXTERNAL network instances
-        frr.start()
+        start_hub_services()
 
     # Start the event handler.
     logger.info("Monitoring tenant config changes.")
