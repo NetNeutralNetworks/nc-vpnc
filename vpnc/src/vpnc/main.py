@@ -2,6 +2,7 @@
 """Starts the service and runs it in either endpoint or hub mode."""
 
 import logging
+import resource
 import signal
 import sys
 from logging.handlers import RotatingFileHandler
@@ -44,6 +45,9 @@ def main() -> None:
 
     # check for required kernel modules.
     helpers.check_system_requirements()
+    # Every network instance keeps sockets open; systemd's soft limit is 1024.
+    _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
 
     # Used to gracefully shutdown, allows the atexit commands to run when a
     # signal is received.

@@ -3,7 +3,8 @@
 Each ensure function compares the desired state with a snapshot (NetnsState),
 changes only what differs, keeps the snapshot up to date and returns whether it
 changed something. Within a session() a namespace is read once and its socket
-and snapshot are shared, which keeps a full check cheap.
+and snapshot are shared, which keeps a full check cheap. Sessions keep their
+sockets open for the next session.
 """
 
 from __future__ import annotations
@@ -189,24 +190,89 @@ def changed(name: str) -> None:
     _GENERATIONS[name] = _GENERATIONS.get(name, 0) + 1
 
 
+# Sockets kept open between sessions of one thread (the reconciler), per namespace
+# with the identity of the namespace they're in. pyroute2 closes a socket used in
+# another thread than the one that opened it, so other threads don't keep them.
+_SOCKETS: dict[str, tuple[tuple[int, int], namespace.IPRoute]] = {}
+_KEEPER: int | None = None
+
+
+def keep_sockets() -> None:
+    """Keep the sockets of this thread's sessions open for its next sessions."""
+    global _KEEPER  # noqa: PLW0603
+    _KEEPER = threading.get_ident()
+
+
+def _keeps() -> bool:
+    return threading.get_ident() == _KEEPER
+
+
+def _identity(name: str) -> tuple[int, int]:
+    """Return the identity of a namespace (FileNotFoundError if missing)."""
+    stat = (namespace.NETNS_DIR / name).stat()
+    return stat.st_dev, stat.st_ino
+
+
+def _socket(name: str) -> namespace.IPRoute:
+    """Return the kept socket of a namespace, opening one if it was replaced."""
+    identity = _identity(name)
+    if (kept := _SOCKETS.get(name)) is not None:
+        if kept[0] == identity:
+            return kept[1]
+        forget(name)
+    ipr = namespace.IPRoute(name)
+    _SOCKETS[name] = (identity, ipr)
+    return ipr
+
+
+def forget(name: str) -> None:
+    """Close the kept socket of a namespace, e.g. before deleting it.
+
+    A socket keeps its namespace, and the interfaces in it, alive. Other threads
+    leave it to the keeping thread's forget_stale().
+    """
+    if not _keeps():
+        return
+    if (kept := _SOCKETS.pop(name, None)) is not None:
+        kept[1].close()
+
+
+def forget_stale() -> None:
+    """Close the kept sockets of namespaces that were deleted or replaced."""
+    if not _keeps():
+        return
+    for name, (identity, _) in list(_SOCKETS.items()):
+        try:
+            current = _identity(name)
+        except FileNotFoundError:
+            current = None
+        if current != identity:
+            forget(name)
+
+
 class Netns:
     """A socket in a namespace, its snapshot (read on first use) and a thread in it.
 
     Calls for the namespace (programs, sysctls, nftables) run in that thread.
     """
 
-    def __init__(self, name: str) -> None:
-        """Open a socket in the namespace (FileNotFoundError if missing)."""
+    def __init__(self, name: str, *, keep: bool = False) -> None:
+        """Open a socket in the namespace (FileNotFoundError if missing).
+
+        With keep, the socket stays open for the next session.
+        """
         self.name = name
-        self.ipr = namespace.IPRoute(name)
+        self.keep = keep
+        self.ipr = _socket(name) if keep else namespace.IPRoute(name)
         self._worker = contextlib.ExitStack()
         self._worker.enter_context(namespace.worker(name))
         self._state: NetnsState | None = None
         self._generation = 0
 
     def close(self) -> None:
-        """Close the socket and stop the thread."""
-        self.ipr.close()
+        """Stop the thread and close the socket, unless it's kept."""
+        if not self.keep:
+            self.ipr.close()
         self._worker.close()
 
     @property
@@ -260,12 +326,16 @@ def netns(name: str) -> Iterator[Netns]:
             ns.close()
         return
     if name not in opened:
-        opened[name] = Netns(name)
+        opened[name] = Netns(name, keep=_keeps())
     try:
         yield opened[name]
-    except BaseException:
+    except BaseException as e:
         # A failed change may have left the snapshot behind.
         opened[name].invalidate()
+        if isinstance(e, OSError) and name in opened and opened[name].keep:
+            # The socket may be broken: open a new one on the next use.
+            forget(name)
+            opened.pop(name).close()
         raise
 
 
