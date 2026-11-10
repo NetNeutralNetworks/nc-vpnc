@@ -11,7 +11,6 @@ import sys
 import time
 from typing import TYPE_CHECKING, Any
 
-import pyroute2
 import vici
 from jinja2 import Environment, FileSystemLoader
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
@@ -19,6 +18,7 @@ from watchdog.observers import Observer
 
 from vpnc import config
 from vpnc.models import enums, tenant
+from vpnc.network import namespace
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
@@ -149,23 +149,8 @@ def generate_config(
 
 def stop() -> None:
     """Shut down IPsec when terminating the program."""
-    try:
-        proc = pyroute2.NSPopen(
-            config.EXTERNAL_NI,
-            # Stop Strongswan in the EXTERNAL network instance.
-            ["ipsec", "stop"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        logger.info(
-            "Stopping Strongswan in network instance %s.",
-            config.EXTERNAL_NI,
-        )
-        stdout, stderr = proc.communicate()
-        logger.debug(stdout, stderr)
-    finally:
-        proc.wait()
-        proc.release()
+    logger.info("Stopping Strongswan in network instance %s.", config.EXTERNAL_NI)
+    namespace.run(config.EXTERNAL_NI, ["/usr/sbin/ipsec", "stop"])
 
 
 def start() -> None:
@@ -176,31 +161,11 @@ def start() -> None:
         logger.debug("Unlinking swanctl config file %s at startup", file)
         file.unlink(missing_ok=True)
 
-    try:
-        proc = pyroute2.NSPopen(
-            config.EXTERNAL_NI,
-            # Stop Strongswan in the EXTERNAL network instance.
-            ["/usr/sbin/ipsec", "start"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        logger.info(
-            "Starting Strongswan in network instance %s.",
-            config.EXTERNAL_NI,
-        )
-        stdout_output, stderr_output = proc.communicate()
-        if proc.returncode != 0:
-            logger.critical("Could not start Strongswan\n%s", stderr_output.decode())
-            sys.exit(1)
-        if isinstance(stdout_output, bytes):
-            stdout = stdout_output.decode()
-        if isinstance(stderr_output, bytes):
-            stderr = stderr_output.decode()
-        logger.debug(stdout, stderr)
-
-    finally:
-        proc.wait()
-        proc.release()
+    logger.info("Starting Strongswan in network instance %s.", config.EXTERNAL_NI)
+    result = namespace.run(config.EXTERNAL_NI, ["/usr/sbin/ipsec", "start"])
+    if result.returncode != 0:
+        logger.critical("Could not start Strongswan\n%s", result.stderr)
+        sys.exit(1)
 
     atexit.register(stop)
 

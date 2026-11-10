@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 from vpnc import config
 from vpnc.models import connections, enums
 from vpnc.models.secret import Secret
+from vpnc.network import namespace
 from vpnc.services import wireguard
 
 if TYPE_CHECKING:
@@ -149,14 +150,10 @@ class ConnectionConfigWireGuard(BaseModel):
             ).stdout,
         )[0]
 
-        proc = pyroute2.NSPopen(
+        wg_list = namespace.run(
             network_instance.id,
             ["wg", "show", if_name, "dump"],
-            stdout=subprocess.PIPE,
-        )
-        wg_output, _ = proc.communicate()
-        proc.release()
-        wg_list = wg_output.split()
+        ).stdout.split()
         (
             priv,
             pub,

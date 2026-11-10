@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import logging
 import pathlib
-import subprocess
 import time
 from ipaddress import IPv4Address
 from typing import TYPE_CHECKING, Any
 
-import pyroute2
 from jinja2 import Environment, FileSystemLoader
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 
 from vpnc import config
 from vpnc.models import enums
+from vpnc.network import namespace
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
@@ -57,14 +56,12 @@ def observe() -> BaseObserver:
             intf_name = pathlib.Path(file).stem
             logger.info("Loading wireguard connection %s.", intf_name)
             network_instance_name = intf_name[3:-2]
-            proc = pyroute2.NSPopen(
+            result = namespace.run(
                 network_instance_name,
                 ["/usr/bin/wg", "setconf", intf_name, file],
-                stdout=subprocess.PIPE,
             )
-            logger.info(proc.stdout)
-            proc.wait()
-            proc.release()
+            if result.returncode:
+                logger.error("Loading %s failed: %s", intf_name, result.stderr.strip())
 
     # Create the observer object. This doesn't start the handler.
     observer: BaseObserver = Observer()
