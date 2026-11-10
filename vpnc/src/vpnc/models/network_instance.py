@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import pathlib
-import re
 import subprocess
 from abc import abstractmethod
 from ipaddress import (
@@ -27,7 +26,7 @@ from pydantic_core import PydanticCustomError
 
 from vpnc import config
 from vpnc.models import connections, enums, tenant
-from vpnc.network import namespace, state
+from vpnc.network import namespace, nftables, state
 from vpnc.services import configuration, frr, strongswan
 
 # Needed for pydantim ports and type checking
@@ -55,32 +54,40 @@ ROUTED_NETWORK_INSTANCE_SYSCTLS = {
 }
 
 
-# Per network instance the last iptables script and the rules it resulted in.
-IPTABLES_APPLIED: dict[str, tuple[str, str]] = {}
-COUNTERS_RE = re.compile(r"\[\d+:\d+\]")
+# Per network instance the last nftables table and the ruleset it resulted in.
+FIREWALL_APPLIED: dict[str, tuple[str, dict[str, Any]]] = {}
 
 
-def _iptables_rules(name: str) -> str:
-    """Return the IPv4 and IPv6 rules of a namespace, without comments and counters."""
-
-    def save() -> str:
-        return "".join(
-            subprocess.run(  # noqa: S603
-                [command],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=30,
-            ).stdout
-            for command in ("/usr/sbin/iptables-save", "/usr/sbin/ip6tables-save")
-        )
-
-    # Both from one thread in the namespace.
-    output = namespace.call(name, save)
-    return COUNTERS_RE.sub(
-        "",
-        "\n".join(line for line in output.splitlines() if not line.startswith("#")),
+def wireguard_ports() -> list[int]:
+    """Return the local ports of all configured WireGuard connections."""
+    return sorted(
+        {
+            connection.config.local_port
+            for tenant_config in list(config.VPNC_CONFIG_TENANT.values())
+            for network_instance in tenant_config.network_instances.values()
+            for connection in network_instance.connections.values()
+            if connection.config.type == enums.ConnectionType.WIREGUARD
+        },
     )
+
+
+def open_wireguard_ports() -> None:
+    """Make EXTERNAL accept exactly the configured WireGuard ports, right away.
+
+    The full check does the same through EXTERNAL's table.
+    """
+    ports = wireguard_ports()
+    try:
+        current = nftables.set_elements(config.EXTERNAL_NI, "wireguard_ports")
+        if sorted(current) != ports:
+            logger.info("Accepting WireGuard on ports %s.", ports)
+            nftables.replace_elements(
+                config.EXTERNAL_NI,
+                "wireguard_ports",
+                [str(port) for port in ports],
+            )
+    except nftables.NftablesError:
+        logger.exception("Updating the WireGuard ports failed.")
 
 
 class NetworkInstance(BaseModel):
@@ -127,8 +134,8 @@ class NetworkInstance(BaseModel):
         raise NotImplementedError
 
     @abstractmethod
-    def set_iptables(self) -> bool:
-        """Add ip(6)table rules for the namespace."""
+    def set_firewall(self) -> bool:
+        """Make the namespace's nftables table as configured."""
         raise NotImplementedError
 
     def reconcile(self, previous: NetworkInstance | None = None) -> bool:
@@ -139,7 +146,7 @@ class NetworkInstance(BaseModel):
         """
         # DOWNLINK namespaces are removed when vpnc stops.
         self._ensure_namespace(cleanup=self.type == enums.NetworkInstanceType.DOWNLINK)
-        updated = self.set_iptables()
+        updated = self.set_firewall()
         self._set_network_instance_connections(previous)
         self._delete_unconfigured_interfaces()
         self._reconcile_services()
@@ -251,22 +258,20 @@ class NetworkInstance(BaseModel):
                 )
         return routes
 
-    def _apply_iptables(self, script: str) -> bool:
-        """Run a rendered iptables script, unless it's already in effect.
+    def _apply_firewall(self, template: str, **variables: Any) -> bool:  # noqa: ANN401
+        """Make vpnc's nftables table as rendered, unless it already is.
 
-        The script flushes and rebuilds the rules, so it only runs when the script
-        or the rules (e.g. changed by hand) differ from the last run.
+        The table is replaced in one transaction, only when the rendered table or
+        the ruleset (e.g. changed by hand) differ from the last time.
         """
-        current = _iptables_rules(self.id)
-        if IPTABLES_APPLIED.get(self.id) == (script, current):
+        table = TEMPLATES_ENV.get_template(template).render(**variables)
+        current = nftables.ruleset(self.id)
+        if FIREWALL_APPLIED.get(self.id) == (table, current):
             return False
-        logger.info("Configuring network instance %s iptables rules.", self.id)
-        logger.debug(script)
-        result = namespace.run(self.id, ["/bin/sh", "-c", script])
-        if result.returncode:
-            msg = f"Configuring iptables failed: {result.stderr.strip()}"
-            raise RuntimeError(msg)
-        IPTABLES_APPLIED[self.id] = (script, _iptables_rules(self.id))
+        logger.info("Configuring network instance %s firewall.", self.id)
+        logger.debug(table)
+        nftables.replace(self.id, table)
+        FIREWALL_APPLIED[self.id] = (table, nftables.ruleset(self.id))
         return True
 
     def _reconcile_services(self) -> None:
@@ -476,18 +481,9 @@ class NetworkInstanceExternal(NetworkInstance):
         """Delete an EXTERNAL network instance."""
         self.delete_network_instance()
 
-    def set_iptables(self) -> bool:
-        """Add ip(6)table rules for the EXTERNAL namespace.
-
-        The EXTERNAL network instance blocks all traffic except for IKE, ESP and IPsec.
-        """
-        iptables_template = TEMPLATES_ENV.get_template("iptables-external.conf.j2")
-        iptables_configs = {
-            "network_instance_name": self.id,
-        }
-        iptables_render = iptables_template.render(**iptables_configs)
-        self._apply_iptables(iptables_render)
-
+    def set_firewall(self) -> bool:
+        """Accept only IKE, ESP and the configured WireGuard ports."""
+        self._apply_firewall("nft-external.conf.j2", wireguard_ports=wireguard_ports())
         return False
 
 
@@ -505,28 +501,13 @@ class NetworkInstanceCore(NetworkInstance):
         """Delete a CORE network instance."""
         self.delete_network_instance()
 
-    def set_iptables(
-        self,
-    ) -> bool:
-        """Add ip(6)table rules for the CORE network instance.
-
-        The CORE network instance blocks all traffic originating from the DOWNLINK
-        network instance (Linux namespace), but does accept traffic originating from
-        its uplink.
-        """
-        default_tenant = tenant.get_default_tenant()
-
-        interfaces = self._get_network_instance_connections()
-
-        iptables_template = TEMPLATES_ENV.get_template("iptables-core.conf.j2")
-        iptables_configs: dict[str, Any] = {
-            "mode": default_tenant.mode,
-            "network_instance_name": self.id,
-            "interfaces": sorted(interfaces),
-        }
-        iptables_render = iptables_template.render(**iptables_configs)
-        self._apply_iptables(iptables_render)
-
+    def set_firewall(self) -> bool:
+        """Accept traffic from the uplinks, not from the DOWNLINK network instances."""
+        self._apply_firewall(
+            "nft-core.conf.j2",
+            mode=tenant.get_default_tenant().mode,
+            interfaces=sorted(self._get_network_instance_connections()),
+        )
         return False
 
 
@@ -546,30 +527,19 @@ class NetworkInstanceDownlink(NetworkInstance):
         self._delete_network_instance_link()
         self.delete_network_instance()
 
-    def set_iptables(self) -> bool:
-        """Configure ip(6)table rules for a downlink.
+    def set_firewall(self) -> bool:
+        """Accept traffic from CORE and ICMPv6 only; NPTv6 and NAT66.
 
-        The DOWNLINK network instance blocks all traffic except for traffic from the
-        CORE network instance and ICMPv6.
+        Returns whether new NPTv6 prefixes were assigned.
         """
-        default_tenant = tenant.get_default_tenant()
-
-        mode = default_tenant.mode
-        core_interfaces = [f"{self.id}_D"]
-        downlink_interfaces = self._get_network_instance_connections()
-
-        iptables_template = TEMPLATES_ENV.get_template("iptables-downlink.conf.j2")
         updated, nptv6_networks = self._calculate_nptv6_mappings()
-        iptables_configs = {
-            "mode": mode,
-            "network_instance_name": self.id,
-            "core_interfaces": sorted(core_interfaces),
-            "downlink_interfaces": sorted(downlink_interfaces),
-            "nptv6_networks": nptv6_networks,
-        }
-        iptables_render = iptables_template.render(**iptables_configs)
-        self._apply_iptables(iptables_render)
-
+        self._apply_firewall(
+            "nft-downlink.conf.j2",
+            mode=tenant.get_default_tenant().mode,
+            core_interfaces=[f"{self.id}_D"],
+            downlink_interfaces=sorted(self._get_network_instance_connections()),
+            nptv6_networks=nptv6_networks,
+        )
         return updated
 
     def _calculate_nptv6_mappings(
@@ -726,27 +696,13 @@ class NetworkInstanceEndpoint(NetworkInstance):
         """Delete an ENDPOINT network instance."""
         self.delete_network_instance()
 
-    def set_iptables(self) -> bool:
-        """Configure ip(6)table rules for a downlink.
-
-        The ENDPOINT network instance blocks all traffic except for traffic from the
-        CORE network instance and ICMPv6.
-        """
-        default_tenant = tenant.get_default_tenant()
-
-        mode = default_tenant.mode
-        core_interfaces = [f"{self.id}_D"]
-        downlink_interfaces = self._get_network_instance_connections()
-
-        iptables_template = TEMPLATES_ENV.get_template("iptables-endpoint.conf.j2")
-        iptables_configs: dict[str, Any] = {
-            "mode": mode,
-            "network_instance_name": self.id,
-            "core_interfaces": sorted(core_interfaces),
-            "downlink_interfaces": sorted(downlink_interfaces),
-            "nptv6_networks": [],
-        }
-        iptables_render = iptables_template.render(**iptables_configs)
-        self._apply_iptables(iptables_render)
-
+    def set_firewall(self) -> bool:
+        """Accept traffic from CORE and ICMPv6 only; NAT."""
+        self._apply_firewall(
+            "nft-endpoint.conf.j2",
+            mode=tenant.get_default_tenant().mode,
+            core_interfaces=[f"{self.id}_D"],
+            downlink_interfaces=sorted(self._get_network_instance_connections()),
+            nptv6_networks=[],
+        )
         return False

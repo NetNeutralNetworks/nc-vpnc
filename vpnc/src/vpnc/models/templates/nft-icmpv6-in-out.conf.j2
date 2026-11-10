@@ -1,0 +1,5 @@
+{#- ICMPv6 needed for IPv6 connectivity, for traffic to and from this namespace. #}
+    chain icmpv6-in-out {
+        icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, echo-reply, mld-listener-query, mld-listener-report, mld-listener-done, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+        meta l4proto ipv6-icmp drop
+    }
