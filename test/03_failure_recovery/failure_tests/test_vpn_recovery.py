@@ -28,6 +28,9 @@ PEER_RETRY_TIMEOUT = 240
 
 # "<name>: #<id>, <state>, " in swanctl --list-sas.
 SA_RE = re.compile(r"^(\S+): #\d+, (\w+), ")
+POLICY_IF_ID_RE = re.compile(r"if_id (0x[0-9a-f]+)")
+# "(<mark>|<if_id>)" of a child SA in swanctl --list-sas.
+CHILD_IF_ID_RE = re.compile(r"\(-\|(0x[0-9a-f]+)\)")
 
 
 def get_sas(host: str) -> dict[str, list[str]]:
@@ -107,6 +110,16 @@ def sas_appearing(host: str, name: str, seconds: float) -> list[str]:
     return []
 
 
+def stale_policy_if_ids(host: str) -> set[str]:
+    """Return the if_ids of XFRM policies that have no child SA."""
+    policies = conftest.run_cmd(
+        host,
+        "ip netns exec EXTERNAL ip xfrm policy list nosock",
+    )
+    sas = conftest.run_cmd_shell(host, "swanctl --list-sas 2>/dev/null")
+    return set(POLICY_IF_ID_RE.findall(policies)) - set(CHILD_IF_ID_RE.findall(sas))
+
+
 def force_terminate(host: str, name: str) -> None:
     """Delete an IKE SA without waiting for the peer."""
     conftest.run_cmd_shell(
@@ -167,4 +180,23 @@ class TestVpnRecovery:
             timeout=PEER_RETRY_TIMEOUT,
             message=f"end00 to re-establish {RESPONDER_CONNECTION}",
         )
+        wait_for_healthy(HOST, connections, PEER_RETRY_TIMEOUT)
+
+    def test_stale_policies_removed(self) -> None:
+        """Policies left by a killed charon go when their SA doesn't come back."""
+        connections = get_connections(HOST)
+        with ike_blocked_from(HOST, END00_ADDRESSES):
+            conftest.run_cmd_shell(HOST, "pkill -KILL -x charon")
+            conftest.wait_until(
+                lambda: is_established(HOST, UPLINK_UNREACHABLE, UPLINK_REACHABLE),
+                timeout=PEER_RETRY_TIMEOUT,
+                message=f"uplinks on {HOST} to be re-established",
+            )
+            conftest.wait_until(
+                lambda: not stale_policy_if_ids(HOST),
+                timeout=FULL_CHECK_INTERVAL * 4,
+                message=f"stale XFRM policies on {HOST} to be removed",
+            )
+            assert not is_established(HOST, RESPONDER_CONNECTION)
+
         wait_for_healthy(HOST, connections, PEER_RETRY_TIMEOUT)
