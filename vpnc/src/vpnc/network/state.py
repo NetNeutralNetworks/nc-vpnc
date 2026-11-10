@@ -11,12 +11,15 @@ from __future__ import annotations
 import contextlib
 import ipaddress
 import logging
+import socket
+import struct
 import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 import pyroute2
 from pyroute2.netlink.exceptions import NetlinkError
+from pyroute2.netlink.rtnl.rtmsg import rtmsg
 
 from vpnc.network import namespace
 
@@ -44,6 +47,15 @@ RTN_UNICAST = 1
 RTN_BLACKHOLE = 6
 RT_SCOPE_UNIVERSE = 0
 RT_SCOPE_LINK = 253
+
+# For route dumps the kernel filters (pyroute2 filters after receiving all).
+SOL_NETLINK = 270
+NETLINK_GET_STRICT_CHK = 12
+RTM_GETROUTE = 26
+NLMSG_ERROR = 2
+NLMSG_DONE = 3
+NLM_F_REQUEST = 0x1
+NLM_F_DUMP = 0x300
 
 
 @dataclass(frozen=True)
@@ -115,12 +127,57 @@ class NetnsState:
                 state.addresses[name].add(address)
             elif msg["scope"] == RT_SCOPE_LINK:
                 state.link_local[name].add(address)
-        for msg in ipr.get_routes(table=RT_TABLE_MAIN):
-            if msg["proto"] not in OWNED_PROTOCOLS:
-                continue
+        for msg in owned_route_messages(ipr.netns):
             route = _route_from_msg(msg, names)
             state.routes[route.dst] = route
         return state
+
+
+def owned_route_messages(netns: str) -> list[rtmsg]:
+    """Return the owned routes of the main table of a namespace.
+
+    The kernel only sends these (strict check), instead of every route (e.g. a
+    full BGP table) for pyroute2 to parse and filter.
+    """
+    messages: list[rtmsg] = []
+    with socket.socket(
+        socket.AF_NETLINK,
+        socket.SOCK_RAW,
+        socket.NETLINK_ROUTE,
+        fileno=namespace.netlink_socket(netns),
+    ) as sock:
+        sock.setsockopt(SOL_NETLINK, NETLINK_GET_STRICT_CHK, 1)
+        for seq, proto in enumerate(OWNED_PROTOCOLS, start=1):
+            # struct rtmsg: family, dst_len, src_len, tos, table, protocol, scope,
+            # type, flags.
+            body = struct.pack("4B4BI", 0, 0, 0, 0, RT_TABLE_MAIN, proto, 0, 0, 0)
+            header = struct.pack(
+                "IHHII",
+                16 + len(body),
+                RTM_GETROUTE,
+                NLM_F_REQUEST | NLM_F_DUMP,
+                seq,
+                0,
+            )
+            sock.send(header + body)
+            messages.extend(_receive_dump(sock))
+    return messages
+
+
+def _receive_dump(sock: socket.socket) -> Iterator[rtmsg]:
+    while True:
+        data = sock.recv(1 << 20)
+        offset = 0
+        while offset < len(data):
+            length, msg_type = struct.unpack_from("IH", data, offset)
+            if msg_type == NLMSG_DONE:
+                return
+            if msg_type == NLMSG_ERROR:
+                raise NetlinkError(-struct.unpack_from("i", data, offset + 16)[0])
+            msg = rtmsg(data[offset : offset + length])
+            msg.decode()
+            yield msg
+            offset += (length + 3) & ~3
 
 
 class Netns:
@@ -198,7 +255,7 @@ def _route_from_msg(msg: dict, names: dict[int, str]) -> Route:  # type: ignore[
     )
 
 
-def refresh_link(ipr: pyroute2.IPRoute, state: NetnsState, name: str) -> Link | None:
+def refresh_link(ipr: namespace.IPRoute, state: NetnsState, name: str) -> Link | None:
     """Reread one interface into the snapshot and return it."""
     state.links.pop(name, None)
     if not (indexes := ipr.link_lookup(ifname=name)):
@@ -216,17 +273,16 @@ def refresh_link(ipr: pyroute2.IPRoute, state: NetnsState, name: str) -> Link | 
     return link
 
 
-def refresh_routes(ipr: pyroute2.IPRoute, state: NetnsState) -> None:
+def refresh_routes(ipr: namespace.IPRoute, state: NetnsState) -> None:
     """Reread the owned routes into the snapshot."""
     names = {link.index: name for name, link in state.links.items()}
     state.routes = {}
-    for msg in ipr.get_routes(table=RT_TABLE_MAIN):
-        if msg["proto"] in OWNED_PROTOCOLS:
-            route = _route_from_msg(msg, names)
-            state.routes[route.dst] = route
+    for msg in owned_route_messages(ipr.netns):
+        route = _route_from_msg(msg, names)
+        state.routes[route.dst] = route
 
 
-def delete_link(ipr: pyroute2.IPRoute, state: NetnsState, name: str) -> bool:
+def delete_link(ipr: namespace.IPRoute, state: NetnsState, name: str) -> bool:
     """Delete an interface if it exists."""
     if (link := state.links.get(name)) is None:
         return False
@@ -246,7 +302,7 @@ def delete_link(ipr: pyroute2.IPRoute, state: NetnsState, name: str) -> bool:
 
 def _move_from(
     ipr_src: pyroute2.IPRoute,
-    ipr: pyroute2.IPRoute,
+    ipr: namespace.IPRoute,
     state: NetnsState,
     name: str,
     **kwargs: object,
@@ -259,7 +315,7 @@ def _move_from(
 
 
 def ensure_xfrm(
-    ipr: pyroute2.IPRoute,
+    ipr: namespace.IPRoute,
     ipr_external: pyroute2.IPRoute,
     state: NetnsState,
     name: str,
@@ -281,7 +337,7 @@ def ensure_xfrm(
 
 
 def ensure_wireguard(
-    ipr: pyroute2.IPRoute,
+    ipr: namespace.IPRoute,
     ipr_external: pyroute2.IPRoute,
     state: NetnsState,
     name: str,
@@ -296,7 +352,7 @@ def ensure_wireguard(
     return True
 
 
-def ensure_tun(ipr: pyroute2.IPRoute, state: NetnsState, name: str) -> bool:
+def ensure_tun(ipr: namespace.IPRoute, state: NetnsState, name: str) -> bool:
     """Ensure a tun interface."""
     link = state.links.get(name)
     if link and link.kind == "tun":
@@ -316,7 +372,7 @@ def ensure_tun(ipr: pyroute2.IPRoute, state: NetnsState, name: str) -> bool:
 
 
 def ensure_veth(
-    ipr: pyroute2.IPRoute,
+    ipr: namespace.IPRoute,
     state: NetnsState,
     name: str,
     peer_name: str,
@@ -345,7 +401,7 @@ def ensure_veth(
 
 
 def ensure_moved(
-    ipr: pyroute2.IPRoute,
+    ipr: namespace.IPRoute,
     ipr_src: pyroute2.IPRoute,
     state: NetnsState,
     name: str,
@@ -363,7 +419,7 @@ def ensure_moved(
 
 
 def ensure_link_state(
-    ipr: pyroute2.IPRoute,
+    ipr: namespace.IPRoute,
     state: NetnsState,
     name: str,
     *,
@@ -384,7 +440,7 @@ def ensure_link_state(
 
 
 def ensure_addresses(
-    ipr: pyroute2.IPRoute,
+    ipr: namespace.IPRoute,
     state: NetnsState,
     name: str,
     desired: Iterable[IPInterface],
@@ -429,7 +485,7 @@ def ensure_addresses(
 
 
 def ensure_routes(
-    ipr: pyroute2.IPRoute,
+    ipr: namespace.IPRoute,
     state: NetnsState,
     desired: Iterable[Route],
     *,
