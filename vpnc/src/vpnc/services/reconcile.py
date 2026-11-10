@@ -107,6 +107,20 @@ class Reconciler:
                 time.monotonic() - start,
             )
 
+    def run_triggered(self) -> None:
+        """Run the scoped checks triggered so far, e.g. halfway a full check.
+
+        Full triggers stay pending for the worker.
+        """
+        with self._condition:
+            pending = {
+                name: keys for name, keys in self._pending.items() if keys is not None
+            }
+            for name in pending:
+                del self._pending[name]
+        if pending:
+            self.run_checks(pending)
+
     def _run(self) -> None:
         next_full_check = time.monotonic()
         while not shared.STOP_EVENT.is_set():
@@ -163,12 +177,21 @@ def apply_network_instance(network_instance: NetworkInstance) -> bool:
 
 
 def check_network_instances(keys: set[str] | None) -> None:
-    """Reconcile network instances; remove the ones no longer configured."""
-    configured = configured_network_instances()
+    """Reconcile network instances; remove the ones no longer configured.
+
+    A full check runs triggered checks between network instances, so changes don't
+    wait for it. The configuration is looked up per network instance, as it can
+    change meanwhile.
+    """
     updated_tenants: set[str] = set()
-    for ni_id, (tenant_id, network_instance) in configured.items():
+    for ni_id in list(configured_network_instances()):
         if keys is not None and ni_id not in keys:
             continue
+        if keys is None:
+            RECONCILER.run_triggered()
+        if (current := configured_network_instances().get(ni_id)) is None:
+            continue
+        tenant_id, network_instance = current
         try:
             if apply_network_instance(network_instance):
                 updated_tenants.add(tenant_id)
@@ -177,7 +200,7 @@ def check_network_instances(keys: set[str] | None) -> None:
 
     for tenant_id in updated_tenants:
         configuration.write_tenant(tenant_id)
-    remove_unconfigured(configured, keys)
+    remove_unconfigured(configured_network_instances(), keys)
 
 
 def remove_unconfigured(
