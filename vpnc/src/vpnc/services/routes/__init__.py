@@ -12,92 +12,32 @@ import pyroute2
 import vpnc.models.connections
 import vpnc.models.tenant
 from vpnc import config
-from vpnc.models import enums, info
+from vpnc.models import enums
 from vpnc.network import state
 from vpnc.network.events import LinkMonitor
 from vpnc.services import configuration
-from vpnc.shared import NI_LOCK
 
 if TYPE_CHECKING:
     import vpnc.models.network_instance
 
 logger = logging.getLogger("vpnc")
 
-NI_ROUTE_MONITORS: dict[
-    str,
-    tuple[vpnc.models.network_instance.NetworkInstance | None, LinkMonitor],
-] = {}
+# Link monitor per network instance.
+NI_ROUTE_MONITORS: dict[str, LinkMonitor] = {}
+
+# Called with a network instance's id when one of its links changes. Set by the
+# reconciler, which then reconciles the routes.
+ON_LINK_EVENT: Callable[[str], None] | None = None
 
 
-def create_handler(network_instance_id: str) -> Callable[..., None]:
-    """Closure to add the network instance id to the handler function."""
+def create_handler(network_instance_id: str) -> Callable[[Any], None]:
+    """Return a link event handler for a network instance."""
 
-    def resolve_route_advertisements(event: Any) -> None:  # noqa: ANN401
-        """Resolve route advertisement statuses.
+    def on_link_event(event: Any) -> None:  # noqa: ANN401
+        if event["event"] in ("RTM_NEWLINK", "RTM_DELLINK") and ON_LINK_EVENT:
+            ON_LINK_EVENT(network_instance_id)
 
-        Used by monitor monitor_route_advertisements.
-
-        Tries to resolve the current routes as in the FDB and what should be advertised.
-        If the connection is down, the advertisements should be retracted.
-        """
-        nonlocal network_instance_id
-        default_tenant = vpnc.models.tenant.get_default_tenant()
-
-        connection_event: str = event["event"]
-        if connection_event not in ("RTM_NEWLINK", "RTM_DELLINK"):
-            return
-
-        if network_instance_id in (
-            config.CORE_NI,
-            config.DEFAULT_NI,
-            config.ENDPOINT_NI,
-            config.EXTERNAL_NI,
-        ):
-            tenant_id = "DEFAULT"
-            net_inst = default_tenant.network_instances[network_instance_id]
-        else:
-            ni_info = info.parse_downlink_network_instance_name(
-                network_instance_id,
-            )
-            tenant_id = ni_info.tenant
-            net_inst = None
-            if tenant := vpnc.models.tenant.get_tenant(tenant_id):
-                net_inst = tenant.network_instances.get(network_instance_id)
-
-        active_net_inst, ni_handler = NI_ROUTE_MONITORS[network_instance_id]
-        connection_name: str = event.get("ifname")
-
-        # Only connection interfaces affect routes (configured or still active).
-        active_connection = _find_connection(active_net_inst, connection_name)
-        if not (_find_connection(net_inst, connection_name) or active_connection):
-            return
-
-        ni_dl = pyroute2.IPRoute(netns=network_instance_id, flags=0)
-        ni_core = pyroute2.IPRoute(netns=config.CORE_NI, flags=0)
-        logger.info("Acquiring lock for %s", network_instance_id)
-        with ni_dl, ni_core, NI_LOCK[network_instance_id]:
-            # Recompute the routes of all connections, as the state of one connection
-            # affects the advertisements of the others.
-            if net_inst:
-                reconcile_routes(ni_dl, ni_core, net_inst, active_net_inst)
-        logger.info("Releasing lock for %s", network_instance_id)
-
-        NI_ROUTE_MONITORS[network_instance_id] = (net_inst, ni_handler)
-
-    return resolve_route_advertisements
-
-
-def _find_connection(
-    net_inst: vpnc.models.network_instance.NetworkInstance | None,
-    interface_name: str,
-) -> vpnc.models.connections.Connection | None:
-    """Return the connection of a network instance that uses an interface."""
-    if not net_inst:
-        return None
-    for conn in net_inst.connections.values():
-        if conn.intf_name(net_inst) == interface_name:
-            return conn
-    return None
+    return on_link_event
 
 
 def _core_ipv6_advertisement(
@@ -297,7 +237,7 @@ def start(network_instance_id: str) -> None:
         network_instance_id,
     )
     monitor = LinkMonitor(network_instance_id, create_handler(network_instance_id))
-    NI_ROUTE_MONITORS[network_instance_id] = (None, monitor)
+    NI_ROUTE_MONITORS[network_instance_id] = monitor
     monitor.start()
 
     atexit.register(stop, network_instance_id=network_instance_id)
@@ -317,5 +257,5 @@ def stop(network_instance_id: str) -> None:
         network_instance_id,
     )
 
-    NI_ROUTE_MONITORS[network_instance_id][1].stop()
+    NI_ROUTE_MONITORS[network_instance_id].stop()
     del NI_ROUTE_MONITORS[network_instance_id]

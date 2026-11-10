@@ -18,10 +18,10 @@ from watchdog.observers import Observer
 
 import vpnc.models.network_instance
 import vpnc.models.tenant
-from vpnc import config
+from vpnc import config, files
 from vpnc.models import enums, info
 from vpnc.models.secret import REVEAL
-from vpnc.services import frr, vpncmangle
+from vpnc.services import vpncmangle
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
@@ -73,6 +73,10 @@ def observe_configuration() -> BaseObserver:
     return observer
 
 
+# Configuration file per tenant, to write updates (e.g. NPTv6 prefixes) back.
+TENANT_PATHS: dict[str, pathlib.Path] = {}
+
+
 def manage_tenant(path: pathlib.Path) -> None:
     """Configure tenants."""
     default_tenant = vpnc.models.tenant.get_default_tenant()
@@ -96,39 +100,14 @@ def manage_tenant(path: pathlib.Path) -> None:
             " configuration files other than DEFAULT. Ignoring.",
         )
 
-    if not active_tenant:
-        active_network_instance_ids: set[str] = set()
-        active_tenant_network_instances: dict[
-            str,
-            vpnc.models.network_instance.NetworkInstance,
-        ] = {}
-    else:
-        active_network_instance_ids = {
-            x.id for x in active_tenant.network_instances.values()
-        }
-        active_tenant_network_instances = active_tenant.network_instances
-    network_instance_ids = {x.id for x in tenant.network_instances.values()}  # pylint: disable=no-member
+    previous_ids: set[str] = set()
+    if active_tenant:
+        previous_ids = {ni.id for ni in active_tenant.network_instances.values()}
+    network_instance_ids = {ni.id for ni in tenant.network_instances.values()}
 
-    # Calculate network instances that need to be removed and remove them.
-    ni_remove = active_network_instance_ids.difference(network_instance_ids)
-    for ni in ni_remove:
-        delete_active_ni = active_tenant_network_instances.pop(ni, None)
-        if delete_active_ni is None:
-            continue
-
-        # run the network instance remove commands
-        delete_active_ni.delete()
-
-    logger.info("Setting up tenant %s.", tenant.id)
-    # Store the new configuration first, so event handlers use it while it's applied.
+    logger.info("Applying tenant %s.", tenant.id)
     config.VPNC_CONFIG_TENANT[tenant.id] = tenant
-
-    update_check: list[bool] = [
-        network_instance.set(
-            active_tenant_network_instances.get(network_instance.id),
-        )
-        for network_instance in tenant.network_instances.values()
-    ]
+    TENANT_PATHS[tenant.id] = path
 
     if (
         default_tenant.mode == enums.ServiceMode.HUB
@@ -137,34 +116,30 @@ def manage_tenant(path: pathlib.Path) -> None:
         # DNS mangling
         vpncmangle.generate_config()
 
-    if any(update_check):
-        # Check if the configuration file needs to be updated.
-        # TODO@draggeta: check if there is a way to make it so that the file isn't
-        # reloaded.
-        file_name = path.name
-        candidate_config = path.parent.parent.joinpath(
-            "candidate",
-            file_name,
-        )
-        with path.open("w", encoding="utf-8") as fha, candidate_config.open(
-            "w",
-            encoding="utf-8",
-        ) as fhb:
-            output = tenant.model_dump(mode="json", context=REVEAL)
-            try:
-                fha.write(
-                    yaml.safe_dump(output, explicit_start=True, explicit_end=True),
-                )
-            except yaml.YAMLError:
-                logger.exception("Invalid YAML found in %s. Skipping.", path)
-                return
-            try:
-                fhb.write(
-                    yaml.safe_dump(output, explicit_start=True, explicit_end=True),
-                )
-            except yaml.YAMLError:
-                logger.exception("Invalid YAML found in %s. Skipping.", path)
-                return
+    # The reconciler applies the configuration; removed network instances too.
+    from vpnc.services import reconcile  # noqa: PLC0415  (import cycle)
+
+    reconcile.RECONCILER.trigger(
+        "network_instances",
+        *(network_instance_ids | previous_ids),
+    )
+
+
+def write_tenant(tenant_id: str) -> None:
+    """Write a tenant's configuration back to its files (e.g. new NPTv6 prefixes)."""
+    tenant = config.VPNC_CONFIG_TENANT.get(tenant_id)
+    path = TENANT_PATHS.get(tenant_id)
+    if tenant is None or path is None:
+        return
+    output = yaml.safe_dump(
+        tenant.model_dump(mode="json", context=REVEAL),
+        explicit_start=True,
+        explicit_end=True,
+    )
+    candidate = path.parent.parent.joinpath("candidate", path.name)
+    for file_path in (path, candidate):
+        if files.ensure_file(file_path, output):
+            logger.info("Updated configuration file %s.", file_path)
 
 
 def delete_downlink_tenant(path: pathlib.Path) -> None:
@@ -198,25 +173,14 @@ def delete_downlink_tenant(path: pathlib.Path) -> None:
             " configuration files other than DEFAULT. Ignoring.",
         )
 
-    for ni in active_network_instances:
-        # remove VPN configs if exist
-        logger.info(
-            "Removing VPN configuration for network instance '%s' connection.",
-            ni.id,
-            # connection.id,
-        )
-        downlink_path = config.IPSEC_CONFIG_DIR.joinpath(f"{ni.id}.conf")
-        downlink_path.unlink(missing_ok=True)
-        time.sleep(0.1)
-        # run the network instance remove commands
-        ni.delete()
+    TENANT_PATHS.pop(tenant_id, None)
+    # The reconciler removes the network instances.
+    from vpnc.services import reconcile  # noqa: PLC0415  (import cycle)
 
-    config.VPNC_CONFIG_TENANT.pop(tenant_id, None)
-
-    # Remove routes when the tenant is deleted.
-    if default_tenant.mode == enums.ServiceMode.HUB:
-        # FRR
-        frr.generate_config()
+    reconcile.RECONCILER.trigger(
+        "network_instances",
+        *(ni.id for ni in active_network_instances),
+    )
 
 
 def get_network_instance_nat64_scope(
