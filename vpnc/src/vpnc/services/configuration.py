@@ -253,7 +253,7 @@ def get_network_instance_nat64_mappings_state(
     """Retrieve the live NAT64 mapping configured in Jool."""
     output = namespace.run(
         network_instance_name,
-        ["jool", "--instance", network_instance_name, "global", "display"],
+        ["/usr/bin/jool", "--instance", network_instance_name, "global", "display"],
     ).stdout
     pool6 = [
         fields[1]
