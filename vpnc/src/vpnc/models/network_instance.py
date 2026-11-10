@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import pathlib
 import re
+import subprocess
 from abc import abstractmethod
 from ipaddress import (
     IPv4Address,
@@ -61,10 +62,21 @@ COUNTERS_RE = re.compile(r"\[\d+:\d+\]")
 
 def _iptables_rules(name: str) -> str:
     """Return the IPv4 and IPv6 rules of a namespace, without comments and counters."""
-    output = "".join(
-        namespace.run(name, [command]).stdout
-        for command in ("/usr/sbin/iptables-save", "/usr/sbin/ip6tables-save")
-    )
+
+    def save() -> str:
+        return "".join(
+            subprocess.run(  # noqa: S603
+                [command],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            ).stdout
+            for command in ("/usr/sbin/iptables-save", "/usr/sbin/ip6tables-save")
+        )
+
+    # Both from one thread in the namespace.
+    output = namespace.call(name, save)
     return COUNTERS_RE.sub(
         "",
         "\n".join(line for line in output.splitlines() if not line.startswith("#")),
