@@ -180,18 +180,31 @@ def _receive_dump(sock: socket.socket) -> Iterator[rtmsg]:
             offset += (length + 3) & ~3
 
 
+# Per namespace, bumped by changed(): shared snapshots are read again.
+_GENERATIONS: dict[str, int] = {}
+
+
+def changed(name: str) -> None:
+    """Note a change in a namespace not made by the ensure functions (an event)."""
+    _GENERATIONS[name] = _GENERATIONS.get(name, 0) + 1
+
+
 class Netns:
     """A socket in a namespace and its snapshot, read on first use."""
 
     def __init__(self, name: str) -> None:
         """Open a socket in the namespace."""
+        self.name = name
         self.ipr = namespace.IPRoute(name)
         self._state: NetnsState | None = None
+        self._generation = 0
 
     @property
     def state(self) -> NetnsState:
-        """Return the snapshot of the namespace."""
-        if self._state is None:
+        """Return the snapshot of the namespace, read again after changed()."""
+        generation = _GENERATIONS.get(self.name, 0)
+        if self._state is None or self._generation != generation:
+            self._generation = generation
             self._state = NetnsState.read(self.ipr)
         return self._state
 
@@ -207,19 +220,22 @@ _SESSION = threading.local()
 def session() -> Iterator[None]:
     """Share one socket and snapshot per namespace in this thread until the end.
 
-    Only changes made through the ensure functions are seen meanwhile.
+    A nested session closes the namespaces it opened; the ones opened before stay
+    shared (e.g. CORE during a full check). Changes not made through the ensure
+    functions are only seen after changed().
     """
-    if getattr(_SESSION, "open", None) is not None:
-        yield
-        return
-    _SESSION.open = {}
+    outermost = getattr(_SESSION, "open", None) is None
+    if outermost:
+        _SESSION.open = {}
+    opened: dict[str, Netns] = _SESSION.open
+    before = set(opened)
     try:
         yield
     finally:
-        opened: dict[str, Netns] = _SESSION.open
-        _SESSION.open = None
-        for netns in opened.values():
-            netns.ipr.close()
+        for name in set(opened) - before:
+            opened.pop(name).ipr.close()
+        if outermost:
+            _SESSION.open = None
 
 
 @contextlib.contextmanager
