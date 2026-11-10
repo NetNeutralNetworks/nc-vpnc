@@ -112,7 +112,7 @@ def start(
         and tunnel is not None
         and tunnel.is_alive()
     ):
-        logger.info("No changes detected in connection '%s'.", connection_name)
+        logger.debug("No changes detected in connection '%s'.", connection_name)
         return
 
     stop(network_instance, connection)

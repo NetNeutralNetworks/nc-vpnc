@@ -14,6 +14,8 @@ from pyroute2 import NSPopen, netns
 logger = logging.getLogger("vpnc")
 
 NETNS_DIR = Path("/var/run/netns")
+# Namespaces deleted when vpnc stops.
+_CLEANUP: set[str] = set()
 
 
 def add(name: str, cleanup: bool = False) -> str:  # noqa: FBT001, FBT002
@@ -29,7 +31,8 @@ def add(name: str, cleanup: bool = False) -> str:  # noqa: FBT001, FBT002
     if name not in netns.listnetns():
         netns.create(name)
 
-    if cleanup:
+    if cleanup and name not in _CLEANUP:
+        _CLEANUP.add(name)
         atexit.register(delete, name=name)
 
     return name
