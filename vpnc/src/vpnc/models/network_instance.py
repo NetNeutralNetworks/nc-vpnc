@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import re
 import subprocess
 import sys
-import threading
 import time
 from abc import abstractmethod
 from ipaddress import IPv4Interface, IPv6Interface
@@ -23,7 +23,6 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
-import vpnc.shared
 from vpnc import config
 from vpnc.models import connections, enums, tenant
 from vpnc.network import namespace, state
@@ -52,6 +51,23 @@ ROUTED_NETWORK_INSTANCE_SYSCTLS = {
     "net.ipv6.conf.all.keep_addr_on_down": "1",
     "net.ipv6.conf.default.keep_addr_on_down": "1",
 }
+
+
+# Per network instance the last iptables script and the rules it resulted in.
+IPTABLES_APPLIED: dict[str, tuple[str, str]] = {}
+COUNTERS_RE = re.compile(r"\[\d+:\d+\]")
+
+
+def _iptables_rules(name: str) -> str:
+    """Return the IPv4 and IPv6 rules of a namespace, without comments and counters."""
+    output = "".join(
+        namespace.run(name, [command]).stdout
+        for command in ("/usr/sbin/iptables-save", "/usr/sbin/ip6tables-save")
+    )
+    return COUNTERS_RE.sub(
+        "",
+        "\n".join(line for line in output.splitlines() if not line.startswith("#")),
+    )
 
 
 class NetworkInstance(BaseModel):
@@ -113,46 +129,52 @@ class NetworkInstance(BaseModel):
         *,
         cleanup: bool = False,
     ) -> bool:
-        """Add a network instance (Linux namespace) and enable forwarding if needed."""
-        self._ensure_lock()
-        logger.info("Acquiring lock for %s", self.id)
-        with vpnc.shared.NI_LOCK[self.id]:
-            if self == active_network_instance:
-                logger.debug(
-                    "Network instance '%s' is already in the correct state.",
-                    self.id,
-                )
-                return False
-
-            logger.info("Setting up the %s network instance.", self.id)
-            self._ensure_namespace(cleanup=cleanup)
-
+        """Set up the network instance at startup (before the reconciler runs)."""
+        if self == active_network_instance:
+            return False
+        logger.info("Setting up the %s network instance.", self.id)
+        self._ensure_namespace(cleanup=cleanup)
         self.set_iptables()
         routes.start(self.id)
-        with vpnc.shared.NI_LOCK[self.id]:
-            self._set_network_instance_connections(active_network_instance)
-
+        self._set_network_instance_connections(active_network_instance)
         return False
 
-    def reconcile(self) -> None:
-        """Make the network instance match its configuration; only fixes differences."""
-        self._ensure_lock()
-        with vpnc.shared.NI_LOCK[self.id]:
-            self._ensure_namespace(cleanup=False)
-        self.set_iptables()
+    def reconcile(self, previous: NetworkInstance | None = None) -> bool:
+        """Make the network instance match its configuration; only fixes differences.
+
+        previous is the configuration applied before, to remove what's gone.
+        Returns whether the configuration was updated (new NPTv6 prefixes).
+        """
+        self._ensure_namespace(cleanup=False)
+        updated = self.set_iptables()
         routes.start(self.id)
-        with vpnc.shared.NI_LOCK[self.id]:
-            self._set_network_instance_connections(None)
-            self._delete_unconfigured_interfaces()
+        self._set_network_instance_connections(previous)
+        self._delete_unconfigured_interfaces()
         self._reconcile_services()
+        return updated
+
+    def _apply_iptables(self, script: str) -> bool:
+        """Run a rendered iptables script, unless it's already in effect.
+
+        The script flushes and rebuilds the rules, so it only runs when the script
+        or the rules (e.g. changed by hand) differ from the last run.
+        """
+        current = _iptables_rules(self.id)
+        if IPTABLES_APPLIED.get(self.id) == (script, current):
+            return False
+        logger.info("Configuring network instance %s iptables rules.", self.id)
+        logger.debug(script)
+        subprocess.run(  # noqa: S602
+            script,
+            stdout=subprocess.PIPE,
+            shell=True,
+            check=True,
+        )
+        IPTABLES_APPLIED[self.id] = (script, _iptables_rules(self.id))
+        return True
 
     def _reconcile_services(self) -> None:
         """Reconcile the services of the network instance type (NAT64, VPN, ...)."""
-
-    def _ensure_lock(self) -> None:
-        with vpnc.shared.NI_START_LOCK:
-            if self.id not in vpnc.shared.NI_LOCK:
-                vpnc.shared.NI_LOCK[self.id] = threading.Lock()
 
     def _ensure_namespace(self, *, cleanup: bool) -> None:
         """Ensure the namespace, its sysctls and its link to CORE."""
@@ -193,39 +215,34 @@ class NetworkInstance(BaseModel):
         # run the network instance remove commands
         routes.stop(self.id)
 
-        logger.info("Acquiring lock for %s", self.id)
-        with vpnc.shared.NI_LOCK[self.id]:
-            if self.type in (
-                enums.NetworkInstanceType.DOWNLINK,
-                enums.NetworkInstanceType.ENDPOINT,
-            ):
-                self._delete_network_instance_link()
-                routes.delete_core_routes(self)
+        if self.type in (
+            enums.NetworkInstanceType.DOWNLINK,
+            enums.NetworkInstanceType.ENDPOINT,
+        ):
+            self._delete_network_instance_link()
+            routes.delete_core_routes(self)
 
-            # Break connections.
-            ssh_connections = [
-                x
-                for x in self.connections.values()
-                if x.config.type == enums.ConnectionType.SSH
-            ]
-            other_connections = [
-                x
-                for x in self.connections.values()
-                if x.config.type != enums.ConnectionType.SSH
-            ]
-            sorted_connections = ssh_connections + other_connections
-            for conn in sorted_connections:
-                logger.info(
-                    "Deleting network instance %s connection %s.",
-                    self.id,
-                    conn.id,
-                )
-                conn.delete(self)
+        # Break connections.
+        ssh_connections = [
+            x
+            for x in self.connections.values()
+            if x.config.type == enums.ConnectionType.SSH
+        ]
+        other_connections = [
+            x
+            for x in self.connections.values()
+            if x.config.type != enums.ConnectionType.SSH
+        ]
+        sorted_connections = ssh_connections + other_connections
+        for conn in sorted_connections:
+            logger.info(
+                "Deleting network instance %s connection %s.",
+                self.id,
+                conn.id,
+            )
+            conn.delete(self)
 
-            namespace.delete(self.id)
-
-        with vpnc.shared.NI_START_LOCK:
-            del vpnc.shared.NI_LOCK[self.id]
+        namespace.delete(self.id)
 
     def _get_network_instance_connections(self) -> list[str]:
         """Get all configured connections (interfaces)."""
@@ -406,18 +423,7 @@ class NetworkInstanceExternal(NetworkInstance):
             "network_instance_name": self.id,
         }
         iptables_render = iptables_template.render(**iptables_configs)
-        logger.info(
-            "Configuring network instance %s iptables rules.",
-            self.id,
-        )
-        logger.debug(iptables_render)
-        proc = subprocess.run(  # noqa: S602
-            iptables_render,
-            stdout=subprocess.PIPE,
-            shell=True,
-            check=True,
-        )
-        logger.debug(proc.stdout)
+        self._apply_iptables(iptables_render)
 
         return False
 
@@ -481,18 +487,7 @@ class NetworkInstanceCore(NetworkInstance):
             "interfaces": sorted(interfaces),
         }
         iptables_render = iptables_template.render(**iptables_configs)
-        logger.info(
-            "Configuring network instance %s iptables rules.",
-            self.id,
-        )
-        logger.debug(iptables_render)
-        proc = subprocess.run(  # noqa: S602
-            iptables_render,
-            stdout=subprocess.PIPE,
-            shell=True,
-            check=True,
-        )
-        logger.debug(proc.stdout)
+        self._apply_iptables(iptables_render)
 
         return False
 
@@ -558,18 +553,7 @@ class NetworkInstanceDownlink(NetworkInstance):
             "nptv6_networks": nptv6_networks,
         }
         iptables_render = iptables_template.render(**iptables_configs)
-        logger.info(
-            "Configuring network instance %s iptables rules.",
-            self.id,
-        )
-        logger.debug(iptables_render)
-        proc = subprocess.run(  # noqa: S602
-            iptables_render,
-            stdout=subprocess.PIPE,
-            shell=True,
-            check=True,
-        )
-        logger.debug(proc.stdout)
+        self._apply_iptables(iptables_render)
 
         return updated
 
@@ -764,17 +748,6 @@ class NetworkInstanceEndpoint(NetworkInstance):
             "nptv6_networks": [],
         }
         iptables_render = iptables_template.render(**iptables_configs)
-        logger.info(
-            "Configuring network instance %s iptables rules.",
-            self.id,
-        )
-        logger.debug(iptables_render)
-        proc = subprocess.run(  # noqa: S602
-            iptables_render,
-            stdout=subprocess.PIPE,
-            shell=True,
-            check=True,
-        )
-        logger.debug(proc.stdout)
+        self._apply_iptables(iptables_render)
 
         return False

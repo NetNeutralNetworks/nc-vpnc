@@ -121,11 +121,7 @@ def concentrator() -> None:
     for file_path in config_files:
         configuration.manage_tenant(file_path)
 
-    # Correct differences from the configuration (missed events, manual changes).
-    reconcile.RECONCILER.register(
-        "network_instances",
-        reconcile.check_network_instances,
-    )
+    # Apply the configuration and keep correcting differences from it.
     reconcile.RECONCILER.start()
 
     # Keep the program running, but terminate if needed.
