@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 def command(
-    netns: pyroute2.NetNS,
+    netns: pyroute2.IPRoute,
     command: Literal["replace", "change", "add", "del", "dump"],
     dst: IPv4Network | IPv6Network,
     type: Literal["blackhole"] | None = None,
@@ -35,7 +35,7 @@ def command(
         logger.info(
             "Operation '%s' succeeded for network instance: %s, route: %s via '%s/%s/%s'",
             command,
-            netns.netns,
+            netns.status["netns"],
             dst,
             type,
             gateway,
@@ -45,7 +45,7 @@ def command(
         logger.warning(
             "Operation '%s' failed for network instance: %s, route: %s via '%s/%s/%s': %s",
             command,
-            netns.netns,
+            netns.status["netns"],
             dst,
             type,
             gateway,

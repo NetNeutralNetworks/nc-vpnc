@@ -43,9 +43,10 @@ class ConnectionConfigPhysical(BaseModel):
             raise TypeError
 
         ifname = connection.config.interface_name
-        with pyroute2.NetNS(
-            netns=network_instance.id,
-        ) as ni_dl, pyroute2.IPRoute() as ni_default:
+        with (
+            pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl,
+            pyroute2.IPRoute() as ni_default,
+        ):
             if not ni_dl.link_lookup(ifname=ifname):
                 if not ni_default.link_lookup(
                     ifname=ifname,
@@ -98,7 +99,7 @@ class ConnectionConfigPhysical(BaseModel):
         """Delete a connection."""
         interface_name = self.intf_name(network_instance, connection)
         # run the commands
-        with pyroute2.NetNS(netns=network_instance.id) as ni_dl:
+        with pyroute2.IPRoute(netns=network_instance.id, flags=0) as ni_dl:
             if not ni_dl.link_lookup(ifname=interface_name):
                 return
             ifidx = ni_dl.link_lookup(ifname=interface_name)[0]
