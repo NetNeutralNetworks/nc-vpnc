@@ -472,6 +472,16 @@ class TestReconfiguration:
         assert "10.209.0.0/24" in route_destinations(NI)
         assert vpnctl("config diff C0002") == "No changes.\n"
 
+    def test_config_commit_all(self) -> None:
+        """--all commits and discards the staged changes of every tenant."""
+        set_route("10.209.0.0/24")
+        assert vpnctl("config commit --all") == "Committed C0002.\n"
+        wait_for_route("10.209.0.0/24")
+
+        vpnctl("config set C0002 name Discarded")
+        assert vpnctl("config discard --all") == "Discarded the changes of C0002.\n"
+        assert vpnctl("config commit --all") == "No changes.\n"
+
 
 def set_route(route: str) -> None:
     """Stage the test connection's IPv4 route."""
