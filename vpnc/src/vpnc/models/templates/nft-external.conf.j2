@@ -10,6 +10,8 @@
         type filter hook input priority filter; policy drop;
         meta l4proto ipv6-icmp jump icmpv6-in-out
         meta l4proto esp accept
+        {#- Path MTU discovery of the tunnels: only for packets vpnc sent. #}
+        icmp type destination-unreachable icmp code frag-needed ct state related accept
         {#- No source port, so peers behind a NAT can connect. #}
         udp dport { 500, 4500 } accept
         udp dport @wireguard_ports accept

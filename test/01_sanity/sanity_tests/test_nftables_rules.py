@@ -17,6 +17,8 @@ class TestNftables:
             host,
             f"ip netns exec {network_instance} nft list table inet vpnc",
         ).strip()
+        # nftables before 1.1 shows the code by name.
+        table_state = table_state.replace("icmp code frag-needed", "icmp code 4")
 
         assert table_state == table
 
