@@ -31,7 +31,7 @@ def load_config() -> None:
         return
 
     try:
-        config.CONFIG = config.Config(config=new_cfg_dict).config
+        new_cfg = config.Config(config=new_cfg_dict).config
     except pydantic_core.ValidationError:
         logger.exception(
             "Configuration '%s' doesn't adhere to the schema. Skipping",
@@ -39,13 +39,13 @@ def load_config() -> None:
         )
         return
 
-    config.ACL_MATCH.clear()
-
-    for net_in_name, net_in_translations in config.CONFIG.items():
-        translation_list_64 = [(x[0], net_in_name) for x in net_in_translations.dns64]
-        translation_list_66 = [(x[0], net_in_name) for x in net_in_translations.dns66]
-        translation_list = translation_list_64 + translation_list_66
-
-        config.ACL_MATCH.extend(translation_list)
+    acl_match = [
+        (translation[0], net_in_name, net_in_translations)
+        for net_in_name, net_in_translations in new_cfg.items()
+        for translation in net_in_translations.dns64 + net_in_translations.dns66
+    ]
+    # Replaced in one go: the packet thread reads it meanwhile.
+    config.CONFIG = new_cfg
+    config.ACL_MATCH = acl_match
 
     logger.info("Loaded new configuration.")

@@ -28,4 +28,5 @@ class Config(pydantic.BaseModel):
 CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpncmangle/translations.json")
 CONFIG: dict[str, VpncMangleConfig] = {}
 
-ACL_MATCH: list[tuple[ipaddress.IPv6Network, str]] = []
+# Per translated network its network instance and that one's translations.
+ACL_MATCH: list[tuple[ipaddress.IPv6Network, str, VpncMangleConfig]] = []
