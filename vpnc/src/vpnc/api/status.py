@@ -19,8 +19,8 @@ from pydantic import BaseModel
 import vpnc
 from vpnc import config, shared
 from vpnc.models import enums, tenant
-from vpnc.network import state
-from vpnc.services import configuration, wireguard
+from vpnc.network import namespace, state
+from vpnc.services import configuration, ssh, wireguard
 from vpnc.services.strongswan.monitor import VICI_SOCKET, VICI_TIMEOUT
 
 if TYPE_CHECKING:
@@ -39,6 +39,19 @@ IPAddress = IPv4Address | IPv6Address
 State = Literal["up", "down", "connecting", "stopped"]
 
 
+class Counters(BaseModel):
+    """Traffic through a connection's interface since it was created."""
+
+    rx_bytes: int
+    rx_packets: int
+    rx_errors: int
+    rx_dropped: int
+    tx_bytes: int
+    tx_packets: int
+    tx_errors: int
+    tx_dropped: int
+
+
 class ConnectionState(BaseModel):
     """The live state of a connection."""
 
@@ -52,6 +65,8 @@ class ConnectionState(BaseModel):
     remote: str | None
     # Type specific, e.g. IKE state or the last WireGuard handshake.
     details: dict[str, Any]
+    # Only when asked for.
+    counters: Counters | None = None
 
 
 class Translation(BaseModel):
@@ -193,8 +208,30 @@ def _wireguard(
     return current, peer["endpoint"], details
 
 
+def _counters(ni_id: str) -> dict[str, Counters]:
+    """Return the traffic counters of a network instance's interfaces."""
+    try:
+        result = namespace.run(ni_id, ["/usr/sbin/ip", "-j", "-s", "link"])
+    except FileNotFoundError:
+        return {}
+    output: dict[str, Counters] = {}
+    for link in json.loads(result.stdout or "[]"):
+        stats = link.get("stats64") or {}
+        rx, tx = stats.get("rx") or {}, stats.get("tx") or {}
+        output[link["ifname"]] = Counters(
+            **{
+                f"{direction}_{key}": counters.get(key, 0)
+                for direction, counters in (("rx", rx), ("tx", tx))
+                for key in ("bytes", "packets", "errors", "dropped")
+            },
+        )
+    return output
+
+
 def connection_states(
     selected: list[NetworkInstance] | None = None,
+    *,
+    counters: bool = False,
 ) -> list[ConnectionState]:
     """Return the live state of the connections of the network instances."""
     selected = list(network_instances().values()) if selected is None else selected
@@ -214,6 +251,7 @@ def connection_states(
                 snapshot = ns.state
         except FileNotFoundError:
             snapshot = state.NetnsState(name=ni.id)
+        ni_counters = _counters(ni.id) if counters else {}
         for connection in ni.connections.values():
             name = f"{ni.id}-{connection.id}"
             ifname = connection.intf_name(ni)
@@ -233,6 +271,8 @@ def connection_states(
             else:
                 # SSH (tun has carrier while ssh runs) and physical interfaces.
                 current = "up" if link is not None and link.passes_traffic else "down"
+                if ctype == enums.ConnectionType.SSH:
+                    details = _ssh(name)
             if name in shared.STOPPED_CONNECTIONS:
                 current = "stopped"
             output.append(
@@ -246,9 +286,16 @@ def connection_states(
                     addresses=addresses,
                     remote=remote,
                     details=details,
+                    counters=ni_counters.get(ifname or ""),
                 ),
             )
     return output
+
+
+def _ssh(name: str) -> dict[str, Any]:
+    tunnel = ssh.SSH_TUNNELS.get(name)
+    started = tunnel.started if tunnel is not None else None
+    return {"uptime_seconds": int(time.time() - started) if started else None}
 
 
 def _counts(states: list[ConnectionState]) -> tuple[int, int]:

@@ -46,6 +46,8 @@ class SshTunnel(threading.Thread):
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._proc: subprocess.Popen[str] | None = None
+        # When the running ssh started (Unix time), None if it doesn't run.
+        self.started: float | None = None
 
     def run(self) -> None:
         """Keep ssh running."""
@@ -62,6 +64,7 @@ class SshTunnel(threading.Thread):
                     stderr=subprocess.PIPE,
                     text=True,
                 )
+                self.started = time.time()
             # Logged with the connection name, so it shows in its logs.
             last = ""
             for line in proc.stderr or []:
@@ -69,6 +72,7 @@ class SshTunnel(threading.Thread):
                     logger.info("SSH tunnel %s: %s", self.connection_name, line)
                     last = line
             proc.wait()
+            self.started = None
             if self._stop_event.is_set():
                 return
             if time.monotonic() - started > STABLE_AFTER:
