@@ -14,6 +14,8 @@ from vpnc.services import configuration
 
 logger = logging.getLogger("vpnc")
 
+CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpncmangle/translations.json")
+
 
 def generate_config() -> None:
     """Generate vpncmangle configuration."""
@@ -43,9 +45,8 @@ def generate_config() -> None:
                             (str(nptv6_prefix), str(route6.to)),
                         )
 
-        file_path = pathlib.Path("/opt/ncubed/config/vpncmangle/translations.json")
-        file_path.touch(exist_ok=True)
-        with file_path.open("w+", encoding="utf-8") as f:
+        CONFIG_PATH.touch(exist_ok=True)
+        with CONFIG_PATH.open("w+", encoding="utf-8") as f:
             json.dump(output, f)
 
 

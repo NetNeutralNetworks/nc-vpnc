@@ -73,6 +73,33 @@ class CommitResult(BaseModel):
     id: str
     changed: bool
     confirm_by: str | None = None
+    # Service settings that only apply after vpnc restarts.
+    restart_needed: list[str] = []
+
+
+# Service settings read at startup only. The downlink prefixes are partly
+# applied live, but readdressing every downlink is only clean at startup.
+RESTART_FIELDS = (
+    "mode",
+    "prefix_downlink_interface_v4",
+    "prefix_downlink_interface_v6",
+    "prefix_downlink_nat64",
+    "prefix_downlink_nptv6",
+)
+# The service settings vpnc started with.
+STARTUP: dict[str, Any] = {}
+
+
+def remember_startup() -> None:
+    """Remember the service settings that need a restart to change."""
+    service = _dump(_load(config.DEFAULT_TENANT, "active"), reveal=False) or {}
+    STARTUP.update({field: service.get(field) for field in RESTART_FIELDS})
+
+
+def restart_needed() -> list[str]:
+    """Return the service settings that changed since vpnc started."""
+    service = _dump(_load(config.DEFAULT_TENANT, "active"), reveal=False) or {}
+    return [f for f in RESTART_FIELDS if STARTUP and service.get(f) != STARTUP[f]]
 
 
 class HistoryEntry(BaseModel):
@@ -377,12 +404,13 @@ def commit(tenant_id: str, confirm: int | None = None) -> CommitResult:
                 _path(tenant_id, "candidate").unlink()
         if changed:
             _save_history(tenant_id, previous)
+        restart = restart_needed() if tenant_id == config.DEFAULT_TENANT else []
         pending = _pending(tenant_id)
         if confirm is None or not (changed or pending):
             if pending and confirm is None:
                 _clear_pending(tenant_id)
                 logger.info("Confirmed the commit of %s.", tenant_id)
-            return CommitResult(id=tenant_id, changed=changed)
+            return CommitResult(id=tenant_id, changed=changed, restart_needed=restart)
         # A new confirmed commit rolls back to before the first.
         confirm_by = (_now() + datetime.timedelta(seconds=confirm)).isoformat(
             timespec="seconds",
@@ -393,7 +421,12 @@ def commit(tenant_id: str, confirm: int | None = None) -> CommitResult:
             encoding="utf-8",
         )
         _schedule(tenant_id, confirm_by)
-        return CommitResult(id=tenant_id, changed=changed, confirm_by=confirm_by)
+        return CommitResult(
+            id=tenant_id,
+            changed=changed,
+            confirm_by=confirm_by,
+            restart_needed=restart,
+        )
 
 
 def confirm(tenant_id: str) -> CommitResult:
@@ -488,7 +521,7 @@ def _staged_ids() -> list[str]:
 def commit_all(confirm: int | None = None) -> list[CommitResult]:
     """Commit the staged changes of all tenants and the service."""
     results = [commit(tenant_id, confirm) for tenant_id in _staged_ids()]
-    return [r for r in results if r.changed or r.confirm_by]
+    return [r for r in results if r.changed or r.confirm_by or r.restart_needed]
 
 
 def confirm_all() -> list[CommitResult]:
