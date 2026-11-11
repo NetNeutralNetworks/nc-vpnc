@@ -464,7 +464,7 @@ class Monitor(threading.Thread):
             for i in vcs.initiate(_filter):
                 logger.debug(i)
         except vici.exception.CommandException:
-            logger.warning(("Initiation of SA '%s' failed.", _filter), exc_info=True)
+            logger.warning("Initiation of SA '%s' failed.", _filter, exc_info=True)
 
     def terminate_sa(
         self,
@@ -502,8 +502,9 @@ class Monitor(threading.Thread):
 
         except vici.exception.SessionException:
             logger.warning(
-                ("Termination of SA '%s' may have failed.", _filter),
+                "Termination of SA '%s' may have failed.",
+                _filter,
                 exc_info=True,
             )
         except vici.exception.CommandException:
-            logger.warning(("Termination of SA '%s' failed.", _filter), exc_info=True)
+            logger.warning("Termination of SA '%s' failed.", _filter, exc_info=True)
