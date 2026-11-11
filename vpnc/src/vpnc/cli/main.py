@@ -987,6 +987,20 @@ _vpnctl() {
 complete -F _vpnctl vpnctl
 """
 
+ZSH_COMPLETION = """\
+#compdef vpnctl
+_vpnctl() {
+    local -a completions
+    completions=(${(f)"$(vpnctl __complete "${(@)words[2,CURRENT-1]}" 2>/dev/null)"})
+    compadd -a completions
+}
+if [[ "$funcstack[1]" = "_vpnctl" ]]; then
+    _vpnctl "$@"
+else
+    compdef _vpnctl vpnctl
+fi
+"""
+
 STATES = ["up", "down", "connecting", "stopped"]
 TYPES = ["ipsec", "wireguard", "ssh", "physical"]
 
@@ -1027,7 +1041,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
         "history": "target",
         "restore": "target",
     },
-    "completion": {"bash": None},
+    "completion": {"bash": None, "zsh": None},
 }
 # Commands whose first argument is a network instance.
 NI_COMMANDS = ("routes", "ping", "traceroute", "tcp")
@@ -1123,8 +1137,7 @@ def paths(data: Any, prefix: str = "") -> list[str]:  # noqa: ANN401
 
 def cmd_completion(args: argparse.Namespace) -> None:
     """Print the shell completion script."""
-    _ = args
-    print(BASH_COMPLETION, end="")
+    print(ZSH_COMPLETION if args.script == "zsh" else BASH_COMPLETION, end="")
 
 
 # Arguments.
@@ -1257,7 +1270,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("service_action", choices=["restart", "stop"])
 
     shell = group("completion", "shell completion")
-    add(shell, "bash", cmd_completion)
+    add(shell, "bash", cmd_completion).set_defaults(script="bash")
+    add(shell, "zsh", cmd_completion).set_defaults(script="zsh")
 
     cfg = group("config", "configuration: stage changes, then commit them")
     add(cfg, "list", cmd_config_list)
