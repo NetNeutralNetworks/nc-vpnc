@@ -67,7 +67,7 @@ def observe_configuration() -> BaseObserver:
 
         def on_deleted(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
-            handle(delete_downlink_tenant, event.src_path)
+            handle(removed, event.src_path)
 
         def on_moved(self, event: FileSystemEvent) -> None:
             logger.info(
@@ -76,8 +76,14 @@ def observe_configuration() -> BaseObserver:
                 event.src_path,
                 event.dest_path,
             )
-            handle(delete_downlink_tenant, event.src_path)
+            handle(removed, event.src_path)
             handle(manage_tenant, event.dest_path)
+
+    # A save that replaces the file (e.g. after renaming it to a backup) mustn't
+    # remove the tenant: the new file has its own event.
+    def removed(path: pathlib.Path) -> None:
+        if not path.exists():
+            delete_downlink_tenant(path)
 
     # Create the observer object. This doesn't start the handler.
     observer: BaseObserver = Observer()
