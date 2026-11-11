@@ -30,7 +30,7 @@ jobs:
           file: docker/${{ matrix.version }}/Dockerfile
           target: vpnc
           tags: nc-vpnc:latest
-          cache-from: type=gha,scope=$GITHUB_REF_NAME-${{ matrix.version }}
+          cache-from: type=gha,scope=${{ github.ref_name }}-${{ matrix.version }}
       - name: Build lab image and cache layers
         uses: docker/build-push-action@v6
         with:
@@ -39,8 +39,8 @@ jobs:
           file: docker/${{ matrix.version }}/Dockerfile
           target: lab
           tags: nc-vpnc-lab:latest
-          cache-from: type=gha,scope=$GITHUB_REF_NAME-${{ matrix.version }}
-          cache-to: type=gha,scope=$GITHUB_REF_NAME-${{ matrix.version }},mode=max
+          cache-from: type=gha,scope=${{ github.ref_name }}-${{ matrix.version }}
+          cache-to: type=gha,scope=${{ github.ref_name }}-${{ matrix.version }},mode=max
       - name: Save images
         run: docker save nc-vpnc:latest nc-vpnc-lab:latest | zstd -T0 -3 > images.tar.zst
       - uses: actions/upload-artifact@v4
