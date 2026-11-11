@@ -45,6 +45,16 @@ VPNC_A_CONFIG_PATH_SERVICE = VPNC_A_CONFIG_DIR.joinpath(f"{DEFAULT_TENANT}.yaml"
 # Candidate configuration items
 VPNC_C_CONFIG_DIR = Path("/opt/ncubed/config/vpnc/candidate/")
 VPNC_C_CONFIG_PATH_SERVICE = VPNC_C_CONFIG_DIR.joinpath(f"{DEFAULT_TENANT}.yaml")
+# Earlier active configurations
+VPNC_HISTORY_DIR = Path("/opt/ncubed/config/vpnc/history/")
+# Directories holding secrets (pre-shared and private keys)
+SECRET_DIRS = (
+    VPNC_A_CONFIG_DIR,
+    VPNC_C_CONFIG_DIR,
+    VPNC_HISTORY_DIR,
+    IPSEC_CONFIG_DIR,
+    WIREGUARD_CONFIG_DIR,
+)
 
 # Variables used for shared configuration
 # VPNC_CONFIG_SERVICE: tenant.ServiceEndpoint | tenant.ServiceHub

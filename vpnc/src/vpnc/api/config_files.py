@@ -36,7 +36,7 @@ DIRS: dict[Revision, pathlib.Path] = {
 }
 # The configuration version of new tenants.
 VERSION = "0.1.3"
-HISTORY_DIR = config.VPNC_A_CONFIG_DIR.parent / "history"
+HISTORY_DIR = config.VPNC_HISTORY_DIR
 # Revisions kept per tenant; 1 is the most recent.
 HISTORY = 5
 
@@ -222,7 +222,11 @@ def write_candidate(tenant_id: str, data: Any) -> dict[str, Any]:  # noqa: ANN40
     """Validate and stage a configuration; return it as stored."""
     check_id(tenant_id)
     model = validate(tenant_id, data)
-    files.ensure_file(_path(tenant_id, "candidate"), _yaml(_dump(model, reveal=True)))
+    files.ensure_file(
+        _path(tenant_id, "candidate"),
+        _yaml(_dump(model, reveal=True)),
+        secret=True,
+    )
     return _dump(model, reveal=False)  # type: ignore[return-value]
 
 
@@ -268,7 +272,7 @@ def delete_candidate(tenant_id: str) -> CommitResult:
         # Only staged: nothing to remove on commit.
         _path(tenant_id, "candidate").unlink()
     else:
-        files.ensure_file(_path(tenant_id, "candidate"), "")
+        files.ensure_file(_path(tenant_id, "candidate"), "", secret=True)
     return CommitResult(id=tenant_id, changed=True)
 
 
@@ -311,7 +315,7 @@ def _save_history(tenant_id: str, text: str | None) -> None:
     for revision in range(HISTORY - 1, 0, -1):
         if (path := _history_path(tenant_id, revision)).exists():
             path.rename(_history_path(tenant_id, revision + 1))
-    first.write_text(content, encoding="utf-8")
+    files.ensure_file(first, content, secret=True)
 
 
 def _set_active(tenant_id: str, text: str | None) -> bool:
@@ -322,7 +326,7 @@ def _set_active(tenant_id: str, text: str | None) -> bool:
         path.unlink(missing_ok=True)
         return changed
     # Written in place: the configuration watcher applies modified files.
-    return files.ensure_file(path, text)
+    return files.ensure_file(path, text, secret=True)
 
 
 def _pending_path(tenant_id: str) -> pathlib.Path:
@@ -418,9 +422,10 @@ def commit(tenant_id: str, confirm: int | None = None) -> CommitResult:
             timespec="seconds",
         )
         rollback = pending["rollback"] if pending else previous
-        _pending_path(tenant_id).write_text(
+        files.ensure_file(
+            _pending_path(tenant_id),
             json.dumps({"confirm_by": confirm_by, "rollback": rollback}),
-            encoding="utf-8",
+            secret=True,
         )
         _schedule(tenant_id, confirm_by)
         return CommitResult(

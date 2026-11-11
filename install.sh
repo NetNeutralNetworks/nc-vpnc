@@ -164,8 +164,10 @@ function create_vpnc_config () {
     for i in {candidate,active,units};
     do
         mkdir -p ${BASEDIR}/config/${SERVICENAME}/${i}
-        mkdir -p ${BASEDIR}/config/${SERVICENAME}/${i}
     done
+    # The configuration holds pre-shared and private keys.
+    mkdir -p ${BASEDIR}/config/${SERVICENAME}/history
+    chmod 700 ${BASEDIR}/config/${SERVICENAME}/{candidate,active,history}
 
     mkdir -p /var/log/ncubed/vpnc
 
