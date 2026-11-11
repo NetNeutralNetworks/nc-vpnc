@@ -73,7 +73,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install runner dependencies (Jool, containerlab)
-        run: sudo test/00_setup/install.sh
+        # sudo drops the environment; install.sh skips the upgrade in Actions.
+        run: sudo --preserve-env=GITHUB_ACTIONS test/00_setup/install.sh
       - uses: actions/download-artifact@v4
         with:
           name: images-${{ matrix.version }}
