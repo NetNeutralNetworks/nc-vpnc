@@ -264,7 +264,7 @@ def load_tenant_config(
     """Load the global configuration."""
     logger.info("Loading configuration file from %s.", path)
     if not config.TENANT_RE.match(path.stem):
-        logger.exception("Invalid filename found in %s. Skipping.", path)
+        logger.error("Invalid filename found in %s. Skipping.", path)
         return None, None
     try:
         with path.open(encoding="utf-8") as f:
@@ -276,7 +276,7 @@ def load_tenant_config(
                     path,
                     exc_info=True,
                 )
-                sys.exit(1)
+                return None, None
     except FileNotFoundError:
         logger.critical(
             "Configuration file could not be found at '%s'.",

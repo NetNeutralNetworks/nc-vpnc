@@ -379,5 +379,9 @@ def check_routes(keys: set[str] | None) -> None:
 
 # The reconciler of the service.
 RECONCILER = Reconciler()
+RECONCILER.register(
+    "configuration",
+    lambda keys: configuration.rescan() if keys is None else None,
+)
 RECONCILER.register("network_instances", check_network_instances)
 RECONCILER.register("routes", check_routes)
