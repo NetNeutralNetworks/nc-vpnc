@@ -4,11 +4,19 @@ A tenant (or the service, DEFAULT) has an active file, which vpnc applies, and
 may have a candidate file with staged changes; a commit makes them active.
 Without a candidate file nothing is staged; an empty one stages removing the
 tenant.
+
+A commit keeps the active configuration it replaces in the history (empty: the
+tenant didn't exist). A confirmed commit is rolled back unless confirmed in
+time; the rollback is stored, so it also happens after vpnc restarts.
 """
 
 from __future__ import annotations
 
+import datetime
 import difflib
+import json
+import logging
+import threading
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
@@ -28,6 +36,14 @@ DIRS: dict[Revision, pathlib.Path] = {
 }
 # The configuration version of new tenants.
 VERSION = "0.1.3"
+HISTORY_DIR = config.VPNC_A_CONFIG_DIR.parent / "history"
+# Revisions kept per tenant; 1 is the most recent.
+HISTORY = 5
+
+logger = logging.getLogger("vpnc")
+# Commits, confirms and rollbacks (also from timers).
+LOCK = threading.RLock()
+TIMERS: dict[str, threading.Timer] = {}
 
 
 class ConfigError(Exception):
@@ -47,13 +63,26 @@ class ConfigSummary(BaseModel):
     id: str
     name: str | None
     status: Literal["unchanged", "modified", "added", "deleted"]
+    # A commit to confirm before then, or it's rolled back.
+    confirm_by: str | None = None
 
 
 class CommitResult(BaseModel):
-    """The result of a commit, discard or delete."""
+    """The result of a commit, confirm, discard, delete or restore."""
 
     id: str
     changed: bool
+    confirm_by: str | None = None
+
+
+class HistoryEntry(BaseModel):
+    """An earlier active configuration."""
+
+    revision: int
+    # When a commit replaced it.
+    replaced: str
+    # Whether the tenant existed.
+    exists: bool
 
 
 Model = tenant.Tenant | tenant.ServiceHub | tenant.ServiceEndpoint
@@ -145,6 +174,7 @@ def summaries() -> list[ConfigSummary]:
                 id=tenant_id,
                 name=(candidate or active).name,  # type: ignore[union-attr]
                 status=status,
+                confirm_by=(_pending(tenant_id) or {}).get("confirm_by"),
             ),
         )
     return output
@@ -235,21 +265,202 @@ def diff(tenant_id: str) -> str:
     )
 
 
-def commit(tenant_id: str) -> CommitResult:
-    """Make the staged changes active."""
-    check_id(tenant_id)
-    active_path = _path(tenant_id, "active")
-    text = _text(tenant_id, "candidate")
-    if text is None:
-        return CommitResult(id=tenant_id, changed=False)
-    candidate = _load(tenant_id, "candidate")
-    if candidate is None:
-        changed = active_path.exists()
-        active_path.unlink(missing_ok=True)
-        _path(tenant_id, "candidate").unlink()
-        return CommitResult(id=tenant_id, changed=changed)
+def _now() -> datetime.datetime:
+    return datetime.datetime.now().astimezone()
+
+
+def _history_path(tenant_id: str, revision: int) -> pathlib.Path:
+    return HISTORY_DIR / tenant_id / f"{revision}.yaml"
+
+
+def _save_history(tenant_id: str, text: str | None) -> None:
+    """Keep a replaced active configuration as revision 1."""
+    first = _history_path(tenant_id, 1)
+    first.parent.mkdir(parents=True, exist_ok=True)
+    content = text or ""
+    if first.exists() and first.read_text(encoding="utf-8") == content:
+        return
+    _history_path(tenant_id, HISTORY).unlink(missing_ok=True)
+    for revision in range(HISTORY - 1, 0, -1):
+        if (path := _history_path(tenant_id, revision)).exists():
+            path.rename(_history_path(tenant_id, revision + 1))
+    first.write_text(content, encoding="utf-8")
+
+
+def _set_active(tenant_id: str, text: str | None) -> bool:
+    """Write (or with None remove) the active file; return whether it changed."""
+    path = _path(tenant_id, "active")
+    if text is None or not text.strip():
+        changed = path.exists()
+        path.unlink(missing_ok=True)
+        return changed
     # Written in place: the configuration watcher applies modified files.
-    changed = files.ensure_file(active_path, _yaml(_dump(candidate, reveal=True)))
+    return files.ensure_file(path, text)
+
+
+def _pending_path(tenant_id: str) -> pathlib.Path:
+    return HISTORY_DIR / tenant_id / "pending.json"
+
+
+def _pending(tenant_id: str) -> dict[str, Any] | None:
+    try:
+        return json.loads(_pending_path(tenant_id).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+
+
+def _clear_pending(tenant_id: str) -> bool:
+    if timer := TIMERS.pop(tenant_id, None):
+        timer.cancel()
+    path = _pending_path(tenant_id)
+    existed = path.exists()
+    path.unlink(missing_ok=True)
+    return existed
+
+
+def _schedule(tenant_id: str, confirm_by: str) -> None:
+    if timer := TIMERS.pop(tenant_id, None):
+        timer.cancel()
+    delay = datetime.datetime.fromisoformat(confirm_by) - _now()
+    timer = threading.Timer(
+        max(delay.total_seconds(), 0),
+        _roll_back_unconfirmed,
+        args=(tenant_id,),
+    )
+    timer.daemon = True
+    TIMERS[tenant_id] = timer
+    timer.start()
+
+
+def _roll_back_unconfirmed(tenant_id: str) -> None:
+    """Restore the configuration from before an unconfirmed commit.
+
+    The unconfirmed changes stay staged.
+    """
+    with LOCK:
+        if (pending := _pending(tenant_id)) is None:
+            return
+        _set_active(tenant_id, pending["rollback"])
+        _clear_pending(tenant_id)
+        logger.warning("Rolled back %s: the commit wasn't confirmed.", tenant_id)
+
+
+def resume_pending() -> None:
+    """Schedule the rollbacks of unconfirmed commits (e.g. after a restart)."""
+    for path in HISTORY_DIR.glob("*/pending.json"):
+        tenant_id = path.parent.name
+        if pending := _pending(tenant_id):
+            logger.warning(
+                "The commit of %s isn't confirmed; rolling back at %s.",
+                tenant_id,
+                pending["confirm_by"],
+            )
+            _schedule(tenant_id, pending["confirm_by"])
+
+
+def commit(tenant_id: str, confirm: int | None = None) -> CommitResult:
+    """Make the staged changes active.
+
+    With confirm (seconds), roll back unless confirmed in time; a commit
+    without it confirms.
+    """
+    check_id(tenant_id)
+    with LOCK:
+        previous = _text(tenant_id, "active")
+        if _text(tenant_id, "candidate") is not None:
+            candidate = _load(tenant_id, "candidate")
+            text = _yaml(_dump(candidate, reveal=True)) if candidate else None
+            changed = _set_active(tenant_id, text)
+            if candidate is None:
+                _path(tenant_id, "candidate").unlink()
+        else:
+            changed = False
+        if changed:
+            _save_history(tenant_id, previous)
+        pending = _pending(tenant_id)
+        if confirm is None or not (changed or pending):
+            if pending and confirm is None:
+                _clear_pending(tenant_id)
+                logger.info("Confirmed the commit of %s.", tenant_id)
+            return CommitResult(id=tenant_id, changed=changed)
+        # A new confirmed commit rolls back to before the first.
+        confirm_by = (_now() + datetime.timedelta(seconds=confirm)).isoformat(
+            timespec="seconds",
+        )
+        rollback = pending["rollback"] if pending else previous
+        _pending_path(tenant_id).write_text(
+            json.dumps({"confirm_by": confirm_by, "rollback": rollback}),
+            encoding="utf-8",
+        )
+        _schedule(tenant_id, confirm_by)
+        return CommitResult(id=tenant_id, changed=changed, confirm_by=confirm_by)
+
+
+def confirm(tenant_id: str) -> CommitResult:
+    """Confirm a commit, so it isn't rolled back."""
+    check_id(tenant_id)
+    with LOCK:
+        if not _clear_pending(tenant_id):
+            raise ConfigError(409, "Conflict", f"{tenant_id} has no commit to confirm.")
+    logger.info("Confirmed the commit of %s.", tenant_id)
+    return CommitResult(id=tenant_id, changed=True)
+
+
+def history(tenant_id: str) -> list[HistoryEntry]:
+    """Return the earlier active configurations, most recent first."""
+    check_id(tenant_id)
+    output: list[HistoryEntry] = []
+    for revision in range(1, HISTORY + 1):
+        path = _history_path(tenant_id, revision)
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            break
+        replaced = datetime.datetime.fromtimestamp(stat.st_mtime).astimezone()
+        output.append(
+            HistoryEntry(
+                revision=revision,
+                replaced=replaced.isoformat(timespec="seconds"),
+                exists=stat.st_size > 0,
+            ),
+        )
+    return output
+
+
+def _history_text(tenant_id: str, revision: int) -> str:
+    check_id(tenant_id)
+    try:
+        return _history_path(tenant_id, revision).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise ConfigError(
+            404,
+            "Not found",
+            f"{tenant_id} has no revision {revision}.",
+        ) from None
+
+
+def read_history(tenant_id: str, revision: int, *, reveal: bool) -> dict[str, Any]:
+    """Return an earlier active configuration."""
+    if not (text := _history_text(tenant_id, revision).strip()):
+        detail = f"{tenant_id} didn't exist at revision {revision}."
+        raise ConfigError(404, "Not found", detail)
+    return _dump(validate(tenant_id, yaml.safe_load(text)), reveal=reveal)  # type: ignore[return-value]
+
+
+def restore(tenant_id: str, revision: int) -> CommitResult:
+    """Stage an earlier active configuration (commit to apply it)."""
+    text = _history_text(tenant_id, revision)
+    with LOCK:
+        if text.strip():
+            write_candidate(tenant_id, yaml.safe_load(text))
+        elif _text(tenant_id, "active") is None:
+            _path(tenant_id, "candidate").unlink(missing_ok=True)
+        else:
+            delete_candidate(tenant_id)
+    changed = _dump(_load(tenant_id, "candidate"), reveal=True) != _dump(
+        _load(tenant_id, "active"),
+        reveal=True,
+    )
     return CommitResult(id=tenant_id, changed=changed)
 
 
