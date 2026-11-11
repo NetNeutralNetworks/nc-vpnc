@@ -28,8 +28,13 @@ class ConnectionConfigSSH(BaseModel):
     # tunnel identifier to avoid overlap.
     remote_tunnel_id: int
     # Optional interface on the remote side to configure for masquerade.
-    remote_config_interface: str | None = None
-    username: str
+    # Used in a script on the remote side: an interface name only.
+    remote_config_interface: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}$",
+    )
+    # Used as an ssh argument: a user name only, not an option.
+    username: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
 
     @field_validator("type", mode="before")
     @classmethod
