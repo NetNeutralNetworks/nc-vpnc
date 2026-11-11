@@ -174,10 +174,11 @@ function create_vpnc_config () {
 
     mkdir -p /var/log/ncubed/vpnc
 
-    if [[ -z "${1}" ]]; then
-        MODE="hub"
+    # The example configuration: endpoint, or hub (also for addon).
+    if [[ "${1}" == "endpoint" ]]; then
+        MODE="endpoint"
     else
-        MODE=${1}
+        MODE="hub"
     fi
 
     if [ "${MODE}" != "hub" ]; then
@@ -272,7 +273,7 @@ function install_vpnc () {
         install_apt_hub
         install_apt_snmpd
 
-        create_vpnc_config
+        create_vpnc_config $1
         create_dir_vpnc
         create_misc_config
 
@@ -292,7 +293,7 @@ function install_vpnc () {
         install_apt_python
         install_apt_snmpd
 
-        create_vpnc_config
+        create_vpnc_config $1
         create_dir_vpnc
         create_misc_config
 
@@ -310,7 +311,7 @@ function install_vpnc () {
         install_apt_defaults
         install_apt_python
 
-        create_vpnc_config
+        create_vpnc_config $1
         create_dir_vpnc
         create_misc_config
 
