@@ -3,10 +3,8 @@
 Errors are RFC 9457 problem details (application/problem+json).
 """
 
-import pathlib
-import subprocess
 from collections.abc import Callable
-from typing import Annotated, Any, Literal, NoReturn
+from typing import Annotated, Any, NoReturn
 
 from fastapi import APIRouter, Body, Depends, FastAPI, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -14,7 +12,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import ValidationError
 
 from vpnc import config
-from vpnc.api import config_files, diagnostics, logs, status
+from vpnc.api import config_files, logs, status
 from vpnc.api.config_files import (
     CommitResult,
     ConfigError,
@@ -205,105 +203,13 @@ def get_connection_logs(
     return logs.connection_logs(connection_id, ipsec=ipsec, count=lines)
 
 
-def _hub_only() -> None:
-    if tenant.get_default_tenant().mode != enums.ServiceMode.HUB:
-        raise ConfigError(409, "Conflict", "BGP only runs in hub mode.")
-
-
 @app.get("/v1/bgp/neighbors")
 def list_bgp_neighbors() -> list[status.BgpNeighbor]:
     """Return the BGP sessions in CORE (hub mode only)."""
-    _hub_only()
+    if tenant.get_default_tenant().mode != enums.ServiceMode.HUB:
+        detail = "BGP only runs in hub mode."
+        raise ConfigError(409, "Conflict", detail)
     return status.bgp_neighbors()
-
-
-@app.get("/v1/bgp/neighbors/{neighbor}")
-def get_bgp_neighbor(neighbor: status.IPAddress) -> status.BgpNeighborDetail:
-    """Return a BGP session in detail."""
-    _hub_only()
-    if (detail := status.bgp_neighbor(neighbor)) is None:
-        _not_found("BGP neighbor", str(neighbor))
-    return detail
-
-
-@app.get("/v1/bgp/neighbors/{neighbor}/routes")
-def list_bgp_neighbor_routes(
-    neighbor: status.IPAddress,
-    direction: Literal["received", "advertised"],
-) -> list[status.BgpRoute]:
-    """Return the routes received from (before policy) or advertised to a neighbor."""
-    _hub_only()
-    if status.bgp_neighbor(neighbor) is None:
-        _not_found("BGP neighbor", str(neighbor))
-    return status.bgp_neighbor_routes(neighbor, direction)
-
-
-@app.get("/v1/bgp/routes")
-def list_bgp_routes() -> list[status.BgpRoute]:
-    """Return CORE's BGP table: every path to every prefix."""
-    _hub_only()
-    return status.bgp_routes()
-
-
-# Troubleshooting inside a network instance.
-
-
-def _network_instance(ni_id: str) -> str:
-    if ni_id not in status.network_instances():
-        _not_found("network instance", ni_id)
-    return ni_id
-
-
-@app.get("/v1/network-instances/{ni_id}/routes")
-def list_routes(
-    ni_id: str,
-    family: Annotated[Literal["4", "6"] | None, Query()] = None,
-) -> list[diagnostics.Route]:
-    """Return the routes of a network instance (installed, blackhole etc.)."""
-    return diagnostics.routes(_network_instance(ni_id), int(family) if family else None)
-
-
-@app.post("/v1/network-instances/{ni_id}/ping")
-def ping(ni_id: str, body: diagnostics.PingRequest) -> diagnostics.PingResult:
-    """Ping from a network instance."""
-    return diagnostics.ping(_network_instance(ni_id), body)
-
-
-@app.post("/v1/network-instances/{ni_id}/traceroute")
-def traceroute(
-    ni_id: str,
-    body: diagnostics.TracerouteRequest,
-) -> diagnostics.TracerouteResult:
-    """Traceroute from a network instance."""
-    return diagnostics.traceroute(_network_instance(ni_id), body)
-
-
-@app.post("/v1/network-instances/{ni_id}/tcp")
-def tcp(ni_id: str, body: diagnostics.TcpRequest) -> diagnostics.TcpResult:
-    """Open a TCP connection from a network instance."""
-    return diagnostics.tcp(_network_instance(ni_id), body)
-
-
-UNIT = "ncubed-vpnc.service"
-
-
-@app.post("/v1/service/{action}", status_code=202)
-def service_action(action: Literal["restart", "stop"]) -> dict[str, str]:
-    """Restart or stop vpnc (systemd); it happens after the response."""
-    if not pathlib.Path("/run/systemd/system").is_dir():
-        raise ConfigError(409, "Conflict", "vpnc doesn't run under systemd here.")
-    subprocess.run(  # noqa: S603
-        ["/usr/bin/systemctl", "--no-block", action, UNIT],
-        check=True,
-        timeout=10,
-    )
-    return {"action": action}
-
-
-@app.get("/v1/version")
-def get_version() -> status.Version:
-    """Return the versions of vpnc and the software it runs."""
-    return status.version()
 
 
 # Configuration, per file: a tenant, or the service (the DEFAULT file). Writes
