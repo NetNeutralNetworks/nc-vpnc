@@ -218,13 +218,6 @@ class Connection(BaseModel):
         """Return the name of the connection's interface."""
         return self.config.intf_name(network_instance, self)
 
-    def status_summary(
-        self,
-        network_instance: network_instance.NetworkInstance,
-    ) -> dict[str, Any]:
-        """Get the connection status."""
-        return self.config.status_summary(network_instance, self)
-
 
 class ConnectionConfig(Protocol):
     """Defines the structure for connection configrations."""
@@ -253,12 +246,4 @@ class ConnectionConfig(Protocol):
         connection: Connection,
     ) -> str:
         """Return the name of the connection interface."""
-        ...
-
-    def status_summary(
-        self,
-        network_instance: network_instance.NetworkInstance,
-        connection: Connection,
-    ) -> dict[str, Any]:
-        """Get the connection status."""
         ...
