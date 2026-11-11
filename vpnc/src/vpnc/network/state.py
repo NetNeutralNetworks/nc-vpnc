@@ -105,8 +105,8 @@ class NetnsState:
     routes: dict[IPNetwork, Route] = field(default_factory=dict)
 
     @classmethod
-    def read(cls, ipr: namespace.IPRoute) -> NetnsState:
-        """Read the state of the namespace of ipr."""
+    def read(cls, ipr: namespace.IPRoute, *, routes: bool = True) -> NetnsState:
+        """Read the state of the namespace of ipr; without routes, if not needed."""
         state = cls(name=ipr.netns)
         names: dict[int, str] = {}
         for msg in ipr.get_links():
@@ -128,6 +128,8 @@ class NetnsState:
                 state.addresses[name].add(address)
             elif msg["scope"] == RT_SCOPE_LINK:
                 state.link_local[name].add(address)
+        if not routes:
+            return state
         for msg in owned_route_messages(ipr.netns):
             route = _route_from_msg(msg, names)
             state.routes[route.dst] = route
