@@ -240,26 +240,12 @@ def _counters(ni_id: str) -> dict[str, Counters]:
     return output
 
 
-def _snapshot(ni_id: str) -> state.NetnsState:
-    """Read the links and addresses of a network instance (not its routes)."""
-    try:
-        with namespace.IPRoute(ni_id) as ipr:
-            return state.NetnsState.read(ipr, routes=False)
-    except FileNotFoundError:
-        return state.NetnsState(name=ni_id)
-
-
 def connection_states(
     selected: list[NetworkInstance] | None = None,
     *,
     counters: bool = False,
-    interfaces: bool = True,
 ) -> list[ConnectionState]:
-    """Return the live state of the connections of the network instances.
-
-    Without interfaces, network instances with only IPsec connections aren't read:
-    their state comes from the SAs. Enough to count connections that are up.
-    """
+    """Return the live state of the connections of the network instances."""
     selected = list(network_instances().values()) if selected is None else selected
     sas = (
         _ipsec_sas()
@@ -272,11 +258,10 @@ def connection_states(
     )
     output: list[ConnectionState] = []
     for ni in selected:
-        if interfaces or any(
-            c.config.type != enums.ConnectionType.IPSEC for c in ni.connections.values()
-        ):
-            snapshot = _snapshot(ni.id)
-        else:
+        try:
+            with state.netns(ni.id) as ns:
+                snapshot = ns.state
+        except FileNotFoundError:
             snapshot = state.NetnsState(name=ni.id)
         ni_counters = _counters(ni.id) if counters else {}
         for connection in ni.connections.values():
@@ -336,7 +321,7 @@ def network_instance_states(
 ) -> list[NetworkInstanceState]:
     """Return the live state of network instances."""
     by_ni: dict[str, list[ConnectionState]] = {}
-    for s in connection_states(selected, interfaces=False):
+    for s in connection_states(selected):
         by_ni.setdefault(s.network_instance, []).append(s)
     hub = tenant.get_default_tenant().mode == enums.ServiceMode.HUB
     output: list[NetworkInstanceState] = []
@@ -385,7 +370,7 @@ def tenant_states(selected: list[str] | None = None) -> list[TenantState]:
     }
     nis = [ni for t in tenants.values() for ni in t.network_instances.values()]
     by_tenant: dict[str, list[ConnectionState]] = {}
-    for s in connection_states(nis, interfaces=False):
+    for s in connection_states(nis):
         by_tenant.setdefault(s.tenant, []).append(s)
     output: list[TenantState] = []
     for tenant_id, tenant_config in sorted(tenants.items()):
@@ -406,7 +391,7 @@ def tenant_states(selected: list[str] | None = None) -> list[TenantState]:
 
 def status() -> Status:
     """Return an overview of the service."""
-    states = connection_states(interfaces=False)
+    states = connection_states()
     up, total = _counts(states)
     return Status(
         mode=tenant.get_default_tenant().mode.value,
