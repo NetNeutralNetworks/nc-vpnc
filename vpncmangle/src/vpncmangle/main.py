@@ -219,7 +219,7 @@ def main() -> None:
                 nfqueue.bind(queue_number, mangle_dns)
                 setup_nftables(queue_number)
                 break
-            except ImportError:
+            except OSError:
                 logger.debug(
                     "Attaching to netfilter queue %s failed, retrying.",
                     queue_number,
