@@ -100,22 +100,6 @@ class TestVpnctl:
 
         assert sorted(c["id"] for c in connections) == ["C0001-00-0", "C0001-00-1"]
 
-    @pytest.mark.parametrize("host", list(CONNECTIONS))
-    def test_connection_type_filter(self, host: str) -> None:
-        """Connections can be listed per type."""
-        connections = vpnctl(host, "connections list --type ipsec")
-
-        assert sorted(c["id"] for c in connections) == sorted(
-            cid for cid, (ctype, _) in CONNECTIONS[host].items() if ctype == "ipsec"
-        )
-
-    @pytest.mark.parametrize("host", ["hub00", "end00"])
-    def test_ipsec_logs(self, host: str) -> None:
-        """An IPsec connection's log has charon's lines for its IKE SA."""
-        lines = vpnctl(host, "connections logs CORE-0 -n 500")
-
-        assert any(line["source"] == "charon" for line in lines)
-
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_ipsec_connection(self, host: str) -> None:
         """An IPsec connection shows its IKE and child SA."""

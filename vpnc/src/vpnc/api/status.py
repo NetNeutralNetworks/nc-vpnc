@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import vici
 from pydantic import BaseModel
 
-from vpnc import config, shared
+from vpnc import config
 from vpnc.models import enums, tenant
 from vpnc.network import state
 from vpnc.services import configuration, wireguard
@@ -28,8 +28,7 @@ logger = logging.getLogger("vpnc")
 # two minutes while there's traffic, and keepalives cause traffic).
 WIREGUARD_TIMEOUT = 180
 
-# Stopped: through the API, until vpnc restarts.
-State = Literal["up", "down", "connecting", "stopped"]
+State = Literal["up", "down", "connecting"]
 
 
 class ConnectionState(BaseModel):
@@ -157,8 +156,6 @@ def _ipsec(
     ]
     details: dict[str, Any] = {
         "ike_state": sa.get("state"),
-        # Changes when the IKE SA is set up again.
-        "ike_id": int(sa.get("uniqueid", 0)) or None,
         "established_seconds": int(sa.get("established", 0)) or None,
         "child_sas": children,
     }
@@ -226,8 +223,6 @@ def connection_states(
             else:
                 # SSH (tun has carrier while ssh runs) and physical interfaces.
                 current = "up" if link is not None and link.passes_traffic else "down"
-            if name in shared.STOPPED_CONNECTIONS:
-                current = "stopped"
             output.append(
                 ConnectionState(
                     id=name,

@@ -70,16 +70,9 @@ State, read live:
 ~$ sudo vpnctl tenants list
 ~$ sudo vpnctl ni list [C0001]               # network instances
 ~$ sudo vpnctl ni show C0001-00              # with NAT64 and NPTv6 translations
-~$ sudo vpnctl connections list [C0001 | C0001-00] [--state down] [--type ipsec]
+~$ sudo vpnctl connections list [C0001 | C0001-00] [--state down]
 ~$ sudo vpnctl connections show C0001-00-0   # e.g. IKE and child SAs
-~$ sudo vpnctl connections logs C0001-00-0 [-n 100] [-f]   # vpnc's, ssh's and charon's lines
 ~$ sudo vpnctl bgp neighbors                 # hub mode
-```
-
-VPN connections (IPsec, WireGuard, SSH) can be stopped until they're started again or vpnc restarts, and reset (a new IKE SA, WireGuard or SSH session):
-
-```bash
-~$ sudo vpnctl connections stop|start|reset C0001-00-0
 ```
 
 Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes are staged in the candidate configuration; a commit makes them active, and vpnc applies them. Service changes may need a restart. Paths are dotted, with list items by index; values are YAML.

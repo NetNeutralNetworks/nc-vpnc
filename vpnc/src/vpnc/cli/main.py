@@ -16,7 +16,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import time
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -245,7 +244,7 @@ def cmd_connections_list(args: argparse.Namespace) -> None:
     data = request(
         "GET",
         "/v1/connections",
-        params={**_filter(args.filter), "state": args.state, "type": args.type},
+        params={**_filter(args.filter), "state": args.state},
     )
     if not dump(data, args.output):
         columns = [
@@ -289,59 +288,6 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
         ago = details["last_handshake_seconds_ago"]
         items.append(("Last handshake", f"{duration(ago)} ago" if ago else "never"))
     fields(items)
-
-
-def _control(args: argparse.Namespace, action: str, done: str) -> None:
-    data = request("POST", f"/v1/connections/{quote(args.id)}/{action}")
-    if not dump(data, args.output):
-        print(f"{done} {data['id']}; it's {data['state']}.")
-
-
-def cmd_connections_stop(args: argparse.Namespace) -> None:
-    """Stop a VPN connection until it's started again, or vpnc restarts."""
-    _control(args, "stop", "Stopped")
-
-
-def cmd_connections_start(args: argparse.Namespace) -> None:
-    """Start a stopped VPN connection."""
-    _control(args, "start", "Started")
-
-
-def cmd_connections_reset(args: argparse.Namespace) -> None:
-    """Set a VPN connection up again (new IKE SA, WireGuard or SSH session)."""
-    _control(args, "reset", "Reset")
-
-
-def _log_lines(connection_id: str, count: int) -> list[dict[str, Any]]:
-    return request(
-        "GET",
-        f"/v1/connections/{quote(connection_id)}/logs",
-        params={"lines": count},
-    )
-
-
-def _print_log(line: dict[str, Any]) -> None:
-    print(f"{line['time']}  {line['source']:<6}  {line['level']:<7}  {line['message']}")
-
-
-def cmd_connections_logs(args: argparse.Namespace) -> None:
-    """Show a connection's log: vpnc's, SSH's and charon's (IPsec) lines."""
-    data = _log_lines(args.id, args.lines)
-    if not args.follow:
-        if not dump(data, args.output):
-            for line in data:
-                _print_log(line)
-        return
-    seen: set[tuple[str, ...]] = set()
-    while True:
-        for line in data:
-            key = tuple(line.values())
-            if key not in seen:
-                seen.add(key)
-                _print_log(line)
-        sys.stdout.flush()
-        time.sleep(1)
-        data = _log_lines(args.id, 100)
 
 
 def cmd_bgp_neighbors(args: argparse.Namespace) -> None:
@@ -603,23 +549,13 @@ _vpnctl() {
 complete -F _vpnctl vpnctl
 """
 
-STATES = ["up", "down", "connecting", "stopped"]
-TYPES = ["ipsec", "wireguard", "ssh", "physical"]
-
 # Per command its actions, and per action what its argument completes to.
 COMMANDS: dict[str, dict[str, str | None]] = {
     "status": {},
     "tenants": {"list": None, "show": "tenant"},
     "ni": {"list": "tenant", "show": "network_instance"},
     "network-instances": {"list": "tenant", "show": "network_instance"},
-    "connections": {
-        "list": "filter",
-        "show": "connection",
-        "stop": "connection",
-        "start": "connection",
-        "reset": "connection",
-        "logs": "connection",
-    },
+    "connections": {"list": "filter", "show": "connection"},
     "bgp": {"neighbors": None},
     "config": {
         "list": None,
@@ -636,10 +572,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
 OPTION_VALUES = {
     "-o": ["table", "wide", "json", "yaml"],
     "--output": ["table", "wide", "json", "yaml"],
-    "--state": STATES,
-    "--type": TYPES,
-    "-n": [],
-    "--lines": [],
+    "--state": ["up", "down", "connecting"],
 }
 
 
@@ -756,20 +689,11 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument(
         "filter", nargs="?", help="a tenant (C0001) or network instance (C0001-00)"
     )
-    p.add_argument("--state", choices=STATES)
-    p.add_argument("--type", choices=TYPES)
-    connection = {"help": "e.g. C0001-00-0 or CORE-0"}
-    for name, func in (
-        ("show", cmd_connections_show),
-        ("stop", cmd_connections_stop),
-        ("start", cmd_connections_start),
-        ("reset", cmd_connections_reset),
-    ):
-        add(connections, name, func).add_argument("id", **connection)
-    p = add(connections, "logs", cmd_connections_logs)
-    p.add_argument("id", **connection)
-    p.add_argument("-n", "--lines", type=int, default=50, help="default: 50")
-    p.add_argument("-f", "--follow", action="store_true", help="print new lines")
+    p.add_argument("--state", choices=["up", "down", "connecting"])
+    add(connections, "show", cmd_connections_show).add_argument(
+        "id",
+        help="e.g. C0001-00-0 or CORE-0",
+    )
 
     bgp = group("bgp", "BGP (hub mode)")
     add(bgp, "neighbors", cmd_bgp_neighbors)

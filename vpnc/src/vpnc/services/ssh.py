@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 
 import vpnc.models.connections
 import vpnc.models.ssh
-from vpnc import shared
 from vpnc.models import enums
 
 if TYPE_CHECKING:
@@ -62,13 +61,7 @@ class SshTunnel(threading.Thread):
                     stderr=subprocess.PIPE,
                     text=True,
                 )
-            # Logged with the connection name, so it shows in its logs.
-            last = ""
-            for line in proc.stderr or []:
-                if line := line.strip():
-                    logger.info("SSH tunnel %s: %s", self.connection_name, line)
-                    last = line
-            proc.wait()
+            _, stderr = proc.communicate()
             if self._stop_event.is_set():
                 return
             if time.monotonic() - started > STABLE_AFTER:
@@ -78,7 +71,7 @@ class SshTunnel(threading.Thread):
                 self.connection_name,
                 proc.returncode,
                 delay,
-                last[-500:],
+                stderr.strip()[-500:],
             )
             self._stop_event.wait(delay)
             delay = min(delay * 2, RESTART_DELAY_MAX)
@@ -99,8 +92,6 @@ class SshTunnel(threading.Thread):
 
 SSH_CONNECTIONS: dict[str, vpnc.models.connections.Connection] = {}
 SSH_TUNNELS: dict[str, SshTunnel] = {}
-# The reconciler and the API start and stop tunnels.
-LOCK = threading.RLock()
 
 
 def start(
@@ -112,19 +103,8 @@ def start(
         logger.warning("Invalid module type specified.")
         return
 
-    with LOCK:
-        _start(network_instance, connection)
-
-
-def _start(
-    network_instance: vpnc.models.network_instance.NetworkInstance,
-    connection: vpnc.models.connections.Connection,
-) -> None:
     connection_name = f"{network_instance.id}-{connection.id}"
     ssh_master_socket = SSH_SOCKET_DIR.joinpath(f"{connection_name}.sock")
-    if connection_name in shared.STOPPED_CONNECTIONS:
-        stop(network_instance, connection)
-        return
 
     tunnel = SSH_TUNNELS.get(connection_name)
     if (
@@ -222,11 +202,10 @@ def stop(
 ) -> None:
     """Stop an SSH tunnel."""
     connection_name = f"{network_instance.id}-{connection.id}"
-    with LOCK:
-        SSH_CONNECTIONS.pop(connection_name, None)
-        tunnel = SSH_TUNNELS.pop(connection_name, None)
-        if tunnel is not None:
-            tunnel.stop()
+    SSH_CONNECTIONS.pop(connection_name, None)
+    tunnel = SSH_TUNNELS.pop(connection_name, None)
+    if tunnel is not None:
+        tunnel.stop()
 
 
 @atexit.register
