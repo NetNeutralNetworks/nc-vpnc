@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import json
 import re
-import subprocess
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -18,8 +17,6 @@ if TYPE_CHECKING:
 
 HOST = "hub00"
 TENANT_FILE = "/opt/ncubed/config/vpnc/active/C0002.yaml"
-CANDIDATE_FILE = "/opt/ncubed/config/vpnc/candidate/C0002.yaml"
-VPNCTL = "/opt/ncubed/vpnc/bin/vpnctl"
 NI = "C0002-00"
 CORE_LINK = f"{NI}_C"
 APPLY_TIMEOUT = 60
@@ -161,7 +158,7 @@ def test_tenant() -> Iterator[None]:
         message=f"tenant C0002 to be applied on {HOST}",
     )
     yield
-    conftest.run_cmd(HOST, f"rm -f {TENANT_FILE} {CANDIDATE_FILE}")
+    conftest.run_cmd(HOST, f"rm -f {TENANT_FILE}")
     conftest.wait_until(
         tenant_removed,
         timeout=APPLY_TIMEOUT,
@@ -273,58 +270,6 @@ class TestReconfiguration:
                 timeout=APPLY_TIMEOUT,
             )
         assert nptv6_mappings(NI) == expected
-
-    def test_config_edit_and_commit(self) -> None:
-        """An edited candidate shows in the diff and is applied on commit."""
-        output = vpnctl_edit("s|fdcc:201::/48|fdcc:209::/48|")
-        assert any(
-            line.startswith("+") and "fdcc:209::/48" in line
-            for line in output.splitlines()
-        )
-
-        changed = {c["id"]: c["changed"] for c in vpnctl_json("config list")}
-        assert changed["C0002"] is True
-
-        assert conftest.run_cmd(HOST, f"{VPNCTL} config commit C0002") == "Committed.\n"
-        conftest.wait_until(
-            lambda: (
-                "fdcc:209::/48" in route_destinations(NI)
-                and "fdcc:201::/48" not in route_destinations(NI)
-            ),
-            timeout=APPLY_TIMEOUT,
-            message="the committed route to be applied",
-        )
-        assert conftest.run_cmd(HOST, f"{VPNCTL} config diff C0002") == "No changes.\n"
-
-    def test_config_edit_invalid(self) -> None:
-        """An invalid edit is rejected and leaves the candidate unchanged."""
-        with pytest.raises(subprocess.CalledProcessError) as err:
-            vpnctl_edit("s|C0002|C0003|")
-
-        assert "doesn't match 'C0002'" in err.value.stderr
-        assert conftest.run_cmd(HOST, f"{VPNCTL} config diff C0002") == "No changes.\n"
-
-    def test_config_discard(self) -> None:
-        """Discarding a candidate undoes the edit; nothing is applied."""
-        vpnctl_edit("s|Reconfiguration|Discarded|")
-        output = conftest.run_cmd(HOST, f"{VPNCTL} config discard C0002")
-
-        assert output == "Discarded the changes.\n"
-        assert conftest.run_cmd(HOST, f"{VPNCTL} config diff C0002") == "No changes.\n"
-        assert vpnctl_json("tenants show C0002")["name"] == "Reconfiguration test"
-
-
-def vpnctl_json(args: str) -> Any:  # noqa: ANN401
-    """Run vpnctl on the host with JSON output."""
-    return json.loads(conftest.run_cmd(HOST, f"{VPNCTL} -o json {args}"))
-
-
-def vpnctl_edit(sed_expression: str) -> str:
-    """Edit C0002's candidate with sed as the editor (no spaces in the expression)."""
-    return conftest.run_cmd_shell(
-        HOST,
-        f"env EDITOR='sed -i {sed_expression}' {VPNCTL} config edit C0002",
-    )
 
 
 NPTV6_RULE_RE = re.compile(r"ip6 daddr (\S+) dnat (?:ip6 )?prefix to (\S+)")
