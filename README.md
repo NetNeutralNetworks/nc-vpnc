@@ -1,142 +1,61 @@
 # nc-vpnc
 
-vpnc (VPN concentrator) connects a management network to many tenant networks. Every tenant network gets a unique IPv6 prefix, so overlapping IPv4 space and unique local IPv6 addresses don't clash.
+vpnc (VPN concentrator) is an application to allow connectivity from a secure management network to multiple tenant networks. The selling point of vpnc is that all tenants and all the connections to a tenant can be uniquely addressed, removing issues with overlapping IP-space in IPv4. As the application also fully supports IPv6, global unicast addresses shouldn't cause any issues either, while unique local addresses can be remapped with NPTv6.
 
-* **One entry point:** admins reach every tenant through vpnc, without a VPN client per tenant.
-* **Several networks per tenant:** a tenant has one or more network instances, each with its own connections.
-* **IPv6 inside:** tenant IPv4 is reached through NAT64, tenant IPv6 through NPTv6 or as is (global unicast).
-* **Connections:** IPsec, WireGuard and physical interfaces. An SSH tunnel can run over another connection.
-* **DNS doctoring:** DNS answers from a tenant are rewritten to the addresses that reach it, so nobody has to remember the translated addresses.
-* **Routing:** the reachable prefixes are advertised to the management network with BGP.
+The key features of VPNC are:
 
-vpnc is not:
+* **Single entrypoint to tenants:** By sending all traffic destined to tenant networks via VPNC, the need for multiple VPN clients on admin workstations is removed.
+* **Connect to multiple standalone networks:** Multiple network instances can be created per tenant. This means that if a tenant has multiple standalone networks, each of those can have a separate connection.
+* **Full IPv6 support:** vpnc mostly runs on IPv6 internally and uses the capabilities it provides to offer full IPv4 reachability for each tenant and each network instance a tenant may have.
+* **Flexible tenant connection options:** vpnc supports IPsec, WireGuard and phsyical/logical interface connections to tenants. For tenants with more strict rules, within a network instance, SSH tunnels can be utilized over any other connection to grant access to a network.
+* **DNS response doctoring:** DNS responses are automatically doctored so no IP addressed need be remembered.
 
-* **A firewall:** it only makes sure that connections are opened from management to tenants, never the other way or between tenants. Put a firewall in front of it for inspection and user-based rules.
-* **A client VPN:** admins connect to a firewall or VPN gateway, which routes to vpnc: client > firewall > vpnc > tenant.
-* **A general router.**
-* **HA by itself:** run two hubs and let BGP choose.
+What it is not:
 
-## How it works
+* **Firewall:** vpnc doesn't perform any fancy firewalling other than to make sure that all connections can only be initiated from an upstream management network to a downlink tenant. All other communication, including communication within a tenant is blocked. Another device should perform traffic inspection, user based firewalling and other desired security functionality.
+* **Client VPN:** vpnc doesn't accept client connections directly. It expects an uplink connection, either physical/logical or IPsec/WireGuard, to a device that can accept client connections such as a perimiter firewall. Traffic flows are as follows: client > security device/network > vpnc > tenant security devices > tenant networks.
+* **Router:** While vpnc routes traffic, it isn't a router. Its use is to make the connectivity to multiple tenants easy. As such, from a security standpoint, traffic is only allowed to flow from management to a tenant network.
+* **Plug and play:** vpnc is made from a network engineering standpoint. It has no built-in HA mechanism. BGP is used to support HA and failover. As such, the proper HA configuration expects some networking knowledge.
 
-vpnc runs in `hub` mode (the concentrator) or `endpoint` mode (a VPN endpoint at a tenant site). Each network instance is a Linux network namespace:
+## Architecture
 
-| Network instance | Purpose |
-|---|---|
-| `EXTERNAL` | The internet-facing interface; carries the tunnels. |
-| `CORE` | The uplinks to the management network, with BGP. |
-| `C0001-00`, ... | Downlinks (hub): one per tenant network, named `<tenant>-<nn>`. |
-| `ENDPOINT` | The tenant side (endpoint mode). |
+Below is an overview of items related to the architecture of vpnc.
 
-Connections are numbered per network instance (0-9) and named `<network instance>-<n>`, e.g. `C0001-00-0`.
+### Positioning
 
-```
-admins ── firewall ── CORE ═══ vpnc ═══ EXTERNAL ── internet ── tenant sites
-                      (BGP)    C0001-00, C0001-01, C0002-00 ...
-```
+vpnc doesn't do any firewalling and isn't meant to accept client VPNs. As such, the recommended position is behind a firewall that accepts client VPNs and performs user based firewalling to allow only the correct identities to access each tenant.
 
-Addressing in hub mode, from the service settings:
+A basic setup looks like this:
+**TODO**
 
-| Setting | Per network instance | Use |
-|---|---|---|
-| `prefix_downlink_nat64` (/32) | /96 | NAT64: tenant IPv4 as IPv6, e.g. `fdcc:0:c:1::/96` for `C0001-00`. |
-| `prefix_downlink_nptv6` (/12) | /48 | NPTv6 for tenant IPv6 routes with `nptv6: true`. |
-| `prefix_downlink_interface_v4` | /24, a /28 per connection | Tunnel interface addresses; the same for every tenant. |
-| `prefix_downlink_interface_v6` | /48, a /64 per connection | Tunnel interface addresses; the same for every tenant. |
+## Getting started
 
-vpncmangle (started by vpnc) rewrites DNS answers from tenants: A records become AAAA records in the NAT64 prefix, and AAAA records get the NPTv6 prefix. See [vpncmangle/README.md](vpncmangle/README.md).
+### Installation/upgrade
 
-## Installation
+The service and command line tools are installed with the included bash script in the root: `install.sh`
 
-vpnc runs on Ubuntu 24.04 or 26.04 with systemd. As root:
+The service can be installed in `hub` and `endpoint` mode (see architecture for more information).
+
+`hub` mode deploys the service that connects the management environment to customers and performs all features mentioned.
+
+`endpoint` mode is used purely as a VPN endpoint on a tenant site.
+
+The installation can be run with the following command:
 
 ```bash
-~$ ./install.sh hub       # or: endpoint
+# Install as hub or endpoint
+~$ ./install.sh hub  # or endpoint if desired
 ```
 
-This installs vpnc in `/opt/ncubed/vpnc`, `vpnctl` on the PATH and an example service configuration, and starts vpnc. Upgrade by running it again. Then configure the service:
+This installs the vpnc and an example configuration for either the `hub` or `endpoint` service.
 
-```bash
-~$ sudo vpnctl config edit service
-~$ sudo vpnctl config commit service
-~$ sudo vpnctl service restart
-```
+<!-- * Uses IPv6 internally to accomodate client IPv4 overlap. Uses NAT64 to map the whole IPv4 address space a clients entire possible IPv4 address space into IPv6.
+* DNS64 mangling translates A records resolved in a client network to AAAA records.
+* Uses dynamic routing via BGP to exchange routes from established VPNs to the management environment.
+* Uses active and candidate config to allow for easier configuration. Configuration updated with the `vpnctl` client validates input.
+* Monitors for too many duplicate IKE and IPsec security associations and keeps the youngest. It takes rekeys into account. -->
 
-## Configuration
-
-The configuration is YAML, one file per tenant plus `service` (the `DEFAULT` file). Change it with `vpnctl` or the API: changes are validated, staged and applied on commit (see [vpnctl](#vpnctl)). Service settings `mode` and `prefix_downlink_*` need a restart; everything else applies right away.
-
-Examples: [config-hub.yaml.example](config/vpnc/config/config-hub.yaml.example), [config-endpoint.yaml.example](config/vpnc/config/config-endpoint.yaml.example) and the tenant [config.yaml.example](config/vpnc/config/config.yaml.example).
-
-### Service
-
-```yaml
-version: 0.1.3
-id: DEFAULT
-name: DEFAULT
-mode: hub                     # hub | endpoint
-local_id: "%any"              # IKE identity, default for all connections
-network_instances:            # EXTERNAL and CORE (and ENDPOINT in endpoint mode)
-  EXTERNAL: {...}             # see Network instances
-  CORE: {...}
-# Hub mode only:
-prefix_downlink_interface_v4: 100.64.0.0/10
-prefix_downlink_interface_v6: fdcc:cbe::/32
-prefix_downlink_nat64: 64:ff9b::/32
-prefix_downlink_nptv6: 660::/12
-bgp:
-  globals:
-    asn: 4200000000           # 4200000000-4294967294
-    router_id: 192.0.2.1
-    bfd: false
-  neighbors:
-  - neighbor_address: fd00:1:2::1
-    neighbor_asn: 4233333333
-    priority: 0               # 0-9, lower is preferred for traffic to vpnc
-```
-
-### Tenants
-
-```yaml
-version: 0.1.3
-id: C0001                     # a-f or 2-9, then 4 digits
-name: Healthcare inc.
-metadata: {}                  # free key-value pairs, also on network instances and connections
-network_instances:
-  C0001-00:
-    id: C0001-00
-    type: downlink
-    connections:
-      0: {...}                # see Connections
-```
-
-### Connections
-
-```yaml
-0:
-  id: 0                       # 0-9
-  interface:                  # optional on downlinks in hub mode (calculated)
-    ipv4: [100.99.0.1/28]
-    ipv6: [fdcc:cbe::1/64]
-  routes:
-    ipv4:
-    - to: 10.0.0.0/8          # or: default
-      via: 192.0.2.1          # physical connections only
-    ipv6:
-    - to: fdff:db8:c57::/52
-      nptv6: true             # translate (default); vpnc adds nptv6_prefix
-  config: {...}               # one of the types below
-```
-
-| `type` | Settings (defaults) |
-|---|---|
-| `ipsec` | `remote_addrs`, `psk`, `local_id`, `remote_id`, `ike_version` (2), `ike_proposal` and `ipsec_proposal` (`aes256gcm16-prfsha384-ecp384`), `ike_lifetime` (86400), `ipsec_lifetime` (3600), `initiation` (`start`: initiate and respond; `none`: respond only), `traffic_selectors` (`local`, `remote`; empty means route based) |
-| `wireguard` | `remote_addrs`, `private_key`, `public_key`, `local_port` and `remote_port` (51820) |
-| `ssh` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config` (false: also configure the remote end), `remote_config_interface` (masquerade on the remote end) |
-| `physical` | `interface_name` |
-
-`psk` and `private_key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
-
-## vpnctl
+### vpnctl
 
 `vpnctl` shows vpnc's state and edits its configuration through vpnc's local API (the Unix socket `/run/vpnc/api.sock`, root only). The install script puts it on the PATH with bash and zsh completion; for a running shell:
 
@@ -197,33 +116,171 @@ Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Change
 
 Every command takes `-o table|wide|json|yaml`.
 
-## API
+Manage the configuration with `vpnctl` (or the API), which validates it; don't edit the files in `/opt/ncubed/config/vpnc/` (`active`, `candidate` and `history`) directly.
 
-vpnctl uses vpnc's local REST API on the Unix socket `/run/vpnc/api.sock` (root only). The OpenAPI schema is at `/openapi.json`; errors are RFC 9457 problem details.
+### Tenants
+
+Below are a few examples on how to configure tenants with `vpnctl`, network instances and connections. See architecture for more information about tenants, network instances and connections.
+<!-- 
+#### Configuration data structure
+
+The configuration for a remote is just a YAML file with the following structure:
+
+```yaml
+version:
+
+id: str                # required, ^[CD]\d{4}$
+name: str              # required
+metadata: {}           # optional, dictionary containing arbitrary k/v pairs
+connections:           # optional, dictionary containing connections
+  0:                     # required, connection id, int between 0-255
+    type: ipsec | local      # required
+    description: str         # required
+    metadata: {}             # optional, dictionary containing arbitrary k/v pairs
+    interface_ipv4: ip_prefix  # optional, host IP + CIDR mask, defaults to value configured in the service.
+    interface_ipv6: ip_prefix  # optional, host IP + CIDR mask, defaults to value configured in the service.
+    connection:
+      ike_proposal: str        # required, see the allowed values for   strongswan
+      ike_version: int         # optional, 1 or 2, defaults to 2
+      ipsec_proposal:          # required, see the allowed values for   strongswan
+      psk: str                 # required
+      local_id: str            # optional, arbitratry, if defined overrides service local id.
+      remote_id: str           # optional, arbirary, defaults to  remote_peer_ip
+      remote_peer_ip: ip       # required, IPv4 host address
+      routes: []               # optional, list of subnets, if defined,   mutually exclusive with traffic_selectors
+      traffic_selectors:       # optional, if defined, mutually exclusive   with routes
+        local: []                # required, list of subnets
+        remote: []               # required, list of subnets
+``` -->
+
+#### Tenant management
+
+List the configured tenants:
 
 ```bash
-~$ sudo curl --unix-socket /run/vpnc/api.sock http://localhost/v1/status
-~$ sudo curl --unix-socket /run/vpnc/api.sock http://localhost/openapi.json
+~$ vpnctl tenants
+tenant    tenant-name    description   
+--------  -------------  ------------- 
+DEFAULT   DEFAULT                      
+C0001     Tenant1        Healthcare inc.
+C0002     Tenant2        Steel corp.
 ```
 
-| Path | |
-|---|---|
-| `/v1/status`, `/v1/version` | State and versions |
-| `/v1/tenants`, `/v1/network-instances`, `/v1/connections` | Live state; connections also `stop`, `start`, `reset` and `logs` |
-| `/v1/config/tenants/{id}`, `/v1/config/service` | Configuration: `GET`, `PUT`, `PATCH` (merge patch), `DELETE`, `diff`, `commit`, `confirm`, `discard`, `history` |
-| `/v1/bgp/...` | Neighbors and routes |
-| `/v1/network-instances/{id}/routes`, `ping`, `traceroute`, `tcp` | Troubleshooting |
-| `/v1/logs` | Logs |
+Show a tenant configuration:
 
-## Files
+```bash
+# Show the tenant (active) configuration
+# Full shows the connection configurations when run against the tenant and not a specific network instance.
 
-| Path | |
-|---|---|
-| `/opt/ncubed/vpnc/` | The installation (virtualenv); `vpnctl` is linked to `/usr/local/bin` |
-| `/opt/ncubed/config/vpnc/` | Configuration: `active`, `candidate` (staged) and `history` |
-| `/var/log/ncubed/vpnc/` | `vpnc.log`, `vpncmangle.log` and `charon.log` (strongSwan) |
-| `/run/vpnc/api.sock` | The API |
+~$ vpnctl tenants C0001 [network-instances C0001-00 [connections 0]] show [--active] [--full]
+---
+id: C0001
+metadata:
+  environment: test
+name: Tenant
+network_instance_count: 2
+version: 0.1.4
+...
 
-## Development
+# full active configuration
+~$ vpnctl tenants C0001 show --full --active
+---
+id: C0001
+metadata: 
+  description: Healthcare inc.
+name: Tenant1
+connections:
+  0:
+    type: ipsec
+    description: lab endpoint
+    metadata:
+      primary: true
+    interface_ipv4: null
+    interface_ipv6: null
+    connection:
+      ike_proposal: aes128gcm16-prfsha384-ecp384
+      ike_version: 2
+      ipsec_proposal: aes128gcm16-ecp384
+      psk: superpassword
+      local_id: null
+      remote_id: 192.0.2.1
+      remote_peer_ip: 198.51.100.255
+      routes: []
+      traffic_selectors:
+        local: []
+        remote: []
+...
+```
 
-The lab tests run in containerlab; see [test/README.md](test/README.md).
+Show connection status summary
+
+```bash
+~$ vpnctl tenants C0001 [network-instances C0001-00 [connections 0]] summary
+tenant    network-instance      connection  type       status       interface-name    interface-ip                                                             remote-addr
+--------  ------------------  ------------  ---------  -----------  ----------------  -----------------------------------------------------------------------  ------------------
+C0001     C0001-00                       0  IPSEC      ESTABLISHED  xfrm0             ['100.99.0.1/28', 'fdcc:cbe::/64', 'fe80::d190:d018:6c78:bc8/64']        192.0.2.7
+C0001     C0001-00                       1  SSH        ACTIVE       tun1              ['100.99.0.17/28', 'fdcc:cbe:0:1::/64', 'fe80::5486:da3e:2cce:68ad/64']  172.16.30.1
+C0001     C0001-01                       0  WIREGUARD  ACTIVE       wg-C0001-01-0     ['100.99.1.1/28', 'fdcc:cbe:1::/64']                                     b'192.0.2.8:51820'
+```
+
+Show used NAT translations
+
+```bash
+~$ vpnctl tenants C0001 nat
+tenant    network-instance    type    local               remote
+--------  ------------------  ------  ------------------  ----------------------
+C0001     C0001-00            NAT64   fdcc:0:c:1::/96     0.0.0.0/0
+C0001     C0001-00            NPTv6   fd6c:1::/52         fdff:db8:c57::/52
+```
+
+Add or delete a tenant
+
+```bash
+~$ vpnctl tenants C0001 (add|delete)
+```
+
+Open the default editor to edit the tenant configuration. 
+The edited configuration is validated.
+Invalid configurations cannot be applied and will be rolled back.
+
+```bash
+~$ vpnctl tenants C0001 edit
+```
+
+Copy the candidate configuration to the active configuration
+Reverting the candidate configuration, dry-runs and diffs are possible
+
+```bash
+~$ vpnctl tenants C0001 commit [--dry-run] [--diff] [--revert]
+```
+
+Show the BGP configuration
+
+```bash
+~$ vpnctl bgp show
+---
+globals:
+  asn: 4255555555
+  bfd: true
+  router_id: 5.5.5.5
+neighbors:
+- neighbor_address: fd00:1:2::1
+  neighbor_asn: 4233333333
+  priority: 0
+- neighbor_address: fd00:1:2::1:1
+  neighbor_asn: 4244444444
+  priority: 1
+...
+```
+
+Show the BGP status summary
+
+```bash
+~$ vpnctl bgp summary
+neighbor       hostname      remote-as  address-family    state        uptime    peer-state      pfx-rcvd    pfx-sent    msg-rcvd    msg-sent    con-estb    con-drop
+-------------  ----------  -----------  ----------------  -----------  --------  ------------  ----------  ----------  ----------  ----------  ----------  ----------
+fd00:1:2::1    mgt00        4233333333  ipv4Unicast       Established  02:52:18  Policy                 0           0        1518        1517           3           2
+fd00:1:2::1:1  mgt01        4244444444  ipv4Unicast       Established  02:52:18  Policy                 0           0        1520        1516           3           2
+fd00:1:2::1    mgt00        4233333333  ipv6Unicast       Established  02:52:18  OK                     1          12        1518        1517           3           2
+fd00:1:2::1:1  mgt01        4244444444  ipv6Unicast       Established  02:52:18  OK                     1          12        1520        1516           3           2
+```
