@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from vpnc import api, config, shared
+from vpnc import config, shared
 from vpnc.models import enums, tenant
 from vpnc.network import namespace
 from vpnc.services import (
@@ -128,8 +128,6 @@ def concentrator() -> None:
 
     # Apply the configuration and keep correcting differences from it.
     reconcile.RECONCILER.start()
-
-    api.start()
 
     # Keep the program running, but terminate if needed.
     try:
