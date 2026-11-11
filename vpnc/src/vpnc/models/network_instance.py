@@ -612,18 +612,13 @@ class NetworkInstanceDownlink(NetworkInstance):
 
         # Calculate how to perform the NPTv6 translation.
         for configured_nptv6 in nptv6_list:
-            nptv6_prefix = configured_nptv6.to.prefixlen
-            # Check if the translation is possibly correct. This is a basic check
-            if (
-                configured_nptv6.nptv6_prefix
-                and configured_nptv6.to.prefixlen
-                == configured_nptv6.nptv6_prefix.prefixlen
-            ):
-                if configured_nptv6.nptv6_prefix.subnet_of(nptv6_scope):
+            prefix = configured_nptv6.nptv6_prefix
+            if prefix and prefix.prefixlen == configured_nptv6.to.prefixlen:
+                if prefix.subnet_of(nptv6_scope):
                     logger.debug(
                         "Route '%s' already has NPTv6 prefix '%s'",
                         configured_nptv6.to,
-                        configured_nptv6.nptv6_prefix,
+                        prefix,
                     )
                     continue
                 logger.warning(
@@ -632,14 +627,12 @@ class NetworkInstanceDownlink(NetworkInstance):
                         " Not part of assigned scope '%s'. Recalculating"
                     ),
                     configured_nptv6.to,
-                    configured_nptv6.nptv6_prefix,
+                    prefix,
                     nptv6_scope,
                 )
-                configured_nptv6.nptv6_prefix = None
-            if (
-                configured_nptv6.nptv6_prefix
-                and configured_nptv6.to.prefixlen < nptv6_scope.prefixlen
-            ):
+            # Not kept: it mustn't count as taken below.
+            configured_nptv6.nptv6_prefix = None
+            if configured_nptv6.to.prefixlen < nptv6_scope.prefixlen:
                 logger.warning(
                     "Route '%s' is too big for NPTv6 scope '%s'. Ignoring",
                     configured_nptv6.to,
@@ -647,36 +640,25 @@ class NetworkInstanceDownlink(NetworkInstance):
                 )
                 continue
 
-            # Calculate the NPTv6 translations if not already calculated.
-            for candidate_nptv6_prefix in nptv6_scope.subnets(new_prefix=nptv6_prefix):
-                # if the highest IP of the subnet is lower than the most recently
-                # added network
-                free = True
-                for npt in nptv6_list:
-                    if not npt.nptv6_prefix:
-                        continue
-                    # Check to be sure that the subnet isn't a supernet. That would
-                    # break it otherwise.
-                    if not npt.nptv6_prefix.subnet_of(nptv6_scope):
-                        continue
-                    # If the addresses overlap, it isn't free and cannot be used.
-                    if (
-                        npt.nptv6_prefix[0]
-                        >= candidate_nptv6_prefix[-1]
-                        >= npt.nptv6_prefix[-1]
-                        or npt.nptv6_prefix[0]
-                        <= candidate_nptv6_prefix[0]
-                        <= npt.nptv6_prefix[-1]
-                    ):
-                        free = False
-                        break
-
-                if not free:
-                    continue
-
-                configured_nptv6.nptv6_prefix = candidate_nptv6_prefix
-                updated = True
-                break
+            # The first prefix of the route's size that overlaps no assigned one.
+            taken = [
+                npt.nptv6_prefix
+                for npt in nptv6_list
+                if npt.nptv6_prefix and npt.nptv6_prefix.subnet_of(nptv6_scope)
+            ]
+            for candidate in nptv6_scope.subnets(
+                new_prefix=configured_nptv6.to.prefixlen,
+            ):
+                if not any(candidate.overlaps(other) for other in taken):
+                    configured_nptv6.nptv6_prefix = candidate
+                    updated = True
+                    break
+            else:
+                logger.warning(
+                    "No free NPTv6 prefix for route '%s' in scope '%s'.",
+                    configured_nptv6.to,
+                    nptv6_scope,
+                )
 
         return updated, [x for x in nptv6_list if x.nptv6_prefix]
 

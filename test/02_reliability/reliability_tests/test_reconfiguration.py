@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -236,6 +238,50 @@ class TestReconfiguration:
             timeout=APPLY_TIMEOUT,
             message="changed addresses to be applied",
         )
+
+    def test_nptv6_prefixes_dont_overlap(self) -> None:
+        """New NPTv6 prefixes don't overlap assigned ones; too big routes are skipped.
+
+        C0002-00's NPTv6 scope is fd6c:2::/48.
+        """
+        connection = ipsec_connection(
+            0,
+            ("10.200.0.1/30", "fdcc:200::1/64"),
+            ROUTES_4,
+            [],
+        )
+        connection["routes"]["ipv6"] = [
+            # Assigned earlier.
+            {"to": "fdcc:211::/56", "nptv6_prefix": "fd6c:2:0:100::/56"},
+            # Bigger than the scope.
+            {"to": "fdcc:220::/44"},
+            # fd6c:2::/52 would contain fd6c:2:0:100::/56.
+            {"to": "fdcc:212::/52"},
+        ]
+        write_tenant([connection])
+        expected = {
+            ("fd6c:2:0:100::/56", "fdcc:211::/56"),
+            ("fd6c:2:0:1000::/52", "fdcc:212::/52"),
+        }
+        # On a timeout the assert shows what differs.
+        with contextlib.suppress(TimeoutError):
+            conftest.wait_until(
+                lambda: nptv6_mappings(NI) == expected,
+                timeout=APPLY_TIMEOUT,
+            )
+        assert nptv6_mappings(NI) == expected
+
+
+NPTV6_RULE_RE = re.compile(r"ip6 daddr (\S+) dnat (?:ip6 )?prefix to (\S+)")
+
+
+def nptv6_mappings(netns: str) -> set[tuple[str, str]]:
+    """Return the NPTv6 translations of a network instance (prefix, route)."""
+    rules = conftest.run_cmd(
+        HOST,
+        f"ip netns exec {netns} nft list chain inet vpnc prerouting",
+    )
+    return set(NPTV6_RULE_RE.findall(rules))
 
 
 def drift_snapshot() -> dict[str, Any]:
