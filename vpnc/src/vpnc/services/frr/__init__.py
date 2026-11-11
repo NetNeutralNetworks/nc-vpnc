@@ -4,6 +4,7 @@ import atexit
 import logging
 import pathlib
 import subprocess
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +27,50 @@ TEMPLATES_DIR = BASE_DIR.joinpath("templates")
 TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=False)  # noqa: S701
 
 
+# Seconds before a reload is given up; the full check retries it.
+RELOAD_TIMEOUT = 120
+RELOAD_LOCK = threading.Lock()
+# Set when a reload failed, for the full check to retry.
+RELOAD_PENDING = threading.Event()
+
+
+def reload_config() -> bool:
+    """Load the FRR config file into FRR idempotently; return whether it worked."""
+    with RELOAD_LOCK:
+        logger.info("Reloading FRR configuration.")
+        try:
+            proc = subprocess.run(  # noqa: S603
+                ["/usr/lib/frr/frr-reload.py", str(config.FRR_CONFIG_PATH), "--reload"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=RELOAD_TIMEOUT,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            logger.exception("Reloading the FRR configuration failed.")
+            RELOAD_PENDING.set()
+            return False
+        if proc.returncode:
+            logger.error(
+                "Reloading the FRR configuration failed (rc=%s): %s",
+                proc.returncode,
+                (proc.stderr or proc.stdout).strip()[-1000:],
+            )
+            RELOAD_PENDING.set()
+            return False
+        logger.debug(proc.stdout)
+        RELOAD_PENDING.clear()
+        # Wait to make sure the configuration is applied
+        time.sleep(1)
+        return True
+
+
+def ensure_reloaded() -> None:
+    """Retry a failed reload."""
+    if RELOAD_PENDING.is_set():
+        reload_config()
+
+
 def observe() -> BaseObserver:
     """Create the observer for FRR configuration changes."""
 
@@ -34,37 +79,27 @@ def observe() -> BaseObserver:
         """Handler for the event monitoring."""
 
         def on_created(self, event: FileSystemEvent) -> None:
-            logger.info("File %s: %s", event.event_type, event.src_path)
-            time.sleep(0.1)
-            self.reload_config()
+            self.reload(event)
 
         def on_modified(self, event: FileSystemEvent) -> None:
-            logger.info("File %s: %s", event.event_type, event.src_path)
-            time.sleep(0.1)
-            self.reload_config()
+            self.reload(event)
 
         def on_deleted(self, event: FileSystemEvent) -> None:
+            self.reload(event)
+
+        def on_moved(self, event: FileSystemEvent) -> None:
+            self.reload(event)
+
+        def reload(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
-            time.sleep(0.1)
-            self.reload_config()
-
-        def reload_config(self) -> None:
-            """Load FRR config from file in an idempotent way."""
             # Wait to make sure the file is written
-
-            logger.info("Reloading FRR configuration.")
-            proc = subprocess.run(  # noqa: S603
-                [
-                    "/usr/lib/frr/frr-reload.py",
-                    "/etc/frr/frr.conf",
-                    "--reload",
-                ],
-                capture_output=True,
-                check=True,
-            )
-            logger.debug(proc.stdout)
-            # Wait to make sure the configuration is applied
-            time.sleep(1)
+            time.sleep(0.1)
+            # A failing handler would end the observer thread.
+            try:
+                reload_config()
+            except Exception:
+                logger.exception("Reloading the FRR configuration failed.")
+                RELOAD_PENDING.set()
 
     # Create the observer object. This doesn't start the handler.
     observer: BaseObserver = Observer()

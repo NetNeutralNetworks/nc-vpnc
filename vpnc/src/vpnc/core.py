@@ -67,6 +67,7 @@ def start_hub_services() -> None:
     # VPNC in hub mode uses FRR to exchange routes. Start FRR to make sure it can
     # load the CORE and EXTERNAL network instances
     frr.start()
+    reconcile.RECONCILER.register("frr", lambda _: frr.ensure_reloaded())
 
 
 def concentrator() -> None:
