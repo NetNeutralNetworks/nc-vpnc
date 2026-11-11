@@ -49,6 +49,18 @@ def is_initiator(connection: dict[str, Any]) -> bool:
     )
 
 
+def tunnel_is_up(ike_sa: dict[str, Any]) -> bool:
+    """Return whether an IKE SA is established and has an installed child SA.
+
+    During rekeying, reauthentication or with duplicate SAs a connection has
+    multiple SAs, some of which are being deleted: it's up if any of them is.
+    """
+    return ike_sa.get("state", b"") == b"ESTABLISHED" and any(
+        child.get("state", b"") == b"INSTALLED"
+        for child in ike_sa.get("child-sas", {}).values()
+    )
+
+
 def xfrm_policies() -> set[XfrmPolicy]:
     """Return the XFRM policies with an if_id in the EXTERNAL network instance."""
     result = namespace.run(
@@ -236,10 +248,39 @@ class Monitor(threading.Thread):
             self.resolve_xfrm_interface_state(event_data)
 
     def resync_xfrm_interface_states(self) -> None:
-        """Set the XFRM interface state of all configured connections."""
+        """Set the XFRM interface state of all configured connections.
+
+        With one list of all SAs and one socket per network instance.
+        """
         vcs = self.connect()
+        up = {
+            name
+            for sa in vcs.list_sas()
+            for name, ike_data in sa.items()
+            if tunnel_is_up(ike_data)
+        }
+        interfaces: dict[str, list[tuple[str, str]]] = {}
         for ike_name in vcs.get_conns()["conns"]:
-            self.set_xfrm_interface_state(ike_name.decode(), missing_ok=True)
+            name = ike_name.decode()
+            if (interface := self.xfrm_interface(name)) is not None:
+                interfaces.setdefault(interface[0], []).append((name, interface[1]))
+        for network_instance_name, connections in interfaces.items():
+            try:
+                with namespace.IPRoute(network_instance_name) as netns:
+                    for name, ifname in connections:
+                        self.set_link_state(
+                            netns,
+                            ifname,
+                            up=name in up,
+                            missing_ok=True,
+                        )
+            except OSError as err:
+                # E.g. a network instance that is being removed.
+                logger.debug(
+                    "Setting the interface states in %s failed: %s",
+                    network_instance_name,
+                    err,
+                )
 
     def resolve_xfrm_interface_state(self, ike_event: IkeData) -> None:
         """Set the XFRM interface state for the connection of an IKE/child event."""
@@ -250,75 +291,71 @@ class Monitor(threading.Thread):
             ike_name = next(iter(keys))
         self.set_xfrm_interface_state(ike_name)
 
-    def set_xfrm_interface_state(
-        self,
-        ike_name: str,
-        *,
-        missing_ok: bool = False,
-    ) -> None:
-        """Set a connection's XFRM interface up if its tunnel is up, down otherwise.
+    def xfrm_interface(self, ike_name: str) -> tuple[str, str] | None:
+        """Return the network instance and XFRM interface of a connection.
 
-        The tunnel is up if any IKE SA of the connection is established and has an
-        installed child SA. During rekeying, reauthentication or with duplicate SAs
-        there are multiple SAs, some of which are being deleted, so all of them must
-        be checked.
+        None if its tenant has no configuration (anymore).
+        """
+        if ike_name.startswith(config.CORE_NI):
+            return config.CORE_NI, f"xfrm{ike_name[-1]}"
+        ni_info = info.parse_downlink_network_instance_name(ike_name)
+        tenant_config_file = config.VPNC_A_CONFIG_DIR.joinpath(
+            f"{ni_info.tenant}.yaml",
+        )
+        # A deleted connection's SA is terminated by the reconciler. Until then
+        # it can still rekey or change state.
+        if ni_info.network_instance is None or not tenant_config_file.exists():
+            logger.info("No configuration file found for '%s'", ni_info.tenant)
+            return None
+        return ni_info.network_instance, f"xfrm{ni_info.connection_id}"
+
+    def set_xfrm_interface_state(self, ike_name: str) -> None:
+        """Set a connection's XFRM interface up if its tunnel is up, down otherwise.
 
         The routes service reacts to the interface state, so a wrong state leaves
         routes blackholed or advertised.
         """
-        if ike_name.startswith(config.CORE_NI):
-            network_instance_name: str | None = config.CORE_NI
-            connection_id: str | None = ike_name[-1]
-        else:
-            ni_info = info.parse_downlink_network_instance_name(ike_name)
-            tenant_id = ni_info.tenant
-            network_instance_name = ni_info.network_instance
-            connection_id = ni_info.connection_id
-            tenant_config_file = config.VPNC_A_CONFIG_DIR.joinpath(f"{tenant_id}.yaml")
-            # When a connection configuration is deleted, the SA is deleted when the
-            # monitor_connection function runs. Before this happens however, there is a
-            # chance  it rekeys or switches state. To prevent errors, we check if the
-            # file exists.
-            if not tenant_config_file.exists():
-                logger.info("No configuration file found for '%s'", tenant_id)
-                return
+        if (interface := self.xfrm_interface(ike_name)) is None:
+            return
+        network_instance_name, ifname = interface
 
         vcs = self.connect()
-        tunnel_up = False
-        for ike_sa in vcs.list_sas({"ike": ike_name}):
-            ike_data: dict[str, Any] = ike_sa.get(ike_name, {})
-            if ike_data.get("state", b"") != b"ESTABLISHED":
-                continue
-            if any(
-                child.get("state", b"") == b"INSTALLED"
-                for child in ike_data.get("child-sas", {}).values()
-            ):
-                tunnel_up = True
-                break
-        action = "up" if tunnel_up else "down"
-
+        tunnel_up = any(
+            tunnel_is_up(ike_sa.get(ike_name, {}))
+            for ike_sa in vcs.list_sas({"ike": ike_name})
+        )
         with namespace.IPRoute(network_instance_name) as netns:
-            ifname = f"xfrm{connection_id}"
-            if not (iflookup := netns.link_lookup(ifname=ifname)):
-                log = logger.debug if missing_ok else logger.warning
-                log(
-                    "Network instance %s interface %s doesn't exist.",
-                    network_instance_name,
-                    ifname,
-                )
-                return
-            ifidx = iflookup[0]
-            is_up = bool(netns.get_links(ifidx)[0]["flags"] & IFF_UP)
-            if is_up == tunnel_up:
-                return
+            self.set_link_state(netns, ifname, up=tunnel_up)
 
-            logger.info(
-                "Bringing network instance %s interface '%s' %s.",
-                network_instance_name,
+    def set_link_state(
+        self,
+        netns: namespace.IPRoute,
+        ifname: str,
+        *,
+        up: bool,
+        missing_ok: bool = False,
+    ) -> None:
+        """Set an interface up or down, if it isn't."""
+        if not (iflookup := netns.link_lookup(ifname=ifname)):
+            log = logger.debug if missing_ok else logger.warning
+            log(
+                "Network instance %s interface %s doesn't exist.",
+                netns.netns,
                 ifname,
-                action,
             )
-            netns.link("set", index=ifidx, state=action)
+            return
+        ifidx = iflookup[0]
+        if bool(netns.get_links(ifidx)[0]["flags"] & IFF_UP) == up:
+            return
+
+        action = "up" if up else "down"
+        logger.info(
+            "Bringing network instance %s interface '%s' %s.",
+            netns.netns,
+            ifname,
+            action,
+        )
+        netns.link("set", index=ifidx, state=action)
 
     def resolve_duplicate_sas(self, ike_name: str) -> None:
         """Keep the newest IKE/CHILD SA of an initiator connection, terminate the rest.
