@@ -6,7 +6,9 @@ import contextlib
 import logging
 import pathlib
 import subprocess
+import time
 from abc import abstractmethod
+from dataclasses import dataclass
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
@@ -96,8 +98,24 @@ def jool_instances() -> Iterator[None]:
         _JOOL_INSTANCES = None
 
 
-# Per network instance the last nftables table and the ruleset it resulted in.
-FIREWALL_APPLIED: dict[str, tuple[str, dict[str, Any]]] = {}
+# Seconds between checks of a network instance's ruleset for changes made by
+# hand. Reading it takes a process per network instance.
+FIREWALL_DRIFT_INTERVAL = 300
+
+
+@dataclass
+class AppliedFirewall:
+    """The last nftables table of a network instance and what it resulted in."""
+
+    table: str
+    ruleset: dict[str, Any]
+    # The namespace it was applied in; a recreated one has no table.
+    namespace: tuple[int, int]
+    # When the ruleset was last read (monotonic).
+    checked: float
+
+
+FIREWALL_APPLIED: dict[str, AppliedFirewall] = {}
 
 
 def wireguard_port_users(
@@ -316,16 +334,28 @@ class NetworkInstance(BaseModel):
         """Make vpnc's nftables table as rendered, unless it already is.
 
         The table is replaced in one transaction, only when the rendered table or
-        the ruleset (e.g. changed by hand) differ from the last time.
+        the ruleset (e.g. changed by hand) differ from the last time. The ruleset
+        is only read every FIREWALL_DRIFT_INTERVAL seconds.
         """
         table = TEMPLATES_ENV.get_template(template).render(**variables)
-        current = nftables.ruleset(self.id)
-        if FIREWALL_APPLIED.get(self.id) == (table, current):
-            return False
+        applied = FIREWALL_APPLIED.get(self.id)
+        identity = state.netns_identity(self.id)
+        now = time.monotonic()
+        if applied and (applied.table, applied.namespace) == (table, identity):
+            if now - applied.checked < FIREWALL_DRIFT_INTERVAL:
+                return False
+            if nftables.ruleset(self.id) == applied.ruleset:
+                applied.checked = now
+                return False
         logger.info("Configuring network instance %s firewall.", self.id)
         logger.debug(table)
         nftables.replace(self.id, table)
-        FIREWALL_APPLIED[self.id] = (table, nftables.ruleset(self.id))
+        FIREWALL_APPLIED[self.id] = AppliedFirewall(
+            table,
+            nftables.ruleset(self.id),
+            identity,
+            now,
+        )
         return True
 
     def _reconcile_services(self) -> None:
