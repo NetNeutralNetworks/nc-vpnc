@@ -205,6 +205,13 @@ function install_pip_vpnc () {
     ${INSTALLDIR}/bin/python3 -m pip install --upgrade ${SCRIPTDIR}/${SERVICENAME}
 }
 
+function install_vpnctl () {
+    # vpnctl on the PATH, with bash completion.
+    ln -sf ${INSTALLDIR}/bin/vpnctl /usr/local/bin/vpnctl
+    mkdir -p /etc/bash_completion.d
+    ${INSTALLDIR}/bin/vpnctl completion bash > /etc/bash_completion.d/vpnctl
+}
+
 function install_pip_vpncmangle () {
     # Install vpncmangle
     ${INSTALLDIR}/bin/python3 -m pip install --upgrade ${SCRIPTDIR}/vpncmangle
@@ -255,6 +262,7 @@ function install_vpnc () {
         create_misc_config
 
         install_pip_vpnc
+        install_vpnctl
         install_pip_vpncmangle
 
         register_service_vpnc
@@ -274,6 +282,7 @@ function install_vpnc () {
         create_misc_config
 
         install_pip_vpnc
+        install_vpnctl
 
         register_service_vpnc
         start_service_vpnc
@@ -291,6 +300,7 @@ function install_vpnc () {
         create_misc_config
 
         install_pip_vpnc
+        install_vpnctl
 
         register_service_vpnc
         start_service_vpnc

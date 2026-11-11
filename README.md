@@ -55,21 +55,38 @@ This installs the vpnc and an example configuration for either the `hub` or `end
 * Uses active and candidate config to allow for easier configuration. Configuration updated with the `vpnctl` client validates input.
 * Monitors for too many duplicate IKE and IPsec security associations and keeps the youngest. It takes rekeys into account. -->
 
-### Shell configuration
-
-The vpnc configuration can be can be managed by using the `vpnctl` executable installed in `/opt/ncubed/vpnc/bin`. Tab completion is installed by default when using the install script, but can be manually enabled:
-
-```bash
-~$ /opt/ncubed/vpnc/bin/vpnctl --install-completion
-# restart terminal or run the below command to enable autocompletion:
-~$ source ~/.bashrc
-```
-
 ### vpnctl
 
-While the configuration files can be edited directly, it is strongly recommeded to use `vpnctl` as it validates the configuration before saving. It also supports a very rudimentary commit system. This system doesn't store a commit history. Changes committed to any non "DEFAULT" tenant are automatically applied. DEFAULT tenant changes may require a restart of the service. See architecture for more information about the two tenant types.
+`vpnctl` shows vpnc's state and edits its configuration through vpnc's local API (the Unix socket `/run/vpnc/api.sock`, root only). The install script puts it on the PATH with bash completion; for a running shell:
 
-`vpnctl` is very basic and hopefully will improve with time.
+```bash
+~$ source /etc/bash_completion.d/vpnctl
+```
+
+State, read live:
+
+```bash
+~$ sudo vpnctl status                        # mode and connections up
+~$ sudo vpnctl tenants list
+~$ sudo vpnctl ni list [C0001]               # network instances
+~$ sudo vpnctl ni show C0001-00              # with NAT64 and NPTv6 translations
+~$ sudo vpnctl connections list [C0001 | C0001-00] [--state down]
+~$ sudo vpnctl connections show C0001-00-0   # e.g. IKE and child SAs
+~$ sudo vpnctl bgp neighbors                 # hub mode
+```
+
+Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes go to the candidate configuration; a commit makes it active, and vpnc applies it. Service changes may need a restart.
+
+```bash
+~$ sudo vpnctl config list                   # tenants, and which have uncommitted changes
+~$ sudo vpnctl config show C0001 [--candidate] [--reveal-secrets]
+~$ sudo vpnctl config edit C0001             # in $EDITOR, validated; a new id creates a tenant
+~$ sudo vpnctl config diff C0001
+~$ sudo vpnctl config commit C0001
+~$ sudo vpnctl config discard C0001
+```
+
+Every command takes `-o table|wide|json|yaml`.
 
 <!-- The configuration can also be managed by directly modifying the files in `/opt/ncubed/config/vpnc/` directory. 
 The files in active are active config. The files in candidate are candidate configuration. 
