@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 from ipaddress import (
     IPv4Address,
     IPv4Network,
@@ -255,6 +254,10 @@ class Tenants(BaseModel):
     config: Tenant | ServiceHub | ServiceEndpoint
 
 
+class ConfigurationError(RuntimeError):
+    """The service (DEFAULT) configuration is missing or invalid."""
+
+
 def load_tenant_config(
     path: pathlib.Path,
 ) -> tuple[
@@ -311,8 +314,8 @@ def get_default_tenant() -> ServiceHub | ServiceEndpoint:
         default_tenant,
         (ServiceHub, ServiceEndpoint),
     ):
-        logger.critical(
-            "Service isn't configured correctly. Data class is not of a service type.",
-        )
-        sys.exit(1)
+        msg = "Service isn't configured correctly. Data class is not of a service type."
+        logger.critical(msg)
+        # Exiting here would only end the calling thread, silently.
+        raise ConfigurationError(msg)
     return default_tenant

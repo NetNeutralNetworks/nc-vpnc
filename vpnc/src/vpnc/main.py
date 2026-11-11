@@ -8,6 +8,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 
 from vpnc import config, core, helpers
+from vpnc.models import tenant
 
 # LOGGER
 # Get logger
@@ -55,7 +56,10 @@ def main() -> None:
     signal.signal(signal.SIGTERM, helpers.signal_handler)
 
     # Start the concentrator
-    core.concentrator()
+    try:
+        core.concentrator()
+    except tenant.ConfigurationError:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

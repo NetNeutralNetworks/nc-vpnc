@@ -253,6 +253,13 @@ def _delete_downlink_tenant(path: pathlib.Path) -> None:
     if not config.TENANT_RE.match(tenant_id):
         logger.error("Invalid filename found in %s. Skipping.", tenant_id)
         return
+    if tenant_id == config.DEFAULT_TENANT:
+        # Without it vpnc can't run: CORE and EXTERNAL would be removed.
+        logger.error(
+            "%s was removed. Keeping the loaded service configuration.",
+            path,
+        )
+        return
 
     logger.info(
         "Removing all network instance configuration for tenant '%s'.",
