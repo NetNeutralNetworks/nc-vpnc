@@ -598,26 +598,13 @@ def seconds(text: str) -> int:
         raise argparse.ArgumentTypeError(f"invalid duration: {text}") from None
 
 
-def _all_or_target(args: argparse.Namespace, action: str) -> str | None:
-    """Return the API path of the action on the target; None with --all."""
-    if args.all == bool(args.target):
-        fail("Give a tenant, 'service' or --all.")
-    return None if args.all else f"{config_path(args.target)}/{action}"
-
-
 def cmd_config_commit(args: argparse.Namespace) -> None:
     """Apply the staged changes; with --confirm, roll back unless confirmed."""
-    if (path := _all_or_target(args, "commit")) is None:
-        results = request("POST", "/v1/config/commit", params={"confirm": args.confirm})
-        for result in results:
-            confirm = f"; confirm before {result['confirm_by']}"
-            print(f"Committed {result['id']}{confirm if result['confirm_by'] else ''}.")
-        if not results:
-            print("No changes.")
-        elif args.confirm:
-            print("Confirm with: vpnctl config confirm --all, or they're rolled back.")
-        return
-    result = request("POST", path, params={"confirm": args.confirm})
+    result = request(
+        "POST",
+        f"{config_path(args.target)}/commit",
+        params={"confirm": args.confirm},
+    )
     if result.get("confirm_by"):
         print(
             f"Committed. Confirm before {result['confirm_by']} with: "
@@ -629,11 +616,7 @@ def cmd_config_commit(args: argparse.Namespace) -> None:
 
 def cmd_config_confirm(args: argparse.Namespace) -> None:
     """Confirm a commit, so it isn't rolled back."""
-    if (path := _all_or_target(args, "confirm")) is None:
-        results = request("POST", "/v1/config/confirm")
-        print(f"Confirmed {', '.join(r['id'] for r in results)}." if results else "No commits to confirm.")
-        return
-    request("POST", path)
+    request("POST", f"{config_path(args.target)}/confirm")
     print("Confirmed.")
 
 
@@ -663,15 +646,7 @@ def cmd_config_restore(args: argparse.Namespace) -> None:
 
 def cmd_config_discard(args: argparse.Namespace) -> None:
     """Drop the staged changes."""
-    if (path := _all_or_target(args, "discard")) is None:
-        results = request("POST", "/v1/config/discard")
-        print(
-            f"Discarded the changes of {', '.join(r['id'] for r in results)}."
-            if results
-            else "No changes.",
-        )
-        return
-    result = request("POST", path)
+    result = request("POST", f"{config_path(args.target)}/discard")
     print("Discarded the changes." if result["changed"] else "No changes.")
 
 
@@ -884,16 +859,14 @@ def parser() -> argparse.ArgumentParser:
     p = add(cfg, "delete", cmd_config_delete)
     p.add_argument("target", **target)
     p.add_argument("path", nargs="?", **path)
-    add(cfg, "diff", cmd_config_diff).add_argument("target", **target)
     for name, func in (
-        ("commit", cmd_config_commit),
+        ("diff", cmd_config_diff),
         ("confirm", cmd_config_confirm),
         ("discard", cmd_config_discard),
     ):
-        p = add(cfg, name, func)
-        p.add_argument("target", nargs="?", **target)
-        p.add_argument("--all", action="store_true", help="all tenants and service")
-    p = cfg.choices["commit"]
+        add(cfg, name, func).add_argument("target", **target)
+    p = add(cfg, "commit", cmd_config_commit)
+    p.add_argument("target", **target)
     p.add_argument(
         "--confirm",
         type=seconds,
