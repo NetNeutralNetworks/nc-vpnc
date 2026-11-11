@@ -39,5 +39,6 @@ if [[ $rc -eq 0 ]] ; then                                   # Make final determi
     echo -e "\n[SUCCESS] VPN and route advertisements are up"
     sleep 20
 else
-    echo -e "\n[WARNING] Not all connections are functional after ${init_count} tries"
+    echo -e "\n[ERROR] Not all connections are functional after ${init_count} tries"
+    exit 1
 fi
