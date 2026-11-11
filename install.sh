@@ -38,13 +38,13 @@ function install_apt_defaults () {
     if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
         # Disable/Mask the IPsec service
         /usr/bin/systemctl mask ipsec.service
-        /usr/bin/systemctl stop ipsec.service
+        /usr/bin/systemctl stop ipsec.service || true
         /usr/bin/systemctl mask strongswan-starter.service
-        /usr/bin/systemctl stop strongswan-starter.service
+        /usr/bin/systemctl stop strongswan-starter.service || true
     fi
 
-    groupadd swan
-    useradd -g swan swan
+    getent group swan > /dev/null || groupadd swan
+    id swan > /dev/null 2>&1 || useradd -g swan swan
 
     chown -R swan:swan /etc/swanctl
 }
@@ -77,8 +77,8 @@ function install_apt_build () {
 function install_apt_hub () {
     # Install hub defaults
     apt-get update
-    modprobe -r jool
-    apt-get remove -y jool-tools
+    modprobe -r jool || true
+    apt-get remove -y jool-tools || true
     apt-get install -y jool-tools kmod libnetfilter-queue-dev
 
     # Remove cached apt list after install
@@ -141,7 +141,7 @@ function install_apt_frr () {
     if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
         # Disable/Mask the FRR service
         /usr/bin/systemctl mask frr.service
-        /usr/bin/systemctl stop frr.service
+        /usr/bin/systemctl stop frr.service || true
     fi
 }
 
@@ -149,7 +149,10 @@ function create_misc_config () {
     # Create config for various services
 
     # Copy configuration files over to the configuration directories.
-    cp -rf ${SCRIPTDIR}/config/snmp/vpnc.conf /etc/snmp/snmpd.conf.d/
+    # Not in addon mode.
+    if [ -d /etc/snmp/snmpd.conf.d ]; then
+        cp -rf ${SCRIPTDIR}/config/snmp/vpnc.conf /etc/snmp/snmpd.conf.d/
+    fi
     cp -rf ${SCRIPTDIR}/config/strongswan/vpnc.conf /etc/strongswan.d/
     # Not in the lab images.
     if [ -d /etc/logrotate.d ]; then
@@ -248,12 +251,15 @@ function unregister_service_vpnc () {
     # If systemd is the init system
     if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
         # Make sure the newest unit file is loaded
-        /usr/bin/systemctl stop ncubed-${SERVICENAME}.service
-        /usr/bin/systemctl disable ncubed-${SERVICENAME}.service
+        # Fail on a first install.
+        /usr/bin/systemctl stop ncubed-${SERVICENAME}.service || true
+        /usr/bin/systemctl disable ncubed-${SERVICENAME}.service || true
     fi
 }
 
 function install_vpnc () {
+    # Stop at the first failure, so a half installed vpnc isn't started.
+    set -e
     case $1 in
     hub)
         echo "Installing in ${1} mode"
