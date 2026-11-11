@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, FileSystemLoader
 from pyroute2 import WireGuard
+from pyroute2.netlink.exceptions import NetlinkError
 
 from vpnc import config, files, shared
 from vpnc.models import enums
@@ -153,6 +154,19 @@ def sync(
                 wg.set(ifname, peer={"public_key": public_key, "remove": True})
 
     namespace.call(network_instance.id, run)
+
+
+def listen_port(network_instance_id: str, ifname: str) -> int | None:
+    """Return the port an interface listens on; None if it doesn't exist."""
+
+    def run() -> int | None:
+        with WireGuard() as wg:
+            return wg.info(ifname)[0].get("WGDEVICE_A_LISTEN_PORT")
+
+    try:
+        return namespace.call(network_instance_id, run)
+    except (OSError, NetlinkError):
+        return None
 
 
 def peer_status(network_instance_id: str, ifname: str) -> dict[str, Any]:
