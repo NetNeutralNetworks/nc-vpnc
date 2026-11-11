@@ -26,6 +26,7 @@ from vpnc import config, files
 from vpnc.models import tenant
 from vpnc.models.network_instance import wireguard_port_users
 from vpnc.models.secret import REVEAL
+from vpnc.services import configuration
 
 if TYPE_CHECKING:
     import pathlib
@@ -396,11 +397,20 @@ def resume_pending() -> None:
 
 def _check_wireguard_ports(candidates: dict[str, Model | None]) -> None:
     """Refuse candidates with a WireGuard port another connection uses."""
-    tenants: dict[str, Model] = {
-        other_id: other
-        for other_id, other in list(config.VPNC_CONFIG_TENANT.items())
-        if other_id not in candidates
-    }
+    tenants: dict[str, Model] = {}
+    for path in DIRS["active"].glob("*.yaml"):
+        other_id = path.stem
+        if other_id in candidates or not config.TENANT_RE.match(other_id):
+            continue
+        other = config.VPNC_CONFIG_TENANT.get(other_id)
+        if other is None or not configuration.loaded(path):
+            # Committed, but not loaded by the watcher yet.
+            try:
+                other = _load(other_id, "active") or other
+            except (ConfigError, ValueError, yaml.YAMLError):
+                logger.warning("Can't read the WireGuard ports of %s.", path)
+        if other is not None:
+            tenants[other_id] = other
     tenants |= {k: v for k, v in candidates.items() if v is not None}
     own = {
         f"{ni.id}-{connection_id}"
@@ -418,11 +428,16 @@ def _check_wireguard_ports(candidates: dict[str, Model | None]) -> None:
             )
 
 
-def commit(tenant_id: str, confirm: int | None = None) -> CommitResult:
+def commit(
+    tenant_id: str,
+    confirm: int | None = None,
+    *,
+    check_ports: bool = True,
+) -> CommitResult:
     """Make the staged changes active.
 
     With confirm (seconds), roll back unless confirmed in time; a commit
-    without it confirms.
+    without it confirms. commit_all checks the ports of all at once.
     """
     check_id(tenant_id)
     with LOCK:
@@ -432,7 +447,8 @@ def commit(tenant_id: str, confirm: int | None = None) -> CommitResult:
             candidate = _dump(_load(tenant_id, "candidate"), reveal=True)
             if candidate is None and tenant_id == config.DEFAULT_TENANT:
                 raise ConfigError(409, "Conflict", "The service can't be removed.")
-            _check_wireguard_ports({tenant_id: _load(tenant_id, "candidate")})
+            if check_ports:
+                _check_wireguard_ports({tenant_id: _load(tenant_id, "candidate")})
             # Only changed configurations: the files may differ in formatting.
             if candidate != _dump(_load(tenant_id, "active"), reveal=True):
                 changed = _set_active(tenant_id, _yaml(candidate) or None)
@@ -566,7 +582,9 @@ def commit_all(confirm: int | None = None) -> list[CommitResult]:
         _check_wireguard_ports(
             {tenant_id: _load(tenant_id, "candidate") for tenant_id in staged},
         )
-        results = [commit(tenant_id, confirm) for tenant_id in staged]
+        results = [
+            commit(tenant_id, confirm, check_ports=False) for tenant_id in staged
+        ]
     return [r for r in results if r.changed or r.confirm_by or r.restart_needed]
 
 
