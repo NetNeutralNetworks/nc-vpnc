@@ -291,24 +291,57 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
     fields(items)
 
 
+def _expand(target: str) -> list[str]:
+    """Return a network instance's or tenant's VPN connections (not physical)."""
+    ids = [
+        c["id"]
+        for c in request("GET", "/v1/connections", params=_filter(target))
+        if c["type"] != "physical"
+    ]
+    if not ids:
+        fail(f"No connection, network instance or tenant '{target}'.")
+    return ids
+
+
 def _control(args: argparse.Namespace, action: str, done: str) -> None:
-    data = request("POST", f"/v1/connections/{quote(args.id)}/{action}")
-    if not dump(data, args.output):
-        print(f"{done} {data['id']}; it's {data['state']}.")
+    """Act on connections, or the VPN connections of network instances/tenants."""
+    results: list[dict[str, Any]] = []
+    failed = False
+    pending = list(args.ids)
+    expanded: set[str] = set()
+    while pending:
+        target = pending.pop(0)
+        try:
+            data = request("POST", f"/v1/connections/{quote(target)}/{action}")
+        except ApiError as err:
+            if err.status == 404 and target not in expanded:  # noqa: PLR2004
+                ids = _expand(target)
+                expanded.update(ids)
+                pending[:0] = ids
+                continue
+            print(f"{target}: {problem_text(err)}", file=sys.stderr)
+            failed = True
+            continue
+        results.append(data)
+        if args.output not in ("json", "yaml"):
+            print(f"{done} {data['id']}; it's {data['state']}.")
+    dump(results, args.output)
+    if failed:
+        sys.exit(1)
 
 
 def cmd_connections_stop(args: argparse.Namespace) -> None:
-    """Stop a VPN connection until it's started again, or vpnc restarts."""
+    """Stop VPN connections until they're started again, or vpnc restarts."""
     _control(args, "stop", "Stopped")
 
 
 def cmd_connections_start(args: argparse.Namespace) -> None:
-    """Start a stopped VPN connection."""
+    """Start stopped VPN connections."""
     _control(args, "start", "Started")
 
 
 def cmd_connections_reset(args: argparse.Namespace) -> None:
-    """Set a VPN connection up again (new IKE SA, WireGuard or SSH session)."""
+    """Set VPN connections up again (new IKE SA, WireGuard or SSH session)."""
     _control(args, "reset", "Reset")
 
 
@@ -342,6 +375,156 @@ def cmd_connections_logs(args: argparse.Namespace) -> None:
         sys.stdout.flush()
         time.sleep(1)
         data = _log_lines(args.id, 100)
+
+
+def cmd_bgp_neighbor(args: argparse.Namespace) -> None:
+    """Show a BGP session in detail."""
+    data = request("GET", f"/v1/bgp/neighbors/{quote(args.neighbor)}")
+    if dump(data, args.output):
+        return
+    fields(
+        [
+            ("Neighbor", data["neighbor"]),
+            ("Hostname", data["hostname"]),
+            ("Remote AS", data["remote_as"]),
+            ("Local AS", data["local_as"]),
+            ("State", data["state"]),
+            ("Uptime", data["uptime"]),
+            ("BFD", data["bfd"]),
+            ("Hold time", duration(data["hold_time_seconds"])),
+            ("Keepalive", duration(data["keepalive_seconds"])),
+            ("Established", data["connections_established"]),
+            ("Dropped", data["connections_dropped"]),
+            ("Last reset", data["last_reset"]),
+        ],
+    )
+    print()
+    table(
+        data["address_families"],
+        [("FAMILY", "family"), ("ACCEPTED", "accepted"), ("SENT", "sent")],
+    )
+
+
+def cmd_bgp_routes(args: argparse.Namespace) -> None:
+    """Show CORE's BGP table, or the routes received from/advertised to a neighbor."""
+    if args.received_from or args.advertised_to:
+        neighbor = args.received_from or args.advertised_to
+        direction = "received" if args.received_from else "advertised"
+        data = request(
+            "GET",
+            f"/v1/bgp/neighbors/{quote(neighbor)}/routes",
+            params={"direction": direction},
+        )
+    else:
+        data = request("GET", "/v1/bgp/routes")
+    if not dump(data, args.output):
+        columns = [
+            ("PREFIX", "prefix"),
+            ("NEXT HOP", "next_hops"),
+            ("BEST", "best"),
+            ("FROM", "learned_from"),
+            ("AS PATH", "as_path"),
+        ]
+        if args.output == "wide":
+            columns += [("LOCAL PREF", "local_pref"), ("METRIC", "metric")]
+        table(data, columns)
+
+
+# Troubleshooting inside a network instance.
+
+
+def cmd_routes(args: argparse.Namespace) -> None:
+    """Show a network instance's routes (installed, blackhole etc.)."""
+    data = request(
+        "GET",
+        f"/v1/network-instances/{quote(args.network_instance)}/routes",
+        params={"family": args.family},
+    )
+    if not dump(data, args.output):
+        columns = [
+            ("DESTINATION", "destination"),
+            ("TYPE", "type"),
+            ("GATEWAY", "gateways"),
+            ("INTERFACE", "interfaces"),
+            ("PROTOCOL", "protocol"),
+        ]
+        if args.output == "wide":
+            columns.append(("METRIC", "metric"))
+        table(data, columns)
+
+
+def cmd_ping(args: argparse.Namespace) -> None:
+    """Ping from a network instance."""
+    data = request(
+        "POST",
+        f"/v1/network-instances/{quote(args.network_instance)}/ping",
+        body={
+            "destination": args.address,
+            "count": args.count,
+            "size": args.size,
+            "timeout": args.timeout,
+        },
+    )
+    if not dump(data, args.output):
+        print(data["output"], end="")
+    if not data["received"]:
+        sys.exit(1)
+
+
+def cmd_traceroute(args: argparse.Namespace) -> None:
+    """Traceroute from a network instance."""
+    data = request(
+        "POST",
+        f"/v1/network-instances/{quote(args.network_instance)}/traceroute",
+        body={"destination": args.address, "max_hops": args.max_hops},
+    )
+    if not dump(data, args.output):
+        print(data["output"], end="")
+
+
+def cmd_tcp(args: argparse.Namespace) -> None:
+    """Test a TCP connection from a network instance."""
+    data = request(
+        "POST",
+        f"/v1/network-instances/{quote(args.network_instance)}/tcp",
+        body={"address": args.address, "port": args.port, "timeout": args.timeout},
+    )
+    if not dump(data, args.output):
+        target = f"{data['address']} port {data['port']}"
+        if data["connected"]:
+            print(f"Connected to {target} in {data['time_ms']} ms.")
+        else:
+            print(f"Couldn't connect to {target}: {data['error']}.")
+    if not data["connected"]:
+        sys.exit(1)
+
+
+def cmd_version(args: argparse.Namespace) -> None:
+    """Show the versions of vpnctl, vpnc and the software it runs."""
+    from vpnc import __version__  # noqa: PLC0415
+
+    try:
+        data = request("GET", "/v1/version")
+    except ApiError:
+        data = {}
+    data = {"vpnctl": __version__, **data}
+    if not dump(data, args.output):
+        fields(
+            [
+                ("vpnctl", data["vpnctl"]),
+                ("vpnc", data.get("vpnc")),
+                ("Kernel", data.get("kernel")),
+                ("strongSwan", data.get("strongswan")),
+                ("FRR", data.get("frr")),
+            ],
+        )
+
+
+def cmd_service(args: argparse.Namespace) -> None:
+    """Restart or stop vpnc (systemd); start it with systemctl."""
+    request("POST", f"/v1/service/{args.service_action}")
+    done = "Restarting" if args.service_action == "restart" else "Stopping"
+    print(f"{done} vpnc.")
 
 
 def cmd_bgp_neighbors(args: argparse.Namespace) -> None:
@@ -699,12 +882,20 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "connections": {
         "list": "filter",
         "show": "connection",
-        "stop": "connection",
-        "start": "connection",
-        "reset": "connection",
+        "stop": "control",
+        "start": "control",
+        "reset": "control",
+        "restart": "control",
         "logs": "connection",
     },
-    "bgp": {"neighbors": None},
+    "bgp": {"neighbors": None, "neighbor": "neighbor", "routes": None},
+    # Commands with an argument instead of actions.
+    "routes": {},
+    "ping": {},
+    "traceroute": {},
+    "tcp": {},
+    "version": {},
+    "service": {"restart": None, "stop": None},
     "config": {
         "list": None,
         "show": "target",
@@ -720,12 +911,27 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     },
     "completion": {"bash": None},
 }
+# Commands whose first argument is a network instance.
+NI_COMMANDS = ("routes", "ping", "traceroute", "tcp")
+# Actions taking several ids.
+MULTIPLE = ("stop", "start", "reset", "restart")
+# Options whose values come from the API.
+OPTION_IDS = {"--received-from": "neighbor", "--advertised-to": "neighbor"}
 OPTION_VALUES = {
     "-o": ["table", "wide", "json", "yaml"],
     "--output": ["table", "wide", "json", "yaml"],
     "--state": STATES,
     "--type": TYPES,
     "--confirm": ["1m", "5m", "10m"],
+    "-c": [],
+    "--count": [],
+    "-s": [],
+    "--size": [],
+    "-W": [],
+    "-m": [],
+    "--max-hops": [],
+    "-t": [],
+    "--timeout": [],
     "-n": [],
     "--lines": [],
 }
@@ -739,27 +945,35 @@ def _ids(kind: str) -> list[str]:
         "connection": ["/v1/connections"],
         "filter": ["/v1/tenants", "/v1/network-instances"],
         "target": ["/v1/config/tenants"],
-    }[kind]
+        "control": ["/v1/tenants", "/v1/network-instances", "/v1/connections"],
+    }.get(kind, [])
+    if kind == "neighbor":
+        return [n["neighbor"] for n in request("GET", "/v1/bgp/neighbors")]
     ids = [item["id"] for path in paths for item in request("GET", path)]
     return [*ids, "service"] if kind == "target" else ids
 
 
 def complete(words: list[str]) -> list[str]:
     """Return the completions for the word after words (the typed ones)."""
+    if words and words[-1] in OPTION_IDS:
+        return _ids(OPTION_IDS[words[-1]])
     if words and words[-1] in OPTION_VALUES:
         return OPTION_VALUES[words[-1]]
+    takes_value = {*OPTION_VALUES, *OPTION_IDS}
     positional = [
         w
         for i, w in enumerate(words)
-        if not w.startswith("-") and (i == 0 or words[i - 1] not in OPTION_VALUES)
+        if not w.startswith("-") and (i == 0 or words[i - 1] not in takes_value)
     ]
     if not positional:
         return [c for c in COMMANDS if c != "network-instances"]
+    if positional[0] in NI_COMMANDS:
+        return _ids("network_instance") if len(positional) == 1 else []
     actions = COMMANDS.get(positional[0], {})
     if len(positional) == 1:
         return list(actions)
     kind = actions.get(positional[1])
-    if len(positional) == 2 and kind:  # noqa: PLR2004
+    if kind and (len(positional) == 2 or positional[1] in MULTIPLE):  # noqa: PLR2004
         return _ids(kind)
     if len(positional) == 3 and positional[1] in PATH_ACTIONS:  # noqa: PLR2004
         return paths(staged(positional[2]))
@@ -847,13 +1061,18 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--state", choices=STATES)
     p.add_argument("--type", choices=TYPES)
     connection = {"help": "e.g. C0001-00-0 or CORE-0"}
-    for name, func in (
-        ("show", cmd_connections_show),
-        ("stop", cmd_connections_stop),
-        ("start", cmd_connections_start),
-        ("reset", cmd_connections_reset),
+    add(connections, "show", cmd_connections_show).add_argument("id", **connection)
+    for name, func, aliases in (
+        ("stop", cmd_connections_stop, []),
+        ("start", cmd_connections_start, []),
+        ("reset", cmd_connections_reset, ["restart"]),
     ):
-        add(connections, name, func).add_argument("id", **connection)
+        add(connections, name, func, aliases=aliases).add_argument(
+            "ids",
+            nargs="+",
+            metavar="ID",
+            help="connections, or network instances/tenants: their VPN connections",
+        )
     p = add(connections, "logs", cmd_connections_logs)
     p.add_argument("id", **connection)
     p.add_argument("-n", "--lines", type=int, default=50, help="default: 50")
@@ -861,6 +1080,37 @@ def parser() -> argparse.ArgumentParser:
 
     bgp = group("bgp", "BGP (hub mode)")
     add(bgp, "neighbors", cmd_bgp_neighbors)
+    add(bgp, "neighbor", cmd_bgp_neighbor).add_argument("neighbor", help="address")
+    p = add(bgp, "routes", cmd_bgp_routes)
+    direction = p.add_mutually_exclusive_group()
+    direction.add_argument("--received-from", metavar="NEIGHBOR", help="before policy")
+    direction.add_argument("--advertised-to", metavar="NEIGHBOR")
+
+    ni_help = {"help": "e.g. C0001-00 or CORE"}
+    p = add(commands, "routes", cmd_routes)
+    p.add_argument("network_instance", **ni_help)
+    family = p.add_mutually_exclusive_group()
+    family.add_argument("-4", dest="family", action="store_const", const=4)
+    family.add_argument("-6", dest="family", action="store_const", const=6)
+    p = add(commands, "ping", cmd_ping)
+    p.add_argument("network_instance", **ni_help)
+    p.add_argument("address")
+    p.add_argument("-c", "--count", type=int, default=5, help="default: 5")
+    p.add_argument("-s", "--size", type=int, default=56, help="default: 56")
+    p.add_argument("-W", "--timeout", type=float, default=1, help="per reply (s)")
+    p = add(commands, "traceroute", cmd_traceroute)
+    p.add_argument("network_instance", **ni_help)
+    p.add_argument("address")
+    p.add_argument("-m", "--max-hops", type=int, default=20, help="default: 20")
+    p = add(commands, "tcp", cmd_tcp)
+    p.add_argument("network_instance", **ni_help)
+    p.add_argument("address")
+    p.add_argument("port", type=int)
+    p.add_argument("-t", "--timeout", type=float, default=3, help="default: 3s")
+
+    add(commands, "version", cmd_version)
+    p = add(commands, "service", cmd_service)
+    p.add_argument("service_action", choices=["restart", "stop"])
 
     shell = group("completion", "shell completion")
     add(shell, "bash", cmd_completion)
