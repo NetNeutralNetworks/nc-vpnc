@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
+import re
 import socket
 import subprocess
 import time
+from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal
 
 import vici
 from pydantic import BaseModel
 
+import vpnc
 from vpnc import config, shared
 from vpnc.models import enums, tenant
 from vpnc.network import state
@@ -27,6 +32,8 @@ logger = logging.getLogger("vpnc")
 # A WireGuard peer without a handshake for this long is down (it renews every
 # two minutes while there's traffic, and keepalives cause traffic).
 WIREGUARD_TIMEOUT = 180
+
+IPAddress = IPv4Address | IPv6Address
 
 # Stopped: through the API, until vpnc restarts.
 State = Literal["up", "down", "connecting", "stopped"]
@@ -336,17 +343,57 @@ def status() -> Status:
     )
 
 
-def bgp_neighbors() -> list[BgpNeighbor]:
-    """Return the BGP sessions in CORE (hub mode)."""
+class BgpAddressFamily(BaseModel):
+    """A BGP session's prefixes in an address family."""
+
+    family: str
+    accepted: int | None
+    sent: int | None
+
+
+class BgpNeighborDetail(BgpNeighbor):
+    """A BGP session in CORE, in detail."""
+
+    local_as: int | None
+    connections_established: int | None
+    connections_dropped: int | None
+    last_reset: str | None
+    hold_time_seconds: int | None
+    keepalive_seconds: int | None
+    bfd: str | None
+    address_families: list[BgpAddressFamily]
+
+
+class BgpRoute(BaseModel):
+    """A BGP path to a prefix."""
+
+    prefix: str
+    next_hops: list[str]
+    as_path: str
+    best: bool
+    valid: bool
+    local_pref: int | None
+    metric: int | None
+    # The neighbor (hostname if known) it was learned from; None: local.
+    learned_from: str | None
+
+
+def vtysh(command: str) -> Any:  # noqa: ANN401
+    """Run a vtysh show command with JSON output and return the decoded output."""
     result = subprocess.run(  # noqa: S603
-        ["/usr/bin/vtysh", "-c", f"show bgp vrf {config.CORE_NI} summary json"],
+        ["/usr/bin/vtysh", "-c", f"{command} json"],
         capture_output=True,
         text=True,
         check=True,
         timeout=10,
     )
+    return json.loads(result.stdout or "{}")
+
+
+def bgp_neighbors() -> list[BgpNeighbor]:
+    """Return the BGP sessions in CORE (hub mode)."""
     output: list[BgpNeighbor] = []
-    for family, summary in json.loads(result.stdout or "{}").items():
+    for family, summary in vtysh(f"show bgp vrf {config.CORE_NI} summary").items():
         for peer, info in summary.get("peers", {}).items():
             output.append(
                 BgpNeighbor(
@@ -361,3 +408,140 @@ def bgp_neighbors() -> list[BgpNeighbor]:
                 ),
             )
     return output
+
+
+def bgp_neighbor(neighbor: IPAddress) -> BgpNeighborDetail | None:
+    """Return a BGP session in CORE in detail; None if it doesn't exist."""
+    data = vtysh(f"show bgp vrf {config.CORE_NI} neighbors {neighbor}")
+    if not (info := data.get(str(neighbor))):
+        return None
+    families = [
+        BgpAddressFamily(
+            family=family,
+            accepted=af.get("acceptedPrefixCounter"),
+            sent=af.get("sentPrefixCounter"),
+        )
+        for family, af in (info.get("addressFamilyInfo") or {}).items()
+    ]
+    hold = info.get("bgpTimerHoldTimeMsecs")
+    keepalive = info.get("bgpTimerKeepAliveIntervalMsecs")
+    return BgpNeighborDetail(
+        neighbor=str(neighbor),
+        hostname=info.get("hostname"),
+        remote_as=info.get("remoteAs"),
+        local_as=info.get("localAs"),
+        address_family=", ".join(f.family for f in families),
+        state=info.get("bgpState"),
+        uptime=info.get("bgpTimerUpString"),
+        prefixes_received=sum(f.accepted or 0 for f in families),
+        prefixes_sent=sum(f.sent or 0 for f in families),
+        connections_established=info.get("connectionsEstablished"),
+        connections_dropped=info.get("connectionsDropped"),
+        last_reset=info.get("lastResetDueTo"),
+        hold_time_seconds=hold // 1000 if hold is not None else None,
+        keepalive_seconds=keepalive // 1000 if keepalive is not None else None,
+        bfd=(info.get("peerBfdInfo") or {}).get("status"),
+        address_families=families,
+    )
+
+
+FAMILIES = ("ipv4 unicast", "ipv6 unicast")
+
+
+def bgp_routes() -> list[BgpRoute]:
+    """Return the BGP table of CORE: every path to every prefix."""
+    output: list[BgpRoute] = []
+    for family in FAMILIES:
+        data = vtysh(f"show bgp vrf {config.CORE_NI} {family}")
+        for prefix, paths in (data.get("routes") or {}).items():
+            for path in paths:
+                hops = path.get("nexthops") or []
+                peer = path.get("peerId")
+                from_peer = peer if peer and peer != "(unspec)" else None
+                output.append(
+                    BgpRoute(
+                        prefix=prefix,
+                        next_hops=[h["ip"] for h in hops if h.get("ip")],
+                        as_path=path.get("path", ""),
+                        best=bool(path.get("bestpath")),
+                        valid=bool(path.get("valid")),
+                        local_pref=path.get("locPrf"),
+                        metric=path.get("metric"),
+                        learned_from=(
+                            hops[0].get("hostname", from_peer)
+                            if from_peer and hops
+                            else from_peer
+                        ),
+                    ),
+                )
+    return output
+
+
+def bgp_neighbor_routes(
+    neighbor: IPAddress,
+    direction: Literal["received", "advertised"],
+) -> list[BgpRoute]:
+    """Return the routes received from (before policy) or advertised to a neighbor."""
+    output: list[BgpRoute] = []
+    key = f"{direction}Routes"
+    for family in FAMILIES:
+        data = vtysh(
+            f"show bgp vrf {config.CORE_NI} {family} neighbors {neighbor} "
+            f"{direction}-routes",
+        )
+        for prefix, route in (data.get(key) or {}).items():
+            hop = route.get("nextHopGlobal") or route.get("nextHop")
+            output.append(
+                BgpRoute(
+                    prefix=prefix,
+                    next_hops=[hop] if hop else [],
+                    as_path=route.get("path", ""),
+                    best=bool(route.get("best")),
+                    valid=bool(route.get("valid")),
+                    local_pref=route.get("locPrf"),
+                    metric=route.get("metric"),
+                    learned_from=str(neighbor) if direction == "received" else None,
+                ),
+            )
+    return output
+
+
+class Version(BaseModel):
+    """The versions of vpnc and the software it runs."""
+
+    vpnc: str
+    kernel: str
+    strongswan: str | None
+    frr: str | None
+
+
+def version() -> Version:
+    """Return the versions of vpnc, the kernel, strongSwan and FRR (hub mode)."""
+    strongswan = None
+    sock = socket.socket(socket.AF_UNIX)
+    sock.settimeout(VICI_TIMEOUT)
+    try:
+        sock.connect(VICI_SOCKET)
+        strongswan = _decode(vici.Session(sock).version()).get("version")
+    except OSError:
+        logger.warning("Reading the strongSwan version failed.", exc_info=True)
+    finally:
+        sock.close()
+    frr = None
+    if tenant.get_default_tenant().mode == enums.ServiceMode.HUB:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            result = subprocess.run(  # noqa: S603
+                ["/usr/bin/vtysh", "-c", "show version"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            )
+            if match := re.search(r"FRRouting (\S+)", result.stdout):
+                frr = match[1]
+    return Version(
+        vpnc=vpnc.__version__,
+        kernel=os.uname().release,
+        strongswan=strongswan,
+        frr=frr,
+    )
