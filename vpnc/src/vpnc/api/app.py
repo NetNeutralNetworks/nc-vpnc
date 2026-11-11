@@ -134,15 +134,14 @@ def list_connections(
     ni_id: Annotated[str | None, Query(alias="network_instance")] = None,
     state: Annotated[status.State | None, Query()] = None,
     connection_type: Annotated[enums.ConnectionType | None, Query(alias="type")] = None,
-    counters: bool = False,  # noqa: FBT001, FBT002
 ) -> list[status.ConnectionState]:
-    """Return the connections, optionally filtered (and with traffic counters)."""
+    """Return the connections, optionally filtered."""
     selected = [
         ni for ni in _select(None, tenant_id) if ni_id is None or ni.id == ni_id
     ]
     return [
         s
-        for s in status.connection_states(selected, counters=counters)
+        for s in status.connection_states(selected)
         if (state is None or s.state == state)
         and (connection_type is None or s.type == connection_type.value)
     ]
@@ -158,7 +157,7 @@ def _connection(connection_id: str) -> tuple[NetworkInstance, Connection]:
 
 def _connection_state(connection_id: str) -> status.ConnectionState:
     ni, _ = _connection(connection_id)
-    states = status.connection_states([ni], counters=True)
+    states = status.connection_states([ni])
     return next(s for s in states if s.id == connection_id)
 
 
@@ -199,24 +198,11 @@ def reset_connection(connection_id: str) -> status.ConnectionState:
 def get_connection_logs(
     connection_id: str,
     lines: Annotated[int, Query(ge=1, le=10000)] = 100,
-    level: logs.Level = "info",
 ) -> list[logs.LogLine]:
     """Return a connection's last log lines: vpnc's (incl. SSH) and charon's."""
     _, connection = _connection(connection_id)
     ipsec = connection.config.type == enums.ConnectionType.IPSEC
-    return logs.connection_logs(connection_id, ipsec=ipsec, level=level, count=lines)
-
-
-@app.get("/v1/network-instances/{ni_id}/logs")
-def get_network_instance_logs(
-    ni_id: str,
-    lines: Annotated[int, Query(ge=1, le=10000)] = 100,
-    level: logs.Level = "info",
-) -> list[logs.LogLine]:
-    """Return the last log lines of a network instance and its connections."""
-    if ni_id not in status.network_instances():
-        _not_found("network instance", ni_id)
-    return logs.network_instance_logs(ni_id, level=level, count=lines)
+    return logs.connection_logs(connection_id, ipsec=ipsec, count=lines)
 
 
 def _hub_only() -> None:
@@ -296,19 +282,6 @@ def traceroute(
 def tcp(ni_id: str, body: diagnostics.TcpRequest) -> diagnostics.TcpResult:
     """Open a TCP connection from a network instance."""
     return diagnostics.tcp(_network_instance(ni_id), body)
-
-
-@app.get("/v1/logs")
-def get_logs(
-    source: logs.Source = "vpnc",
-    level: logs.Level = "info",
-    lines: Annotated[int, Query(ge=1, le=10000)] = 100,
-) -> list[logs.LogLine]:
-    """Return the last lines of vpnc's, vpncmangle's or charon's log.
-
-    The level doesn't apply to charon's log, whose lines have a subsystem.
-    """
-    return logs.daemon_logs(source, level, lines)
 
 
 UNIT = "ncubed-vpnc.service"

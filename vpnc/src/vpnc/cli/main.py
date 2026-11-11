@@ -106,18 +106,6 @@ def duration(seconds: float | None) -> str:
     return f"{secs}s"
 
 
-def size(count: int | None) -> str:
-    """Return a byte count, e.g. 1.2 MB."""
-    if count is None:
-        return "-"
-    value = float(count)
-    for unit in ("B", "kB", "MB", "GB", "TB"):
-        if value < 1000 or unit == "TB":  # noqa: PLR2004
-            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-        value /= 1000
-    return str(count)
-
-
 def cell(value: Any) -> str:  # noqa: ANN401
     """Return a table cell: lists comma separated, empty as '-'."""
     if value is None or value == []:
@@ -254,16 +242,10 @@ def _filter(prefix: str | None) -> dict[str, str | None]:
 
 def cmd_connections_list(args: argparse.Namespace) -> None:
     """List the connections."""
-    wide = args.output == "wide"
     data = request(
         "GET",
         "/v1/connections",
-        params={
-            **_filter(args.filter),
-            "state": args.state,
-            "type": args.type,
-            "counters": "true" if wide or args.output in ("json", "yaml") else None,
-        },
+        params={**_filter(args.filter), "state": args.state, "type": args.type},
     )
     if not dump(data, args.output):
         columns = [
@@ -273,12 +255,8 @@ def cmd_connections_list(args: argparse.Namespace) -> None:
             ("REMOTE", "remote"),
             ("INTERFACE", "interface"),
         ]
-        if wide:
-            columns += [("RX", "rx"), ("TX", "tx"), ("ADDRESSES", "addresses")]
-            for row in data:
-                counters = row.get("counters") or {}
-                row["rx"] = size(counters.get("rx_bytes"))
-                row["tx"] = size(counters.get("tx_bytes"))
+        if args.output == "wide":
+            columns.append(("ADDRESSES", "addresses"))
         table(data, columns)
 
 
@@ -310,19 +288,6 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
     if "last_handshake_seconds_ago" in details:
         ago = details["last_handshake_seconds_ago"]
         items.append(("Last handshake", f"{duration(ago)} ago" if ago else "never"))
-    if "uptime_seconds" in details:
-        items.append(("Uptime", duration(details["uptime_seconds"])))
-    if counters := data.get("counters"):
-        for label, direction in (("Received", "rx"), ("Sent", "tx")):
-            items.append(
-                (
-                    label,
-                    f"{size(counters[f'{direction}_bytes'])} "
-                    f"({counters[f'{direction}_packets']} packets, "
-                    f"{counters[f'{direction}_errors']} errors, "
-                    f"{counters[f'{direction}_dropped']} dropped)",
-                ),
-            )
     fields(items)
 
 
@@ -380,26 +345,25 @@ def cmd_connections_reset(args: argparse.Namespace) -> None:
     _control(args, "reset", "Reset")
 
 
-def _print_log(line: dict[str, Any], *, source: bool = True) -> None:
-    prefix = f"{line['time']}  {line['source']:<6}  " if source else f"{line['time']}  "
-    first, *rest = line["message"].split("\n")
-    print(f"{prefix}{line['level']:<7}  {first}")
-    for extra in rest:
-        print(f"    {extra}")
+def _log_lines(connection_id: str, count: int) -> list[dict[str, Any]]:
+    return request(
+        "GET",
+        f"/v1/connections/{quote(connection_id)}/logs",
+        params={"lines": count},
+    )
 
 
-def show_log(
-    args: argparse.Namespace,
-    fetch: Any,  # noqa: ANN401
-    *,
-    source: bool = True,
-) -> None:
-    """Print log lines; with --follow, keep printing new ones."""
-    data = fetch(args.lines)
+def _print_log(line: dict[str, Any]) -> None:
+    print(f"{line['time']}  {line['source']:<6}  {line['level']:<7}  {line['message']}")
+
+
+def cmd_connections_logs(args: argparse.Namespace) -> None:
+    """Show a connection's log: vpnc's, SSH's and charon's (IPsec) lines."""
+    data = _log_lines(args.id, args.lines)
     if not args.follow:
         if not dump(data, args.output):
             for line in data:
-                _print_log(line, source=source)
+                _print_log(line)
         return
     seen: set[tuple[str, ...]] = set()
     while True:
@@ -407,38 +371,10 @@ def show_log(
             key = tuple(line.values())
             if key not in seen:
                 seen.add(key)
-                _print_log(line, source=source)
+                _print_log(line)
         sys.stdout.flush()
         time.sleep(1)
-        data = fetch(100)
-
-
-def cmd_connections_logs(args: argparse.Namespace) -> None:
-    """Show a connection's log: vpnc's, SSH's and charon's (IPsec) lines."""
-    show_log(
-        args,
-        lambda count: request(
-            "GET",
-            f"/v1/connections/{quote(args.id)}/logs",
-            params={"lines": count, "level": args.level},
-        ),
-    )
-
-
-def cmd_logs(args: argparse.Namespace) -> None:
-    """Show vpnc's log (or vpncmangle's or charon's), or a network instance's."""
-    if args.ni:
-        if args.source != "vpnc":
-            fail("--ni combines vpnc's and charon's lines; leave out --source.")
-        path = f"/v1/network-instances/{quote(args.ni)}/logs"
-        params: dict[str, Any] = {"level": args.level}
-    else:
-        path, params = "/v1/logs", {"source": args.source, "level": args.level}
-    show_log(
-        args,
-        lambda count: request("GET", path, params={**params, "lines": count}),
-        source=bool(args.ni),
-    )
+        data = _log_lines(args.id, 100)
 
 
 def cmd_bgp_neighbor(args: argparse.Namespace) -> None:
@@ -958,7 +894,6 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "ping": {},
     "traceroute": {},
     "tcp": {},
-    "logs": {},
     "version": {},
     "service": {"restart": None, "stop": None},
     "config": {
@@ -981,19 +916,13 @@ NI_COMMANDS = ("routes", "ping", "traceroute", "tcp")
 # Actions taking several ids.
 MULTIPLE = ("stop", "start", "reset", "restart")
 # Options whose values come from the API.
-OPTION_IDS = {
-    "--received-from": "neighbor",
-    "--advertised-to": "neighbor",
-    "--ni": "network_instance",
-}
+OPTION_IDS = {"--received-from": "neighbor", "--advertised-to": "neighbor"}
 OPTION_VALUES = {
     "-o": ["table", "wide", "json", "yaml"],
     "--output": ["table", "wide", "json", "yaml"],
     "--state": STATES,
     "--type": TYPES,
     "--confirm": ["1m", "5m", "10m"],
-    "--source": ["vpnc", "vpncmangle", "charon"],
-    "--level": ["debug", "info", "warning", "error", "critical"],
     "-c": [],
     "--count": [],
     "-s": [],
@@ -1077,18 +1006,6 @@ def cmd_completion(args: argparse.Namespace) -> None:
 # Arguments.
 
 
-def log_options(p: argparse.ArgumentParser) -> None:
-    """Add the options of the log commands."""
-    p.add_argument(
-        "--level",
-        choices=["debug", "info", "warning", "error", "critical"],
-        default="info",
-        help="at least (not for charon's lines)",
-    )
-    p.add_argument("-n", "--lines", type=int, default=50, help="default: 50")
-    p.add_argument("-f", "--follow", action="store_true", help="print new lines")
-
-
 def parser() -> argparse.ArgumentParser:
     """Return the argument parser."""
     # Before or after the command; a subcommand's default mustn't override it.
@@ -1158,7 +1075,8 @@ def parser() -> argparse.ArgumentParser:
         )
     p = add(connections, "logs", cmd_connections_logs)
     p.add_argument("id", **connection)
-    log_options(p)
+    p.add_argument("-n", "--lines", type=int, default=50, help="default: 50")
+    p.add_argument("-f", "--follow", action="store_true", help="print new lines")
 
     bgp = group("bgp", "BGP (hub mode)")
     add(bgp, "neighbors", cmd_bgp_neighbors)
@@ -1189,15 +1107,6 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("address")
     p.add_argument("port", type=int)
     p.add_argument("-t", "--timeout", type=float, default=3, help="default: 3s")
-
-    p = add(commands, "logs", cmd_logs)
-    p.add_argument("--source", choices=["vpnc", "vpncmangle", "charon"], default="vpnc")
-    p.add_argument(
-        "--ni",
-        metavar="NETWORK_INSTANCE",
-        help="its lines and its connections' (vpnc's, ssh's and charon's)",
-    )
-    log_options(p)
 
     add(commands, "version", cmd_version)
     p = add(commands, "service", cmd_service)
