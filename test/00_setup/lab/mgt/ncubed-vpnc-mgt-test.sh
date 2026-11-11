@@ -85,6 +85,10 @@ ip link set dev xfrm1 up
 ip address flush dev xfrm1 scope global
 ip address add ${VPN_TUNNEL_IF_IP_1} dev xfrm1
 ip address add ${LOOPBACK_IF_IP} dev lo
+# A prefix only one CORE connection of the hubs accepts.
+if [ -n "${EXTRA_LOOPBACK_IF_IP}" ]; then
+    ip address add ${EXTRA_LOOPBACK_IF_IP} dev lo
+fi
 
 # Generate Swanctl configuration file
 echo "connections {
@@ -196,6 +200,7 @@ ipv6 prefix-list MGMT-TRANSIT-PL-IN seq 20 permit fd60::/12 ge 48
 ipv6 prefix-list MGMT-TRANSIT-PL-IN seq 30 permit 2000::/3 ge 32
 ipv6 prefix-list MGMT-TRANSIT-PL-OUT seq 10 permit ::/0 ge 1
 ipv6 prefix-list REDIS-PL-IN seq 10 permit fd00::/16 ge 64
+ipv6 prefix-list REDIS-PL-IN seq 20 permit fd01::/16 ge 64
 !
 route-map MGMT-TRANSIT-RM-IN permit 1
   match ipv6 address prefix-list MGMT-TRANSIT-PL-IN

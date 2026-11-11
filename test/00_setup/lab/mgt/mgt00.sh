@@ -8,6 +8,7 @@ export EXTERNAL_GW_IP4="192.0.2.1"
 export EXTERNAL_IF_IP6="2001:db8::3/64"
 
 export LOOPBACK_IF_IP="fd00::3/128"
+export EXTRA_LOOPBACK_IF_IP="fd01:3::1/64"
 
 export BGP_AS="4233333333"
 export BGP_ROUTER_ID="3.3.3.3"
