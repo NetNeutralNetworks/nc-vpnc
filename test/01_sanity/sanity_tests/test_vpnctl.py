@@ -130,8 +130,9 @@ class TestVpnctl:
         connection = vpnctl(host, "connections show C0001-00-0")
 
         assert connection["details"]["ike_state"] == "ESTABLISHED"
-        assert connection["details"]["child_sas"] == [
-            {"name": "C0001-00-0", "state": "INSTALLED"},
+        # During a rekey (every 90 seconds here) the old child SA is listed too.
+        assert {"name": "C0001-00-0", "state": "INSTALLED"} in connection["details"][
+            "child_sas"
         ]
 
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
