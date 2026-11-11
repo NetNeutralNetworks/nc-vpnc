@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 HOST = "hub00"
+HUBS = ("hub00", "hub01")
 TENANT_FILE = "/opt/ncubed/config/vpnc/active/C0002.yaml"
 CANDIDATE_FILE = "/opt/ncubed/config/vpnc/candidate/C0002.yaml"
 HISTORY_DIR = "/opt/ncubed/config/vpnc/history/C0002"
@@ -684,3 +685,36 @@ class TestDrift:
             timeout=APPLY_TIMEOUT,
             message="DNS answers to be translated again",
         )
+
+
+class TestDnsTranslation:
+    """DNS answers follow the configuration."""
+
+    def test_follows_nptv6_setting(self) -> None:
+        """Without NPTv6 for a route, its addresses are answered untranslated."""
+        path = "/opt/ncubed/config/vpnc/active/C0001.yaml"
+        # mgt00 is answered through either hub.
+        original = {hub: conftest.run_cmd(hub, f"cat {path}") for hub in HUBS}
+        assert dns_answer() == DNS_ANSWER
+        try:
+            for hub, text in original.items():
+                tenant = yaml.safe_load(text)
+                connections = tenant["network_instances"][DRIFT_NI]["connections"]
+                for connection in connections.values():
+                    for route in (connection.get("routes") or {}).get("ipv6") or []:
+                        if route["to"] == DNS_ROUTE:
+                            route.update(nptv6=False, nptv6_prefix=None)
+                conftest.write_file(hub, path, yaml.safe_dump(tenant))
+            conftest.wait_until(
+                lambda: dns_answer() == DNS_ANSWER_WITHOUT_NPTV6,
+                timeout=APPLY_TIMEOUT,
+                message="the untranslated DNS answer",
+            )
+        finally:
+            for hub, text in original.items():
+                conftest.write_file(hub, path, text)
+            conftest.wait_until(
+                lambda: dns_answer() == DNS_ANSWER,
+                timeout=APPLY_TIMEOUT,
+                message="the translated DNS answer",
+            )
