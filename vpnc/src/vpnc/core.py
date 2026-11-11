@@ -149,7 +149,7 @@ def concentrator() -> None:
                 logger.critical("Stopped unexpectedly: %s. Exiting.", ", ".join(dead))
                 sys.exit(1)
     except KeyboardInterrupt:
-        shared.STOP_EVENT.is_set()
+        shared.STOP_EVENT.set()
     except Exception:
         logger.critical(
             "VPNC ended prematurely.",
