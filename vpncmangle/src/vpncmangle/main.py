@@ -5,7 +5,6 @@ import sys
 from ipaddress import IPv4Address, IPv6Address
 from logging.handlers import RotatingFileHandler
 from time import sleep
-from typing import Any
 
 import scapy.all as sc
 from netfilterqueue import NetfilterQueue, Packet
@@ -47,8 +46,57 @@ def clean_nftables() -> None:
     logger.info("Removed table %s.", TABLE)
 
 
+def translate(
+    record: sc.DNSRR,
+    ni_config: config.VpncMangleConfig,
+) -> sc.DNSRR | None:
+    """Return an answer record as the client must see it, or None to leave it out.
+
+    An A record becomes the AAAA record of its NAT64 address (also in answer to an
+    A query, which is how clients reach IPv4-only hosts). An AAAA record is
+    translated to its NPTv6 prefix, and left out if it isn't reachable through the
+    network instance. Other records (e.g. CNAME) are kept as they are.
+    """
+    if record.type == QUERY_A:
+        if not ni_config.dns64:
+            logger.debug("Leaving out A record %s: no NAT64.", record.rdata)
+            return None
+        nat64_network, _ = ni_config.dns64[0]
+        address = IPv6Address(
+            int(nat64_network.network_address) + int(IPv4Address(record.rdata)),
+        )
+    elif record.type == QUERY_AAAA:
+        remote = IPv6Address(record.rdata)
+        for local_network, remote_network in ni_config.dns66:
+            if remote in remote_network:
+                address = IPv6Address(
+                    int(local_network.network_address)
+                    + int(remote)
+                    - int(remote_network.network_address),
+                )
+                break
+        else:
+            logger.debug("Leaving out unreachable AAAA record %s.", remote)
+            return None
+    else:
+        return record
+    logger.debug(
+        "DNS answer for '%s' translated from '%s' to '%s'.",
+        record.rrname.decode(),
+        record.rdata,
+        address,
+    )
+    return sc.DNSRR(
+        rrname=record.rrname,
+        type="AAAA",
+        rclass=record.rclass,
+        ttl=record.ttl,
+        rdata=str(address),
+    )
+
+
 def mangle_dns(pkt: Packet) -> None:
-    """Mangle DNS responses of the 'A' type."""
+    """Translate the addresses in a DNS response to ones reachable from CORE."""
     pkt_sc = sc.IPv6(pkt.get_payload())
 
     # If not DNS record.
@@ -98,117 +146,16 @@ def mangle_dns(pkt: Packet) -> None:
         pkt.drop()
         return
 
-    # Temporary list to store all desired DNS responses.
-    temp_list: list[dict[str, Any]] = []
-    rrname = pkt_sc[sc.DNS].an.rrname
-    for dns_query in pkt_sc[sc.DNS].an.iterpayloads():
-        # # If AAAA record response, don't include it.
-        # if i.type == 28:
-        #     logger.debug("DNS response answer is 'AAAA'. Ignoring.")
-        #     continue
-        # # If CNAME record, get all addresses
-        # if i.type == 5:
-        #     logger.debug("DNS response answer is 'CNAME'. Ignoring.")
-        #     continue
-        # If not A record response, then include unedited
-        # if i.type != 1:
-        #     logger.debug("DNS response answer is not 'A'. Ignoring.")
-        #     # temp_list.append(i)
-        #     continue
+    ni_config = config.CONFIG[network_instance_name]
+    answers = [
+        translated
+        for record in pkt_sc[sc.DNS].an
+        if (translated := translate(record, ni_config)) is not None
+    ]
 
-        dns_response: IPv4Address | IPv6Address | None = None
-        dns_response_doctored: IPv6Address | None = None
-        if dns_query.type == QUERY_A:
-            logger.debug("DNS response '%s' answer is 'A'.", dns_query.rdata)
-            ipv6_local_network, _ = config.CONFIG[network_instance_name].dns64[0]
-            # Calculate address.
-            dns_response = IPv4Address(dns_query.rdata)
-            dns_response_doctored = IPv6Address(
-                int(ipv6_local_network.network_address) + int(dns_response),
-            )
-        elif dns_query.type == QUERY_AAAA:
-            logger.debug("DNS response '%s' answer is 'AAAA'.", dns_query.rdata)
-            for ipv6_local_network, ipv6_remote_network in config.CONFIG[
-                network_instance_name
-            ].dns66:
-                dns_response = IPv6Address(dns_query.rdata)
-                if dns_response in ipv6_remote_network:
-                    # Quit early if it is a network that isn't translated.
-                    if ipv6_remote_network == ipv6_local_network:
-                        dns_response_doctored = dns_response
-                        break
-                    host_part = int(dns_response) - int(
-                        ipv6_remote_network.network_address,
-                    )
-                    dns_response_doctored = IPv6Address(
-                        int(ipv6_local_network.network_address) + host_part,
-                    )
-                    break
-        else:
-            logger.debug(
-                "DNS response answer type '%s' is not of a configured type. Ignoring.",
-                dns_query.type,
-            )
-            continue
-
-        # # Include an invalid IPv4 address just to make sure that Windows caches it correctly.
-        # # This seems to break in Linux if preference isn't set.
-        # if not temp_v4_list:
-        #     temp_v4_dict = {
-        #         "rrname": rrname,
-        #         "type": i.type,
-        #         "rclass": i.rclass,
-        #         "ttl": i.ttl,
-        #         "rdata": "0.0.0.254",
-        #     }
-        #     temp_v4_list.append(temp_v4_dict)
-
-        if not dns_response_doctored:
-            logger.error(
-                "DNS response answer type '%s' with response '%s' couldn't be mangled. Ignoring",
-                dns_query.type,
-                dns_query.rdata,
-            )
-            continue
-
-        logger.debug(
-            "DNS response answer for '%s' translated from '%s' to '%s'.",
-            dns_query.rrname.decode(),
-            dns_response,
-            dns_response_doctored,
-        )
-        # Change the response type and answer.
-        temp_dict: dict[str, Any] = {
-            "rrname": rrname,
-            "type": "AAAA",
-            "rclass": dns_query.rclass,
-            "ttl": dns_query.ttl,
-            "rdata": str(dns_response_doctored),
-        }
-
-        # Append the result to the list.
-        temp_list.append(temp_dict)
-
-    dns_mangle = sc.DNSRR()
-    for dns_query, val in enumerate(temp_list):
-        if dns_query > 0:
-            dns_mangle = dns_mangle / sc.DNSRR()
-        dns_mangle[dns_query].rrname = val["rrname"]
-        dns_mangle[dns_query].type = val["type"]
-        dns_mangle[dns_query].rclass = val["rclass"]
-        dns_mangle[dns_query].ttl = val["ttl"]
-        dns_mangle[dns_query].rdata = val["rdata"]
-
-    # If there are no valid responses (can happen if only AAAA records are returned and
-    # discarded), return NXDOMAIN.
-    if len(temp_list) == 0:
-        pkt_sc[sc.DNS].ancount = 0
-        pkt_sc[sc.DNS].an = None
-        pkt_sc[sc.DNS].rcode = 3
-    else:
-        # Set the list as the answers value and edit the count.
-        pkt_sc[sc.DNS].an = dns_mangle
-        pkt_sc[sc.DNS].ancount = len(temp_list)
+    # Without answers left the name still exists: NODATA (NOERROR, no answers).
+    pkt_sc[sc.DNS].an = answers
+    pkt_sc[sc.DNS].ancount = len(answers)
 
     # Reset/calculate the correct values for lower layers.
     del pkt_sc[sc.IPv6].plen

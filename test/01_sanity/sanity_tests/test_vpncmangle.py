@@ -247,3 +247,60 @@ class TestDNSMangle:
         )
 
         assert response.strip() == answer
+
+    @pytest.mark.parametrize(("server", "answer"), v4lonly_a_requested)
+    @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
+    def test_dns_query_cname_a_responses(
+        self,
+        host: str,
+        server: str,
+        answer: str,
+    ) -> None:
+        """A CNAME is kept, followed by the translated address of its target."""
+        response = conftest.run_cmd(
+            host,
+            f"dig +short +time=1 +tries=1 cname4.example.com @{server}",
+        )
+
+        assert response.split() == ["v4lonly.example.com.", answer]
+
+    @pytest.mark.parametrize(("server", "answer"), v6lonly_aaaa_requested)
+    @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
+    def test_dns_query_cname_aaaa_responses(
+        self,
+        host: str,
+        server: str,
+        answer: str,
+    ) -> None:
+        """A CNAME is kept, followed by the translated AAAA address of its target."""
+        response = conftest.run_cmd(
+            host,
+            f"dig +short +time=1 +tries=1 cname6.example.com AAAA @{server}",
+        )
+
+        assert response.split() == ["v6lonly.example.com.", answer]
+
+    servers = [server for server, _ in v4lonly_a_requested]
+
+    @pytest.mark.parametrize("server", servers)
+    @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
+    def test_dns_query_unreachable_aaaa_is_nodata(self, host: str, server: str) -> None:
+        """Without a reachable address left, the name still exists (NODATA)."""
+        response = conftest.run_cmd(
+            host,
+            f"dig +time=1 +tries=1 v6unreach.example.com AAAA @{server}",
+        )
+
+        assert "status: NOERROR" in response
+        assert "ANSWER: 0," in response
+
+    @pytest.mark.parametrize("server", servers)
+    @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
+    def test_dns_query_other_records_kept(self, host: str, server: str) -> None:
+        """Records other than A and AAAA are passed on unchanged."""
+        response = conftest.run_cmd(
+            host,
+            f"dig +short +time=1 +tries=1 txt.example.com TXT @{server}",
+        )
+
+        assert response.strip() == '"hello"'
