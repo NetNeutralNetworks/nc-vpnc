@@ -35,7 +35,7 @@ network_instances:
             via: 192.0.2.1
         # Config of type physical
         config:
-          type: physical # ipsec | physical | wireguard
+          type: physical # physical | wireguard
           interface_name: eth1
   CORE:
     id: CORE
@@ -142,7 +142,7 @@ network_instances:
           - to: default
             via: 172.16.30.1
         config:
-          type: physical # ipsec | ssh | physical
+          type: physical # physical | wireguard
           interface_name: eth2
 # VPN CONFIG
 # Optional: IKE local identifier for VPNs
