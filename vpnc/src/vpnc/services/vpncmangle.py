@@ -20,7 +20,8 @@ def generate_config() -> None:
     output: dict[str, dict[str, Any]] = {}
 
     with shared.VPNCMANGLE_LOCK:
-        for tenant in config.VPNC_CONFIG_TENANT.values():
+        # A copy: the configuration watcher adds and removes tenants meanwhile.
+        for tenant in list(config.VPNC_CONFIG_TENANT.values()):
             for net_ni in (
                 net_ni
                 for net_ni in tenant.network_instances.values()
