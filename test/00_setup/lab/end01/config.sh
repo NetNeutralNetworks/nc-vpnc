@@ -2,7 +2,7 @@
 SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 
 # # Run the normal installer in endpoint mode
-# ${SCRIPTDIR}/../../../../install.sh endpoint
+# make -C ${SCRIPTDIR}/../../../.. endpoint
 
 for i in {candidate,active};
 do

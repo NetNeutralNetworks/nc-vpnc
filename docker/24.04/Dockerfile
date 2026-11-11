@@ -2,21 +2,15 @@ FROM ubuntu:noble-20240801 AS build
 
 SHELL ["/bin/bash", "-c"]
 
-RUN --mount=type=bind,source=install.sh,target=/tmp/repo/install.sh        \
-    echo "Install APT build packages"                                   && \
-    source /tmp/repo/install.sh                                         && \
-    install_apt_build
-
-RUN --mount=type=bind,source=./,target=/tmp/repo/                          \
-    echo "Preparing configuration files"                                && \
-    source /tmp/repo/install.sh                                         && \
-    create_dir_vpnc
+RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
+    echo "Install APT build packages and the venv"                      && \
+    apt-get update && apt-get install -y make                           && \
+    make -C /tmp/repo build-packages venv
 
 COPY ./ /tmp/repo/
 
 RUN echo "Compile required modules"                                     && \
-    source /tmp/repo/install.sh                                         && \
-    install_pip_vpnc && install_pip_vpncmangle
+    make -C /tmp/repo pip-vpnc pip-vpncmangle
 
 
 # Multi-stage build
@@ -28,25 +22,17 @@ LABEL description="vpnc VPN concentrator"
 
 SHELL ["/bin/bash", "-c"]
 
-# ADD https://deb.frrouting.org/frr/keys.gpg /usr/share/keyrings/frrouting.gpg
-
-RUN --mount=type=bind,source=install.sh,target=/tmp/repo/install.sh        \
+RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
     --mount=type=bind,source=./config/,target=/tmp/repo/config/            \
     echo "Install APT packages"                                         && \
-    source /tmp/repo/install.sh                                         && \
-    install_apt_defaults                                                && \
-    install_apt_hub                                                     && \
-    install_apt_frr                                                     && \
-    create_misc_config && create_vpnc_config
+    apt-get update && apt-get install -y make                           && \
+    make -C /tmp/repo MODE=hub packages hub-packages frr misc-config config && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /opt/ncubed/ /opt/ncubed/
 
-RUN --mount=type=bind,source=install.sh,target=/tmp/repo/install.sh        \
-    source /tmp/repo/install.sh                                         && \
-    install_vpnctl
-
-# # Make sure to use the virtualenv:
-# ENV PATH="/opt/ncubed/vpnc/bin:$PATH"
+RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
+    make -C /tmp/repo vpnctl
 
 # Configuration and logging directories.
 VOLUME /opt/ncubed/config/vpnc /var/log/ncubed/vpnc

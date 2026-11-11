@@ -2,7 +2,7 @@
 SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 
 # # Run the normal installer in hub mode
-# ${SCRIPTDIR}/../../../../install.sh hub
+# make -C ${SCRIPTDIR}/../../../.. hub
 for i in {candidate,active};
 do
     cp -f ${SCRIPTDIR}/DEFAULT.yaml /opt/ncubed/config/vpnc/${i}/DEFAULT.yaml
