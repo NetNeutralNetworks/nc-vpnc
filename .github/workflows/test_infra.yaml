@@ -17,6 +17,7 @@ jobs:
         # Ubuntu version of the container images; the runner stays on 24.04.
         version: ["24.04", "26.04"]
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker CLI
@@ -74,6 +75,7 @@ jobs:
             # -rP shows the measurements (printed by passing tests).
             tests: test/03_performance -rP
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Install runner dependencies (Jool, containerlab)
