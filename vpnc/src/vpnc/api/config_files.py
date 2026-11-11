@@ -557,8 +557,16 @@ def _staged_ids() -> list[str]:
 
 
 def commit_all(confirm: int | None = None) -> list[CommitResult]:
-    """Commit the staged changes of all tenants and the service."""
-    results = [commit(tenant_id, confirm) for tenant_id in _staged_ids()]
+    """Commit the staged changes of all tenants and the service.
+
+    All are validated first, so an invalid one stops the commit of all.
+    """
+    with LOCK:
+        staged = _staged_ids()
+        _check_wireguard_ports(
+            {tenant_id: _load(tenant_id, "candidate") for tenant_id in staged},
+        )
+        results = [commit(tenant_id, confirm) for tenant_id in staged]
     return [r for r in results if r.changed or r.confirm_by or r.restart_needed]
 
 
