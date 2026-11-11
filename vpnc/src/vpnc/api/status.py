@@ -20,7 +20,8 @@ import vpnc
 from vpnc import config, shared
 from vpnc.models import enums, tenant
 from vpnc.network import namespace, state
-from vpnc.services import configuration, ssh, wireguard
+from vpnc.api import config_files
+from vpnc.services import configuration, ssh, vpncmangle, wireguard
 from vpnc.services.strongswan.monitor import VICI_SOCKET, VICI_TIMEOUT
 
 if TYPE_CHECKING:
@@ -100,6 +101,14 @@ class TenantState(BaseModel):
     connections: int
 
 
+class VpncmangleState(BaseModel):
+    """vpncmangle, which rewrites DNS answers (hub mode)."""
+
+    running: bool
+    # DNS64 and DNS66 translations over all network instances.
+    translations: int
+
+
 class Status(BaseModel):
     """An overview of the service."""
 
@@ -108,6 +117,9 @@ class Status(BaseModel):
     network_instances: int
     connections_up: int
     connections: int
+    vpncmangle: VpncmangleState | None
+    # Service settings that only apply after vpnc restarts.
+    restart_needed: list[str]
 
 
 class BgpNeighbor(BaseModel):
@@ -387,6 +399,25 @@ def status() -> Status:
         network_instances=len(network_instances()),
         connections_up=up,
         connections=total,
+        vpncmangle=_vpncmangle(),
+        restart_needed=config_files.restart_needed(),
+    )
+
+
+def _vpncmangle() -> VpncmangleState | None:
+    if tenant.get_default_tenant().mode != enums.ServiceMode.HUB:
+        return None
+    process = vpncmangle.PROCESS
+    try:
+        translations = json.loads(vpncmangle.CONFIG_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        translations = {}
+    return VpncmangleState(
+        running=process is not None and process.poll() is None,
+        translations=sum(
+            len(ni.get("dns64", [])) + len(ni.get("dns66", []))
+            for ni in translations.values()
+        ),
     )
 
 
