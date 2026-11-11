@@ -42,8 +42,8 @@ if ! modprobe jool; then
   exit 1
 fi
 
-# Install containerlab
-bash -c "$(curl -sL https://get.containerlab.dev)"
+# Install containerlab, the version the lab is tested with.
+bash -c "$(curl -sL https://get.containerlab.dev)" -- -v 0.83.0
 
 # Add a network bridge for containerlab intra-container "internet" communication
 echo "
