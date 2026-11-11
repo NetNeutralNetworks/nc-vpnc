@@ -17,6 +17,7 @@ from vpnc import config
 from vpnc.models import connections, enums
 from vpnc.models.secret import Secret
 from vpnc.network import state
+from vpnc.services import charon
 
 if TYPE_CHECKING:
     import vpnc.models.network_instance
@@ -123,17 +124,18 @@ class ConnectionConfigIPsec(BaseModel):
         with state.netns(network_instance.id) as dl:
             state.delete_link(dl.ipr, dl.state, interface_name)
 
-        vcs = vici.Session()
+        name = f"{network_instance.id}-{connection.id}"
         try:
-            for i in vcs.terminate(
-                {"ike": f"{network_instance.id}-{connection.id}".encode()},
-            ):
-                logger.info(i)
-        except vici.exception.CommandException:
-            logger.warning(
-                "OK exception occurred while using a VICI command",
-                exc_info=True,
-            )
+            with charon.session() as vcs:
+                # Don't wait for an unreachable peer to confirm.
+                for i in vcs.terminate({"ike": name.encode(), "timeout": b"-1"}):
+                    logger.info(i)
+        except (
+            OSError,
+            vici.exception.SessionException,
+            vici.exception.CommandException,
+        ):
+            logger.warning("Terminating the SAs of %s failed.", name, exc_info=True)
 
     def intf_name(
         self,

@@ -16,6 +16,7 @@ import vici.exception
 from vpnc import config, files
 from vpnc.models import enums, tenant
 from vpnc.network import namespace
+from vpnc.services import charon
 from vpnc.shared import STOPPED_CONNECTIONS
 
 if TYPE_CHECKING:
@@ -25,6 +26,13 @@ logger = logging.getLogger("vpnc")
 
 # A connection as vici messages: the connection and its pre-shared key.
 Connection = tuple[dict[str, Any], dict[str, Any]]
+
+# A failed vici request: no answer in time, a broken session or a refusal.
+VICI_ERRORS = (
+    OSError,
+    vici.exception.SessionException,
+    vici.exception.CommandException,
+)
 
 # Per connection, what vpnc last loaded into charon.
 LOADED: dict[str, str] = {}
@@ -174,10 +182,10 @@ def apply(network_instance: NetworkInstance) -> None:
     conns = connections(network_instance)
     _write(network_instance.id, conns)
     try:
-        vcs = vici.Session()
-        _load(vcs, conns)
-        _unload(vcs, _own(network_instance.id, set(LOADED)) - conns.keys())
-    except (OSError, vici.exception.CommandException):
+        with charon.session() as vcs:
+            _load(vcs, conns)
+            _unload(vcs, _own(network_instance.id, set(LOADED)) - conns.keys())
+    except VICI_ERRORS:
         logger.exception(
             "Loading the IPsec connections of %s failed.",
             network_instance.id,
@@ -188,10 +196,10 @@ def remove(ni_id: str) -> None:
     """Unload the connections of a removed network instance and delete its file."""
     config.IPSEC_CONFIG_DIR.joinpath(f"{ni_id}.conf").unlink(missing_ok=True)
     try:
-        vcs = vici.Session()
-        loaded = {name.decode() for name in vcs.get_conns()["conns"]}
-        _unload(vcs, _own(ni_id, loaded | set(LOADED)))
-    except (OSError, vici.exception.CommandException):
+        with charon.session() as vcs:
+            loaded = {name.decode() for name in vcs.get_conns()["conns"]}
+            _unload(vcs, _own(ni_id, loaded | set(LOADED)))
+    except VICI_ERRORS:
         logger.exception("Unloading the IPsec connections of %s failed.", ni_id)
 
 
@@ -243,8 +251,8 @@ def start() -> None:
     delay = 0.1
     for i in range(tries):
         try:
-            vici.Session()
-            break
+            with charon.session():
+                break
         except (ConnectionRefusedError, FileNotFoundError):
             if i >= tries - 1:
                 logger.critical(
