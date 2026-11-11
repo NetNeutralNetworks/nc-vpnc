@@ -1,5 +1,6 @@
 """Mangle/doctor DNS responses."""
 
+import contextlib
 import logging
 import sys
 from ipaddress import IPv4Address, IPv6Address
@@ -81,8 +82,8 @@ def translate(
     else:
         return record
     logger.debug(
-        "DNS answer for '%s' translated from '%s' to '%s'.",
-        record.rrname.decode(),
+        "DNS answer for %r translated from '%s' to '%s'.",
+        record.rrname,
         record.rdata,
         address,
     )
@@ -96,6 +97,20 @@ def translate(
 
 
 def mangle_dns(pkt: Packet) -> None:
+    """Translate a DNS response; drop it if that fails.
+
+    An exception here would end the queue, and with it DNS for every tenant.
+    """
+    try:
+        _mangle_dns(pkt)
+    except Exception:
+        logger.warning("Dropping a DNS response that can't be translated.", exc_info=True)
+        # Fails if it already got a verdict.
+        with contextlib.suppress(Exception):
+            pkt.drop()
+
+
+def _mangle_dns(pkt: Packet) -> None:
     """Translate the addresses in a DNS response to ones reachable from CORE."""
     pkt_sc = sc.IPv6(pkt.get_payload())
 
@@ -128,17 +143,19 @@ def mangle_dns(pkt: Packet) -> None:
     # vpncmangle has no idea where the response comes from. It requires the mapping
     # configuration to know this.
 
-    if not config.CONFIG:
+    # Read once: a reload replaces it.
+    acl_match = config.ACL_MATCH
+    if not acl_match:
         logger.error("No configuration loaded.")
         pkt.drop()
         return
-    network_instance_name: str | None = None
-    for local_network, ni_name in config.ACL_MATCH:
+    ni_config: config.VpncMangleConfig | None = None
+    for local_network, _, translations in acl_match:
         if ipv6_src_addr in local_network:
-            network_instance_name = ni_name
+            ni_config = translations
             break
 
-    if network_instance_name is None:
+    if ni_config is None:
         logger.error(
             "IPv6 source address '%s' doesn't seem to match any configured address/network instance",
             ipv6_src_addr,
@@ -146,7 +163,6 @@ def mangle_dns(pkt: Packet) -> None:
         pkt.drop()
         return
 
-    ni_config = config.CONFIG[network_instance_name]
     answers = [
         translated
         for record in pkt_sc[sc.DNS].an
