@@ -92,6 +92,7 @@ function install_apt_hub () {
 function install_apt_snmpd () {
     # Install and configure snmpd
 
+    apt-get update
     apt-get install -y snmpd
     # Configure SNMP daemon
     sed -i -E 's/^rocommunity (.*)/#rocommunity \1/' /etc/snmp/snmpd.conf
