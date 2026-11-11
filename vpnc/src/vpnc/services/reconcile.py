@@ -89,6 +89,10 @@ class Reconciler:
         )
         self._thread.start()
 
+    def is_alive(self) -> bool:
+        """Return whether the worker thread runs."""
+        return self._thread is not None and self._thread.is_alive()
+
     def run_checks(self, pending: dict[str, set[str] | None]) -> None:
         """Run the pending checks now, in registration order."""
         for name, check in list(self._checks.items()):

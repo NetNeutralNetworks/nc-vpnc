@@ -13,8 +13,8 @@ logger = logging.getLogger("vpnc")
 SOCKET = pathlib.Path("/run/vpnc/api.sock")
 
 
-def start() -> None:
-    """Serve the API in a daemon thread."""
+def start() -> threading.Thread:
+    """Serve the API in a daemon thread and return it."""
     from vpnc.api import config_files  # noqa: PLC0415
     from vpnc.api.app import app  # noqa: PLC0415  (loads FastAPI only when served)
 
@@ -37,5 +37,7 @@ def start() -> None:
     # Not in the main thread: uvicorn mustn't install signal handlers.
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
-    threading.Thread(target=server.run, name="api", daemon=True).start()
+    thread = threading.Thread(target=server.run, name="api", daemon=True)
+    thread.start()
     logger.info("Serving the API on %s.", SOCKET)
+    return thread

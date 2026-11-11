@@ -11,7 +11,7 @@ import time
 
 from vpnc import api, config, shared
 from vpnc.models import enums, tenant
-from vpnc.network import namespace
+from vpnc.network import events, namespace
 from vpnc.services import (
     configuration,
     frr,
@@ -130,12 +130,24 @@ def concentrator() -> None:
     # Apply the configuration and keep correcting differences from it.
     reconcile.RECONCILER.start()
 
-    api.start()
+    # Without one of these vpnc does nothing, unnoticed: exit, so it's restarted.
+    threads = {
+        "reconciler": reconcile.RECONCILER,
+        "link monitor": events.MONITOR,
+        "configuration watcher": configuration_obs,
+        "API": api.start(),
+    }
+    if frr.OBSERVER is not None:
+        threads["FRR watcher"] = frr.OBSERVER
 
     # Keep the program running, but terminate if needed.
     try:
         while not shared.STOP_EVENT.is_set():
             time.sleep(1)
+            dead = [name for name, thread in threads.items() if not thread.is_alive()]
+            if dead and not shared.STOP_EVENT.is_set():
+                logger.critical("Stopped unexpectedly: %s. Exiting.", ", ".join(dead))
+                sys.exit(1)
     except KeyboardInterrupt:
         shared.STOP_EVENT.is_set()
     except Exception:
