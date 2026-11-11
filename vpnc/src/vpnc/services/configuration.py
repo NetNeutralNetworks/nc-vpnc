@@ -193,9 +193,17 @@ def write_tenant(tenant_id: str) -> None:
         explicit_start=True,
         explicit_end=True,
     )
-    if files.ensure_file(path, output, secret=True):
-        logger.info("Updated configuration file %s.", path)
-    _add_nptv6_prefixes_to_candidate(tenant, path.parent.parent / "candidate" / path.name)
+    with files.CONFIG_LOCK:
+        if FILE_STATES.get(path) != _file_state(path):
+            # A newer file (e.g. a commit): written back once that's applied.
+            logger.info("Not updating %s: it changed meanwhile.", path)
+            return
+        if files.ensure_file(path, output, secret=True):
+            logger.info("Updated configuration file %s.", path)
+        _add_nptv6_prefixes_to_candidate(
+            tenant,
+            path.parent.parent / "candidate" / path.name,
+        )
 
 
 def _add_nptv6_prefixes_to_candidate(

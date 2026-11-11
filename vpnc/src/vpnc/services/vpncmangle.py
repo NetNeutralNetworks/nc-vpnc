@@ -8,7 +8,7 @@ import subprocess
 from ipaddress import IPv4Network
 from typing import Any
 
-from vpnc import config, shared
+from vpnc import config, files, shared
 from vpnc.network import namespace
 from vpnc.services import configuration
 
@@ -45,9 +45,7 @@ def generate_config() -> None:
                             (str(nptv6_prefix), str(route6.to)),
                         )
 
-        CONFIG_PATH.touch(exist_ok=True)
-        with CONFIG_PATH.open("w+", encoding="utf-8") as f:
-            json.dump(output, f)
+        files.ensure_file(CONFIG_PATH, json.dumps(output))
 
 
 # The running vpncmangle process.
