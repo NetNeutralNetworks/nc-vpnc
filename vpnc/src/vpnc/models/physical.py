@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import subprocess
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import pyroute2
 from pydantic import BaseModel, field_validator
@@ -82,42 +80,3 @@ class ConnectionConfigPhysical(BaseModel):
     ) -> str:
         """Return the name of the connection interface."""
         return self.interface_name
-
-    def status_summary(
-        self,
-        network_instance: vpnc.models.network_instance.NetworkInstance,
-        connection: connections.Connection,
-    ) -> dict[str, Any]:
-        """Get the connection status."""
-        if_name = self.intf_name(network_instance, connection)
-        output = json.loads(
-            subprocess.run(  # noqa: S603
-                [
-                    "/usr/sbin/ip",
-                    "--json",
-                    "--netns",
-                    network_instance.id,
-                    "address",
-                    "show",
-                    "dev",
-                    if_name,
-                ],
-                stdout=subprocess.PIPE,
-                check=True,
-            ).stdout,
-        )[0]
-
-        output_dict: dict[str, Any] = {
-            "tenant": f"{network_instance.id.split('-')[0]}",
-            "network-instance": network_instance.id,
-            "connection": connection.id,
-            "type": self.type.name,
-            "status": output["operstate"],
-            "interface-name": if_name,
-            "interface-ip": [
-                f"{x['local']}/{x['prefixlen']}" for x in output["addr_info"]
-            ],
-            "remote-addr": None,
-        }
-
-        return output_dict

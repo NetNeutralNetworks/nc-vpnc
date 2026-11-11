@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import subprocess
 from enum import Enum
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import vici
 import vici.exception
@@ -144,51 +142,3 @@ class ConnectionConfigIPsec(BaseModel):
     ) -> str:
         """Return the name of the connection interface."""
         return f"xfrm{connection.id}"
-
-    def status_summary(
-        self,
-        network_instance: vpnc.models.network_instance.NetworkInstance,
-        connection: connections.Connection,
-    ) -> dict[str, Any]:
-        """Get the connection status."""
-        vcs = vici.Session()
-        sa: dict[str, Any] = next(
-            iter(vcs.list_sas({"ike": f"{network_instance.id}-{connection.id}"})),
-        )
-
-        if_name = self.intf_name(network_instance, connection)
-        output = json.loads(
-            subprocess.run(  # noqa: S603
-                [
-                    "/usr/sbin/ip",
-                    "--json",
-                    "--netns",
-                    network_instance.id,
-                    "address",
-                    "show",
-                    "dev",
-                    if_name,
-                ],
-                stdout=subprocess.PIPE,
-                check=True,
-            ).stdout,
-        )[0]
-
-        status: str = sa[f"{network_instance.id}-{connection.id}"]["state"].decode()
-        remote_addr: str = sa[f"{network_instance.id}-{connection.id}"][
-            "remote-host"
-        ].decode()
-        output_dict: dict[str, Any] = {
-            "tenant": f"{network_instance.id.split('-')[0]}",
-            "network-instance": network_instance.id,
-            "connection": connection.id,
-            "type": self.type.name,
-            "status": status,
-            "interface-name": if_name,
-            "interface-ip": [
-                f"{x['local']}/{x['prefixlen']}" for x in output["addr_info"]
-            ],
-            "remote-addr": remote_addr,
-        }
-
-        return output_dict

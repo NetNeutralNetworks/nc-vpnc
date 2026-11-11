@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import datetime
-import json
 import logging
-import subprocess
 from ipaddress import IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -102,45 +99,3 @@ class ConnectionConfigWireGuard(BaseModel):
     ) -> str:
         """Return the name of the connection interface."""
         return f"wg-{network_instance.id}-{connection.id}"
-
-    def status_summary(
-        self,
-        network_instance: vpnc.models.network_instance.NetworkInstance,
-        connection: connections.Connection,
-    ) -> dict[str, Any]:
-        """Get the connection status."""
-        if_name = self.intf_name(network_instance, connection)
-        output = json.loads(
-            subprocess.run(  # noqa: S603
-                [
-                    "/usr/sbin/ip",
-                    "--json",
-                    "--netns",
-                    network_instance.id,
-                    "address",
-                    "show",
-                    "dev",
-                    if_name,
-                ],
-                stdout=subprocess.PIPE,
-                check=True,
-            ).stdout,
-        )[0]
-
-        peer = wireguard.peer_status(network_instance.id, if_name)
-        last_handshake_obj = datetime.datetime.fromtimestamp(peer["last_handshake"])
-        now = datetime.datetime.now() - datetime.timedelta(minutes=2)
-        output_dict: dict[str, Any] = {
-            "tenant": f"{network_instance.id.split('-')[0]}",
-            "network-instance": network_instance.id,
-            "connection": connection.id,
-            "type": self.type.name,
-            "status": "ACTIVE" if last_handshake_obj >= now else "INACTIVE",
-            "interface-name": if_name,
-            "interface-ip": [
-                f"{x['local']}/{x['prefixlen']}" for x in output["addr_info"]
-            ],
-            "remote-addr": peer["endpoint"],
-        }
-
-        return output_dict

@@ -327,9 +327,6 @@ function install_vpnc () {
     esac
 }
 
-# Run migrations to current version
-# ${SCRIPTDIR}/setup/migrate.sh
-# ${INSTALLDIR}/bin/python3 ${SCRIPTDIR}/setup/migrate.py
 
 
 case $1 in
