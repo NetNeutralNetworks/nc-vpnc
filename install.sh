@@ -212,10 +212,11 @@ function install_pip_vpnc () {
 }
 
 function install_vpnctl () {
-    # vpnctl on the PATH, with bash completion.
+    # vpnctl on the PATH, with bash and zsh completion.
     ln -sf ${INSTALLDIR}/bin/vpnctl /usr/local/bin/vpnctl
-    mkdir -p /etc/bash_completion.d
+    mkdir -p /etc/bash_completion.d /usr/share/zsh/vendor-completions
     ${INSTALLDIR}/bin/vpnctl completion bash > /etc/bash_completion.d/vpnctl
+    ${INSTALLDIR}/bin/vpnctl completion zsh > /usr/share/zsh/vendor-completions/_vpnctl
 }
 
 function install_pip_vpncmangle () {

@@ -57,10 +57,11 @@ This installs the vpnc and an example configuration for either the `hub` or `end
 
 ### vpnctl
 
-`vpnctl` shows vpnc's state and edits its configuration through vpnc's local API (the Unix socket `/run/vpnc/api.sock`, root only). The install script puts it on the PATH with bash completion; for a running shell:
+`vpnctl` shows vpnc's state and edits its configuration through vpnc's local API (the Unix socket `/run/vpnc/api.sock`, root only). The install script puts it on the PATH with bash and zsh completion; for a running shell:
 
 ```bash
-~$ source /etc/bash_completion.d/vpnctl
+~$ source /etc/bash_completion.d/vpnctl      # bash
+~$ source <(vpnctl completion zsh)           # zsh, after compinit
 ```
 
 State, read live:
