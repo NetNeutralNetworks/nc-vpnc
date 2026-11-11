@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from vpnc import config, files
 from vpnc.models import tenant
+from vpnc.models.network_instance import wireguard_port_users
 from vpnc.models.secret import REVEAL
 
 if TYPE_CHECKING:
@@ -393,6 +394,30 @@ def resume_pending() -> None:
             _schedule(tenant_id, pending["confirm_by"])
 
 
+def _check_wireguard_ports(candidates: dict[str, Model | None]) -> None:
+    """Refuse candidates with a WireGuard port another connection uses."""
+    tenants: dict[str, Model] = {
+        other_id: other
+        for other_id, other in list(config.VPNC_CONFIG_TENANT.items())
+        if other_id not in candidates
+    }
+    tenants |= {k: v for k, v in candidates.items() if v is not None}
+    own = {
+        f"{ni.id}-{connection_id}"
+        for tenant_id in candidates
+        if tenant_id in tenants
+        for ni in tenants[tenant_id].network_instances.values()
+        for connection_id in ni.connections
+    }
+    for port, names in wireguard_port_users(tenants.values()).items():
+        if len(names) > 1 and own & set(names):
+            raise ConfigError(
+                422,
+                "Invalid configuration",
+                f"WireGuard port {port} is used by {', '.join(names)}.",
+            )
+
+
 def commit(tenant_id: str, confirm: int | None = None) -> CommitResult:
     """Make the staged changes active.
 
@@ -407,6 +432,7 @@ def commit(tenant_id: str, confirm: int | None = None) -> CommitResult:
             candidate = _dump(_load(tenant_id, "candidate"), reveal=True)
             if candidate is None and tenant_id == config.DEFAULT_TENANT:
                 raise ConfigError(409, "Conflict", "The service can't be removed.")
+            _check_wireguard_ports({tenant_id: _load(tenant_id, "candidate")})
             # Only changed configurations: the files may differ in formatting.
             if candidate != _dump(_load(tenant_id, "active"), reveal=True):
                 changed = _set_active(tenant_id, _yaml(candidate) or None)
