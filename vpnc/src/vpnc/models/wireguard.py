@@ -49,10 +49,22 @@ class ConnectionConfigWireGuard(BaseModel):
         )
 
         name = f"{network_instance.id}-{connection.id}"
-        first = wireguard_port_users().get(self.local_port, [name])[0]
-        if first != name:
-            msg = f"WireGuard port {self.local_port} of {name} is in use by {first}."
-            raise ValueError(msg)
+        users = wireguard_port_users().get(self.local_port, [name])
+        if len(users) > 1:
+            # The interface that has the port keeps it; otherwise the first name.
+            holders = [
+                user
+                for user in users
+                if wireguard.listen_port(user.rsplit("-", 1)[0], f"wg-{user}")
+                == self.local_port
+            ]
+            holder = (holders or users)[0]
+            if holder != name:
+                msg = (
+                    f"WireGuard port {self.local_port} of {name}"
+                    f" is in use by {holder}."
+                )
+                raise ValueError(msg)
 
         open_wireguard_ports()
         wg = self.intf_name(network_instance, connection)
