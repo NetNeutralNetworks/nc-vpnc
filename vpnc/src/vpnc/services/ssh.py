@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("vpnc")
 
 SSH_SOCKET_DIR = pathlib.Path("/run/vpnc/ssh/")
-SSH_SOCKET_DIR.mkdir(mode=770, parents=True, exist_ok=True)
+SSH_SOCKET_DIR.mkdir(mode=0o770, parents=True, exist_ok=True)
 
 # Seconds before reconnecting, doubled after each failed attempt.
 RESTART_DELAY_MIN = 1
