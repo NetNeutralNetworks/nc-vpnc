@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 import pwd
 import re
@@ -13,20 +12,6 @@ if TYPE_CHECKING:
     from vpnc.models import tenant
 
 logger = logging.getLogger("vpnc")
-
-# Type changes to ignore in vpnctl diffs:
-DEEPDIFF_IGNORE = [
-    (
-        None,
-        str,
-        int,
-        list,
-        dict,
-        ipaddress.IPv4Interface,
-        ipaddress.IPv4Address,
-        ipaddress.IPv4Network,
-    ),
-]
 
 DEFAULT_TENANT = "DEFAULT"
 CORE_NI = "CORE"  # name of the CORE trusted network instance

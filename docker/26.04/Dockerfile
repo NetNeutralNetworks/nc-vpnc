@@ -41,6 +41,10 @@ RUN --mount=type=bind,source=install.sh,target=/tmp/repo/install.sh        \
 
 COPY --from=build /opt/ncubed/ /opt/ncubed/
 
+RUN --mount=type=bind,source=install.sh,target=/tmp/repo/install.sh        \
+    source /tmp/repo/install.sh                                         && \
+    install_vpnctl
+
 # # Make sure to use the virtualenv:
 # ENV PATH="/opt/ncubed/vpnc/bin:$PATH"
 
