@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import pathlib
 import re
+import threading
 import time
 from ipaddress import AddressValueError, IPv4Network, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING
@@ -25,6 +27,8 @@ from vpnc.network import namespace, nftables
 from vpnc.services import vpncmangle
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from watchdog.observers.api import BaseObserver
 
 logger = logging.getLogger("vpnc")
@@ -33,8 +37,21 @@ logger = logging.getLogger("vpnc")
 NPTV6_RULE_RE = re.compile(r"ip6 daddr (\S+) dnat (?:ip6 )?prefix to (\S+)")
 
 
+TENANT_FILE_RE = re.compile(rf"{config.DOWNLINK_TEN_FILE_RE}|.+\/DEFAULT\.yaml$")
+
+
 def observe_configuration() -> BaseObserver:
     """Create the observer for DOWNLINK network instances configuration."""
+
+    # A failing handler would end the observer thread, so errors are only logged.
+    def handle(action: Callable[[pathlib.Path], None], path: str | bytes) -> None:
+        if not TENANT_FILE_RE.match(os.fsdecode(path)):
+            return
+        time.sleep(0.1)
+        try:
+            action(pathlib.Path(os.fsdecode(path)))
+        except Exception:
+            logger.exception("Handling the change of %s failed.", path)
 
     # Define what should happen when DOWNLINK files are created, modified or deleted.
     class ConfigurationHandler(RegexMatchingEventHandler):
@@ -42,21 +59,25 @@ def observe_configuration() -> BaseObserver:
 
         def on_created(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
-            config_file_path = pathlib.Path(event.src_path)
-            time.sleep(0.1)
-            manage_tenant(config_file_path)
+            handle(manage_tenant, event.src_path)
 
         def on_modified(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
-            config_file_path = pathlib.Path(event.src_path)
-            time.sleep(0.1)
-            manage_tenant(config_file_path)
+            handle(manage_tenant, event.src_path)
 
         def on_deleted(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
-            config_file_path = pathlib.Path(event.src_path)
-            time.sleep(0.1)
-            delete_downlink_tenant(config_file_path)
+            handle(delete_downlink_tenant, event.src_path)
+
+        def on_moved(self, event: FileSystemEvent) -> None:
+            logger.info(
+                "File %s: %s to %s",
+                event.event_type,
+                event.src_path,
+                event.dest_path,
+            )
+            handle(delete_downlink_tenant, event.src_path)
+            handle(manage_tenant, event.dest_path)
 
     # Create the observer object. This doesn't start the handler.
     observer: BaseObserver = Observer()
@@ -65,7 +86,7 @@ def observe_configuration() -> BaseObserver:
     # This doesn't start the handler.
     observer.schedule(
         event_handler=ConfigurationHandler(
-            regexes=[config.DOWNLINK_TEN_FILE_RE, r".+\/DEFAULT.yaml$"],
+            regexes=[TENANT_FILE_RE.pattern],
             ignore_directories=True,
         ),
         path=config.VPNC_A_CONFIG_DIR,
@@ -77,20 +98,52 @@ def observe_configuration() -> BaseObserver:
     return observer
 
 
+# The watcher and the reconciler (rescan) load and remove tenants.
+LOCK = threading.RLock()
+# Per configuration file its modification time and size when it was last read.
+FILE_STATES: dict[pathlib.Path, tuple[int, int]] = {}
+
+
+def _file_state(path: pathlib.Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+def rescan() -> None:
+    """Load configuration files that changed and drop removed ones (missed events)."""
+    paths = {
+        path
+        for path in config.VPNC_A_CONFIG_DIR.glob("*.yaml")
+        if TENANT_FILE_RE.match(str(path))
+    }
+    for path in sorted(paths):
+        if FILE_STATES.get(path) != _file_state(path):
+            logger.info("Configuration file %s changed unnoticed.", path)
+            manage_tenant(path)
+    for path in set(FILE_STATES) - paths:
+        logger.warning("Configuration file %s was removed unnoticed.", path)
+        delete_downlink_tenant(path)
+
+
 # Configuration file per tenant, to write updates (e.g. NPTv6 prefixes) back.
 TENANT_PATHS: dict[str, pathlib.Path] = {}
 
 
 def manage_tenant(path: pathlib.Path) -> None:
     """Configure tenants."""
+    with LOCK:
+        _manage_tenant(path)
+
+
+def _manage_tenant(path: pathlib.Path) -> None:
     default_tenant = vpnc.models.tenant.get_default_tenant()
-    tenant_info = None
-    tenant_info = vpnc.models.tenant.load_tenant_config(path)
-
-    if not tenant_info:
-        return
-
-    tenant, active_tenant = tenant_info
+    # Before reading: a later change is seen as one.
+    if (file_state := _file_state(path)) is not None:
+        FILE_STATES[path] = file_state
+    tenant, active_tenant = vpnc.models.tenant.load_tenant_config(path)
     if not tenant:
         return
 
@@ -188,15 +241,17 @@ def _add_nptv6_prefixes_to_candidate(
 
 def delete_downlink_tenant(path: pathlib.Path) -> None:
     """Remove downlink VPN connections."""
+    with LOCK:
+        _delete_downlink_tenant(path)
+
+
+def _delete_downlink_tenant(path: pathlib.Path) -> None:
     default_tenant = vpnc.models.tenant.get_default_tenant()
+    FILE_STATES.pop(path, None)
 
     tenant_id = path.stem
     if not config.TENANT_RE.match(tenant_id):
-        logger.error(
-            "Invalid filename found in %s. Skipping.",
-            tenant_id,
-            exc_info=True,
-        )
+        logger.error("Invalid filename found in %s. Skipping.", tenant_id)
         return
 
     logger.info(
