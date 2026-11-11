@@ -31,7 +31,7 @@ from vpnc.network import namespace, nftables, state
 from vpnc.services import configuration, frr, strongswan
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
 # Needed for pydantim ports and type checking
 logger = logging.getLogger("vpnc")
@@ -100,17 +100,29 @@ def jool_instances() -> Iterator[None]:
 FIREWALL_APPLIED: dict[str, tuple[str, dict[str, Any]]] = {}
 
 
+def wireguard_port_users(
+    tenants: Iterable[tenant.Tenant] | None = None,
+) -> dict[int, list[str]]:
+    """Return per local WireGuard port the connections using it, sorted.
+
+    All WireGuard interfaces listen in EXTERNAL, so only one can use a port.
+    """
+    if tenants is None:
+        tenants = list(config.VPNC_CONFIG_TENANT.values())
+    users: dict[int, list[str]] = {}
+    for tenant_config in tenants:
+        for network_instance in tenant_config.network_instances.values():
+            for connection in network_instance.connections.values():
+                if connection.config.type == enums.ConnectionType.WIREGUARD:
+                    users.setdefault(connection.config.local_port, []).append(
+                        f"{network_instance.id}-{connection.id}",
+                    )
+    return {port: sorted(names) for port, names in users.items()}
+
+
 def wireguard_ports() -> list[int]:
     """Return the local ports of all configured WireGuard connections."""
-    return sorted(
-        {
-            connection.config.local_port
-            for tenant_config in list(config.VPNC_CONFIG_TENANT.values())
-            for network_instance in tenant_config.network_instances.values()
-            for connection in network_instance.connections.values()
-            if connection.config.type == enums.ConnectionType.WIREGUARD
-        },
-    )
+    return sorted(wireguard_port_users())
 
 
 def open_wireguard_ports() -> None:

@@ -28,9 +28,9 @@ class ConnectionConfigWireGuard(BaseModel):
 
     type: Literal[enums.ConnectionType.WIREGUARD] = enums.ConnectionType.WIREGUARD
     # Set a local id for the connection specifically.
-    local_port: int = Field(default=51820, ge=0, le=65535)
+    local_port: int = Field(default=51820, ge=1, le=65535)
     remote_addrs: list[IPv4Address | IPv6Address] = Field(min_length=1)
-    remote_port: int = Field(default=51820, ge=0, le=65535)
+    remote_port: int = Field(default=51820, ge=1, le=65535)
     private_key: Secret
     public_key: str
 
@@ -46,7 +46,16 @@ class ConnectionConfigWireGuard(BaseModel):
     ) -> str:
         """Create a WireGuard interface and accept its port in EXTERNAL."""
         # Imported here: network_instance imports this module.
-        from vpnc.models.network_instance import open_wireguard_ports  # noqa: PLC0415
+        from vpnc.models.network_instance import (  # noqa: PLC0415
+            open_wireguard_ports,
+            wireguard_port_users,
+        )
+
+        name = f"{network_instance.id}-{connection.id}"
+        first = wireguard_port_users().get(self.local_port, [name])[0]
+        if first != name:
+            msg = f"WireGuard port {self.local_port} of {name} is in use by {first}."
+            raise ValueError(msg)
 
         open_wireguard_ports()
         wg = self.intf_name(network_instance, connection)
