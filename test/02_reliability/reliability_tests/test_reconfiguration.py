@@ -718,3 +718,168 @@ class TestDnsTranslation:
                 timeout=APPLY_TIMEOUT,
                 message="the translated DNS answer",
             )
+
+
+CONFIG_DIR = "/opt/ncubed/config/vpnc"
+# Tenants of the WireGuard port tests; B0001 sorts before the others.
+PORT_TENANTS = ("B0001", "C0003", "C0004")
+
+
+def wireguard_tenant(tenant_id: str, port: int, route: str = "10.210.0.0/24") -> str:
+    """Return a tenant with one WireGuard connection to a peer that doesn't exist."""
+    ni = f"{tenant_id}-00"
+    tenant = {
+        "version": "0.1.3",
+        "id": tenant_id,
+        "name": "WireGuard port test",
+        "network_instances": {
+            ni: {
+                "id": ni,
+                "type": "downlink",
+                "connections": {
+                    0: {
+                        "id": 0,
+                        "routes": {"ipv4": [{"to": route}]},
+                        "config": {
+                            "type": "wireguard",
+                            "local_port": port,
+                            "remote_addrs": ["192.0.2.99"],
+                            "private_key": (
+                                "aCIwvWZ7aknX9Lpyk40zEu2HhneHyWSxgl6NVJRU50s="
+                            ),
+                            "public_key": (
+                                "9xdzIRK5ARFePwKZUKZAMwXPddTRtQTlQ00J3aUEeGc="
+                            ),
+                        },
+                    },
+                },
+            },
+        },
+    }
+    return yaml.safe_dump(tenant)
+
+
+def stage(tenant_id: str, port: int) -> None:
+    """Stage a WireGuard tenant."""
+    path = f"{CONFIG_DIR}/candidate/{tenant_id}.yaml"
+    conftest.write_file(HOST, path, wireguard_tenant(tenant_id, port))
+
+
+def listen_port(tenant_id: str) -> int | None:
+    """Return the port of a tenant's WireGuard interface (None: no interface)."""
+    ni = f"{tenant_id}-00"
+    try:
+        output = conftest.run_cmd(
+            HOST,
+            f"ip netns exec {ni} wg show wg-{ni}-0 listen-port",
+        )
+    except subprocess.CalledProcessError:
+        return None
+    return int(output)
+
+
+def wait_for_ports(ports: dict[str, int | None]) -> None:
+    """Wait until the tenants' WireGuard interfaces listen on these ports."""
+    conftest.wait_until(
+        lambda: {tenant_id: listen_port(tenant_id) for tenant_id in ports} == ports,
+        timeout=APPLY_TIMEOUT,
+        message=f"WireGuard ports {ports}",
+    )
+
+
+@pytest.fixture
+def port_tenants() -> Iterator[None]:
+    """Remove the tenants of the WireGuard port tests afterwards."""
+    yield
+    for tenant_id in PORT_TENANTS:
+        conftest.run_cmd(
+            HOST,
+            f"rm -rf {CONFIG_DIR}/active/{tenant_id}.yaml"
+            f" {CONFIG_DIR}/candidate/{tenant_id}.yaml"
+            f" {CONFIG_DIR}/history/{tenant_id}",
+        )
+    conftest.wait_until(
+        lambda: not {f"{tenant_id}-00" for tenant_id in PORT_TENANTS} & netns_list(),
+        timeout=APPLY_TIMEOUT,
+        message="the WireGuard port tenants to be removed",
+    )
+
+
+@pytest.mark.usefixtures("port_tenants")
+class TestWireGuardPorts:
+    """Only one WireGuard connection uses a local port."""
+
+    def test_port_in_use_is_refused(self) -> None:
+        """A commit with the port of another tenant's connection is refused."""
+        # C0001-01-0 uses the default port.
+        stage("C0003", 51820)
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            vpnctl("config commit C0003")
+
+        assert "WireGuard port 51820 is used by" in err.value.stderr
+        assert "C0003" not in tenant_ids()
+
+        stage("C0003", 51900)
+        vpnctl("config commit C0003")
+        wait_for_ports({"C0003": 51900})
+
+    def test_duplicate_port_in_commit_all_commits_nothing(self) -> None:
+        """Two staged tenants with the same port stop the commit of all."""
+        stage("C0003", 51900)
+        stage("C0004", 51900)
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            vpnctl("config commit --all")
+
+        assert "WireGuard port 51900 is used by" in err.value.stderr
+        time.sleep(5)
+        assert not {"C0003", "C0004"} & set(tenant_ids())
+
+    def test_port_moves_between_tenants(self) -> None:
+        """A port moves to another tenant, in a commit of all and in two commits."""
+        stage("C0003", 51900)
+        stage("C0004", 51901)
+        vpnctl("config commit --all")
+        wait_for_ports({"C0003": 51900, "C0004": 51901})
+
+        stage("C0003", 51902)
+        stage("C0004", 51900)
+        vpnctl("config commit --all")
+        wait_for_ports({"C0003": 51902, "C0004": 51900})
+
+        # Committed right after each other: the first isn't applied yet.
+        stage("C0003", 51903)
+        stage("C0004", 51902)
+        conftest.run_cmd_shell(
+            HOST,
+            f"bash -c '{VPNCTL} config commit C0003 && {VPNCTL} config commit C0004'",
+        )
+        wait_for_ports({"C0003": 51903, "C0004": 51902})
+
+    def test_connection_with_the_port_keeps_it(self) -> None:
+        """A duplicate added outside vpnctl doesn't take over a port in use."""
+        stage("C0004", 51900)
+        vpnctl("config commit C0004")
+        wait_for_ports({"C0004": 51900})
+
+        conftest.write_file(
+            HOST,
+            f"{CONFIG_DIR}/active/B0001.yaml",
+            wireguard_tenant("B0001", 51900),
+        )
+        conftest.wait_until(
+            lambda: "B0001-00" in netns_list(),
+            timeout=APPLY_TIMEOUT,
+            message="B0001 to be applied",
+        )
+        # Changes of the connection that has the port are still applied.
+        conftest.write_file(
+            HOST,
+            f"{CONFIG_DIR}/active/C0004.yaml",
+            wireguard_tenant("C0004", 51900, "10.211.0.0/24"),
+        )
+        conftest.wait_until(
+            lambda: "10.211.0.0/24" in route_destinations("C0004-00"),
+            timeout=APPLY_TIMEOUT,
+            message="the route of C0004 to be applied",
+        )
+        assert [listen_port("C0004"), listen_port("B0001")] == [51900, None]
