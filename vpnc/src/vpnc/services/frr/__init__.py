@@ -71,6 +71,10 @@ def ensure_reloaded() -> None:
         reload_config()
 
 
+# The running configuration observer.
+OBSERVER: BaseObserver | None = None
+
+
 def observe() -> BaseObserver:
     """Create the observer for FRR configuration changes."""
 
@@ -196,5 +200,6 @@ def start() -> None:
     # FRR doesn't monitor for file config changes directly, so a file observer is
     # used to auto reload the configuration.
     logger.info("Monitoring FRR configuration changes.")
-    obs = observe()
-    obs.start()
+    global OBSERVER  # noqa: PLW0603
+    OBSERVER = observe()
+    OBSERVER.start()
