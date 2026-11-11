@@ -7,7 +7,7 @@
 !setup
 !vpnc
 !vpncmangle
-!install.sh
+!Makefile
 
 **/build
 **/*.egg-info

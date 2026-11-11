@@ -47,13 +47,20 @@ vpncmangle (started by vpnc) rewrites DNS answers from tenants: A records become
 
 ## Installation
 
-vpnc runs on Ubuntu 24.04 or 26.04 with systemd. As root:
+vpnc runs on Ubuntu 24.04 or 26.04 with systemd. As root, in the repository root:
 
 ```bash
-~$ ./install.sh hub       # or: endpoint
+~$ apt-get install -y make
+~$ make hub               # or: endpoint, addon
 ```
 
-This installs vpnc in `/opt/ncubed/vpnc`, `vpnctl` on the PATH and an example service configuration, and starts vpnc. Upgrade by running it again. Then configure the service:
+This upgrades the system packages, installs vpnc in `/opt/ncubed/vpnc`, `vpnctl` on the PATH and an example service configuration, and (re)starts vpnc. Run it again to upgrade everything. To update only vpnc after a `git pull`, without apt:
+
+```bash
+~$ make update
+```
+
+This reinstalls vpnc (and vpncmangle on a hub) and restarts vpnc only if something changed. Configuration files are only installed when missing, so local edits are kept. Then configure the service:
 
 ```bash
 ~$ sudo vpnctl config edit service

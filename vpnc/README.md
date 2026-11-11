@@ -2,7 +2,7 @@
 
 The vpnc daemon and `vpnctl`, its command line client. vpnc connects a management network to many tenant networks over IPsec, WireGuard, SSH and physical connections, with NAT64, NPTv6 and BGP.
 
-Install with `install.sh` in the repository root. See the [nc-vpnc README](../README.md) for how it works, the configuration, vpnctl and the API.
+Install with `make` in the repository root. See the [nc-vpnc README](../README.md) for how it works, the configuration, vpnctl and the API.
 
 | Package | |
 |---|---|
