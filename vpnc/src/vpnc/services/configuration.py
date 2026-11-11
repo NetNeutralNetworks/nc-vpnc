@@ -291,6 +291,9 @@ def _delete_downlink_tenant(path: pathlib.Path) -> None:
         return
 
     TENANT_PATHS.pop(tenant_id, None)
+    if default_tenant.mode == enums.ServiceMode.HUB:
+        # Without the tenant's DNS translations.
+        vpncmangle.generate_config()
     # The reconciler removes the network instances.
     from vpnc.services import reconcile  # noqa: PLC0415  (import cycle)
 
