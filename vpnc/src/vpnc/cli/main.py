@@ -62,6 +62,10 @@ def request(
         fail(f"vpnc isn't running: no API at {SOCKET}.", code=2)
     except PermissionError:
         fail(f"No access to {SOCKET}: run vpnctl as root.", code=2)
+    except ConnectionRefusedError:
+        fail(f"vpnc isn't running: nothing listens on {SOCKET}.", code=2)
+    except TimeoutError:
+        fail("vpnc didn't answer in time.", code=2)
     finally:
         conn.close()
     decoded: Any = json.loads(data) if "json" in content_type else data
