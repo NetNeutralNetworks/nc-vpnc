@@ -397,6 +397,8 @@ def commit(tenant_id: str, confirm: int | None = None) -> CommitResult:
         changed = False
         if _text(tenant_id, "candidate") is not None:
             candidate = _dump(_load(tenant_id, "candidate"), reveal=True)
+            if candidate is None and tenant_id == config.DEFAULT_TENANT:
+                raise ConfigError(409, "Conflict", "The service can't be removed.")
             # Only changed configurations: the files may differ in formatting.
             if candidate != _dump(_load(tenant_id, "active"), reveal=True):
                 changed = _set_active(tenant_id, _yaml(candidate) or None)
