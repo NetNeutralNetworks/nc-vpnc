@@ -107,6 +107,39 @@ SSH_TUNNELS: dict[str, SshTunnel] = {}
 LOCK = threading.RLock()
 
 
+def _remote_script(tun: str, routes: list[str], interface: str | None) -> str:
+    """Return the commands that set up the remote side of a tunnel.
+
+    With an interface, traffic from the tunnel is forwarded and masqueraded
+    out of it. Rules are only added when missing; it runs in any POSIX shell.
+    """
+    established = "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
+    rules = [
+        ("", f"INPUT -i {tun} -j ACCEPT"),
+        ("", f"OUTPUT -o {tun} {established}"),
+    ]
+    if interface is not None:
+        rules += [
+            ("", f"FORWARD -i {tun} -j ACCEPT"),
+            ("", f"FORWARD -o {tun} {established}"),
+            ("-t nat ", f"POSTROUTING -o {interface} -j MASQUERADE"),
+        ]
+    commands = [
+        "set -e",
+        "sysctl -w net.ipv4.conf.all.forwarding=1",
+        "sysctl -w net.ipv6.conf.all.forwarding=1",
+        "sleep 2",
+        f"ip link set dev {tun} up",
+        *(f"{route} dev {tun}" for route in routes),
+        *(
+            f"{program} {table}-C {rule} >/dev/null 2>&1 || {program} {table}-A {rule}"
+            for table, rule in rules
+            for program in ("iptables", "ip6tables")
+        ),
+    ]
+    return ";\n".join(commands)
+
+
 def start(
     network_instance: vpnc.models.network_instance.NetworkInstance,
     connection: vpnc.models.connections.Connection,
@@ -146,39 +179,12 @@ def _start(
         if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
             network_instance,
         )
-        remote_tun = f"tun{connection.config.remote_tunnel_id}"
-        routes: str = ""
-        for i in if_ipv4:
-            routes += rf"ip -4 route replace {i.network} dev {remote_tun};"
-
-        for j in if_ipv6:
-            routes += rf"ip -6 route replace {j.network} dev {remote_tun};"
-
-        remote_config = rf"""set -e;
-sysctl -w net.ipv4.conf.all.forwarding=1;
-sysctl -w net.ipv6.conf.all.forwarding=1;
-sleep 2;
-ip link set dev {remote_tun} up;{routes}
-iptables -C INPUT -i {remote_tun} -j ACCEPT &> /dev/null || iptables -A INPUT -i {remote_tun} -j ACCEPT;
-ip6tables -C INPUT -i {remote_tun} -j ACCEPT &> /dev/null || ip6tables -A INPUT -i {remote_tun} -j ACCEPT;
-iptables -C OUTPUT -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT &> /dev/null || iptables -A OUTPUT -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT;
-ip6tables -C OUTPUT -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT &> /dev/null || ip6tables -A OUTPUT -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"""
-        if connection.config.remote_config_interface is not None:
-            remote_config = rf"""set -e;
-sysctl -w net.ipv4.conf.all.forwarding=1;
-sysctl -w net.ipv6.conf.all.forwarding=1;
-sleep 2;
-ip link set dev {remote_tun} up;{routes}
-iptables -C INPUT -i {remote_tun} -j ACCEPT &> /dev/null || iptables -A INPUT -i {remote_tun} -j ACCEPT;
-ip6tables -C INPUT -i {remote_tun} -j ACCEPT &> /dev/null || ip6tables -A INPUT -i {remote_tun} -j ACCEPT;
-iptables -C OUTPUT -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT &> /dev/null || iptables -A OUTPUT -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT;
-ip6tables -C OUTPUT -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT &> /dev/null || ip6tables -A OUTPUT -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT;
-iptables -C FORWARD -i {remote_tun} -j ACCEPT &> /dev/null || iptables -A FORWARD -i {remote_tun} -j ACCEPT;
-ip6tables -C FORWARD -i {remote_tun} -j ACCEPT &> /dev/null || ip6tables -A FORWARD -i {remote_tun} -j ACCEPT;
-iptables -C FORWARD -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT &> /dev/null || iptables -A FORWARD -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT;
-ip6tables -C FORWARD -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT &> /dev/null || ip6tables -A FORWARD -o {remote_tun} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT;
-iptables -C -t nat POSTROUTING -o {connection.config.remote_config_interface} -j MASQUERADE &> /dev/null || iptables -t nat -A POSTROUTING -o {connection.config.remote_config_interface} -j MASQUERADE;
-ip6tables -C -t nat POSTROUTING -o {connection.config.remote_config_interface} -j MASQUERADE &> /dev/null || ip6tables -t nat -A POSTROUTING -o {connection.config.remote_config_interface} -j MASQUERADE"""
+        remote_config = _remote_script(
+            f"tun{connection.config.remote_tunnel_id}",
+            [f"ip -4 route replace {i.network}" for i in if_ipv4]
+            + [f"ip -6 route replace {j.network}" for j in if_ipv6],
+            connection.config.remote_config_interface,
+        )
 
     # A stale socket (e.g. after a kill) would stop ssh from becoming master.
     ssh_master_socket.unlink(missing_ok=True)
