@@ -482,6 +482,18 @@ class TestReconfiguration:
         assert vpnctl("config discard --all") == "Discarded the changes of C0002.\n"
         assert vpnctl("config commit --all") == "No changes.\n"
 
+    @pytest.mark.parametrize("secret", ["new secret", "12345"])
+    def test_config_set_prompted_secret(self, secret: str) -> None:
+        """A prompted value (here on stdin) is taken as text, e.g. a secret."""
+        psk = f"network_instances.{NI}.connections.0.config.psk"
+        conftest.run_cmd_shell(
+            HOST,
+            f"bash -c 'echo \"{secret}\" | {VPNCTL} config set C0002 {psk}'",
+        )
+
+        shown = vpnctl_json(f"config show C0002 {psk} --candidate --reveal-secrets")
+        assert shown == secret
+
 
 class TestRestartNotice:
     """Service settings that apply after a restart are pointed out."""
