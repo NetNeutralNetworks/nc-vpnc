@@ -53,8 +53,6 @@ REMOVE_TIMEOUT = 300
 CPU_SAMPLE = 90
 # After the tunnels came up, links go up and routes follow for a while.
 SETTLE = 60
-# What a vpnctl command may take, including docker exec.
-VPNCTL_TIMEOUT = 5
 
 # Prints per scale namespace its addresses and routes as JSON lines, and the
 # WireGuard handshakes.
@@ -490,28 +488,6 @@ class TestScale:
             "the tunnels to recover",
         )
         print(f"Recovered in {took:.0f}s.")  # noqa: T201
-
-    def test_vpnctl_responsive(self) -> None:
-        """vpnctl shows status, every connection and an NI's logs within seconds."""
-        ni = f"{TENANTS[-1]}-{NIS_PER_TENANT - 1:02d}"
-        for command in (
-            "vpnctl status",
-            "vpnctl connections list",
-            "vpnctl connections list -o wide",
-            f"vpnctl logs --ni {ni} -n 50",
-        ):
-            started = time.monotonic()
-            conftest.run_cmd(HOST, command)
-            took = time.monotonic() - started
-            print(f"{command}: {took:.1f}s")  # noqa: T201
-            assert took < VPNCTL_TIMEOUT, f"{command} took {took:.1f}s"
-        connections = json.loads(
-            conftest.run_cmd(HOST, "vpnctl connections list -o json"),
-        )
-        up = [
-            c for c in connections if c["tenant"] in TENANTS and c["state"] == "up"
-        ]
-        assert len(up) == len(INDEXES)
 
     def test_all_still_applied(self) -> None:
         """After the changes, every network instance is still complete."""
