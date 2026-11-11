@@ -525,12 +525,28 @@ class NetworkInstance(BaseModel):
         NAT64_APPLIED.pop(self.id, None)
 
 
+def _refuse_ipsec(
+    v: dict[int, connections.Connection],
+) -> dict[int, connections.Connection]:
+    """Refuse IPsec connections: only CORE and DOWNLINK network instances have them.
+
+    Elsewhere their XFRM interface ids would clash with CORE's.
+    """
+    for connection in v.values():
+        if connection.config.type == enums.ConnectionType.IPSEC:
+            msg = f"connection {connection.id}: IPsec isn't supported here"
+            raise ValueError(msg)
+    return v
+
+
 class NetworkInstanceExternal(NetworkInstance):
     """Define an EXTERNAL network instance data structure."""
 
     type: Literal[enums.NetworkInstanceType.EXTERNAL] = (
         enums.NetworkInstanceType.EXTERNAL
     )
+
+    _no_ipsec = field_validator("connections")(_refuse_ipsec)
 
     def delete(self) -> None:
         """Delete an EXTERNAL network instance."""
@@ -739,6 +755,8 @@ class NetworkInstanceEndpoint(NetworkInstance):
     type: Literal[enums.NetworkInstanceType.ENDPOINT] = (
         enums.NetworkInstanceType.ENDPOINT
     )
+
+    _no_ipsec = field_validator("connections")(_refuse_ipsec)
 
     def delete(self) -> None:
         """Delete an ENDPOINT network instance."""
