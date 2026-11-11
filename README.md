@@ -71,11 +71,12 @@ State, read live:
 ~$ sudo vpnctl ni list [C0001]               # network instances
 ~$ sudo vpnctl ni show C0001-00              # with NAT64 and NPTv6 translations
 ~$ sudo vpnctl connections list [C0001 | C0001-00] [--state down] [--type ipsec]
-~$ sudo vpnctl connections show C0001-00-0   # e.g. IKE and child SAs
+~$ sudo vpnctl connections show C0001-00-0   # e.g. IKE and child SAs, traffic counters
 ~$ sudo vpnctl connections logs C0001-00-0 [-n 100] [-f]   # vpnc's, ssh's and charon's lines
 ~$ sudo vpnctl bgp neighbors                 # hub mode
 ~$ sudo vpnctl bgp neighbor fd00:1:2::1      # in detail
 ~$ sudo vpnctl bgp routes [--received-from|--advertised-to NEIGHBOR]
+~$ sudo vpnctl logs [--source vpnc|vpncmangle|charon | --ni C0001-00] [--level warning] [-n 50] [-f]
 ~$ sudo vpnctl version
 ```
 
