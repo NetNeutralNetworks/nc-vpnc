@@ -42,7 +42,7 @@ HISTORY = 5
 
 logger = logging.getLogger("vpnc")
 # Commits, confirms and rollbacks (also from timers).
-LOCK = threading.RLock()
+LOCK = files.CONFIG_LOCK
 TIMERS: dict[str, threading.Timer] = {}
 
 
@@ -222,11 +222,12 @@ def write_candidate(tenant_id: str, data: Any) -> dict[str, Any]:  # noqa: ANN40
     """Validate and stage a configuration; return it as stored."""
     check_id(tenant_id)
     model = validate(tenant_id, data)
-    files.ensure_file(
-        _path(tenant_id, "candidate"),
-        _yaml(_dump(model, reveal=True)),
-        secret=True,
-    )
+    with LOCK:
+        files.ensure_file(
+            _path(tenant_id, "candidate"),
+            _yaml(_dump(model, reveal=True)),
+            secret=True,
+        )
     return _dump(model, reveal=False)  # type: ignore[return-value]
 
 
@@ -253,10 +254,11 @@ def patch_candidate(tenant_id: str, patch: Any) -> dict[str, Any]:  # noqa: ANN4
     A tenant without configuration starts empty.
     """
     check_id(tenant_id)
-    base = _dump(_load(tenant_id, "candidate"), reveal=True)
-    if base is None:
-        base = {"version": VERSION, "id": tenant_id}
-    return write_candidate(tenant_id, merge_patch(base, patch))
+    with LOCK:
+        base = _dump(_load(tenant_id, "candidate"), reveal=True)
+        if base is None:
+            base = {"version": VERSION, "id": tenant_id}
+        return write_candidate(tenant_id, merge_patch(base, patch))
 
 
 def delete_candidate(tenant_id: str) -> CommitResult:
@@ -264,15 +266,17 @@ def delete_candidate(tenant_id: str) -> CommitResult:
     check_id(tenant_id)
     if tenant_id == config.DEFAULT_TENANT:
         raise ConfigError(409, "Conflict", "The service can't be removed.")
-    if _load(tenant_id, "candidate") is None:
+    with LOCK:
+        if _load(tenant_id, "candidate") is None:
+            if _text(tenant_id, "active") is None:
+                detail = f"No configuration of {tenant_id}."
+                raise ConfigError(404, "Not found", detail)
+            return CommitResult(id=tenant_id, changed=False)
         if _text(tenant_id, "active") is None:
-            raise ConfigError(404, "Not found", f"No configuration of {tenant_id}.")
-        return CommitResult(id=tenant_id, changed=False)
-    if _text(tenant_id, "active") is None:
-        # Only staged: nothing to remove on commit.
-        _path(tenant_id, "candidate").unlink()
-    else:
-        files.ensure_file(_path(tenant_id, "candidate"), "", secret=True)
+            # Only staged: nothing to remove on commit.
+            _path(tenant_id, "candidate").unlink()
+        else:
+            files.ensure_file(_path(tenant_id, "candidate"), "", secret=True)
     return CommitResult(id=tenant_id, changed=True)
 
 
@@ -507,11 +511,12 @@ def restore(tenant_id: str, revision: int) -> CommitResult:
 def discard(tenant_id: str) -> CommitResult:
     """Drop the staged changes."""
     check_id(tenant_id)
-    changed = _dump(_load(tenant_id, "candidate"), reveal=True) != _dump(
-        _load(tenant_id, "active"),
-        reveal=True,
-    )
-    _path(tenant_id, "candidate").unlink(missing_ok=True)
+    with LOCK:
+        changed = _dump(_load(tenant_id, "candidate"), reveal=True) != _dump(
+            _load(tenant_id, "active"),
+            reveal=True,
+        )
+        _path(tenant_id, "candidate").unlink(missing_ok=True)
     return CommitResult(id=tenant_id, changed=changed)
 
 

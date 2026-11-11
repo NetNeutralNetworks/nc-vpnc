@@ -29,6 +29,11 @@ def observe() -> BaseObserver:
             time.sleep(0.1)
             helpers.load_config()
 
+        def on_moved(self, event: FileSystemEvent) -> None:
+            logger.info("File %s: %s", event.event_type, event.dest_path)
+            time.sleep(0.1)
+            helpers.load_config()
+
         def on_deleted(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
             time.sleep(0.1)
