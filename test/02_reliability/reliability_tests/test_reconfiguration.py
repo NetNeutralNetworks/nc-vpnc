@@ -483,6 +483,35 @@ class TestReconfiguration:
         assert vpnctl("config commit --all") == "No changes.\n"
 
 
+class TestRestartNotice:
+    """Service settings that apply after a restart are pointed out."""
+
+    def test_restart_notice(self) -> None:
+        """Changing the NAT64 prefix needs a restart; changing it back doesn't."""
+        host = "hub01"
+        path = "prefix_downlink_nat64"
+        original = conftest.run_cmd(host, f"{VPNCTL} config show service {path}")
+        try:
+            conftest.run_cmd(host, f"{VPNCTL} config set service {path} 64:ff9a::/32")
+            output = conftest.run_cmd(host, f"{VPNCTL} config commit service")
+            assert f"Restart vpnc to apply {path}" in output
+            status = json.loads(conftest.run_cmd(host, f"{VPNCTL} -o json status"))
+            assert status["restart_needed"] == [path]
+        finally:
+            conftest.run_cmd(host, f"{VPNCTL} config set service {path} {original}")
+            output = conftest.run_cmd(host, f"{VPNCTL} config commit service")
+
+        assert "Restart" not in output
+        conftest.wait_until(
+            lambda: json.loads(
+                conftest.run_cmd(host, f"{VPNCTL} -o json ni show C0001-00"),
+            )["translations"][0]["local"]
+            == "fdcc:0:c:1::/96",
+            timeout=APPLY_TIMEOUT,
+            message="the NAT64 translation to be restored",
+        )
+
+
 def set_route(route: str) -> None:
     """Stage the test connection's IPv4 route."""
     vpnctl(f"config set C0002 {ROUTES_PATH}.ipv4.0.to {route}")

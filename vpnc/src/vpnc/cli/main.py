@@ -177,8 +177,30 @@ def cmd_status(args: argparse.Namespace) -> None:
             ("Tenants", data["tenants"]),
             ("Network instances", data["network_instances"]),
             ("Connections", f"{data['connections_up']}/{data['connections']} up"),
+            *(
+                [("vpncmangle", vpncmangle_text(data["vpncmangle"]))]
+                if data.get("vpncmangle")
+                else []
+            ),
+            *(
+                [
+                    (
+                        "Restart needed",
+                        f"{', '.join(data['restart_needed'])} changed "
+                        "(vpnctl service restart)",
+                    ),
+                ]
+                if data.get("restart_needed")
+                else []
+            ),
         ],
     )
+
+
+def vpncmangle_text(state: dict[str, Any]) -> str:
+    """Return vpncmangle's state, e.g. running, 12 translations."""
+    running = "running" if state["running"] else "not running"
+    return f"{running}, {state['translations']} translations"
 
 
 def _up(row: dict[str, Any]) -> dict[str, Any]:
@@ -856,13 +878,16 @@ def cmd_config_commit(args: argparse.Namespace) -> None:
     """Apply the staged changes; with --confirm, roll back unless confirmed."""
     if (path := _all_or_target(args, "commit")) is None:
         results = request("POST", "/v1/config/commit", params={"confirm": args.confirm})
-        for result in results:
+        committed = [r for r in results if r["changed"] or r["confirm_by"]]
+        for result in committed:
             confirm = f"; confirm before {result['confirm_by']}"
             print(f"Committed {result['id']}{confirm if result['confirm_by'] else ''}.")
-        if not results:
+        if not committed:
             print("No changes.")
         elif args.confirm:
             print("Confirm with: vpnctl config confirm --all, or they're rolled back.")
+        for result in results:
+            restart_notice(result)
         return
     result = request("POST", path, params={"confirm": args.confirm})
     if result.get("confirm_by"):
@@ -870,8 +895,17 @@ def cmd_config_commit(args: argparse.Namespace) -> None:
             f"Committed. Confirm before {result['confirm_by']} with: "
             f"vpnctl config confirm {args.target}, or it's rolled back.",
         )
-        return
-    print("Committed." if result["changed"] else "No changes.")
+    else:
+        print("Committed." if result["changed"] else "No changes.")
+    restart_notice(result)
+
+
+def restart_notice(result: dict[str, Any]) -> None:
+    """Say which service settings need a restart to apply."""
+    if fields_ := result.get("restart_needed"):
+        print(
+            f"Restart vpnc to apply {', '.join(fields_)}: vpnctl service restart",
+        )
 
 
 def cmd_config_confirm(args: argparse.Namespace) -> None:

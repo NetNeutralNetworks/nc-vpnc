@@ -71,7 +71,15 @@ class TestVpnctl:
         """The overview has the mode, and all connections are up."""
         status = vpnctl(host, "status")
 
-        assert status["mode"] == ("hub" if host.startswith("hub") else "endpoint")
+        hub = host.startswith("hub")
+        assert status["mode"] == ("hub" if hub else "endpoint")
+        assert status["restart_needed"] == []
+        if hub:
+            assert status["vpncmangle"]["running"] is True
+            # C0001-00's NAT64 and NPTv6 translations at least.
+            assert status["vpncmangle"]["translations"] >= len(TRANSLATIONS_C0001_00)
+        else:
+            assert status["vpncmangle"] is None
         assert (
             status["connections_up"]
             == status["connections"]
