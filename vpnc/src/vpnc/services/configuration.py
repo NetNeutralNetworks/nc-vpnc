@@ -156,6 +156,7 @@ def _manage_tenant(path: pathlib.Path) -> None:
             "VPNC in ENDPOINT mode doesn't support"
             " configuration files other than DEFAULT. Ignoring.",
         )
+        return
 
     previous_ids: set[str] = set()
     if active_tenant:
@@ -287,6 +288,7 @@ def _delete_downlink_tenant(path: pathlib.Path) -> None:
             "VPNC in ENDPOINT mode doesn't support"
             " configuration files other than DEFAULT. Ignoring.",
         )
+        return
 
     TENANT_PATHS.pop(tenant_id, None)
     # The reconciler removes the network instances.
