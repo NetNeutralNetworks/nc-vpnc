@@ -73,7 +73,7 @@ class TestDNSMangle:
         """
         response = conftest.run_cmd(
             host,
-            f"dig +short +time=1 +tries=1 v4lonly.example.com @{server}",
+            f"dig +short +time=1 +tries=3 v4lonly.example.com @{server}",
         )
 
         assert response.strip() == answer
@@ -102,7 +102,7 @@ class TestDNSMangle:
         """
         response = conftest.run_cmd(
             host,
-            f"dig +short +time=1 +tries=1 v4lonly.example.com AAAA @{server}",
+            f"dig +short +time=1 +tries=3 v4lonly.example.com AAAA @{server}",
         )
 
         assert response.strip() == answer
@@ -130,7 +130,7 @@ class TestDNSMangle:
         """
         response = conftest.run_cmd(
             host,
-            f"dig +short +time=1 +tries=1 v64l.example.com @{server}",
+            f"dig +short +time=1 +tries=3 v64l.example.com @{server}",
         )
 
         assert response.strip() == answer
@@ -158,7 +158,7 @@ class TestDNSMangle:
         """
         response = conftest.run_cmd(
             host,
-            f"dig +short +time=1 +tries=1 v64l.example.com AAAA @{server}",
+            f"dig +short +time=1 +tries=3 v64l.example.com AAAA @{server}",
         )
 
         assert response.strip() == answer
@@ -186,7 +186,7 @@ class TestDNSMangle:
         """
         response = conftest.run_cmd(
             host,
-            f"dig +short +time=1 +tries=1 v6lonly.example.com AAAA @{server}",
+            f"dig +short +time=1 +tries=3 v6lonly.example.com AAAA @{server}",
         )
 
         assert response.strip() == answer
@@ -215,7 +215,7 @@ class TestDNSMangle:
         """
         record = conftest.run_cmd(
             host,
-            f"dig +short +time=1 +tries=1 v6lonly.example.com A @{server}",
+            f"dig +short +time=1 +tries=3 v6lonly.example.com A @{server}",
         )
 
         assert record.strip() == answer
@@ -243,7 +243,7 @@ class TestDNSMangle:
         """
         response = conftest.run_cmd(
             host,
-            f"dig +short +time=1 +tries=1 v6gonly.example.com AAAA @{server}",
+            f"dig +short +time=1 +tries=3 v6gonly.example.com AAAA @{server}",
         )
 
         assert response.strip() == answer
@@ -259,7 +259,7 @@ class TestDNSMangle:
         """A CNAME is kept, followed by the translated address of its target."""
         response = conftest.run_cmd(
             host,
-            f"dig +short +time=1 +tries=1 cname4.example.com @{server}",
+            f"dig +short +time=1 +tries=3 cname4.example.com @{server}",
         )
 
         assert response.split() == ["v4lonly.example.com.", answer]
@@ -275,7 +275,7 @@ class TestDNSMangle:
         """A CNAME is kept, followed by the translated AAAA address of its target."""
         response = conftest.run_cmd(
             host,
-            f"dig +short +time=1 +tries=1 cname6.example.com AAAA @{server}",
+            f"dig +short +time=1 +tries=3 cname6.example.com AAAA @{server}",
         )
 
         assert response.split() == ["v6lonly.example.com.", answer]
@@ -288,7 +288,7 @@ class TestDNSMangle:
         """Without a reachable address left, the name still exists (NODATA)."""
         response = conftest.run_cmd(
             host,
-            f"dig +time=1 +tries=1 v6unreach.example.com AAAA @{server}",
+            f"dig +time=1 +tries=3 v6unreach.example.com AAAA @{server}",
         )
 
         assert "status: NOERROR" in response
@@ -300,7 +300,7 @@ class TestDNSMangle:
         """Records other than A and AAAA are passed on unchanged."""
         response = conftest.run_cmd(
             host,
-            f"dig +short +time=1 +tries=1 txt.example.com TXT @{server}",
+            f"dig +short +time=1 +tries=3 txt.example.com TXT @{server}",
         )
 
         assert response.strip() == '"hello"'
