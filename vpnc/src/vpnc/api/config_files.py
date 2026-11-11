@@ -367,14 +367,14 @@ def commit(tenant_id: str, confirm: int | None = None) -> CommitResult:
     check_id(tenant_id)
     with LOCK:
         previous = _text(tenant_id, "active")
+        changed = False
         if _text(tenant_id, "candidate") is not None:
-            candidate = _load(tenant_id, "candidate")
-            text = _yaml(_dump(candidate, reveal=True)) if candidate else None
-            changed = _set_active(tenant_id, text)
+            candidate = _dump(_load(tenant_id, "candidate"), reveal=True)
+            # Only changed configurations: the files may differ in formatting.
+            if candidate != _dump(_load(tenant_id, "active"), reveal=True):
+                changed = _set_active(tenant_id, _yaml(candidate) or None)
             if candidate is None:
                 _path(tenant_id, "candidate").unlink()
-        else:
-            changed = False
         if changed:
             _save_history(tenant_id, previous)
         pending = _pending(tenant_id)
@@ -473,3 +473,32 @@ def discard(tenant_id: str) -> CommitResult:
     )
     _path(tenant_id, "candidate").unlink(missing_ok=True)
     return CommitResult(id=tenant_id, changed=changed)
+
+
+def _staged_ids() -> list[str]:
+    """Return the tenants (and service) with a candidate file or pending commit."""
+    ids = {
+        p.stem
+        for p in DIRS["candidate"].glob("*.yaml")
+        if config.TENANT_RE.match(p.stem)
+    } | {p.parent.name for p in HISTORY_DIR.glob("*/pending.json")}
+    return sorted(ids)
+
+
+def commit_all(confirm: int | None = None) -> list[CommitResult]:
+    """Commit the staged changes of all tenants and the service."""
+    results = [commit(tenant_id, confirm) for tenant_id in _staged_ids()]
+    return [r for r in results if r.changed or r.confirm_by]
+
+
+def confirm_all() -> list[CommitResult]:
+    """Confirm all commits."""
+    return [
+        confirm(p.parent.name) for p in sorted(HISTORY_DIR.glob("*/pending.json"))
+    ]
+
+
+def discard_all() -> list[CommitResult]:
+    """Drop the staged changes of all tenants and the service."""
+    results = [discard(tenant_id) for tenant_id in _staged_ids()]
+    return [r for r in results if r.changed]
