@@ -3,27 +3,24 @@
 Errors are RFC 9457 problem details (application/problem+json).
 """
 
-from collections.abc import Callable
-from typing import Annotated, Any, NoReturn
+from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, FastAPI, Path, Query, Request
+from typing import TYPE_CHECKING, Annotated, Any, NoReturn
+
+from fastapi import Body, FastAPI, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import ValidationError
 
 from vpnc import config
 from vpnc.api import config_files, logs, status
-from vpnc.api.config_files import (
-    CommitResult,
-    ConfigError,
-    ConfigSummary,
-    HistoryEntry,
-    Revision,
-)
+from vpnc.api.config_files import CommitResult, ConfigError, ConfigSummary, Revision
 from vpnc.models import enums, tenant
-from vpnc.models.connections import Connection
-from vpnc.models.network_instance import NetworkInstance
 from vpnc.services import control
+
+if TYPE_CHECKING:
+    from vpnc.models.connections import Connection
+    from vpnc.models.network_instance import NetworkInstance
 
 app = FastAPI(
     title="vpnc",
@@ -34,7 +31,6 @@ app = FastAPI(
 )
 
 PROBLEM = "application/problem+json"
-ConfigBody = Annotated[dict[str, Any], Body()]
 
 
 def problem(status_code: int, title: str, detail: Any) -> JSONResponse:  # noqa: ANN401
@@ -215,6 +211,8 @@ def list_bgp_neighbors() -> list[status.BgpNeighbor]:
 # Configuration, per file: a tenant, or the service (the DEFAULT file). Writes
 # are staged in the candidate; a commit makes them active.
 
+TenantId = Annotated[str, Path(pattern=r"^[2-9A-F]\d{4}$")]
+Config = Annotated[dict[str, Any], Body()]
 SERVICE = config.DEFAULT_TENANT
 
 
@@ -224,102 +222,86 @@ def list_configs() -> list[ConfigSummary]:
     return config_files.summaries()
 
 
-def tenant_id_path(tenant_id: Annotated[str, Path(pattern=r"^[2-9A-F]\d{4}$")]) -> str:
-    """Return the tenant id from the path."""
-    return tenant_id
+@app.get("/v1/config/tenants/{tenant_id}")
+def get_tenant_config(
+    tenant_id: TenantId,
+    revision: Revision = "active",
+    reveal_secrets: bool = False,  # noqa: FBT001, FBT002
+) -> dict[str, Any]:
+    """Return a tenant's configuration (candidate: with staged changes)."""
+    return config_files.read(tenant_id, revision, reveal=reveal_secrets)
 
 
-def service_id() -> str:
-    """Return the service's (DEFAULT's) id."""
-    return SERVICE
+@app.put("/v1/config/tenants/{tenant_id}")
+def put_tenant_config(tenant_id: TenantId, body: Config) -> dict[str, Any]:
+    """Stage a tenant's configuration; creates the tenant on commit if new."""
+    return config_files.write_candidate(tenant_id, body)
 
 
-def config_routes(prefix: str, target: Callable[..., str], what: str) -> APIRouter:
-    """Return the routes of a configuration file (a tenant's or the service's)."""
-    router = APIRouter(prefix=prefix)
-    Target = Annotated[str, Depends(target)]  # noqa: N806
-    Reveal = Annotated[bool, Query(alias="reveal_secrets")]  # noqa: N806
-
-    @router.get("", summary=f"Return the {what} configuration")
-    def get_config(
-        target_id: Target,
-        revision: Revision = "active",
-        reveal: Reveal = False,  # noqa: FBT002
-    ) -> dict[str, Any]:
-        """The candidate revision includes the staged changes."""
-        return config_files.read(target_id, revision, reveal=reveal)
-
-    @router.put("", summary=f"Stage the {what} configuration")
-    def put_config(target_id: Target, body: ConfigBody) -> dict[str, Any]:
-        """A new tenant is created on commit."""
-        return config_files.write_candidate(target_id, body)
-
-    @router.patch("", summary=f"Stage changes to the {what} configuration")
-    def patch_config(target_id: Target, body: ConfigBody) -> dict[str, Any]:
-        """An RFC 7386 merge patch: null removes."""
-        return config_files.patch_candidate(target_id, body)
-
-    @router.get("/diff", response_class=PlainTextResponse, summary="Staged changes")
-    def diff(target_id: Target) -> str:
-        """A unified diff; secrets are hidden."""
-        return config_files.diff(target_id)
-
-    @router.post("/commit", summary="Apply the staged changes")
-    def commit(
-        target_id: Target,
-        confirm: Annotated[int | None, Query(ge=10, le=86400)] = None,
-    ) -> CommitResult:
-        """With confirm (seconds), it's rolled back unless confirmed in time.
-
-        A commit without confirm confirms an earlier one.
-        """
-        return config_files.commit(target_id, confirm)
-
-    @router.post("/confirm", summary="Confirm a commit")
-    def confirm(target_id: Target) -> CommitResult:
-        """The commit isn't rolled back."""
-        return config_files.confirm(target_id)
-
-    @router.post("/discard", summary="Drop the staged changes")
-    def discard(target_id: Target) -> CommitResult:
-        """The candidate is the active configuration again."""
-        return config_files.discard(target_id)
-
-    @router.get("/history", summary="Earlier active configurations")
-    def history(target_id: Target) -> list[HistoryEntry]:
-        """Most recent first; a commit adds one."""
-        return config_files.history(target_id)
-
-    @router.get("/history/{revision}", summary="An earlier active configuration")
-    def get_history(
-        target_id: Target,
-        revision: Annotated[int, Path(ge=1)],
-        reveal: Reveal = False,  # noqa: FBT002
-    ) -> dict[str, Any]:
-        """404 if the tenant didn't exist then."""
-        return config_files.read_history(target_id, revision, reveal=reveal)
-
-    @router.post("/history/{revision}/restore", summary="Stage an earlier revision")
-    def restore(
-        target_id: Target,
-        revision: Annotated[int, Path(ge=1)],
-    ) -> CommitResult:
-        """Commit to apply it."""
-        return config_files.restore(target_id, revision)
-
-    return router
+@app.patch("/v1/config/tenants/{tenant_id}")
+def patch_tenant_config(tenant_id: TenantId, body: Config) -> dict[str, Any]:
+    """Stage changes to a tenant's configuration (RFC 7386 merge patch)."""
+    return config_files.patch_candidate(tenant_id, body)
 
 
-tenant_routes = config_routes("/v1/config/tenants/{tenant_id}", tenant_id_path, "tenant")
-
-
-@tenant_routes.delete("", summary="Stage removing the tenant")
-def delete_tenant_config(
-    tenant_id: Annotated[str, Depends(tenant_id_path)],
-) -> CommitResult:
-    """The tenant is removed on commit."""
+@app.delete("/v1/config/tenants/{tenant_id}")
+def delete_tenant_config(tenant_id: TenantId) -> CommitResult:
+    """Stage removing a tenant."""
     return config_files.delete_candidate(tenant_id)
 
 
-app.include_router(tenant_routes)
-app.include_router(config_routes("/v1/config/service", service_id, "service"))
+@app.get("/v1/config/tenants/{tenant_id}/diff", response_class=PlainTextResponse)
+def diff_tenant(tenant_id: TenantId) -> str:
+    """Return a tenant's staged changes."""
+    return config_files.diff(tenant_id)
+
+
+@app.post("/v1/config/tenants/{tenant_id}/commit")
+def commit_tenant(tenant_id: TenantId) -> CommitResult:
+    """Apply a tenant's staged changes."""
+    return config_files.commit(tenant_id)
+
+
+@app.post("/v1/config/tenants/{tenant_id}/discard")
+def discard_tenant(tenant_id: TenantId) -> CommitResult:
+    """Drop a tenant's staged changes."""
+    return config_files.discard(tenant_id)
+
+
+@app.get("/v1/config/service")
+def get_service_config(
+    revision: Revision = "active",
+    reveal_secrets: bool = False,  # noqa: FBT001, FBT002
+) -> dict[str, Any]:
+    """Return the service configuration (candidate: with staged changes)."""
+    return config_files.read(SERVICE, revision, reveal=reveal_secrets)
+
+
+@app.put("/v1/config/service")
+def put_service_config(body: Config) -> dict[str, Any]:
+    """Stage the service configuration."""
+    return config_files.write_candidate(SERVICE, body)
+
+
+@app.patch("/v1/config/service")
+def patch_service_config(body: Config) -> dict[str, Any]:
+    """Stage changes to the service configuration (RFC 7386 merge patch)."""
+    return config_files.patch_candidate(SERVICE, body)
+
+
+@app.get("/v1/config/service/diff", response_class=PlainTextResponse)
+def diff_service() -> str:
+    """Return the staged service changes."""
+    return config_files.diff(SERVICE)
+
+
+@app.post("/v1/config/service/commit")
+def commit_service() -> CommitResult:
+    """Apply the staged service changes. Some changes need a restart."""
+    return config_files.commit(SERVICE)
+
+
+@app.post("/v1/config/service/discard")
+def discard_service() -> CommitResult:
+    """Drop the staged service changes."""
+    return config_files.discard(SERVICE)

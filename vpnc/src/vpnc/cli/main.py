@@ -465,15 +465,7 @@ def cmd_config_list(args: argparse.Namespace) -> None:
     """List the tenants with configuration and their staged changes."""
     data = request("GET", "/v1/config/tenants")
     if not dump(data, args.output):
-        table(
-            data,
-            [
-                ("TENANT", "id"),
-                ("NAME", "name"),
-                ("STAGED", "status"),
-                ("CONFIRM BY", "confirm_by"),
-            ],
-        )
+        table(data, [("TENANT", "id"), ("NAME", "name"), ("STAGED", "status")])
 
 
 def cmd_config_show(args: argparse.Namespace) -> None:
@@ -587,61 +579,10 @@ def cmd_config_diff(args: argparse.Namespace) -> None:
     print_diff(args.target)
 
 
-def seconds(text: str) -> int:
-    """Return the seconds of a duration like 90, 90s, 5m or 1h."""
-    units = {"s": 1, "m": 60, "h": 3600}
-    try:
-        if text[-1:] in units:
-            return int(text[:-1]) * units[text[-1]]
-        return int(text)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"invalid duration: {text}") from None
-
-
 def cmd_config_commit(args: argparse.Namespace) -> None:
-    """Apply the staged changes; with --confirm, roll back unless confirmed."""
-    result = request(
-        "POST",
-        f"{config_path(args.target)}/commit",
-        params={"confirm": args.confirm},
-    )
-    if result.get("confirm_by"):
-        print(
-            f"Committed. Confirm before {result['confirm_by']} with: "
-            f"vpnctl config confirm {args.target}, or it's rolled back.",
-        )
-        return
+    """Apply the staged changes."""
+    result = request("POST", f"{config_path(args.target)}/commit")
     print("Committed." if result["changed"] else "No changes.")
-
-
-def cmd_config_confirm(args: argparse.Namespace) -> None:
-    """Confirm a commit, so it isn't rolled back."""
-    request("POST", f"{config_path(args.target)}/confirm")
-    print("Confirmed.")
-
-
-def cmd_config_history(args: argparse.Namespace) -> None:
-    """List the earlier active configurations, or show one."""
-    if args.revision is not None:
-        data = request(
-            "GET",
-            f"{config_path(args.target)}/history/{args.revision}",
-            params={"reveal_secrets": "true" if args.reveal_secrets else None},
-        )
-        dump(data, args.output if args.output in ("json", "yaml") else "yaml")
-        return
-    data = request("GET", f"{config_path(args.target)}/history")
-    if not dump(data, args.output):
-        table(
-            data,
-            [("REVISION", "revision"), ("REPLACED", "replaced"), ("EXISTS", "exists")],
-        )
-
-
-def cmd_config_restore(args: argparse.Namespace) -> None:
-    """Stage an earlier active configuration."""
-    request("POST", f"{config_path(args.target)}/history/{args.revision}/restore")
-    staged_message(args.target)
 
 
 def cmd_config_discard(args: argparse.Namespace) -> None:
@@ -688,10 +629,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
         "delete": "target",
         "diff": "target",
         "commit": "target",
-        "confirm": "target",
         "discard": "target",
-        "history": "target",
-        "restore": "target",
     },
     "completion": {"bash": None},
 }
@@ -700,7 +638,6 @@ OPTION_VALUES = {
     "--output": ["table", "wide", "json", "yaml"],
     "--state": STATES,
     "--type": TYPES,
-    "--confirm": ["1m", "5m", "10m"],
     "-n": [],
     "--lines": [],
 }
@@ -861,25 +798,10 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("path", nargs="?", **path)
     for name, func in (
         ("diff", cmd_config_diff),
-        ("confirm", cmd_config_confirm),
+        ("commit", cmd_config_commit),
         ("discard", cmd_config_discard),
     ):
         add(cfg, name, func).add_argument("target", **target)
-    p = add(cfg, "commit", cmd_config_commit)
-    p.add_argument("target", **target)
-    p.add_argument(
-        "--confirm",
-        type=seconds,
-        metavar="TIME",
-        help="roll back unless confirmed within TIME, e.g. 5m",
-    )
-    p = add(cfg, "history", cmd_config_history)
-    p.add_argument("target", **target)
-    p.add_argument("revision", nargs="?", type=int, help="show this revision")
-    p.add_argument("--reveal-secrets", action="store_true")
-    p = add(cfg, "restore", cmd_config_restore)
-    p.add_argument("target", **target)
-    p.add_argument("revision", type=int, help="see: vpnctl config history")
     return main
 
 

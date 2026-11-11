@@ -15,10 +15,7 @@ SOCKET = pathlib.Path("/run/vpnc/api.sock")
 
 def start() -> None:
     """Serve the API in a daemon thread."""
-    from vpnc.api import config_files  # noqa: PLC0415
     from vpnc.api.app import app  # noqa: PLC0415  (loads FastAPI only when served)
-
-    config_files.resume_pending()
 
     # Root only: uvicorn makes the socket itself accessible to all.
     SOCKET.parent.mkdir(exist_ok=True)
