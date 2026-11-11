@@ -70,7 +70,9 @@ class ConnectionConfigPhysical(BaseModel):
         with state.netns(network_instance.id) as dl:
             if not (indexes := dl.ipr.link_lookup(ifname=interface_name)):
                 return
-            dl.ipr.link("set", index=indexes[0], net_ns_fd=1)
+            # The namespace of PID 1 (DEFAULT); a number as net_ns_fd is a file
+            # descriptor.
+            dl.ipr.link("set", index=indexes[0], net_ns_pid=1)
             dl.invalidate()
 
     def intf_name(
