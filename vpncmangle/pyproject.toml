@@ -27,7 +27,8 @@ classifiers = [
 ]
 dependencies = [
     "NetfilterQueue~=1.1",
-    "scapy~=2.5",
+    # The answer sections are lists since 2.6.
+    "scapy~=2.6",
 ]
 dynamic = ["version"]
 

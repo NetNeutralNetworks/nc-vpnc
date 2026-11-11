@@ -29,3 +29,7 @@ v64l    IN      A       172.16.31.64
 v64l    IN      AAAA    fdff:db8:c57:31::64
 v64g    IN      A       198.51.100.64
 v64g    IN      AAAA    2001:db8:c57:31::64
+cname4  IN      CNAME   v4lonly
+cname6  IN      CNAME   v6lonly
+v6unreach IN    AAAA    2001:db8:dead::6
+txt     IN      TXT     "hello"
