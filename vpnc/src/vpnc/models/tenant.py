@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from ipaddress import (
     IPv4Address,
     IPv4Network,
@@ -22,6 +23,7 @@ from pydantic import (
     ValidationInfo,
     field_serializer,
     field_validator,
+    model_validator,
 )
 from pydantic_core import PydanticCustomError
 
@@ -40,6 +42,13 @@ if TYPE_CHECKING:
     import pathlib
 
 logger = logging.getLogger("vpnc")
+
+
+# The network instances of the service (DEFAULT) per mode.
+SERVICE_NETWORK_INSTANCES = {
+    ServiceMode.HUB: (config.CORE_NI, config.EXTERNAL_NI),
+    ServiceMode.ENDPOINT: (config.CORE_NI, config.EXTERNAL_NI, config.ENDPOINT_NI),
+}
 
 
 class Tenant(BaseModel):
@@ -65,6 +74,24 @@ class Tenant(BaseModel):
     @field_serializer("version")
     def _version_to_str(self, v: Version) -> str:
         return str(v)
+
+    @model_validator(mode="after")
+    def _check_network_instance_ids(self) -> Tenant:
+        """Refuse network instances of another tenant or of the service."""
+        for key, network_instance in self.network_instances.items():
+            if key != network_instance.id:
+                msg = f"network instance '{key}' has the id '{network_instance.id}'"
+                raise ValueError(msg)
+            if not self._owns(key):
+                msg = f"network instance '{key}' can't be part of {self.id}"
+                raise ValueError(msg)
+        return self
+
+    def _owns(self, network_instance_id: str) -> bool:
+        """Return whether the id is one of this tenant's, e.g. C0001-00."""
+        return bool(
+            re.fullmatch(rf"{re.escape(self.id)}-\d{{2}}", network_instance_id),
+        )
 
 
 class BGPGlobal(BaseModel):
@@ -109,6 +136,9 @@ class ServiceEndpoint(Tenant):
     # IKE local identifier for VPNs
     local_id: str = r"%any"
 
+    def _owns(self, network_instance_id: str) -> bool:
+        return network_instance_id in SERVICE_NETWORK_INSTANCES[self.mode]
+
     @field_validator("mode", mode="before")
     @classmethod
     def _coerce_type(cls, v: str) -> ServiceMode:
@@ -142,6 +172,9 @@ class ServiceHub(Tenant):
     # VPN CONFIG
     # IKE local identifier for VPNs
     local_id: str = r"%any"
+
+    def _owns(self, network_instance_id: str) -> bool:
+        return network_instance_id in SERVICE_NETWORK_INSTANCES[self.mode]
 
     # OVERLAY CONFIG
     # IPv4 prefix for downlink interfaces. Must be a /16, will get subnetted into /24s
@@ -295,6 +328,14 @@ def load_tenant_config(
             "Configuration file '%s' doesn't adhere to the schema",
             path,
             exc_info=True,
+        )
+        return None, None
+
+    if tenant.id != path.stem:
+        logger.critical(
+            "Configuration file '%s' holds the configuration of '%s'. Skipping.",
+            path,
+            tenant.id,
         )
         return None, None
 
