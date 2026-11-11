@@ -218,6 +218,29 @@ def list_bgp_neighbors() -> list[status.BgpNeighbor]:
 SERVICE = config.DEFAULT_TENANT
 
 
+@app.post("/v1/config/commit")
+def commit_all(
+    confirm: Annotated[int | None, Query(ge=10, le=86400)] = None,
+) -> list[CommitResult]:
+    """Commit the staged changes of all tenants and the service.
+
+    With confirm (seconds), each is rolled back unless confirmed in time.
+    """
+    return config_files.commit_all(confirm)
+
+
+@app.post("/v1/config/confirm")
+def confirm_all() -> list[CommitResult]:
+    """Confirm all commits."""
+    return config_files.confirm_all()
+
+
+@app.post("/v1/config/discard")
+def discard_all() -> list[CommitResult]:
+    """Drop the staged changes of all tenants and the service."""
+    return config_files.discard_all()
+
+
 @app.get("/v1/config/tenants")
 def list_configs() -> list[ConfigSummary]:
     """Return the tenants with configuration and their staged changes."""
