@@ -804,33 +804,14 @@ def cmd_config_edit(args: argparse.Namespace) -> None:
     staged_message(args.target)
 
 
-def prompt(path: str) -> str:
-    """Return a value typed in without echo (twice), or a line from stdin."""
-    if not sys.stdin.isatty():
-        value = sys.stdin.readline().rstrip("\n")
-    else:
-        import getpass  # noqa: PLC0415
-
-        value = getpass.getpass(f"{path}: ")
-        if getpass.getpass("Again: ") != value:
-            fail("The values don't match.")
-    if not value:
-        fail("No value given.")
-    return value
-
-
 def cmd_config_set(args: argparse.Namespace) -> None:
-    """Set a value at a path, creating missing parts; without one, prompt for it."""
+    """Set a value (YAML) at a path, creating missing parts."""
     import yaml  # noqa: PLC0415
 
-    if args.value is None:
-        # Taken as is: a secret like 123 or yes stays a string.
-        value: Any = prompt(args.path)
-    else:
-        try:
-            value = yaml.safe_load(args.value)
-        except yaml.YAMLError as err:
-            fail(f"Invalid YAML: {err}")
+    try:
+        value = yaml.safe_load(args.value)
+    except yaml.YAMLError as err:
+        fail(f"Invalid YAML: {err}")
     keys = split(args.path)
     if not keys:
         fail("Give a path to set.")
@@ -1274,12 +1255,7 @@ def parser() -> argparse.ArgumentParser:
     p = add(cfg, "set", cmd_config_set)
     p.add_argument("target", **target)
     p.add_argument("path", **path)
-    p.add_argument(
-        "value",
-        nargs="?",
-        help="YAML, e.g. 10.0.0.1, '[a, b]' or '{to: ::/0}'; "
-        "without it, prompted for as text (e.g. a secret)",
-    )
+    p.add_argument("value", help="YAML, e.g. 10.0.0.1, '[a, b]' or '{to: ::/0}'")
     p = add(cfg, "delete", cmd_config_delete)
     p.add_argument("target", **target)
     p.add_argument("path", nargs="?", **path)

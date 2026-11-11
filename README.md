@@ -103,7 +103,6 @@ Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Change
 ~$ sudo vpnctl config show C0001 [PATH] [--candidate] [--reveal-secrets]
 ~$ sudo vpnctl config edit C0001 [PATH]      # in $EDITOR, validated; a new id creates a tenant
 ~$ sudo vpnctl config set C0001 network_instances.C0001-00.connections.0.routes.ipv4.0.to 10.0.0.0/24
-~$ sudo vpnctl config set C0001 network_instances.C0001-00.connections.0.config.psk   # prompts, e.g. for a secret
 ~$ sudo vpnctl config delete C0001 [PATH]    # without a path: the tenant
 ~$ sudo vpnctl config diff C0001
 ~$ sudo vpnctl config commit C0001|--all [--confirm 5m]   # rolled back unless confirmed in time
