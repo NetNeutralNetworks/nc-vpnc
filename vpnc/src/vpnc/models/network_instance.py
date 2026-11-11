@@ -494,7 +494,11 @@ class NetworkInstance(BaseModel):
             ni_dl, dl_state = dl.ipr, dl.state
             ni_core, core_state = core.ipr, core.state
             state.ensure_veth(ni_core, core_state, veth_c, veth_d, self.id)
-            state.refresh_link(ni_dl, dl_state, veth_d)
+            if state.refresh_link(ni_dl, dl_state, veth_d) is None:
+                # The peer is elsewhere, e.g. in a namespace that was replaced.
+                state.delete_link(ni_core, core_state, veth_c)
+                state.ensure_veth(ni_core, core_state, veth_c, veth_d, self.id)
+                state.refresh_link(ni_dl, dl_state, veth_d)
             state.ensure_link_state(ni_core, core_state, veth_c, up=True)
             state.ensure_link_state(ni_dl, dl_state, veth_d, up=True)
 

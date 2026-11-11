@@ -154,8 +154,9 @@ class Reconciler:
 
 # The configuration last applied per network instance, to remove what's gone.
 APPLIED: dict[str, NetworkInstance] = {}
-# Network instances whose link and address events are watched.
-WATCHED: set[str] = set()
+# Network instances whose link and address events are watched, with the identity
+# of their namespace.
+WATCHED: dict[str, tuple[int, int]] = {}
 
 
 def configured_network_instances() -> dict[str, tuple[str, NetworkInstance]]:
@@ -192,6 +193,8 @@ def check_network_instances(keys: set[str] | None) -> None:
     """
     if keys is None:
         state.forget_stale()
+        # Opened below; a missing CORE would fail every full check.
+        namespace.add(name=config.CORE_NI)
         with state.session(), state.netns(config.CORE_NI), jool_instances():
             _check_network_instances(keys)
     else:
@@ -264,8 +267,11 @@ def watch(ni_id: str) -> None:
 
     Link changes only affect its routes.
     """
-    if ni_id in WATCHED:
+    identity = state.netns_identity(ni_id)
+    if WATCHED.get(ni_id) == identity:
         return
+    # The namespace was replaced: the old socket is in, and keeps, the old one.
+    unwatch(ni_id)
 
     def on_event(event: dict[str, Any]) -> None:
         state.changed(ni_id)
@@ -282,15 +288,14 @@ def watch(ni_id: str) -> None:
 
     logger.info("Monitoring the links of network instance %s.", ni_id)
     events.MONITOR.watch(ni_id, on_event)
-    WATCHED.add(ni_id)
+    WATCHED[ni_id] = identity
     # Registered after the namespace cleanup, so it runs before it.
     atexit.register(unwatch, ni_id)
 
 
 def unwatch(ni_id: str) -> None:
     """Stop monitoring the links of a network instance."""
-    if ni_id in WATCHED:
-        WATCHED.discard(ni_id)
+    if WATCHED.pop(ni_id, None) is not None:
         logger.info("Stopped monitoring the links of network instance %s.", ni_id)
         events.MONITOR.unwatch(ni_id)
 
