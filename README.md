@@ -91,13 +91,16 @@ Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Change
 ~$ sudo vpnctl config set C0001 network_instances.C0001-00.connections.0.routes.ipv4.0.to 10.0.0.0/24
 ~$ sudo vpnctl config delete C0001 [PATH]    # without a path: the tenant
 ~$ sudo vpnctl config diff C0001
-~$ sudo vpnctl config commit C0001
+~$ sudo vpnctl config commit C0001 [--confirm 5m]   # rolled back unless confirmed in time
+~$ sudo vpnctl config confirm C0001
 ~$ sudo vpnctl config discard C0001
+~$ sudo vpnctl config history C0001 [REVISION]     # the last 5 replaced configurations
+~$ sudo vpnctl config restore C0001 REVISION       # stages it; commit to apply
 ```
 
 Every command takes `-o table|wide|json|yaml`.
 
-The files are in `/opt/ncubed/config/vpnc/`: `active` holds what vpnc applies, `candidate` the staged changes. A tenant without a candidate file has none staged; an empty candidate file stages removing it. Edit candidate files by hand and commit with `vpnctl` to have them validated.
+The files are in `/opt/ncubed/config/vpnc/`: `active` holds what vpnc applies, `candidate` the staged changes. A tenant without a candidate file has none staged; an empty candidate file stages removing it. `history` keeps the replaced configurations, and the rollback of an unconfirmed commit. Edit candidate files by hand and commit with `vpnctl` to have them validated.
 
 ### Tenants
 
