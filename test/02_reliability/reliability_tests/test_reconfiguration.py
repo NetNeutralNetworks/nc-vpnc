@@ -30,6 +30,14 @@ DRIFT_TIMEOUT = 90
 
 DRIFT_NI = "C0001-00"
 
+# A DNS server of C0001-00 (through NAT64), and a name with only an AAAA record
+# in a network that is translated with NPTv6.
+DNS_SERVER = "fdcc:0:c:1::172.16.31.1"
+DNS_NAME = "v6lonly.example.com"
+DNS_ROUTE = "fdff:db8:c57::/52"
+DNS_ANSWER = "fd6c:1:0:31::6"
+DNS_ANSWER_WITHOUT_NPTV6 = "fdff:db8:c57:31::6"
+
 # Route destinations as "ip --json route" reports them.
 ROUTES_4 = ["10.201.0.0/24"]
 ROUTES_6 = ["fdcc:201::/48"]
@@ -83,6 +91,14 @@ def write_tenant(connections: list[dict[str, Any]]) -> None:
         },
     }
     conftest.write_file(HOST, TENANT_FILE, yaml.safe_dump(tenant))
+
+
+def dns_answer() -> str:
+    """Return the answer mgt00 gets for the test name."""
+    return conftest.run_cmd(
+        "mgt00",
+        f"dig +short +time=1 +tries=1 {DNS_NAME} AAAA @{DNS_SERVER}",
+    ).strip()
 
 
 def netns_list() -> set[str]:
@@ -662,4 +678,9 @@ class TestDrift:
             ),
             timeout=DRIFT_TIMEOUT,
             message="vpncmangle to be restarted",
+        )
+        conftest.wait_until(
+            lambda: dns_answer() == DNS_ANSWER,
+            timeout=APPLY_TIMEOUT,
+            message="DNS answers to be translated again",
         )
