@@ -473,13 +473,17 @@ class BgpRoute(BaseModel):
 
 def vtysh(command: str) -> Any:  # noqa: ANN401
     """Run a vtysh show command with JSON output and return the decoded output."""
-    result = subprocess.run(  # noqa: S603
-        ["/usr/bin/vtysh", "-c", f"{command} json"],
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=10,
-    )
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["/usr/bin/vtysh", "-c", f"{command} json"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as err:
+        detail = "FRR doesn't answer."
+        raise config_files.ConfigError(503, "Service unavailable", detail) from err
     return json.loads(result.stdout or "{}")
 
 
