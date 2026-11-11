@@ -146,10 +146,11 @@ class Reconciler:
                 else:
                     pending = self._pending
                 self._pending = {}
-            if full_check:
-                next_full_check = time.monotonic() + self.interval
 
             self.run_checks(pending)
+            if full_check:
+                # From its end: a long full check leaves time for triggered ones.
+                next_full_check = time.monotonic() + self.interval
 
 
 # The configuration last applied per network instance, to remove what's gone.
