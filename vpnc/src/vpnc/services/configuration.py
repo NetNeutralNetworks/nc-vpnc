@@ -112,6 +112,11 @@ def _file_state(path: pathlib.Path) -> tuple[int, int] | None:
     return stat.st_mtime_ns, stat.st_size
 
 
+def loaded(path: pathlib.Path) -> bool:
+    """Return whether a configuration file is loaded as it is now."""
+    return FILE_STATES.get(path) == _file_state(path)
+
+
 def rescan() -> None:
     """Load configuration files that changed and drop removed ones (missed events)."""
     paths = {
@@ -120,7 +125,7 @@ def rescan() -> None:
         if TENANT_FILE_RE.match(str(path))
     }
     for path in sorted(paths):
-        if FILE_STATES.get(path) != _file_state(path):
+        if not loaded(path):
             logger.info("Configuration file %s changed unnoticed.", path)
             manage_tenant(path)
     for path in set(FILE_STATES) - paths:
@@ -195,7 +200,7 @@ def write_tenant(tenant_id: str) -> None:
         explicit_end=True,
     )
     with files.CONFIG_LOCK:
-        if FILE_STATES.get(path) != _file_state(path):
+        if not loaded(path):
             # A newer file (e.g. a commit): written back once that's applied.
             logger.info("Not updating %s: it changed meanwhile.", path)
             return
