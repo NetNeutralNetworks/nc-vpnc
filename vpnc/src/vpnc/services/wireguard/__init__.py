@@ -67,7 +67,7 @@ def generate_config(
         wg_path = config.WIREGUARD_CONFIG_DIR.joinpath(
             f"wg-{network_instance.id}-{connection.id}.conf",
         )
-        if files.ensure_file(wg_path, wg_render):
+        if files.ensure_file(wg_path, wg_render, secret=True):
             logger.info(
                 "Generated network instance %s connection %s WireGuard configuration.",
                 network_instance.id,

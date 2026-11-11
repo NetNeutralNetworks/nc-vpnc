@@ -127,7 +127,7 @@ def _write(ni_id: str, conns: dict[str, Connection]) -> None:
     if not conns:
         path.unlink(missing_ok=True)
         return
-    if files.ensure_file(path, render(conns)):
+    if files.ensure_file(path, render(conns), secret=True):
         os.chown(path, config.IPSEC_USER, config.IPSEC_GROUP)
 
 

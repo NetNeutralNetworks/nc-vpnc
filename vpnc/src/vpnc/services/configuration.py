@@ -193,7 +193,7 @@ def write_tenant(tenant_id: str) -> None:
         explicit_start=True,
         explicit_end=True,
     )
-    if files.ensure_file(path, output):
+    if files.ensure_file(path, output, secret=True):
         logger.info("Updated configuration file %s.", path)
     _add_nptv6_prefixes_to_candidate(tenant, path.parent.parent / "candidate" / path.name)
 
@@ -235,6 +235,7 @@ def _add_nptv6_prefixes_to_candidate(
         files.ensure_file(
             path,
             yaml.safe_dump(candidate, explicit_start=True, explicit_end=True),
+            secret=True,
         )
         logger.info("Added NPTv6 prefixes to the candidate %s.", path)
 
