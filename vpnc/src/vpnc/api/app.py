@@ -5,7 +5,7 @@ Errors are RFC 9457 problem details (application/problem+json).
 
 from __future__ import annotations
 
-from typing import Annotated, Any, NoReturn
+from typing import TYPE_CHECKING, Annotated, Any, NoReturn
 
 from fastapi import Body, FastAPI, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -13,9 +13,14 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import ValidationError
 
 from vpnc import config
-from vpnc.api import config_files, status
+from vpnc.api import config_files, logs, status
 from vpnc.api.config_files import CommitResult, ConfigError, ConfigSummary, Revision
 from vpnc.models import enums, tenant
+from vpnc.services import control
+
+if TYPE_CHECKING:
+    from vpnc.models.connections import Connection
+    from vpnc.models.network_instance import NetworkInstance
 
 app = FastAPI(
     title="vpnc",
@@ -122,6 +127,7 @@ def list_connections(
     tenant_id: Annotated[str | None, Query(alias="tenant")] = None,
     ni_id: Annotated[str | None, Query(alias="network_instance")] = None,
     state: Annotated[status.State | None, Query()] = None,
+    connection_type: Annotated[enums.ConnectionType | None, Query(alias="type")] = None,
 ) -> list[status.ConnectionState]:
     """Return the connections, optionally filtered."""
     selected = [
@@ -130,19 +136,67 @@ def list_connections(
     return [
         s
         for s in status.connection_states(selected)
-        if state is None or s.state == state
+        if (state is None or s.state == state)
+        and (connection_type is None or s.type == connection_type.value)
     ]
+
+
+def _connection(connection_id: str) -> tuple[NetworkInstance, Connection]:
+    ni_id, _, conn = connection_id.rpartition("-")
+    ni = status.network_instances().get(ni_id)
+    if ni is None or not conn.isdigit() or int(conn) not in ni.connections:
+        _not_found("connection", connection_id)
+    return ni, ni.connections[int(conn)]
+
+
+def _connection_state(connection_id: str) -> status.ConnectionState:
+    ni, _ = _connection(connection_id)
+    states = status.connection_states([ni])
+    return next(s for s in states if s.id == connection_id)
 
 
 @app.get("/v1/connections/{connection_id}")
 def get_connection(connection_id: str) -> status.ConnectionState:
     """Return a connection (e.g. C0001-00-0 or CORE-0)."""
-    ni_id, _, conn = connection_id.rpartition("-")
-    ni = status.network_instances().get(ni_id)
-    if ni is None or not conn.isdigit() or int(conn) not in ni.connections:
-        _not_found("connection", connection_id)
-    states = status.connection_states([ni])
-    return next(s for s in states if s.id == connection_id)
+    return _connection_state(connection_id)
+
+
+def _control(connection_id: str, action: Any) -> status.ConnectionState:  # noqa: ANN401
+    ni, connection = _connection(connection_id)
+    try:
+        action(ni, connection)
+    except control.ControlError as err:
+        raise ConfigError(409, "Conflict", str(err)) from err
+    return _connection_state(connection_id)
+
+
+@app.post("/v1/connections/{connection_id}/stop")
+def stop_connection(connection_id: str) -> status.ConnectionState:
+    """Stop a VPN connection until it's started, or vpnc restarts."""
+    return _control(connection_id, control.stop)
+
+
+@app.post("/v1/connections/{connection_id}/start")
+def start_connection(connection_id: str) -> status.ConnectionState:
+    """Start a stopped VPN connection."""
+    return _control(connection_id, control.start)
+
+
+@app.post("/v1/connections/{connection_id}/reset")
+def reset_connection(connection_id: str) -> status.ConnectionState:
+    """Set a VPN connection up again (new IKE SA, WireGuard or SSH session)."""
+    return _control(connection_id, control.reset)
+
+
+@app.get("/v1/connections/{connection_id}/logs")
+def get_connection_logs(
+    connection_id: str,
+    lines: Annotated[int, Query(ge=1, le=10000)] = 100,
+) -> list[logs.LogLine]:
+    """Return a connection's last log lines: vpnc's (incl. SSH) and charon's."""
+    _, connection = _connection(connection_id)
+    ipsec = connection.config.type == enums.ConnectionType.IPSEC
+    return logs.connection_logs(connection_id, ipsec=ipsec, count=lines)
 
 
 @app.get("/v1/bgp/neighbors")
