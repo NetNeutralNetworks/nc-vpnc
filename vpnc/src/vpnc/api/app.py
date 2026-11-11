@@ -154,17 +154,14 @@ def list_bgp_neighbors() -> list[status.BgpNeighbor]:
     return status.bgp_neighbors()
 
 
-# Configuration, per file: a tenant, or the service (the DEFAULT file). Writes
-# are staged in the candidate; a commit makes them active.
+# Configuration, per file: a tenant, or the service (the DEFAULT file).
 
 TenantId = Annotated[str, Path(pattern=r"^[2-9A-F]\d{4}$")]
-Config = Annotated[dict[str, Any], Body()]
-SERVICE = config.DEFAULT_TENANT
 
 
 @app.get("/v1/config/tenants")
 def list_configs() -> list[ConfigSummary]:
-    """Return the tenants with configuration and their staged changes."""
+    """Return the tenants with configuration, and whether they have changes."""
     return config_files.summaries()
 
 
@@ -174,44 +171,38 @@ def get_tenant_config(
     revision: Revision = "active",
     reveal_secrets: bool = False,  # noqa: FBT001, FBT002
 ) -> dict[str, Any]:
-    """Return a tenant's configuration (candidate: with staged changes)."""
+    """Return a tenant's configuration."""
     return config_files.read(tenant_id, revision, reveal=reveal_secrets)
 
 
-@app.put("/v1/config/tenants/{tenant_id}")
-def put_tenant_config(tenant_id: TenantId, body: Config) -> dict[str, Any]:
-    """Stage a tenant's configuration; creates the tenant on commit if new."""
+@app.put("/v1/config/tenants/{tenant_id}/candidate")
+def put_tenant_candidate(
+    tenant_id: TenantId,
+    body: Annotated[dict[str, Any], Body()],
+) -> dict[str, Any]:
+    """Validate and store a tenant's candidate configuration."""
     return config_files.write_candidate(tenant_id, body)
 
 
-@app.patch("/v1/config/tenants/{tenant_id}")
-def patch_tenant_config(tenant_id: TenantId, body: Config) -> dict[str, Any]:
-    """Stage changes to a tenant's configuration (RFC 7386 merge patch)."""
-    return config_files.patch_candidate(tenant_id, body)
-
-
-@app.delete("/v1/config/tenants/{tenant_id}")
-def delete_tenant_config(tenant_id: TenantId) -> CommitResult:
-    """Stage removing a tenant."""
-    return config_files.delete_candidate(tenant_id)
+@app.delete("/v1/config/tenants/{tenant_id}/candidate")
+def discard_tenant(tenant_id: TenantId) -> CommitResult:
+    """Make a tenant's candidate configuration the active one again."""
+    return config_files.discard(tenant_id)
 
 
 @app.get("/v1/config/tenants/{tenant_id}/diff", response_class=PlainTextResponse)
 def diff_tenant(tenant_id: TenantId) -> str:
-    """Return a tenant's staged changes."""
+    """Return the changes from the active to the candidate configuration."""
     return config_files.diff(tenant_id)
 
 
 @app.post("/v1/config/tenants/{tenant_id}/commit")
 def commit_tenant(tenant_id: TenantId) -> CommitResult:
-    """Apply a tenant's staged changes."""
+    """Apply a tenant's candidate configuration (no candidate: remove it)."""
     return config_files.commit(tenant_id)
 
 
-@app.post("/v1/config/tenants/{tenant_id}/discard")
-def discard_tenant(tenant_id: TenantId) -> CommitResult:
-    """Drop a tenant's staged changes."""
-    return config_files.discard(tenant_id)
+SERVICE = config.DEFAULT_TENANT
 
 
 @app.get("/v1/config/service")
@@ -219,35 +210,29 @@ def get_service_config(
     revision: Revision = "active",
     reveal_secrets: bool = False,  # noqa: FBT001, FBT002
 ) -> dict[str, Any]:
-    """Return the service configuration (candidate: with staged changes)."""
+    """Return the service configuration."""
     return config_files.read(SERVICE, revision, reveal=reveal_secrets)
 
 
-@app.put("/v1/config/service")
-def put_service_config(body: Config) -> dict[str, Any]:
-    """Stage the service configuration."""
+@app.put("/v1/config/service/candidate")
+def put_service_candidate(body: Annotated[dict[str, Any], Body()]) -> dict[str, Any]:
+    """Validate and store the candidate service configuration."""
     return config_files.write_candidate(SERVICE, body)
 
 
-@app.patch("/v1/config/service")
-def patch_service_config(body: Config) -> dict[str, Any]:
-    """Stage changes to the service configuration (RFC 7386 merge patch)."""
-    return config_files.patch_candidate(SERVICE, body)
+@app.delete("/v1/config/service/candidate")
+def discard_service() -> CommitResult:
+    """Make the candidate service configuration the active one again."""
+    return config_files.discard(SERVICE)
 
 
 @app.get("/v1/config/service/diff", response_class=PlainTextResponse)
 def diff_service() -> str:
-    """Return the staged service changes."""
+    """Return the changes from the active to the candidate service configuration."""
     return config_files.diff(SERVICE)
 
 
 @app.post("/v1/config/service/commit")
 def commit_service() -> CommitResult:
-    """Apply the staged service changes. Some changes need a restart."""
+    """Apply the candidate service configuration. Some changes need a restart."""
     return config_files.commit(SERVICE)
-
-
-@app.post("/v1/config/service/discard")
-def discard_service() -> CommitResult:
-    """Drop the staged service changes."""
-    return config_files.discard(SERVICE)

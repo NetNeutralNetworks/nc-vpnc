@@ -140,50 +140,10 @@ def write_tenant(tenant_id: str) -> None:
         explicit_start=True,
         explicit_end=True,
     )
-    if files.ensure_file(path, output):
-        logger.info("Updated configuration file %s.", path)
-    _add_nptv6_prefixes_to_candidate(tenant, path.parent.parent / "candidate" / path.name)
-
-
-def _add_nptv6_prefixes_to_candidate(
-    tenant: vpnc.models.tenant.Tenant,
-    path: pathlib.Path,
-) -> None:
-    """Add assigned NPTv6 prefixes to staged routes that have none.
-
-    Other staged changes are kept, and the prefixes stay the same after a commit.
-    """
-    assigned = {
-        (ni.id, str(connection.id), str(route.to)): str(route.nptv6_prefix)
-        for ni in tenant.network_instances.values()
-        for connection in ni.connections.values()
-        for route in connection.routes.ipv6
-        if route.nptv6_prefix
-    }
-    try:
-        candidate = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return
-    if not assigned or not isinstance(candidate, dict):
-        return
-    changed = False
-    for ni_id, ni in (candidate.get("network_instances") or {}).items():
-        for connection_id, connection in (ni.get("connections") or {}).items():
-            for route in (connection.get("routes") or {}).get("ipv6") or []:
-                try:
-                    to = str(IPv6Network(route["to"]))
-                except (KeyError, TypeError, ValueError):
-                    continue
-                prefix = assigned.get((ni_id, str(connection_id), to))
-                if prefix and not route.get("nptv6_prefix"):
-                    route["nptv6_prefix"] = prefix
-                    changed = True
-    if changed:
-        files.ensure_file(
-            path,
-            yaml.safe_dump(candidate, explicit_start=True, explicit_end=True),
-        )
-        logger.info("Added NPTv6 prefixes to the candidate %s.", path)
+    candidate = path.parent.parent.joinpath("candidate", path.name)
+    for file_path in (path, candidate):
+        if files.ensure_file(file_path, output):
+            logger.info("Updated configuration file %s.", file_path)
 
 
 def delete_downlink_tenant(path: pathlib.Path) -> None:

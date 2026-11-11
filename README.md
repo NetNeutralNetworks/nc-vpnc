@@ -75,14 +75,12 @@ State, read live:
 ~$ sudo vpnctl bgp neighbors                 # hub mode
 ```
 
-Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes are staged in the candidate configuration; a commit makes them active, and vpnc applies them. Service changes may need a restart. Paths are dotted, with list items by index; values are YAML.
+Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes go to the candidate configuration; a commit makes it active, and vpnc applies it. Service changes may need a restart.
 
 ```bash
-~$ sudo vpnctl config list                   # tenants and their staged changes
-~$ sudo vpnctl config show C0001 [PATH] [--candidate] [--reveal-secrets]
-~$ sudo vpnctl config edit C0001 [PATH]      # in $EDITOR, validated; a new id creates a tenant
-~$ sudo vpnctl config set C0001 network_instances.C0001-00.connections.0.routes.ipv4.0.to 10.0.0.0/24
-~$ sudo vpnctl config delete C0001 [PATH]    # without a path: the tenant
+~$ sudo vpnctl config list                   # tenants, and which have uncommitted changes
+~$ sudo vpnctl config show C0001 [--candidate] [--reveal-secrets]
+~$ sudo vpnctl config edit C0001             # in $EDITOR, validated; a new id creates a tenant
 ~$ sudo vpnctl config diff C0001
 ~$ sudo vpnctl config commit C0001
 ~$ sudo vpnctl config discard C0001
@@ -90,7 +88,10 @@ Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Change
 
 Every command takes `-o table|wide|json|yaml`.
 
-The files are in `/opt/ncubed/config/vpnc/`: `active` holds what vpnc applies, `candidate` the staged changes. A tenant without a candidate file has none staged; an empty candidate file stages removing it. Edit candidate files by hand and commit with `vpnctl` to have them validated.
+<!-- The configuration can also be managed by directly modifying the files in `/opt/ncubed/config/vpnc/` directory. 
+The files in active are active config. The files in candidate are candidate configuration. 
+
+If you don't want to use `vpnctl` to manage configuration files, edit the candidate configuration and then commit the configuration with `vpnctl`. This is because `vpnctl` validates the configuration before moving it to active. -->
 
 ### Tenants
 

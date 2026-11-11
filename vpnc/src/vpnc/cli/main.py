@@ -309,9 +309,7 @@ def cmd_bgp_neighbors(args: argparse.Namespace) -> None:
         )
 
 
-# Configuration commands. Changes are staged in the candidate; commit applies them.
-
-NEW_TENANT = {"version": "0.1.3", "name": "", "network_instances": {}}
+# Configuration commands.
 
 
 def config_path(target: str) -> str:
@@ -321,101 +319,24 @@ def config_path(target: str) -> str:
     return f"/v1/config/tenants/{quote(target)}"
 
 
-def split(path: str | None) -> list[str]:
-    """Return the keys of a dotted path, e.g. network_instances.C0001-00.type."""
-    return [k for k in (path or "").split(".") if k]
-
-
-def walk(data: Any, keys: list[str], target: str) -> Any:  # noqa: ANN401
-    """Return the value at the keys; list items by index."""
-    for i, key in enumerate(keys):
-        if isinstance(data, list) and key.isdigit() and int(key) < len(data):
-            data = data[int(key)]
-        elif isinstance(data, dict) and key in data:
-            data = data[key]
-        else:
-            fail(f"{target} has no {'.'.join(keys[: i + 1])}.")
-    return data
-
-
-DELETE = object()
-
-
-def assign(data: Any, keys: list[str], value: Any, target: str) -> None:  # noqa: ANN401
-    """Set (or DELETE) the value at the keys, adding missing mappings."""
-    *parents, last = keys
-    for i, key in enumerate(parents):
-        if isinstance(data, list):
-            data = walk(data, [key], target)
-        else:
-            data = data.setdefault(key, {})
-        if not isinstance(data, dict | list):
-            fail(f"{'.'.join(keys[: i + 1])} isn't a mapping or list.")
-    if isinstance(data, list):
-        if not last.isdigit() or int(last) > len(data):
-            fail(f"{'.'.join(keys)}: use an index up to {len(data)} (appends).")
-        index = int(last)
-        if value is DELETE:
-            walk(data, [last], target)
-            del data[index]
-        elif index == len(data):
-            data.append(value)
-        else:
-            data[index] = value
-    elif value is DELETE:
-        walk(data, [last], target)
-        del data[last]
-    else:
-        data[last] = value
-
-
-def merge_patch(
-    current: dict[str, Any] | None,
-    keys: list[str],
-    value: Any,  # noqa: ANN401
-    target: str,
-) -> dict[str, Any]:
-    """Return the merge patch that sets (or DELETEs) the value at the keys.
-
-    A merge patch can't address list items: those change the whole list.
-    """
-    data: Any = current or {}
-    for i, key in enumerate(keys):
-        if isinstance(data, list):
-            changed = json.loads(json.dumps(data))
-            assign(changed, keys[i:], value, target)
-            keys, value = keys[:i], changed
-            break
-        data = data.get(key) if isinstance(data, dict) else None
-    patch: Any = None if value is DELETE else value
-    for key in reversed(keys):
-        patch = {key: patch}
-    return patch
-
-
-def staged(target: str, *, reveal: bool = False) -> dict[str, Any] | None:
-    """Return the configuration with staged changes; None if there's none."""
-    try:
-        return request(
-            "GET",
-            config_path(target),
-            params={"revision": "candidate", "reveal_secrets": reveal or None},
-        )
-    except ApiError as err:
-        if err.status != 404:  # noqa: PLR2004
-            raise
-        return None
-
-
 def cmd_config_list(args: argparse.Namespace) -> None:
-    """List the tenants with configuration and their staged changes."""
+    """List the tenants with configuration."""
     data = request("GET", "/v1/config/tenants")
     if not dump(data, args.output):
-        table(data, [("TENANT", "id"), ("NAME", "name"), ("STAGED", "status")])
+        table(
+            data,
+            [
+                ("TENANT", "id"),
+                ("NAME", "name"),
+                ("ACTIVE", "active"),
+                ("CANDIDATE", "candidate"),
+                ("CHANGED", "changed"),
+            ],
+        )
 
 
 def cmd_config_show(args: argparse.Namespace) -> None:
-    """Show a configuration, or part of it."""
+    """Show a configuration."""
     data = request(
         "GET",
         config_path(args.target),
@@ -424,23 +345,39 @@ def cmd_config_show(args: argparse.Namespace) -> None:
             "reveal_secrets": "true" if args.reveal_secrets else None,
         },
     )
-    data = walk(data, split(args.path), args.target)
-    if not isinstance(data, dict | list) and args.output not in ("json", "yaml"):
-        print(cell(data))
-        return
     if args.output not in ("json", "yaml"):
         args.output = "yaml"
     dump(data, args.output)
 
 
+def _current(target: str) -> dict[str, Any] | None:
+    """Return the candidate, else the active configuration, with secrets."""
+    for revision in ("candidate", "active"):
+        try:
+            return request(
+                "GET",
+                config_path(target),
+                params={"revision": revision, "reveal_secrets": "true"},
+            )
+        except ApiError as err:
+            if err.status != 404:  # noqa: PLR2004
+                raise
+    return None
+
+
 def cmd_config_edit(args: argparse.Namespace) -> None:
-    """Edit a configuration, or part of it, in $EDITOR (a new tenant if needed)."""
+    """Edit a candidate configuration in $EDITOR (a new tenant if it has none)."""
     import yaml  # noqa: PLC0415
 
-    keys = split(args.path)
-    current = staged(args.target, reveal=True) or {**NEW_TENANT, "id": args.target}
-    part = walk(current, keys, args.target) if keys else current
-    text = yaml.safe_dump(part, sort_keys=False)
+    current = _current(args.target)
+    if current is None:
+        current = {
+            "version": "0.1.3",
+            "id": args.target,
+            "name": "",
+            "network_instances": {},
+        }
+    text = yaml.safe_dump(current, sort_keys=False)
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
     with tempfile.TemporaryDirectory() as directory:
         # Read back by path: editors may replace the file instead of writing it.
@@ -453,12 +390,11 @@ def cmd_config_edit(args: argparse.Namespace) -> None:
                 print("No changes.")
                 return
             try:
-                value = yaml.safe_load(edited)
-                if keys:
-                    assign(current, keys, value, args.target)
-                else:
-                    current = value
-                request("PUT", config_path(args.target), body=current)
+                request(
+                    "PUT",
+                    f"{config_path(args.target)}/candidate",
+                    body=yaml.safe_load(edited),
+                )
                 break
             except yaml.YAMLError as err:
                 print(f"Invalid YAML: {err}", file=sys.stderr)
@@ -469,51 +405,13 @@ def cmd_config_edit(args: argparse.Namespace) -> None:
             except EOFError:
                 again = False
             if not again:
-                fail("aborted; nothing was staged.")
-    staged_message(args.target)
-
-
-def cmd_config_set(args: argparse.Namespace) -> None:
-    """Set a value (YAML) at a path, creating missing parts."""
-    import yaml  # noqa: PLC0415
-
-    try:
-        value = yaml.safe_load(args.value)
-    except yaml.YAMLError as err:
-        fail(f"Invalid YAML: {err}")
-    keys = split(args.path)
-    if not keys:
-        fail("Give a path to set.")
-    current = staged(args.target, reveal=True)
-    patch = merge_patch(current, keys, value, args.target)
-    request("PATCH", config_path(args.target), body=patch)
-    staged_message(args.target)
-
-
-def cmd_config_delete(args: argparse.Namespace) -> None:
-    """Delete part of a configuration, or (without a path) the tenant."""
-    keys = split(args.path)
-    if not keys:
-        result = request("DELETE", config_path(args.target))
-        if not result["changed"]:
-            print("No changes.")
-            return
-    else:
-        current = staged(args.target, reveal=True)
-        walk(current, keys, args.target)
-        patch = merge_patch(current, keys, DELETE, args.target)
-        request("PATCH", config_path(args.target), body=patch)
-    staged_message(args.target)
-
-
-def staged_message(target: str) -> None:
-    """Print the staged changes and how to apply them."""
-    print_diff(target)
-    print(f"Staged. Apply with: vpnctl config commit {target}")
+                fail("aborted; the candidate is unchanged.")
+    print_diff(args.target)
+    print(f"Stored the candidate. Apply it with: vpnctl config commit {args.target}")
 
 
 def print_diff(target: str) -> None:
-    """Print the staged changes."""
+    """Print the changes from the active to the candidate configuration."""
     if text := request("GET", f"{config_path(target)}/diff"):
         print(text, end="")
     else:
@@ -521,19 +419,19 @@ def print_diff(target: str) -> None:
 
 
 def cmd_config_diff(args: argparse.Namespace) -> None:
-    """Show the staged changes."""
+    """Show the changes from the active to the candidate configuration."""
     print_diff(args.target)
 
 
 def cmd_config_commit(args: argparse.Namespace) -> None:
-    """Apply the staged changes."""
+    """Apply a candidate configuration."""
     result = request("POST", f"{config_path(args.target)}/commit")
     print("Committed." if result["changed"] else "No changes.")
 
 
 def cmd_config_discard(args: argparse.Namespace) -> None:
-    """Drop the staged changes."""
-    result = request("POST", f"{config_path(args.target)}/discard")
+    """Discard a candidate configuration."""
+    result = request("DELETE", f"{config_path(args.target)}/candidate")
     print("Discarded the changes." if result["changed"] else "No changes.")
 
 
@@ -561,8 +459,6 @@ COMMANDS: dict[str, dict[str, str | None]] = {
         "list": None,
         "show": "target",
         "edit": "target",
-        "set": "target",
-        "delete": "target",
         "diff": "target",
         "commit": "target",
         "discard": "target",
@@ -606,26 +502,7 @@ def complete(words: list[str]) -> list[str]:
     kind = actions.get(positional[1])
     if len(positional) == 2 and kind:  # noqa: PLR2004
         return _ids(kind)
-    if len(positional) == 3 and positional[1] in PATH_ACTIONS:  # noqa: PLR2004
-        return paths(staged(positional[2]))
     return []
-
-
-PATH_ACTIONS = ("show", "edit", "set", "delete")
-
-
-def paths(data: Any, prefix: str = "") -> list[str]:  # noqa: ANN401
-    """Return the dotted paths in the configuration."""
-    if isinstance(data, dict):
-        items = [(str(k), v) for k, v in data.items()]
-    elif isinstance(data, list):
-        items = [(str(i), v) for i, v in enumerate(data)]
-    else:
-        return []
-    output: list[str] = []
-    for key, value in items:
-        output += [prefix + key, *paths(value, f"{prefix}{key}.")]
-    return output
 
 
 def cmd_completion(args: argparse.Namespace) -> None:
@@ -701,26 +578,15 @@ def parser() -> argparse.ArgumentParser:
     shell = group("completion", "shell completion")
     add(shell, "bash", cmd_completion)
 
-    cfg = group("config", "configuration: stage changes, then commit them")
+    cfg = group("config", "configuration (candidate and active)")
     add(cfg, "list", cmd_config_list)
     target = {"help": "a tenant (e.g. C0001) or 'service'"}
-    path = {"help": "dotted, e.g. network_instances.C0001-00.connections.0"}
     p = add(cfg, "show", cmd_config_show)
     p.add_argument("target", **target)
-    p.add_argument("path", nargs="?", **path)
-    p.add_argument("--candidate", action="store_true", help="with staged changes")
+    p.add_argument("--candidate", action="store_true", help="the candidate revision")
     p.add_argument("--reveal-secrets", action="store_true")
-    p = add(cfg, "edit", cmd_config_edit)
-    p.add_argument("target", **target)
-    p.add_argument("path", nargs="?", **path)
-    p = add(cfg, "set", cmd_config_set)
-    p.add_argument("target", **target)
-    p.add_argument("path", **path)
-    p.add_argument("value", help="YAML, e.g. 10.0.0.1, '[a, b]' or '{to: ::/0}'")
-    p = add(cfg, "delete", cmd_config_delete)
-    p.add_argument("target", **target)
-    p.add_argument("path", nargs="?", **path)
     for name, func in (
+        ("edit", cmd_config_edit),
         ("diff", cmd_config_diff),
         ("commit", cmd_config_commit),
         ("discard", cmd_config_discard),
