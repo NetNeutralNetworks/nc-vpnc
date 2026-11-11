@@ -66,7 +66,7 @@ This installs the vpnc and an example configuration for either the `hub` or `end
 State, read live:
 
 ```bash
-~$ sudo vpnctl status                        # mode, connections up, vpncmangle, restart needed
+~$ sudo vpnctl status                        # mode and connections up
 ~$ sudo vpnctl tenants list
 ~$ sudo vpnctl ni list [C0001]               # network instances
 ~$ sudo vpnctl ni show C0001-00              # with NAT64 and NPTv6 translations
