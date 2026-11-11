@@ -6,6 +6,7 @@ import contextlib
 import json
 import re
 import subprocess
+import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
 HOST = "hub00"
 TENANT_FILE = "/opt/ncubed/config/vpnc/active/C0002.yaml"
 CANDIDATE_FILE = "/opt/ncubed/config/vpnc/candidate/C0002.yaml"
+HISTORY_DIR = "/opt/ncubed/config/vpnc/history/C0002"
 VPNCTL = "/opt/ncubed/vpnc/bin/vpnctl"
 NI = "C0002-00"
 CORE_LINK = f"{NI}_C"
@@ -161,7 +163,8 @@ def test_tenant() -> Iterator[None]:
         message=f"tenant C0002 to be applied on {HOST}",
     )
     yield
-    conftest.run_cmd(HOST, f"rm -f {TENANT_FILE} {CANDIDATE_FILE}")
+    # Without its pending file, an unconfirmed commit isn't rolled back.
+    conftest.run_cmd(HOST, f"rm -rf {TENANT_FILE} {CANDIDATE_FILE} {HISTORY_DIR}")
     conftest.wait_until(
         tenant_removed,
         timeout=APPLY_TIMEOUT,
@@ -393,8 +396,9 @@ class TestReconfiguration:
         finally:
             conftest.run_cmd(
                 HOST,
-                f"rm -f {TENANT_FILE.replace('C0002', 'C0003')} "
-                f"{CANDIDATE_FILE.replace('C0002', 'C0003')}",
+                f"rm -rf {TENANT_FILE.replace('C0002', 'C0003')} "
+                f"{CANDIDATE_FILE.replace('C0002', 'C0003')} "
+                f"{HISTORY_DIR.replace('C0002', 'C0003')}",
             )
 
     def test_staged_changes_survive_nptv6_assignment(self) -> None:
@@ -420,6 +424,68 @@ class TestReconfiguration:
         )
 
         assert vpnctl("config show C0002 name --candidate") == "Staged\n"
+
+    def test_config_history_and_restore(self) -> None:
+        """A commit keeps the replaced configuration; restoring it brings it back."""
+        set_route("10.209.0.0/24")
+        assert vpnctl("config commit C0002") == "Committed.\n"
+        wait_for_route("10.209.0.0/24")
+
+        history = vpnctl_json("config history C0002")
+        assert [(h["revision"], h["exists"]) for h in history] == [(1, True)]
+        revision = vpnctl_json("config history C0002 1")
+        assert revision["network_instances"][NI]["connections"]["0"]["routes"][
+            "ipv4"
+        ] == [{"to": "10.201.0.0/24", "via": None}]
+
+        output = vpnctl("config restore C0002 1")
+        assert any(
+            line.startswith("+") and "to: 10.201.0.0/24" in line
+            for line in output.splitlines()
+        )
+        vpnctl("config commit C0002")
+        wait_for_route("10.201.0.0/24")
+        assert len(vpnctl_json("config history C0002")) == 2  # noqa: PLR2004
+
+    def test_unconfirmed_commit_rolls_back(self) -> None:
+        """A commit that isn't confirmed in time is rolled back; it stays staged."""
+        set_route("10.209.0.0/24")
+        output = vpnctl("config commit C0002 --confirm 10s")
+        assert "vpnctl config confirm C0002" in output
+        wait_for_route("10.209.0.0/24")
+        staged = {c["id"]: c for c in vpnctl_json("config list")}
+        assert staged["C0002"]["confirm_by"] is not None
+
+        wait_for_route("10.201.0.0/24", timeout=10 + APPLY_TIMEOUT)
+        staged = {c["id"]: c for c in vpnctl_json("config list")}
+        assert staged["C0002"]["status"] == "modified"
+        assert staged["C0002"]["confirm_by"] is None
+
+    def test_confirmed_commit_stays(self) -> None:
+        """A confirmed commit isn't rolled back."""
+        set_route("10.209.0.0/24")
+        vpnctl("config commit C0002 --confirm 10s")
+        wait_for_route("10.209.0.0/24")
+        assert vpnctl("config confirm C0002") == "Confirmed.\n"
+
+        time.sleep(15)
+        assert "10.209.0.0/24" in route_destinations(NI)
+        assert vpnctl("config diff C0002") == "No changes.\n"
+
+
+def set_route(route: str) -> None:
+    """Stage the test connection's IPv4 route."""
+    vpnctl(f"config set C0002 {ROUTES_PATH}.ipv4.0.to {route}")
+
+
+def wait_for_route(route: str, timeout: float = APPLY_TIMEOUT) -> None:
+    """Wait until the IPv4 route is the only one applied of the test routes."""
+    other = {"10.201.0.0/24", "10.209.0.0/24"} - {route}
+    conftest.wait_until(
+        lambda: route in route_destinations(NI) and not other & route_destinations(NI),
+        timeout=timeout,
+        message=f"route {route} to be applied",
+    )
 
 
 ROUTES_PATH = f"network_instances.{NI}.connections.0.routes"
