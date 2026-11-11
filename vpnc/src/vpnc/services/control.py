@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import socket
 import threading
 from typing import TYPE_CHECKING
 
@@ -18,13 +17,10 @@ import vici.exception
 from vpnc import shared
 from vpnc.models import enums
 from vpnc.models.ipsec import Initiation
-from vpnc.services import ssh, wireguard
+from vpnc.services import charon, ssh, wireguard
 from vpnc.services.strongswan import strongswan
-from vpnc.services.strongswan.monitor import VICI_SOCKET, VICI_TIMEOUT
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from vpnc.models.connections import Connection
     from vpnc.models.network_instance import NetworkInstance
 
@@ -40,15 +36,8 @@ class ControlError(Exception):
     """The connection can't be stopped, started or reset."""
 
 
-@contextlib.contextmanager
-def _vici() -> Iterator[vici.Session]:
-    sock = socket.socket(socket.AF_UNIX)
-    sock.settimeout(VICI_TIMEOUT + TERMINATE_TIMEOUT)
-    try:
-        sock.connect(VICI_SOCKET)
-        yield vici.Session(sock)
-    finally:
-        sock.close()
+def _vici() -> contextlib.AbstractContextManager[vici.Session]:
+    return charon.session(charon.VICI_TIMEOUT + TERMINATE_TIMEOUT)
 
 
 def _terminate(name: str) -> None:

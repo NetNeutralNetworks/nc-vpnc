@@ -18,6 +18,7 @@ import vici.exception
 from vpnc import config, shared
 from vpnc.models import info
 from vpnc.network import namespace
+from vpnc.services.charon import VICI_SOCKET, VICI_TIMEOUT
 
 logger = logging.getLogger("vpnc")
 
@@ -33,9 +34,6 @@ XFRM_RESYNC_INTERVAL = 30
 # Interface flag (linux/if.h).
 IFF_UP = 0x1
 
-VICI_SOCKET = "/var/run/charon.vici"
-# Seconds before a VICI request fails, so a hanging charon can't block vpnc.
-VICI_TIMEOUT = 10
 POLICY_DIR_RE = re.compile(r"^\s+dir (\w+)")
 POLICY_IF_ID_RE = re.compile(r"^\s+if_id (0x[0-9a-f]+)")
 

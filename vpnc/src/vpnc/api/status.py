@@ -22,7 +22,7 @@ from vpnc.models import enums, tenant
 from vpnc.network import namespace, state
 from vpnc.api import config_files
 from vpnc.services import configuration, ssh, vpncmangle, wireguard
-from vpnc.services.strongswan.monitor import VICI_SOCKET, VICI_TIMEOUT
+from vpnc.services.charon import VICI_SOCKET, VICI_TIMEOUT
 
 if TYPE_CHECKING:
     from vpnc.models.connections import Connection
