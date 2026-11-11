@@ -269,3 +269,45 @@ class TestVpnctlTroubleshooting:
             conftest.run_cmd("hub00", f"{VPNCTL} service restart")
 
         assert "doesn't run under systemd" in err.value.stderr
+
+
+class TestVpnctlLogsAndCounters:
+    """vpnctl shows the daemon logs and traffic counters."""
+
+    def test_logs(self) -> None:
+        """vpnc's log, by level; vpncmangle's and charon's log."""
+        lines = vpnctl("hub00", "logs -n 20")
+        assert 0 < len(lines) <= 20  # noqa: PLR2004
+        assert {line["source"] for line in lines} == {"vpnc"}
+
+        warnings = vpnctl("hub00", "logs -n 500 --level warning")
+        assert {line["level"] for line in warnings} <= {"WARNING", "ERROR", "CRITICAL"}
+
+        assert vpnctl("hub00", "logs --source vpncmangle")
+        assert vpnctl("hub00", "logs --source charon")
+
+    def test_network_instance_logs(self) -> None:
+        """A network instance's log has its vpnc lines and its IKE SAs' lines."""
+        lines = vpnctl("hub00", "logs --ni C0001-00 -n 2000")
+
+        assert {line["source"] for line in lines} >= {"vpnc", "charon"}
+        assert all(
+            "C0001-00" in line["message"]
+            for line in lines
+            if line["source"] in ("vpnc", "ssh")
+        )
+
+    def test_counters(self) -> None:
+        """Traffic through the SSH tunnel shows in its counters."""
+        before = vpnctl("hub00", "connections show C0001-00-1")
+        vpnctl("hub00", "tcp C0001-00 172.16.31.1 22")
+        after = vpnctl("hub00", "connections show C0001-00-1")
+
+        assert after["counters"]["tx_packets"] > before["counters"]["tx_packets"]
+        assert after["counters"]["rx_packets"] > before["counters"]["rx_packets"]
+        assert after["details"]["uptime_seconds"] >= 0
+
+    def test_wide_list(self) -> None:
+        """The wide list shows the received and sent bytes."""
+        header = conftest.run_cmd("hub00", f"{VPNCTL} connections list -o wide")
+        assert header.splitlines()[0].split()[5:7] == ["RX", "TX"]
