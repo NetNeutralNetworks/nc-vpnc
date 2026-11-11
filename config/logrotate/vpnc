@@ -1,0 +1,10 @@
+# vpnc rotates its own log; charon keeps its file open.
+/var/log/ncubed/vpnc/charon.log {
+    weekly
+    maxsize 10M
+    rotate 4
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
