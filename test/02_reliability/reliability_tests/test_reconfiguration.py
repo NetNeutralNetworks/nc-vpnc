@@ -282,8 +282,8 @@ class TestReconfiguration:
             for line in output.splitlines()
         )
 
-        changed = {c["id"]: c["changed"] for c in vpnctl_json("config list")}
-        assert changed["C0002"] is True
+        staged = {c["id"]: c["status"] for c in vpnctl_json("config list")}
+        assert staged["C0002"] == "modified"
 
         assert conftest.run_cmd(HOST, f"{VPNCTL} config commit C0002") == "Committed.\n"
         conftest.wait_until(
@@ -312,6 +312,127 @@ class TestReconfiguration:
         assert output == "Discarded the changes.\n"
         assert conftest.run_cmd(HOST, f"{VPNCTL} config diff C0002") == "No changes.\n"
         assert vpnctl_json("tenants show C0002")["name"] == "Reconfiguration test"
+
+    def test_config_set_list_item(self) -> None:
+        """Setting a route in a list stages it; commit applies it."""
+        vpnctl(f"config set C0002 {ROUTES_PATH}.ipv4.0.to 10.209.0.0/24")
+        assert vpnctl(f"config show C0002 {ROUTES_PATH}.ipv4.0.to --candidate") == (
+            "10.209.0.0/24\n"
+        )
+        # Staged only.
+        assert "10.201.0.0/24" in route_destinations(NI)
+
+        assert vpnctl("config commit C0002") == "Committed.\n"
+        conftest.wait_until(
+            lambda: (
+                "10.209.0.0/24" in route_destinations(NI)
+                and "10.201.0.0/24" not in route_destinations(NI)
+            ),
+            timeout=APPLY_TIMEOUT,
+            message="the set route to be applied",
+        )
+
+    def test_config_delete_path(self) -> None:
+        """Deleting a route removes it on commit."""
+        vpnctl(f"config delete C0002 {ROUTES_PATH}.ipv6.0")
+        vpnctl("config commit C0002")
+        conftest.wait_until(
+            lambda: "fdcc:201::/48" not in route_destinations(NI),
+            timeout=APPLY_TIMEOUT,
+            message="the deleted route to be removed",
+        )
+        assert "10.201.0.0/24" in route_destinations(NI)
+
+    def test_config_delete_tenant(self) -> None:
+        """Deleting a tenant is staged; commit removes it."""
+        vpnctl("config delete C0002")
+        staged = {c["id"]: c["status"] for c in vpnctl_json("config list")}
+        assert staged["C0002"] == "deleted"
+        assert NI in netns_list()
+
+        vpnctl("config commit C0002")
+        conftest.wait_until(
+            tenant_removed,
+            timeout=APPLY_TIMEOUT,
+            message="tenant C0002 to be removed",
+        )
+
+    def test_config_tenant_lifecycle(self) -> None:
+        """A tenant is created, changed and deleted with vpnctl."""
+        try:
+            # A new tenant starts empty; \x20 is a space.
+            conftest.run_cmd_shell(
+                HOST,
+                f"env EDITOR='sed -i s|name:.*|name:\\x20Created|' "
+                f"{VPNCTL} config edit C0003",
+            )
+            vpnctl("config commit C0003")
+            conftest.wait_until(
+                lambda: "C0003" in tenant_ids(),
+                timeout=APPLY_TIMEOUT,
+                message="tenant C0003 to be created",
+            )
+            assert vpnctl_json("tenants show C0003")["name"] == "Created"
+
+            vpnctl("config set C0003 name Changed")
+            vpnctl("config commit C0003")
+            conftest.wait_until(
+                lambda: vpnctl_json("tenants show C0003")["name"] == "Changed",
+                timeout=APPLY_TIMEOUT,
+                message="the name to change",
+            )
+
+            vpnctl("config delete C0003")
+            vpnctl("config commit C0003")
+            conftest.wait_until(
+                lambda: "C0003" not in tenant_ids(),
+                timeout=APPLY_TIMEOUT,
+                message="tenant C0003 to be removed",
+            )
+            assert "C0003" not in [c["id"] for c in vpnctl_json("config list")]
+        finally:
+            conftest.run_cmd(
+                HOST,
+                f"rm -f {TENANT_FILE.replace('C0002', 'C0003')} "
+                f"{CANDIDATE_FILE.replace('C0002', 'C0003')}",
+            )
+
+    def test_staged_changes_survive_nptv6_assignment(self) -> None:
+        """Assigning NPTv6 prefixes doesn't overwrite staged changes.
+
+        vpnc writes assigned prefixes back to the configuration files.
+        """
+        addresses = ("10.200.0.1/30", "fdcc:200::1/64")
+        write_tenant([ipsec_connection(0, addresses, ROUTES_4, [])])
+        conftest.wait_until(
+            lambda: not nptv6_mappings(NI),
+            timeout=APPLY_TIMEOUT,
+            message="the IPv6 route to be removed",
+        )
+        vpnctl("config set C0002 name Staged")
+
+        # Applied directly; vpnc assigns the route a prefix and writes it back.
+        write_tenant([ipsec_connection(0, addresses, ROUTES_4, ["fdcc:203::/48"])])
+        conftest.wait_until(
+            lambda: any(remote == "fdcc:203::/48" for _, remote in nptv6_mappings(NI)),
+            timeout=APPLY_TIMEOUT,
+            message="the NPTv6 prefix to be assigned",
+        )
+
+        assert vpnctl("config show C0002 name --candidate") == "Staged\n"
+
+
+ROUTES_PATH = f"network_instances.{NI}.connections.0.routes"
+
+
+def tenant_ids() -> list[str]:
+    """Return the tenants vpnc runs."""
+    return [t["id"] for t in vpnctl_json("tenants list")]
+
+
+def vpnctl(args: str) -> str:
+    """Run vpnctl on the host (no spaces in arguments)."""
+    return conftest.run_cmd(HOST, f"{VPNCTL} {args}")
 
 
 def vpnctl_json(args: str) -> Any:  # noqa: ANN401
