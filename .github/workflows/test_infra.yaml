@@ -4,6 +4,10 @@ on:
   pull_request:
   # push:
   #   branches: main
+# A new push replaces the run of the previous one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   # Build the images once per Ubuntu version; the test jobs load them.
   build:
