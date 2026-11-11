@@ -135,6 +135,18 @@ class TestConnectionControl:
         conftest.wait_until(reset_done, timeout=UP_TIMEOUT, message="the resets")
         conftest.wait_until(all_up, timeout=UP_TIMEOUT, message="connections to be up")
 
+    def test_network_instance(self) -> None:
+        """A network instance's VPN connections are restarted; restart is reset."""
+        handshake_before = time.time()
+        output = conftest.run_cmd("hub00", f"{VPNCTL} connections restart C0001-01")
+        assert output.startswith("Reset C0001-01-0;")
+
+        def new_handshake() -> bool:
+            ago = connection(*WIREGUARD)["details"]["last_handshake_seconds_ago"]
+            return ago is not None and ago <= time.time() - handshake_before
+
+        conftest.wait_until(new_handshake, timeout=UP_TIMEOUT, message="a handshake")
+
     def test_physical(self) -> None:
         """A physical connection can't be stopped."""
         with pytest.raises(subprocess.CalledProcessError) as err:

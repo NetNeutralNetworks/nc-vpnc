@@ -13,6 +13,7 @@ function install_apt_defaults () {
     # strongswan metapackage installs charon-systemd instead.
     # python3-packaging: the venv uses system site packages, so pip relies on it.
     # kmod: vpnc runs modinfo and modprobe.
+    # iputils-ping, traceroute: vpnctl ping and traceroute.
 
     apt-get update
     # If systemd is the init system
@@ -25,7 +26,8 @@ function install_apt_defaults () {
     strongswan-starter strongswan-charon \
     python3-packaging \
     ssh \
-    wireguard
+    wireguard \
+    iputils-ping traceroute
 
     # Remove cached apt list after install
     if  [ -f /.dockerenv ]; then
