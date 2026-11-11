@@ -481,10 +481,10 @@ def vtysh(command: str) -> Any:  # noqa: ANN401
             check=True,
             timeout=10,
         )
-    except (OSError, subprocess.SubprocessError) as err:
+        return json.loads(result.stdout or "{}")
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as err:
         detail = "FRR doesn't answer."
         raise config_files.ConfigError(503, "Service unavailable", detail) from err
-    return json.loads(result.stdout or "{}")
 
 
 def bgp_neighbors() -> list[BgpNeighbor]:
