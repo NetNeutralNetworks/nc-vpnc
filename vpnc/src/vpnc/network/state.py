@@ -209,7 +209,7 @@ def _keeps() -> bool:
     return threading.get_ident() == _KEEPER
 
 
-def _identity(name: str) -> tuple[int, int]:
+def netns_identity(name: str) -> tuple[int, int]:
     """Return the identity of a namespace (FileNotFoundError if missing)."""
     stat = (namespace.NETNS_DIR / name).stat()
     return stat.st_dev, stat.st_ino
@@ -217,7 +217,7 @@ def _identity(name: str) -> tuple[int, int]:
 
 def _socket(name: str) -> namespace.IPRoute:
     """Return the kept socket of a namespace, opening one if it was replaced."""
-    identity = _identity(name)
+    identity = netns_identity(name)
     if (kept := _SOCKETS.get(name)) is not None:
         if kept[0] == identity:
             return kept[1]
@@ -245,7 +245,7 @@ def forget_stale() -> None:
         return
     for name, (identity, _) in list(_SOCKETS.items()):
         try:
-            current = _identity(name)
+            current = netns_identity(name)
         except FileNotFoundError:
             current = None
         if current != identity:
