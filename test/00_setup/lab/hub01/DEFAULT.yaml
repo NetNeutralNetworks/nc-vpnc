@@ -60,6 +60,8 @@ network_instances:
           ipv6:
           # IP prefixes for provider client subnets initiating administration traffic to tenants.
           - to: fd00::/16
+          # Only via this connection (mgt00).
+          - to: fd01::/16
           #   via: fd00:1:2::1 # Optional, ignored for tunnel interfaces
           # IPv4 prefixes are ignored for core and downlink in hub mode.
           ipv4: []

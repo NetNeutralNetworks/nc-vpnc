@@ -13,6 +13,8 @@ TESTDATA_ROUTES = [
         {
             # Uplink route via BGP, preferred via xfrm0
             ("fd00::/16", None, "xfrm0", "bgp"),
+            # Only mgt00 (CORE connection 0) advertises it.
+            ("fd01:3::/64", None, "xfrm0", "bgp"),
             # routes for C0001-00
             ("2001:db8:c57::/48", "fe80::1", "C0001-00_C", "vpnc"),
             # ("fd6c:1::/48", "fe80::1", "C0001-00_C", None),
@@ -37,6 +39,7 @@ TESTDATA_ROUTES = [
         {
             # Uplink to CORE
             ("fd00::/16", "fe80::", "C0001-00_D", "vpnc"),
+            ("fd01::/16", "fe80::", "C0001-00_D", "vpnc"),
             # IPv4 routes
             ("default", None, "tun1", "vpnc"),
             ("172.16.30.1", None, "xfrm0", "vpnc"),
@@ -54,6 +57,7 @@ TESTDATA_ROUTES = [
         {
             # Uplink to CORE
             ("fd00::/16", "fe80::", "C0001-01_D", "vpnc"),
+            ("fd01::/16", "fe80::", "C0001-01_D", "vpnc"),
             # IPv4 routes
             ("default", None, "wg-C0001-01-0", "vpnc"),
             # IPv6 routes
@@ -78,6 +82,8 @@ TESTDATA_ROUTES = [
         {
             # Uplink route via BGP, preferred via xfrm1
             ("fd00::/16", None, "xfrm1", "bgp"),
+            # Only mgt00 (CORE connection 0) advertises it.
+            ("fd01:3::/64", None, "xfrm0", "bgp"),
             # routes for C0001-00
             ("2001:db8:c57::/48", "fe80::1", "C0001-00_C", "vpnc"),
             ("fd6c:1::/52", "fe80::1", "C0001-00_C", "vpnc"),
@@ -100,6 +106,7 @@ TESTDATA_ROUTES = [
         {
             # Uplink to CORE
             ("fd00::/16", "fe80::", "C0001-00_D", "vpnc"),
+            ("fd01::/16", "fe80::", "C0001-00_D", "vpnc"),
             # IPv4 routes
             ("default", None, "tun1", "vpnc"),
             ("172.16.30.1", None, "xfrm0", "vpnc"),
@@ -117,6 +124,7 @@ TESTDATA_ROUTES = [
         {
             # Uplink to CORE
             ("fd00::/16", "fe80::", "C0001-01_D", "vpnc"),
+            ("fd01::/16", "fe80::", "C0001-01_D", "vpnc"),
             # IPv4 routes
             ("default", None, "wg-C0001-01-0", "vpnc"),
             # IPv6 routes
