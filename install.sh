@@ -149,6 +149,10 @@ function create_misc_config () {
     # Copy configuration files over to the configuration directories.
     cp -rf ${SCRIPTDIR}/config/snmp/vpnc.conf /etc/snmp/snmpd.conf.d/
     cp -rf ${SCRIPTDIR}/config/strongswan/vpnc.conf /etc/strongswan.d/
+    # Not in the lab images.
+    if [ -d /etc/logrotate.d ]; then
+        cp -f ${SCRIPTDIR}/config/logrotate/vpnc /etc/logrotate.d/vpnc
+    fi
     mkdir -p /etc/iproute2/rt_protos.d
     cp -f ${SCRIPTDIR}/config/iproute2/vpnc.conf /etc/iproute2/rt_protos.d/
 }

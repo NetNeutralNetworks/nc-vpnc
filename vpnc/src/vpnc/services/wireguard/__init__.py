@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from jinja2 import Environment, FileSystemLoader
 from pyroute2 import WireGuard
 
-from vpnc import config, files
+from vpnc import config, files, shared
 from vpnc.models import enums
 from vpnc.network import namespace
 
@@ -121,11 +121,12 @@ def sync(
 ) -> None:
     """Configure a WireGuard interface as desired, changing only what differs.
 
-    Unchanged peers keep their session.
+    Unchanged peers keep their session. A stopped connection has no peer.
     """
     cfg = connection.config
     private_key = cfg.private_key.get_secret_value()
     desired = _peer(connection)
+    stopped = f"{network_instance.id}-{connection.id}" in shared.STOPPED_CONNECTIONS
 
     def run() -> None:
         # The socket is opened in this thread's namespace.
@@ -138,7 +139,11 @@ def sync(
                 settings["listen_port"] = cfg.local_port
             peers = _peers(device)
             current = peers.pop(cfg.public_key, None)
-            if current is None or _peer_differs(current, desired):
+            if stopped:
+                # Removed below, like unknown peers.
+                if current is not None:
+                    peers[cfg.public_key] = current
+            elif current is None or _peer_differs(current, desired):
                 settings["peer"] = desired
             if settings:
                 logger.info("Configuring WireGuard interface %s.", ifname)
