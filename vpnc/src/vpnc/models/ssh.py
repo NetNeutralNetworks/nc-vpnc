@@ -8,7 +8,7 @@ import subprocess
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 import vpnc.models.network_instance
 import vpnc.services.ssh
@@ -22,7 +22,7 @@ class ConnectionConfigSSH(BaseModel):
     """Defines an SSH connection data structure."""
 
     type: Literal[enums.ConnectionType.SSH] = enums.ConnectionType.SSH
-    remote_addrs: list[IPv4Address | IPv6Address]
+    remote_addrs: list[IPv4Address | IPv6Address] = Field(min_length=1)
     remote_config: bool = False
     # Required. Specifies the remote
     # tunnel identifier to avoid overlap.

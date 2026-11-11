@@ -29,7 +29,7 @@ class ConnectionConfigWireGuard(BaseModel):
     type: Literal[enums.ConnectionType.WIREGUARD] = enums.ConnectionType.WIREGUARD
     # Set a local id for the connection specifically.
     local_port: int = Field(default=51820, ge=0, le=65535)
-    remote_addrs: list[IPv4Address | IPv6Address]
+    remote_addrs: list[IPv4Address | IPv6Address] = Field(min_length=1)
     remote_port: int = Field(default=51820, ge=0, le=65535)
     private_key: Secret
     public_key: str
