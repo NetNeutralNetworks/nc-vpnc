@@ -20,9 +20,6 @@ print_service_state () {
   printf "\e[1m$1: $color\t$state\e[0m\n"
 }
 
-# Enable autocomplete
-vpnctl --install-completion > /dev/null
-
 printf "\n"
 print_service_state "ncubed-vpnc"
 DEFAULT="\e[0m"
@@ -36,50 +33,19 @@ printf "$BOLD
 | | | ( (___| |_| | |_) ) ____( (_| |
 |_| |_|\____)____/|____/|_____)\____|
 $DEFAULT
+Manage vpnc with 'vpnctl' (as root, with tab completion; -h for help):
 
-VPNC configuration is stored in /opt/ncubed/config/vpnc
-This directory contains the active and candidate configuration directories.
+$BOLD  vpnctl status$DEFAULT                                     mode, connections up, restart needed
+$BOLD  vpnctl tenants|ni list$DEFAULT                            tenants, network instances
+$BOLD  vpnctl connections list [--state down]$DEFAULT
+$BOLD  vpnctl connections show|logs ID$DEFAULT
+$BOLD  vpnctl connections reset ID ...$DEFAULT                   also stop, start
+$BOLD  vpnctl bgp neighbors|routes$DEFAULT                       hub mode
+$BOLD  vpnctl routes|ping|traceroute|tcp NI ...$DEFAULT          inside a network instance
+$BOLD  vpnctl logs [--ni NI] [-f]$DEFAULT
 
-Manage the configuration by using the 'vpnctl' command. This binary has autocompletion.
+$BOLD  vpnctl config show|edit|set|delete C0001 [PATH]$DEFAULT   staged in the candidate
+$BOLD  vpnctl config diff|commit|discard C0001$DEFAULT           'service' for DEFAULT.yaml
+$BOLD  vpnctl config commit C0001 --confirm 5m$DEFAULT           rolled back unless confirmed
 
-$BOLD> vpnctl tenants$DEFAULT
-shows a list of all configured tenants VPNs
-
-$BOLD> vpnctl tenants <TENANTID> show (--active) (--full)$DEFAULT
-shows the <TENANTID> (active) tenant VPN configuration without the VPN tunnel configuration
-full shows the tunnel configurations as well
-
-$BOLD> vpnctl tenants <TENANTID> add --name <Customer name>
-add a new tenant
-
-$BOLD> vpnctl tenants <TENANTID> delete/set/unset$DEFAULT
-delete a tenant
-set a tenant property
-remove a tenant property
-
-$BOLD> vpnctl tenants <TENANTID> edit$DEFAULT
-opens the default editor for editing the tenants configuration. These edits are validated. Invalid
-configurations cannot be applied and will be rolled back.
-
-$BOLD> vpnctl tenants <TENANTID> connection$DEFAULT
-shows a list of all configured tunnels for a tenants
-
-$BOLD> vpnctl tenants <TENANTID> connection 0 show$DEFAULT
-shows the <TENANTID> tenant tunnel 0 VPN configuration
-
-$BOLD> vpnctl tenants <TENANTID> connection 0 add/delete/set/unset$DEFAULT
-add a new connection
-delete a connection
-set a connection property
-remove a connection property
-
-$BOLD> vpnctl tenants <TENANTID> commit$DEFAULT
-copy the candidate configuration to the active configuration
-reverting the candidate configuration, dry-runs and diffs are possible
-
-$BOLD> vpnctl bgp show$DEFAULT
-shows the bgp configuration
-
-$BOLD> vpnctl bgp summary$DEFAULT
-shows the active bgp state summary
 "
