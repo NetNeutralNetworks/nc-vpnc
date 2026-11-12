@@ -118,6 +118,23 @@ class AppliedFirewall:
 FIREWALL_APPLIED: dict[str, AppliedFirewall] = {}
 
 
+# Per network instance, the routes logged as without NPTv6 prefix.
+_NPTV6_UNASSIGNED: dict[str, set[str]] = {}
+
+
+def _log_unassigned_nptv6(
+    network_instance_id: str,
+    unassigned: dict[str, str],
+    scope: IPv6Network,
+) -> None:
+    """Log routes without NPTv6 prefix once: they're tried again every time."""
+    logged = _NPTV6_UNASSIGNED.get(network_instance_id, set())
+    for route, message in unassigned.items():
+        if route not in logged:
+            logger.warning(message, route, scope)
+    _NPTV6_UNASSIGNED[network_instance_id] = set(unassigned)
+
+
 def wireguard_port_users(
     tenants: Iterable[tenant.Tenant] | None = None,
 ) -> dict[int, list[str]]:
@@ -672,6 +689,9 @@ class NetworkInstanceDownlink(NetworkInstance):
                 [route for route in connection.routes.ipv6 if route.nptv6 is True],
             )
 
+        # Per route without a prefix, why.
+        unassigned: dict[str, str] = {}
+
         # Calculate how to perform the NPTv6 translation.
         for configured_nptv6 in nptv6_list:
             prefix = configured_nptv6.nptv6_prefix
@@ -695,10 +715,8 @@ class NetworkInstanceDownlink(NetworkInstance):
             # Not kept: it mustn't count as taken below.
             configured_nptv6.nptv6_prefix = None
             if configured_nptv6.to.prefixlen < nptv6_scope.prefixlen:
-                logger.warning(
-                    "Route '%s' is too big for NPTv6 scope '%s'. Ignoring",
-                    configured_nptv6.to,
-                    nptv6_scope,
+                unassigned[str(configured_nptv6.to)] = (
+                    "Route '%s' is too big for NPTv6 scope '%s'. Ignoring"
                 )
                 continue
 
@@ -716,12 +734,11 @@ class NetworkInstanceDownlink(NetworkInstance):
                     updated = True
                     break
             else:
-                logger.warning(
-                    "No free NPTv6 prefix for route '%s' in scope '%s'.",
-                    configured_nptv6.to,
-                    nptv6_scope,
+                unassigned[str(configured_nptv6.to)] = (
+                    "No free NPTv6 prefix for route '%s' in scope '%s'."
                 )
 
+        _log_unassigned_nptv6(self.id, unassigned, nptv6_scope)
         return updated, [x for x in nptv6_list if x.nptv6_prefix]
 
     def _set_downlink_nat64(self) -> None:
