@@ -36,7 +36,7 @@ MISC_CONF := /etc/strongswan.d/vpnc.conf /etc/iproute2/rt_protos.d/vpnc.conf \
 	$(if $(wildcard /etc/logrotate.d),/etc/logrotate.d/vpnc)
 SNMP_CONF := /etc/snmp/snmpd.conf.d/vpnc.conf
 VPNCTL    := /usr/local/bin/vpnctl /etc/bash_completion.d/vpnctl \
-	/usr/share/zsh/vendor-completions/_vpnctl
+	/usr/share/zsh/vendor-completions/_vpnctl /etc/profile.d/profile-nc-vpn.sh
 
 .PHONY: help hub endpoint addon update root apt-update packages python-packages \
 	build-packages hub-packages frr snmpd config misc-config venv pip-vpnc \
@@ -181,8 +181,8 @@ $(STAMP)/vpncmangle: $(VPNCMANGLE_SRC) | $(VENV)/pyvenv.cfg
 	$(VENV)/bin/python3 -m pip install --upgrade ./vpncmangle
 	mkdir -p $(@D) && touch $@
 
-# vpnctl on the PATH, with bash and zsh completion.
-vpnctl: $(VPNCTL)
+# vpnctl on the PATH, with bash and zsh completion and the login banner.
+vpnctl: $(VPNCTL) typer-cleanup
 
 /usr/local/bin/vpnctl:
 	ln -sf $(VENV)/bin/vpnctl $@
@@ -192,6 +192,18 @@ vpnctl: $(VPNCTL)
 
 /usr/share/zsh/vendor-completions/_vpnctl: $(STAMP)/vpnc
 	mkdir -p $(@D) && $(VENV)/bin/vpnctl completion zsh > $@
+
+/etc/profile.d/profile-nc-vpn.sh: setup/profile-nc-vpn.sh
+	install -D -m 644 $< $@
+
+# The old typer vpnctl installed its own completion per user, at login; it
+# overrides the one above and breaks it.
+typer-cleanup:
+	for home in /root /home/*; do \
+		rm -f $$home/.bash_completions/vpnctl.sh $$home/.zfunc/_vpnctl; \
+		[ ! -f $$home/.bashrc ] || \
+			sed -i "\\|^source '$$home/.bash_completions/vpnctl.sh'$$|d" $$home/.bashrc; \
+	done
 
 # Service.
 
