@@ -7,8 +7,7 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable, Iterable
-from types import MappingProxyType
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any, TypeAlias
 
 import vici
@@ -20,14 +19,6 @@ from vpnc.services import charon
 
 logger = logging.getLogger("vpnc")
 
-
-IkeProperties: TypeAlias = MappingProxyType[str, Any]
-IkeData: TypeAlias = MappingProxyType[str, bytes | IkeProperties]
-EventType: TypeAlias = bytes
-Event: TypeAlias = tuple[EventType, IkeData]
-
-# Interface flag (linux/if.h).
-IFF_UP = 0x1
 
 POLICY_DIR_RE = re.compile(r"^\s+dir (\w+)")
 POLICY_IF_ID_RE = re.compile(r"^\s+if_id (0x[0-9a-f]+)")
@@ -92,7 +83,6 @@ class Monitor(threading.Thread):
 
     def run(self) -> None:
         """Override and entrypoint of the threading.Thread class."""
-        # Policies without a child SA at the previous check.
         # The event listeners restart themselves, so they're started only once.
         logger.info("Starting duplicate SA monitor.")
         threading.Thread(
@@ -183,26 +173,27 @@ class Monitor(threading.Thread):
             if not shared.STOP_EVENT.is_set():
                 time.sleep(1)
 
-    def monitor_duplicate_sa_events(self) -> None:
-        """Monitor for SA events.
+    def ike_events(self, timeout: float) -> Iterator[str]:
+        """Yield the connection of each IKE/child up/down event, until stopped.
 
-        check if there are duplicates and take action accordingly.
+        The timeout (seconds) is how often it checks whether to stop.
         """
         with charon.session(None, tries=CONNECT_TRIES) as vcs:
-            for event in vcs.listen(
+            for event_type, event_data in vcs.listen(
                 event_types=["ike-updown", "child-updown"],
-                timeout=0.1,
+                timeout=timeout,
             ):
                 if shared.STOP_EVENT.is_set():
                     return
-                if event == (None, None):
-                    continue
-                event_type, event_data = event
                 if event_type is None or event_data is None:
                     continue
-                keys = list(event_data.keys())
-                ike_name = keys[1] if len(keys) == 2 else keys[0]  # noqa: PLR2004
-                self.resolve_duplicate_sas(ike_name)
+                keys = list(event_data)
+                yield keys[1] if len(keys) == 2 else keys[0]  # noqa: PLR2004
+
+    def monitor_duplicate_sa_events(self) -> None:
+        """Resolve duplicate SAs of the connections with IKE/child up/down events."""
+        for ike_name in self.ike_events(timeout=0.1):
+            self.resolve_duplicate_sas(ike_name)
 
     def monitor_xfrm_interface_state(self) -> None:
         """Monitor VPN tunnel state and set interface state accordingly.
@@ -210,27 +201,13 @@ class Monitor(threading.Thread):
         Acts on IKE/child up/down events. Events missed while it wasn't listening
         are corrected when it starts, others by the full check.
         """
-        with charon.session(None, tries=CONNECT_TRIES) as vcs:
-            # At startup check all interface states
-            with charon.session(tries=CONNECT_TRIES) as session:
-                self.resync_xfrm_interface_states(
-                    (name.decode() for name in session.get_conns()["conns"]),
-                    list(session.list_sas()),
-                )
-
-            # Then check the queue for new events
-            for event in vcs.listen(
-                event_types=["ike-updown", "child-updown"],
-                timeout=1,
-            ):
-                if shared.STOP_EVENT.is_set():
-                    return
-                if event == (None, None):
-                    continue
-                event_type, event_data = event
-                if event_type is None or event_data is None:
-                    continue
-                self.resolve_xfrm_interface_state(event_data)
+        with charon.session(tries=CONNECT_TRIES) as vcs:
+            self.resync_xfrm_interface_states(
+                charon.loaded_connections(vcs),
+                list(vcs.list_sas()),
+            )
+        for ike_name in self.ike_events(timeout=1):
+            self.set_xfrm_interface_state(ike_name)
 
     def resync_xfrm_interface_states(
         self,
@@ -269,15 +246,6 @@ class Monitor(threading.Thread):
                     err,
                 )
 
-    def resolve_xfrm_interface_state(self, ike_event: IkeData) -> None:
-        """Set the XFRM interface state for the connection of an IKE/child event."""
-        ike_name: str
-        if len(keys := ike_event.keys()) == 2:  # noqa: PLR2004
-            _, ike_name = list(keys)
-        else:
-            ike_name = next(iter(keys))
-        self.set_xfrm_interface_state(ike_name)
-
     def xfrm_interface(self, ike_name: str) -> tuple[str, str] | None:
         """Return the network instance and XFRM interface of a connection.
 
@@ -312,36 +280,17 @@ class Monitor(threading.Thread):
                 charon.sa_up(ike_sa.get(ike_name, {}))
                 for ike_sa in vcs.list_sas({"ike": ike_name})
             )
-        with namespace.IPRoute(network_instance_name) as netns:
-            self.set_link_state(netns, ifname, up=tunnel_up)
-
-    def set_link_state(
-        self,
-        netns: namespace.IPRoute,
-        ifname: str,
-        *,
-        up: bool,
-    ) -> None:
-        """Set an interface up or down, if it isn't."""
-        if not (iflookup := netns.link_lookup(ifname=ifname)):
-            logger.warning(
-                "Network instance %s interface %s doesn't exist.",
-                netns.netns,
-                ifname,
-            )
-            return
-        ifidx = iflookup[0]
-        if bool(netns.get_links(ifidx)[0]["flags"] & IFF_UP) == up:
-            return
-
-        action = "up" if up else "down"
-        logger.info(
-            "Bringing network instance %s interface '%s' %s.",
-            netns.netns,
-            ifname,
-            action,
-        )
-        netns.link("set", index=ifidx, state=action)
+        # Only this interface is read, not the whole namespace.
+        snapshot = state.NetnsState(name=network_instance_name)
+        with namespace.IPRoute(network_instance_name) as ipr:
+            if state.refresh_link(ipr, snapshot, ifname) is None:
+                logger.warning(
+                    "Network instance %s interface %s doesn't exist.",
+                    network_instance_name,
+                    ifname,
+                )
+                return
+            state.ensure_link_state(ipr, snapshot, ifname, up=tunnel_up)
 
     def resolve_duplicate_sas(self, ike_name: str) -> None:
         """Keep the newest IKE/CHILD SA of an initiator connection, terminate the rest.

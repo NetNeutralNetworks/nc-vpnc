@@ -73,17 +73,12 @@ class ConnectionConfigIPsec(BaseModel):
         xfrm = self.intf_name(network_instance, connection)
         vpn_id = self.if_id(network_instance, connection)
 
-        if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
-            network_instance,
-        )
-
         with (
             state.netns(network_instance.id) as dl,
             state.netns(config.EXTERNAL_NI) as ext,
         ):
-            ni_dl, ni_state = dl.ipr, dl.state
-            state.ensure_xfrm(ni_dl, ext.ipr, ni_state, xfrm, vpn_id)
-            state.ensure_addresses(ni_dl, ni_state, xfrm, [*if_ipv4, *if_ipv6])
+            state.ensure_xfrm(dl.ipr, ext.ipr, dl.state, xfrm, vpn_id)
+            connection.ensure_addresses(network_instance, dl)
 
         return xfrm
 
@@ -93,9 +88,7 @@ class ConnectionConfigIPsec(BaseModel):
         connection: connections.Connection,
     ) -> None:
         """Delete a connection."""
-        interface_name = self.intf_name(network_instance, connection)
-        with state.netns(network_instance.id) as dl:
-            state.delete_link(dl.ipr, dl.state, interface_name)
+        connection.delete_interface(network_instance)
 
         name = connection.name(network_instance)
         try:

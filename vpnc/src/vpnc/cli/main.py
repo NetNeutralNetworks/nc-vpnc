@@ -163,6 +163,16 @@ def clean(text: str) -> str:
     return "".join(c if c.isprintable() else "?" for c in text)
 
 
+def structured(output: str) -> bool:
+    """Return whether the output format is JSON or YAML."""
+    return output in ("json", "yaml")
+
+
+def up(row: dict[str, Any]) -> str:
+    """Return how many of the connections are up, e.g. 3/4."""
+    return f"{row['connections_up']}/{row['connections']}"
+
+
 def cell(value: Any) -> str:  # noqa: ANN401
     """Return a table cell: lists comma separated, empty as '-'."""
     if value is None or value == []:
@@ -221,7 +231,7 @@ def cmd_status(args: argparse.Namespace) -> None:
             ("Mode", data["mode"]),
             ("Tenants", data["tenants"]),
             ("Network instances", data["network_instances"]),
-            ("Connections", f"{data['connections_up']}/{data['connections']} up"),
+            ("Connections", f"{up(data)} up"),
             *(
                 [("vpncmangle", vpncmangle_text(data["vpncmangle"]))]
                 if data.get("vpncmangle")
@@ -249,7 +259,7 @@ def vpncmangle_text(state: dict[str, Any]) -> str:
 
 
 def _up(row: dict[str, Any]) -> dict[str, Any]:
-    return {**row, "up": f"{row['connections_up']}/{row['connections']}"}
+    return {**row, "up": up(row)}
 
 
 def cmd_tenants_list(args: argparse.Namespace) -> None:
@@ -271,7 +281,7 @@ def cmd_tenants_show(args: argparse.Namespace) -> None:
         [
             ("Tenant", data["id"]),
             ("Name", data["name"]),
-            ("Connections", f"{data['connections_up']}/{data['connections']} up"),
+            ("Connections", f"{up(data)} up"),
             ("Network instances", data["network_instances"]),
         ],
     )
@@ -297,7 +307,7 @@ def cmd_ni_show(args: argparse.Namespace) -> None:
             ("Network instance", data["id"]),
             ("Tenant", data["tenant"]),
             ("Type", data["type"]),
-            ("Connections", f"{data['connections_up']}/{data['connections']} up"),
+            ("Connections", f"{up(data)} up"),
             ("NAT64 scope", data.get("nat64_scope")),
             ("NPTv6 scope", data.get("nptv6_scope")),
         ],
@@ -329,7 +339,7 @@ def cmd_connections_list(args: argparse.Namespace) -> None:
             **_filter(args.filter),
             "state": args.state,
             "type": args.type,
-            "counters": "true" if wide or args.output in ("json", "yaml") else None,
+            "counters": "true" if wide or structured(args.output) else None,
         },
     )
     if not dump(data, args.output):
@@ -427,7 +437,7 @@ def _control(args: argparse.Namespace, action: str, done: str) -> None:
             failed = True
             continue
         results.append(data)
-        if args.output not in ("json", "yaml"):
+        if not structured(args.output):
             print(f"{done} {data['id']}; it's {data['state']}.")
     dump(results, args.output)
     if failed:
@@ -665,7 +675,13 @@ def cmd_bgp_neighbors(args: argparse.Namespace) -> None:
 
 # Configuration commands. Changes are staged in the candidate; commit applies them.
 
-NEW_TENANT = {"version": "0.1.4", "name": "", "network_instances": {}}
+
+def new_tenant(target: str) -> dict[str, Any]:
+    """Return an empty configuration of a tenant, to edit."""
+    from vpnc.migration import CURRENT  # noqa: PLC0415
+
+    return {"version": CURRENT, "id": target, "name": "", "network_instances": {}}
+
 
 
 def config_path(target: str) -> str:
@@ -787,12 +803,12 @@ def cmd_config_show(args: argparse.Namespace) -> None:
         },
     )
     data = walk(data, split(args.path), args.target)
-    if not isinstance(data, dict | list) and args.output not in ("json", "yaml"):
+    if structured(args.output):
+        dump(data, args.output)
+    elif isinstance(data, dict | list):
+        dump(data, "yaml")
+    else:
         print(cell(data))
-        return
-    if args.output not in ("json", "yaml"):
-        args.output = "yaml"
-    dump(data, args.output)
 
 
 def cmd_config_edit(args: argparse.Namespace) -> None:
@@ -800,7 +816,7 @@ def cmd_config_edit(args: argparse.Namespace) -> None:
     import yaml  # noqa: PLC0415
 
     keys = split(args.path)
-    current = staged(args.target, reveal=True) or {**NEW_TENANT, "id": args.target}
+    current = staged(args.target, reveal=True) or new_tenant(args.target)
     part = walk(current, keys, args.target) if keys else current
     text = yaml.safe_dump(part, sort_keys=False)
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
@@ -976,7 +992,7 @@ def cmd_config_history(args: argparse.Namespace) -> None:
             f"{config_path(args.target)}/history/{args.revision}",
             params={"reveal_secrets": "true" if args.reveal_secrets else None},
         )
-        dump(data, args.output if args.output in ("json", "yaml") else "yaml")
+        dump(data, args.output if structured(args.output) else "yaml")
         return
     data = request("GET", f"{config_path(args.target)}/history")
     if not dump(data, args.output):
@@ -1034,6 +1050,9 @@ fi
 
 STATES = ["up", "down", "connecting", "stopped"]
 TYPES = ["ipsec", "wireguard", "ssh", "physical"]
+OUTPUTS = ["table", "wide", "json", "yaml"]
+SOURCES = ["vpnc", "vpncmangle", "charon"]
+LEVELS = ["debug", "info", "warning", "error", "critical"]
 
 # Per command its actions, and per action what its argument completes to.
 COMMANDS: dict[str, dict[str, str | None]] = {
@@ -1085,13 +1104,13 @@ OPTION_IDS = {
     "--ni": "network_instance",
 }
 OPTION_VALUES = {
-    "-o": ["table", "wide", "json", "yaml"],
-    "--output": ["table", "wide", "json", "yaml"],
+    "-o": OUTPUTS,
+    "--output": OUTPUTS,
     "--state": STATES,
     "--type": TYPES,
     "--confirm": ["1m", "5m", "10m"],
-    "--source": ["vpnc", "vpncmangle", "charon"],
-    "--level": ["debug", "info", "warning", "error", "critical"],
+    "--source": SOURCES,
+    "--level": LEVELS,
     "-c": [],
     "--count": [],
     "-s": [],
@@ -1180,7 +1199,7 @@ def log_options(p: argparse.ArgumentParser) -> None:
     """Add the options of the log commands."""
     p.add_argument(
         "--level",
-        choices=["debug", "info", "warning", "error", "critical"],
+        choices=LEVELS,
         default="info",
         help="at least (not for charon's lines)",
     )
@@ -1195,7 +1214,7 @@ def parser() -> argparse.ArgumentParser:
     output.add_argument(
         "-o",
         "--output",
-        choices=["table", "wide", "json", "yaml"],
+        choices=OUTPUTS,
         default=argparse.SUPPRESS,
         help="output format (default: table)",
     )
@@ -1290,7 +1309,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("-t", "--timeout", type=float, default=3, help="default: 3s")
 
     p = add(commands, "logs", cmd_logs)
-    p.add_argument("--source", choices=["vpnc", "vpncmangle", "charon"], default="vpnc")
+    p.add_argument("--source", choices=SOURCES, default="vpnc")
     p.add_argument(
         "--ni",
         metavar="NETWORK_INSTANCE",

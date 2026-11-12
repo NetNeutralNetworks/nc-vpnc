@@ -23,50 +23,42 @@ def _signal_handler(*_: object) -> None:
     shared.STOP_EVENT.set()
 
 
-def _check_system_requirements() -> None:
-    """Check if required kernel modules are installed."""
-    module_list: list[str] = [
-        "xfrm_interface",
-        # nftables NAT and masquerading.
-        "nft_chain_nat",
-        "nft_masq",
-        "veth",
-        "wireguard",
-    ]
-    module: str = ""
-    try:
-        for module in module_list:
-            logger.debug("Verifying kernel module %s is installed", module)
+def _check_modules(modules: list[str]) -> None:
+    """Exit unless the kernel modules are installed."""
+    for module in modules:
+        logger.debug("Verifying kernel module %s is installed", module)
+        try:
             subprocess.run(  # noqa: S603
                 ["/usr/sbin/modinfo", module],
                 check=True,
                 stdout=subprocess.PIPE,
             )
-    except subprocess.CalledProcessError:
-        logger.critical("The '%s' kernel module isn't installed. Exiting.", module)
-        sys.exit(1)
+        except subprocess.CalledProcessError:
+            logger.critical("The '%s' kernel module isn't installed. Exiting.", module)
+            sys.exit(1)
+
+
+def _check_system_requirements() -> None:
+    """Check if required kernel modules are installed."""
+    _check_modules(
+        [
+            "xfrm_interface",
+            # nftables NAT and masquerading.
+            "nft_chain_nat",
+            "nft_masq",
+            "veth",
+            "wireguard",
+        ],
+    )
 
     tenant_config, _ = tenant.load_tenant_config(config.VPNC_A_CONFIG_PATH_SERVICE)
     if not isinstance(tenant_config, (tenant.ServiceHub, tenant.ServiceEndpoint)):
         logger.critical("Service configuration is invalid")
         sys.exit(1)
 
-    if tenant_config.mode != enums.ServiceMode.HUB:
-        return
-
-    # vpncmangle queues DNS responses with nftables.
-    hub_module_list: list[str] = ["nft_queue"]
-    try:
-        for module in hub_module_list:
-            logger.debug("Verifying kernel module %s is installed", module)
-            subprocess.run(  # noqa: S603
-                ["/usr/sbin/modinfo", module],
-                stdout=subprocess.PIPE,
-                check=True,
-            )
-    except subprocess.CalledProcessError:
-        logger.critical("The '%s' kernel module isn't installed. Exiting.", module)
-        sys.exit(1)
+    if tenant_config.mode == enums.ServiceMode.HUB:
+        # vpncmangle queues DNS responses with nftables.
+        _check_modules(["nft_queue"])
 
 
 def main() -> None:

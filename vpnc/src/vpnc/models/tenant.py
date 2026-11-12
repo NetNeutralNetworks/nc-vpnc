@@ -285,10 +285,7 @@ def load_tenant_config(
         )
         return None, None
 
-    active_tenant = config.VPNC_CONFIG_TENANT.get(tenant.id)
-    # config.VPNC_CONFIG_TENANT[tenant.id] = tenant
-
-    return tenant, active_tenant
+    return tenant, config.VPNC_CONFIG_TENANT.get(tenant.id)
 
 
 def get_default_tenant() -> ServiceHub | ServiceEndpoint:
@@ -306,3 +303,8 @@ def get_default_tenant() -> ServiceHub | ServiceEndpoint:
         # Exiting here would only end the calling thread, silently.
         raise ConfigurationError(msg)
     return default_tenant
+
+
+def is_hub() -> bool:
+    """Return whether the service runs in hub mode."""
+    return get_default_tenant().mode == ServiceMode.HUB

@@ -52,7 +52,7 @@ class ConnectionConfigWireGuard(BaseModel):
                 for user in users
                 if wireguard.listen_port(
                     helpers.split_connection_name(user)[0],
-                    f"wg-{user}",
+                    helpers.wireguard_interface_name(user),
                 )
                 == self.local_port
             ]
@@ -67,18 +67,13 @@ class ConnectionConfigWireGuard(BaseModel):
         open_wireguard_ports()
         wg = self.intf_name(network_instance, connection)
 
-        if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
-            network_instance,
-        )
-
         with (
             state.netns(network_instance.id) as dl,
             state.netns(config.EXTERNAL_NI) as ext,
         ):
-            ni_dl, ni_state = dl.ipr, dl.state
-            state.ensure_wireguard(ni_dl, ext.ipr, ni_state, wg)
-            state.ensure_link_state(ni_dl, ni_state, wg, up=True)
-            state.ensure_addresses(ni_dl, ni_state, wg, [*if_ipv4, *if_ipv6])
+            state.ensure_wireguard(dl.ipr, ext.ipr, dl.state, wg)
+            state.ensure_link_state(dl.ipr, dl.state, wg, up=True)
+            connection.ensure_addresses(network_instance, dl)
 
         wireguard.generate_config(network_instance, connection)
         wireguard.sync(network_instance, connection, wg)
@@ -91,12 +86,9 @@ class ConnectionConfigWireGuard(BaseModel):
         connection: connections.Connection,
     ) -> None:
         """Delete a connection."""
+        connection.delete_interface(network_instance)
         interface_name = self.intf_name(network_instance, connection)
-        with state.netns(network_instance.id) as dl:
-            state.delete_link(dl.ipr, dl.state, interface_name)
-
-        config_file = config.WIREGUARD_CONFIG_DIR.joinpath(f"{interface_name}.conf")
-        config_file.unlink(missing_ok=True)
+        wireguard.config_path(interface_name).unlink(missing_ok=True)
 
         from vpnc.models.network_instance import open_wireguard_ports  # noqa: PLC0415
 
@@ -108,4 +100,4 @@ class ConnectionConfigWireGuard(BaseModel):
         connection: connections.Connection,
     ) -> str:
         """Return the name of the connection interface."""
-        return f"wg-{connection.name(network_instance)}"
+        return helpers.wireguard_interface_name(connection.name(network_instance))

@@ -339,7 +339,7 @@ def network_instance_states(
     by_ni: dict[str, list[ConnectionState]] = {}
     for s in connection_states(selected, interfaces=False):
         by_ni.setdefault(s.network_instance, []).append(s)
-    hub = tenant.get_default_tenant().mode == enums.ServiceMode.HUB
+    hub = tenant.is_hub()
     output: list[NetworkInstanceState] = []
     for ni in selected:
         up, total = _counts(by_ni.get(ni.id, []))
@@ -421,7 +421,7 @@ def status() -> Status:
 
 
 def _vpncmangle() -> VpncmangleState | None:
-    if tenant.get_default_tenant().mode != enums.ServiceMode.HUB:
+    if not tenant.is_hub():
         return None
     process = vpncmangle.PROCESS
     try:
@@ -622,7 +622,7 @@ def version() -> Version:
     except OSError:
         logger.warning("Reading the strongSwan version failed.", exc_info=True)
     frr = None
-    if tenant.get_default_tenant().mode == enums.ServiceMode.HUB:
+    if tenant.is_hub():
         with contextlib.suppress(OSError, subprocess.SubprocessError):
             result = subprocess.run(  # noqa: S603
                 ["/usr/bin/vtysh", "-c", "show version"],

@@ -7,10 +7,8 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-import pathlib
 from typing import TYPE_CHECKING, Any
 
-from jinja2 import Environment, FileSystemLoader
 from pyroute2 import WireGuard
 from pyroute2.netlink.exceptions import NetlinkError
 
@@ -18,15 +16,19 @@ from vpnc import config, files, shared
 from vpnc.network import namespace
 
 if TYPE_CHECKING:
+    import pathlib
+
     from vpnc.models.connections import Connection
     from vpnc.models.network_instance import NetworkInstance
 
 logger = logging.getLogger("vpnc")
 
-BASE_DIR = pathlib.Path(__file__).parent
-TEMPLATES_DIR = BASE_DIR.joinpath("templates")
-# Config files, not HTML: values must be written as they are.
-TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=False)  # noqa: S701
+TEMPLATES_ENV = files.templates(__file__)
+
+
+def config_path(ifname: str) -> pathlib.Path:
+    """Return the configuration file of an interface."""
+    return config.WIREGUARD_CONFIG_DIR.joinpath(f"{ifname}.conf")
 
 
 def generate_config(network_instance: NetworkInstance, connection: Connection) -> None:
@@ -35,15 +37,11 @@ def generate_config(network_instance: NetworkInstance, connection: Connection) -
     wg_render = TEMPLATES_ENV.get_template("wireguard.conf.j2").render(
         local_port=cfg.local_port,
         remote_addrs=f"{cfg.remote_addrs[0]}:{cfg.remote_port}",
-        routes=",".join(
-            str(route.to) for route in connection.routes.ipv4 + connection.routes.ipv6
-        ),
+        routes=",".join(str(route.to) for route in connection.routes.all),
         private_key=cfg.private_key.get_secret_value(),
         public_key=cfg.public_key,
     )
-    wg_path = config.WIREGUARD_CONFIG_DIR.joinpath(
-        f"{connection.intf_name(network_instance)}.conf",
-    )
+    wg_path = config_path(connection.intf_name(network_instance))
     if files.ensure_file(wg_path, wg_render, secret=True):
         logger.info(
             "Generated network instance %s connection %s WireGuard configuration.",
@@ -63,9 +61,7 @@ def _peer(connection: Connection) -> dict[str, Any]:
         "endpoint_addr": str(cfg.remote_addrs[0]),
         "endpoint_port": cfg.remote_port,
         "persistent_keepalive": KEEPALIVE,
-        "allowed_ips": [
-            str(route.to) for route in connection.routes.ipv4 + connection.routes.ipv6
-        ],
+        "allowed_ips": [str(route.to) for route in connection.routes.all],
         "replace_allowed_ips": True,
     }
 

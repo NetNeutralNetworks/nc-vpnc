@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import pathlib
-import subprocess
 import time
 from abc import abstractmethod
 from dataclasses import dataclass
@@ -18,7 +16,6 @@ from ipaddress import (
 )
 from typing import TYPE_CHECKING, Any, Literal
 
-from jinja2 import Environment, FileSystemLoader
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -27,10 +24,10 @@ from pydantic import (
     field_validator,
 )
 
-from vpnc import config, helpers
+from vpnc import config, files, helpers
 from vpnc.models import connections, enums, tenant
 from vpnc.network import namespace, nftables, state
-from vpnc.services import configuration, frr, strongswan
+from vpnc.services import configuration, frr, jool, strongswan
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -38,10 +35,7 @@ if TYPE_CHECKING:
 # Needed for pydantim ports and type checking
 logger = logging.getLogger("vpnc")
 
-BASE_DIR = pathlib.Path(__file__).parent
-TEMPLATES_DIR = BASE_DIR.joinpath("templates")
-# Config files, not HTML: values must be written as they are.
-TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=False)  # noqa: S701
+TEMPLATES_ENV = files.templates(__file__)
 
 # Sysctls for network instances that route traffic (CORE, DOWNLINK, ENDPOINT).
 #
@@ -75,23 +69,7 @@ def jool_instances() -> Iterator[None]:
     instance's settings would take a process per network instance.
     """
     global _JOOL_INSTANCES  # noqa: PLW0603
-    try:
-        result = subprocess.run(
-            ["/usr/bin/jool", "instance", "display", "--csv"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        logger.warning("Listing the Jool instances failed.", exc_info=True)
-        result = None
-    if result is not None and result.returncode == 0:
-        _JOOL_INSTANCES = {
-            fields[1]
-            for line in result.stdout.splitlines()[1:]
-            if len(fields := line.split(",")) >= 2  # noqa: PLR2004
-        }
+    _JOOL_INSTANCES = jool.instances()
     try:
         yield
     finally:
@@ -239,6 +217,14 @@ class NetworkInstance(BaseModel):
         # Read as hexadecimal, as the prefixes in use are.
         return int(self._key, 16)
 
+    @property
+    def linked_to_core(self) -> bool:
+        """Return whether it has a link with CORE (DOWNLINK and ENDPOINT)."""
+        return self.type in (
+            enums.NetworkInstanceType.DOWNLINK,
+            enums.NetworkInstanceType.ENDPOINT,
+        )
+
     _none_as_default = helpers.none_as_default("metadata")
 
     @field_validator("connections")
@@ -348,19 +334,11 @@ class NetworkInstance(BaseModel):
         if self.type == enums.NetworkInstanceType.DOWNLINK and route6.nptv6:
             # None until the NPTv6 prefix has been calculated.
             return route6.nptv6_prefix
-        if self.type in (
-            enums.NetworkInstanceType.DOWNLINK,
-            enums.NetworkInstanceType.ENDPOINT,
-        ):
-            return route6.to
-        return None
+        return route6.to if self.linked_to_core else None
 
     def _uplink_routes(self) -> list[state.Route]:
         """Return the routes of a DOWNLINK/ENDPOINT network instance to the uplinks."""
-        if self.type not in (
-            enums.NetworkInstanceType.DOWNLINK,
-            enums.NetworkInstanceType.ENDPOINT,
-        ):
+        if not self.linked_to_core:
             return []
         default_tenant = tenant.get_default_tenant()
         veth = self.veth_downlink
@@ -421,22 +399,15 @@ class NetworkInstance(BaseModel):
 
         # IPv6 and IPv4 routing is enabled on the network instance only for CORE,
         # DOWNLINK and ENDPOINT.
-        if self.type in (
-            enums.NetworkInstanceType.CORE,
-            enums.NetworkInstanceType.DOWNLINK,
-            enums.NetworkInstanceType.ENDPOINT,
-        ):
+        if self.linked_to_core or self.type == enums.NetworkInstanceType.CORE:
             namespace.ensure_sysctls(self.id, ROUTED_NETWORK_INSTANCE_SYSCTLS)
 
-        if self.type in (
-            enums.NetworkInstanceType.DOWNLINK,
-            enums.NetworkInstanceType.ENDPOINT,
-        ):
+        if self.linked_to_core:
             self._set_network_instance_link()
 
     def _delete_unconfigured_interfaces(self) -> None:
         """Delete connection interfaces (XFRM, tun, WireGuard) no longer configured."""
-        configured = set(self._get_network_instance_connections())
+        configured = self._get_network_instance_connections()
         with state.netns(self.id) as dl:
             for name, link in list(dl.state.links.items()):
                 if link.kind in ("xfrm", "tun", "wireguard") and name not in configured:
@@ -444,10 +415,7 @@ class NetworkInstance(BaseModel):
 
     def delete(self) -> None:
         """Delete a network instance (Linux namespace)."""
-        if self.type in (
-            enums.NetworkInstanceType.DOWNLINK,
-            enums.NetworkInstanceType.ENDPOINT,
-        ):
+        if self.linked_to_core:
             self._delete_network_instance_link()
 
         for conn in _ssh_first(self.connections.values()):
@@ -460,13 +428,9 @@ class NetworkInstance(BaseModel):
 
         namespace.delete(self.id)
 
-    def _get_network_instance_connections(self) -> list[str]:
+    def _get_network_instance_connections(self) -> set[str]:
         """Get all configured connections (interfaces)."""
-        configured_interfaces: set[str] = {
-            connection.intf_name(self) for connection in self.connections.values()
-        }
-
-        return list(configured_interfaces)
+        return {connection.intf_name(self) for connection in self.connections.values()}
 
     def _set_network_instance_connections(
         self,
@@ -476,7 +440,6 @@ class NetworkInstance(BaseModel):
 
         Adds connections to the network instance (Linux namespace).
         """
-        interfaces: list[str] = []
         if active_network_instance:
             self._delete_network_instance_connections(
                 active_network_instance,
@@ -487,29 +450,22 @@ class NetworkInstance(BaseModel):
                 self.id,
                 connection.id,
             )
-            # Add connection
             try:
-                interface = connection.add(
-                    network_instance=self,
-                )
-                interfaces.append(interface)
-            except (ValueError, Exception):
+                connection.add(network_instance=self)
+            except Exception:
                 logger.exception(
                     "Failed to set up connection '%s' interface(s)",
                     connection,
                 )
-                continue
 
     def _delete_network_instance_connections(
         self,
-        active_network_instance: NetworkInstance | None,
+        active_network_instance: NetworkInstance,
     ) -> None:
         """Delete unconfigured connections (interfaces).
 
         Deletes the connection from the network instance (Linux namespace).
         """
-        if not active_network_instance:
-            return
         active_connections = list(active_network_instance.connections.values())
         # Break connections in reverse order.
         active_connections.reverse()
@@ -533,7 +489,6 @@ class NetworkInstance(BaseModel):
         self,
     ) -> None:
         """Create a link and routes between a DOWNLINK and the CORE network instance."""
-        default_tenant = tenant.get_default_tenant()
         veth_c = self.veth_core
         veth_d = self.veth_downlink
 
@@ -561,7 +516,7 @@ class NetworkInstance(BaseModel):
             state.ensure_link_state(ni_dl, dl_state, veth_d, up=True)
 
             # Link-local addresses for routing, and IPv4 in ENDPOINT mode.
-            endpoint = default_tenant.mode == enums.ServiceMode.ENDPOINT
+            endpoint = not tenant.is_hub()
             state.ensure_addresses(
                 ni_core,
                 core_state,
@@ -583,7 +538,7 @@ class NetworkInstance(BaseModel):
         """Delete a link between a DOWNLINK and the CORE network instance."""
         with state.netns(self.id) as dl:
             state.delete_link(dl.ipr, dl.state, self.veth_downlink)
-        namespace.run(self.id, ["/usr/bin/jool", "instance", "remove", self.id])
+        jool.remove(self.id)
         NAT64_APPLIED.pop(self.id, None)
 
 
@@ -633,7 +588,7 @@ class NetworkInstanceCore(NetworkInstance):
 
     def _reconcile_services(self) -> None:
         strongswan.apply(self)
-        if tenant.get_default_tenant().mode == enums.ServiceMode.HUB:
+        if tenant.is_hub():
             frr.generate_config()
 
     def set_firewall(self) -> bool:
@@ -689,11 +644,9 @@ class NetworkInstanceDownlink(NetworkInstance):
         self,
     ) -> tuple[bool, list[connections.RouteIPv6]]:
         """Calculate the NPTv6 translations for a network instance (Linux namespace)."""
-        default_tenant = tenant.get_default_tenant()
-
         updated = False
         nptv6_list: list[connections.RouteIPv6] = []
-        if default_tenant.mode != enums.ServiceMode.HUB:
+        if not tenant.is_hub():
             return updated, nptv6_list
 
         # Get NPTv6 prefix for this network instance
@@ -760,9 +713,7 @@ class NetworkInstanceDownlink(NetworkInstance):
 
     def _set_downlink_nat64(self) -> None:
         """Add NAT64 rules to a network instance (Linux namespace)."""
-        default_tenant = tenant.get_default_tenant()
-
-        if default_tenant.mode != enums.ServiceMode.HUB:
+        if not tenant.is_hub():
             logger.debug("Not running in hub mode. Not configuring NAT64.")
             return
 
@@ -781,32 +732,17 @@ class NetworkInstanceDownlink(NetworkInstance):
         ):
             return
         # Configure NAT64 (Jool) only if the instance differs.
-        current = namespace.run(
-            self.id,
-            ["/usr/bin/jool", "-i", self.id, "global", "display", "--csv"],
-        )
-        if current.returncode == 0:
-            if f"pool6,{nat64_scope}" in current.stdout.splitlines():
+        if (current := jool.pool6(self.id)) is not None:
+            if current == str(nat64_scope):
                 NAT64_APPLIED[self.id] = nat64_scope
                 return
-            namespace.run(self.id, ["/usr/bin/jool", "instance", "remove", self.id])
+            jool.remove(self.id)
         logger.info(
             "Configuring network instance %s NAT64 scope %s",
             self.id,
             nat64_scope,
         )
-        result = namespace.run(
-            self.id,
-            [
-                "/usr/bin/jool",
-                "instance",
-                "add",
-                self.id,
-                "--netfilter",
-                "--pool6",
-                str(nat64_scope),
-            ],
-        )
+        result = jool.add(self.id, str(nat64_scope))
         if result.returncode:
             logger.error(
                 "Configuring NAT64 in %s failed: %s",

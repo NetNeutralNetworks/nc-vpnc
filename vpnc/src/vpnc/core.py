@@ -11,6 +11,7 @@ import time
 
 from vpnc import api, config, shared
 from vpnc.models import enums, tenant
+from vpnc.models.network_instance import NetworkInstance
 from vpnc.network import events, namespace
 from vpnc.services import (
     configuration,
@@ -71,6 +72,14 @@ def start_hub_services() -> None:
     reconcile.RECONCILER.register("frr", lambda _: frr.ensure_reloaded())
 
 
+def apply_or_exit(network_instance: NetworkInstance) -> None:
+    """Set up a network instance of the service; without it vpnc can't run."""
+    try:
+        reconcile.apply_network_instance(network_instance)
+    except ValueError:
+        sys.exit(1)
+
+
 def concentrator() -> None:
     """Set up the DEFAULT tenant."""
     default_tenant = tenant.get_default_tenant()
@@ -84,11 +93,7 @@ def concentrator() -> None:
 
     # Create and mount the EXTERNAL network instance.
     # This provides VPN connectivity
-    external_ni = default_tenant.network_instances[config.EXTERNAL_NI]
-    try:
-        reconcile.apply_network_instance(external_ni)
-    except ValueError:
-        sys.exit(1)
+    apply_or_exit(default_tenant.network_instances[config.EXTERNAL_NI])
 
     # The IPSec process must be started in the EXTERNAL network instance.
     strongswan.start()
@@ -113,17 +118,9 @@ def concentrator() -> None:
 
     # Create and mount the CORE network instance. This provides the management
     # connectivity. The CORE namespace has no internet connectivity.
-    core_ni = default_tenant.network_instances[config.CORE_NI]
-    try:
-        reconcile.apply_network_instance(core_ni)
-    except ValueError:
-        sys.exit(1)
+    apply_or_exit(default_tenant.network_instances[config.CORE_NI])
     if default_tenant.mode == enums.ServiceMode.ENDPOINT:
-        endpoint_ni = default_tenant.network_instances[config.ENDPOINT_NI]
-        try:
-            reconcile.apply_network_instance(endpoint_ni)
-        except ValueError:
-            sys.exit(1)
+        apply_or_exit(default_tenant.network_instances[config.ENDPOINT_NI])
 
     if default_tenant.mode == enums.ServiceMode.HUB:
         start_hub_services()

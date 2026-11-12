@@ -36,6 +36,11 @@ def xfrm_interface_name(number: int | str) -> str:
     return f"xfrm{number}"
 
 
+def wireguard_interface_name(connection_name: str) -> str:
+    """Return the name of the WireGuard interface of a connection's name."""
+    return f"wg-{connection_name}"
+
+
 def nth_subnet(network: Net, new_prefix: int, n: int) -> Net:
     """Return subnet n of a network, like list(network.subnets(new_prefix))[n]."""
     if not 0 <= n < 1 << (new_prefix - network.prefixlen):

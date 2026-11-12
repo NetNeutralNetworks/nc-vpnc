@@ -75,7 +75,7 @@ def path_down(
         and other.name(ni) in states
         and any(
             server in route.to
-            for route in [*other.routes.ipv4, *other.routes.ipv6]
+            for route in other.routes.all
             if route.to.version == server.version
         )
     )

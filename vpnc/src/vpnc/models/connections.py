@@ -22,6 +22,7 @@ from vpnc.models.ipsec import ConnectionConfigIPsec  # noqa: TCH001
 from vpnc.models.physical import ConnectionConfigPhysical  # noqa: TCH001
 from vpnc.models.ssh import ConnectionConfigSSH
 from vpnc.models.wireguard import ConnectionConfigWireGuard  # noqa: TCH001
+from vpnc.network import state
 
 if TYPE_CHECKING:
     from vpnc.models import network_instance
@@ -74,6 +75,11 @@ class Routes(BaseModel):
     ipv4: list[RouteIPv4] = Field(default_factory=list)
 
     _none_as_default = helpers.none_as_default("ipv6", "ipv4")
+
+    @property
+    def all(self) -> list[RouteIPv4 | RouteIPv6]:
+        """Return the IPv4 and IPv6 routes."""
+        return [*self.ipv4, *self.ipv6]
 
 
 class Connection(BaseModel):
@@ -134,6 +140,28 @@ class Connection(BaseModel):
             interface_ipv6_address = [ipaddress.IPv6Interface(ipv6_con_network)]
 
         return interface_ipv4_address, interface_ipv6_address
+
+    def ensure_addresses(
+        self,
+        network_instance: network_instance.NetworkInstance,
+        netns: state.Netns,
+    ) -> None:
+        """Give the connection's interface its addresses, in its (open) namespace."""
+        if_ipv4, if_ipv6 = self.calc_interface_ip_addresses(network_instance)
+        state.ensure_addresses(
+            netns.ipr,
+            netns.state,
+            self.intf_name(network_instance),
+            [*if_ipv4, *if_ipv6],
+        )
+
+    def delete_interface(
+        self,
+        network_instance: network_instance.NetworkInstance,
+    ) -> None:
+        """Delete the connection's interface."""
+        with state.netns(network_instance.id) as netns:
+            state.delete_link(netns.ipr, netns.state, self.intf_name(network_instance))
 
     def add(
         self,

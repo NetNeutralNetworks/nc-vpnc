@@ -8,7 +8,7 @@ import subprocess
 from ipaddress import IPv4Network
 from typing import Any
 
-from vpnc import config, files, shared
+from vpnc import config, files, helpers, shared
 from vpnc.network import namespace
 from vpnc.services import configuration
 
@@ -22,28 +22,22 @@ def generate_config() -> None:
     output: dict[str, dict[str, Any]] = {}
 
     with shared.VPNCMANGLE_LOCK:
-        # A copy: the configuration watcher adds and removes tenants meanwhile.
-        for tenant in list(config.VPNC_CONFIG_TENANT.values()):
-            for net_ni in (
-                net_ni
-                for net_ni in tenant.network_instances.values()
-                if net_ni.id not in (config.CORE_NI, config.EXTERNAL_NI)
-            ):
-                output[net_ni.id] = {"dns64": [], "dns66": []}
-                if nat64_scope := configuration.get_network_instance_nat64_scope(
-                    net_ni,
-                ):
-                    output[net_ni.id]["dns64"] = [
-                        (str(nat64_scope), str(IPv4Network("0.0.0.0/0"))),
-                    ]
-                for connection in net_ni.connections.values():
-                    for route6 in connection.routes.ipv6:
-                        nptv6_prefix = route6.nptv6_prefix
-                        if not nptv6_prefix:
-                            nptv6_prefix = route6.to
-                        output[net_ni.id]["dns66"].append(
-                            (str(nptv6_prefix), str(route6.to)),
-                        )
+        for net_ni in helpers.network_instances().values():
+            if net_ni.id in (config.CORE_NI, config.EXTERNAL_NI):
+                continue
+            output[net_ni.id] = {"dns64": [], "dns66": []}
+            if nat64_scope := configuration.get_network_instance_nat64_scope(net_ni):
+                output[net_ni.id]["dns64"] = [
+                    (str(nat64_scope), str(IPv4Network("0.0.0.0/0"))),
+                ]
+            for connection in net_ni.connections.values():
+                for route6 in connection.routes.ipv6:
+                    nptv6_prefix = route6.nptv6_prefix
+                    if not nptv6_prefix:
+                        nptv6_prefix = route6.to
+                    output[net_ni.id]["dns66"].append(
+                        (str(nptv6_prefix), str(route6.to)),
+                    )
 
         files.ensure_file(CONFIG_PATH, json.dumps(output))
 

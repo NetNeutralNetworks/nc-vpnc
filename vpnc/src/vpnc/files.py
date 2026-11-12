@@ -6,10 +6,11 @@ import os
 import secrets
 import stat
 import threading
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import Any
 
-if TYPE_CHECKING:
-    from pathlib import Path
+import yaml
+from jinja2 import Environment, FileSystemLoader
 
 # Held while reading and then writing a tenant's configuration files (the API
 # and the reconciler's NPTv6 prefixes), so no change is lost.
@@ -18,6 +19,20 @@ CONFIG_LOCK = threading.RLock()
 # Files with secrets (pre-shared and private keys) and their directories.
 SECRET_FILE_MODE = 0o600
 SECRET_DIR_MODE = 0o700
+
+
+def templates(module_file: str) -> Environment:
+    """Return the Jinja environment of the templates directory next to a module."""
+    # Config files, not HTML: values must be written as they are.
+    return Environment(
+        loader=FileSystemLoader(Path(module_file).parent / "templates"),
+        autoescape=False,  # noqa: S701
+    )
+
+
+def to_yaml(data: Any) -> str:  # noqa: ANN401
+    """Return data as a YAML document, as in the configuration files."""
+    return yaml.safe_dump(data, explicit_start=True, explicit_end=True)
 
 
 def ensure_file(path: Path, content: str, *, secret: bool = False) -> bool:
