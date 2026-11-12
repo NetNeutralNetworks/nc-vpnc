@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import re
-import socket
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -13,12 +12,11 @@ from types import MappingProxyType
 from typing import Any, TypeAlias
 
 import vici
-import vici.exception
 from pyroute2.netlink.exceptions import NetlinkError
 
 from vpnc import config, helpers, shared
 from vpnc.network import namespace, state
-from vpnc.services.charon import VICI_SOCKET, VICI_TIMEOUT
+from vpnc.services import charon
 
 logger = logging.getLogger("vpnc")
 
@@ -34,28 +32,10 @@ IFF_UP = 0x1
 POLICY_DIR_RE = re.compile(r"^\s+dir (\w+)")
 POLICY_IF_ID_RE = re.compile(r"^\s+if_id (0x[0-9a-f]+)")
 
+# Tries to connect to charon, which may be (re)starting.
+CONNECT_TRIES = 10
 # An XFRM policy: (selector, direction, if_id).
 XfrmPolicy: TypeAlias = tuple[str, str, int]
-
-
-def is_initiator(connection: dict[str, Any]) -> bool:
-    """Return whether a list-conns entry is an initiator (close_action=start)."""
-    return any(
-        child.get("close_action") == b"start"
-        for child in connection.get("children", {}).values()
-    )
-
-
-def tunnel_is_up(ike_sa: dict[str, Any]) -> bool:
-    """Return whether an IKE SA is established and has an installed child SA.
-
-    During rekeying, reauthentication or with duplicate SAs a connection has
-    multiple SAs, some of which are being deleted: it's up if any of them is.
-    """
-    return ike_sa.get("state", b"") == b"ESTABLISHED" and any(
-        child.get("state", b"") == b"INSTALLED"
-        for child in ike_sa.get("child-sas", {}).values()
-    )
 
 
 def xfrm_policies() -> set[XfrmPolicy]:
@@ -136,33 +116,35 @@ class Monitor(threading.Thread):
         # Imported here: the package imports this module first.
         from vpnc.services.strongswan import strongswan  # noqa: PLC0415
 
-        vcs = self.connect()
-        strongswan.sync(vcs)
+        with charon.session(tries=CONNECT_TRIES) as vcs:
+            strongswan.sync(vcs)
 
-        conns: dict[str, dict[str, Any]] = {
-            name: details for conn in vcs.list_conns() for name, details in conn.items()
-        }
-        listing: list[dict[str, Any]] = list(vcs.list_sas())
-        # Right away: an event may change a state after the listing.
-        self.resync_xfrm_interface_states(conns, listing)
-        sas: set[str] = {name for sa in listing for name in sa}
-        logger.debug("Configured connections: %s", list(conns))
-        logger.debug("Active connections: %s", sas)
+            conns: dict[str, dict[str, Any]] = {
+                name: details
+                for conn in vcs.list_conns()
+                for name, details in conn.items()
+            }
+            listing: list[dict[str, Any]] = list(vcs.list_sas())
+            # Right away: an event may change a state after the listing.
+            self.resync_xfrm_interface_states(conns, listing)
+            sas: set[str] = {name for sa in listing for name in sa}
+            logger.debug("Configured connections: %s", list(conns))
+            logger.debug("Active connections: %s", sas)
 
-        # TODO@draggeta: Implement IKE SA without IPsec SAs check?
+            # TODO@draggeta: Implement IKE SA without IPsec SAs check?
 
-        for con, details in conns.items():
-            if con in sas:
-                continue
-            if not is_initiator(details):
-                logger.debug("Waiting for the peer of connection '%s'.", con)
-                continue
-            logger.info("Initiating connection '%s'", con)
-            self.initiate_sa(vcs=vcs, ike=con, child=con)
+            for con, details in conns.items():
+                if con in sas:
+                    continue
+                if not charon.is_initiator(details):
+                    logger.debug("Waiting for the peer of connection '%s'.", con)
+                    continue
+                logger.info("Initiating connection '%s'", con)
+                charon.initiate(vcs, con)
 
-        for sa in sas - conns.keys():
-            logger.info("Terminating connection '%s'", sa)
-            self.terminate_sa(vcs=vcs, ike=sa)
+            for sa in sas - conns.keys():
+                logger.info("Terminating connection '%s'", sa)
+                charon.terminate(vcs, ike=sa)
 
         self.remove_stale_policies(listing)
         return listing
@@ -206,21 +188,21 @@ class Monitor(threading.Thread):
 
         check if there are duplicates and take action accordingly.
         """
-        vcs = self.connect(timeout=None)
-        for event in vcs.listen(
-            event_types=["ike-updown", "child-updown"],
-            timeout=0.1,
-        ):
-            if shared.STOP_EVENT.is_set():
-                return
-            if event == (None, None):
-                continue
-            event_type, event_data = event
-            if event_type is None or event_data is None:
-                continue
-            keys = list(event_data.keys())
-            ike_name = keys[1] if len(keys) == 2 else keys[0]  # noqa: PLR2004
-            self.resolve_duplicate_sas(ike_name)
+        with charon.session(None, tries=CONNECT_TRIES) as vcs:
+            for event in vcs.listen(
+                event_types=["ike-updown", "child-updown"],
+                timeout=0.1,
+            ):
+                if shared.STOP_EVENT.is_set():
+                    return
+                if event == (None, None):
+                    continue
+                event_type, event_data = event
+                if event_type is None or event_data is None:
+                    continue
+                keys = list(event_data.keys())
+                ike_name = keys[1] if len(keys) == 2 else keys[0]  # noqa: PLR2004
+                self.resolve_duplicate_sas(ike_name)
 
     def monitor_xfrm_interface_state(self) -> None:
         """Monitor VPN tunnel state and set interface state accordingly.
@@ -228,28 +210,27 @@ class Monitor(threading.Thread):
         Acts on IKE/child up/down events. Events missed while it wasn't listening
         are corrected when it starts, others by the full check.
         """
-        vcs = self.connect(timeout=None)
+        with charon.session(None, tries=CONNECT_TRIES) as vcs:
+            # At startup check all interface states
+            with charon.session(tries=CONNECT_TRIES) as session:
+                self.resync_xfrm_interface_states(
+                    (name.decode() for name in session.get_conns()["conns"]),
+                    list(session.list_sas()),
+                )
 
-        # At startup check all interface states
-        session = self.connect()
-        self.resync_xfrm_interface_states(
-            (name.decode() for name in session.get_conns()["conns"]),
-            list(session.list_sas()),
-        )
-
-        # Then check the queue for new events
-        for event in vcs.listen(
-            event_types=["ike-updown", "child-updown"],
-            timeout=1,
-        ):
-            if shared.STOP_EVENT.is_set():
-                return
-            if event == (None, None):
-                continue
-            event_type, event_data = event
-            if event_type is None or event_data is None:
-                continue
-            self.resolve_xfrm_interface_state(event_data)
+            # Then check the queue for new events
+            for event in vcs.listen(
+                event_types=["ike-updown", "child-updown"],
+                timeout=1,
+            ):
+                if shared.STOP_EVENT.is_set():
+                    return
+                if event == (None, None):
+                    continue
+                event_type, event_data = event
+                if event_type is None or event_data is None:
+                    continue
+                self.resolve_xfrm_interface_state(event_data)
 
     def resync_xfrm_interface_states(
         self,
@@ -264,7 +245,7 @@ class Monitor(threading.Thread):
             name
             for sa in listing
             for name, ike_data in sa.items()
-            if tunnel_is_up(ike_data)
+            if charon.sa_up(ike_data)
         }
         interfaces: dict[str, list[tuple[str, str]]] = {}
         for name in names:
@@ -326,11 +307,11 @@ class Monitor(threading.Thread):
             return
         network_instance_name, ifname = interface
 
-        vcs = self.connect()
-        tunnel_up = any(
-            tunnel_is_up(ike_sa.get(ike_name, {}))
-            for ike_sa in vcs.list_sas({"ike": ike_name})
-        )
+        with charon.session(tries=CONNECT_TRIES) as vcs:
+            tunnel_up = any(
+                charon.sa_up(ike_sa.get(ike_name, {}))
+                for ike_sa in vcs.list_sas({"ike": ike_name})
+            )
         with namespace.IPRoute(network_instance_name) as netns:
             self.set_link_state(netns, ifname, up=tunnel_up)
 
@@ -367,31 +348,34 @@ class Monitor(threading.Thread):
 
         Only initiators resolve, so both peers don't delete different SAs.
         """
-        vcs: vici.Session = self.connect()
-        conns = [
-            c[ike_name] for c in vcs.list_conns({"ike": ike_name}) if ike_name in c
-        ]
-        if not conns or not is_initiator(conns[0]):
-            return
+        with charon.session(tries=CONNECT_TRIES) as vcs:
+            conns = [
+                c[ike_name] for c in vcs.list_conns({"ike": ike_name}) if ike_name in c
+            ]
+            if not conns or not charon.is_initiator(conns[0]):
+                return
 
-        ike_sas: list[dict[str, Any]] = [
-            sa[ike_name] for sa in vcs.list_sas({"ike": ike_name}) if ike_name in sa
-        ]
-        established = [sa for sa in ike_sas if sa.get("state") == b"ESTABLISHED"]
-        if len(established) > 1:
-            keep = min(
-                established,
-                key=lambda sa: (int(sa.get("established", 0)), sa.get("initiator-spi")),
-            )
-            for sa in established:
-                if sa is keep:
-                    continue
-                logger.info("Terminating duplicate IKE SA of '%s'.", ike_name)
-                self.terminate_sa(vcs=vcs, ike_id=sa["uniqueid"])
-            established = [keep]
+            ike_sas: list[dict[str, Any]] = [
+                sa[ike_name] for sa in vcs.list_sas({"ike": ike_name}) if ike_name in sa
+            ]
+            established = [sa for sa in ike_sas if sa.get("state") == b"ESTABLISHED"]
+            if len(established) > 1:
+                keep = min(
+                    established,
+                    key=lambda sa: (
+                        int(sa.get("established", 0)),
+                        sa.get("initiator-spi"),
+                    ),
+                )
+                for sa in established:
+                    if sa is keep:
+                        continue
+                    logger.info("Terminating duplicate IKE SA of '%s'.", ike_name)
+                    charon.terminate(vcs, ike_id=sa["uniqueid"])
+                established = [keep]
 
-        for ike_sa in established:
-            self.resolve_duplicate_child_sas(vcs, ike_name, ike_sa)
+            for ike_sa in established:
+                self.resolve_duplicate_child_sas(vcs, ike_name, ike_sa)
 
     def resolve_duplicate_child_sas(
         self,
@@ -420,96 +404,4 @@ class Monitor(threading.Thread):
                 if child is keep:
                     continue
                 logger.info("Terminating duplicate CHILD SA of '%s'.", ike_name)
-                self.terminate_sa(vcs=vcs, child_id=child["uniqueid"])
-
-    def connect(
-        self,
-        tries: int = 10,
-        delay: int = 2,
-        timeout: float | None = VICI_TIMEOUT,
-    ) -> vici.Session:
-        """Connect to the VICI socket. Use timeout=None for event listeners."""
-        for i in range(tries):
-            sock = socket.socket(socket.AF_UNIX)
-            sock.settimeout(timeout)
-            try:
-                sock.connect(VICI_SOCKET)
-                return vici.Session(sock)
-            except (ConnectionRefusedError, FileNotFoundError, TimeoutError) as err:  # noqa: PERF203
-                sock.close()
-                if i >= tries - 1:
-                    msg = f"VICI socket not available after {tries} tries."
-                    raise ConnectionError(msg) from err
-                logger.info("VICI socket is not yet available. Retrying.")
-                time.sleep(delay)
-
-        raise ConnectionAbortedError
-
-    def initiate_sa(
-        self,
-        vcs: vici.Session,
-        ike: str | bytes | None = None,
-        child: str | bytes | None = None,
-    ) -> None:
-        """Initiate IKE/IPsec security associations."""
-        _filter: dict[str, bytes] = {}
-        if isinstance(ike, str):
-            ike = ike.encode("utf-8")
-        if ike is not None:
-            _filter.update({"ike": ike})
-        if isinstance(child, str):
-            child = child.encode("utf-8")
-        if child is not None:
-            _filter.update({"child": child})
-
-        logger.info("Initiating SA with parameters: '%s'", _filter)
-        # Don't wait: an unreachable peer would block forever.
-        _filter["timeout"] = b"-1"
-        try:
-            for i in vcs.initiate(_filter):
-                logger.debug(i)
-        except vici.exception.CommandException:
-            logger.warning("Initiation of SA '%s' failed.", _filter, exc_info=True)
-
-    def terminate_sa(
-        self,
-        vcs: vici.Session,
-        ike: str | bytes | None = None,
-        ike_id: str | bytes | None = None,
-        child: str | bytes | None = None,
-        child_id: str | bytes | None = None,
-    ) -> None:
-        """Terminates IKE/IPsec security associations."""
-        _filter: dict[str, bytes] = {}
-        if isinstance(ike, str):
-            ike = ike.encode("utf-8")
-        if ike is not None:
-            _filter.update({"ike": ike})
-        if isinstance(ike_id, str):
-            ike_id = ike_id.encode("utf-8")
-        if ike_id is not None:
-            _filter.update({"ike-id": ike_id})
-        if isinstance(child, str):
-            child = child.encode("utf-8")
-        if child is not None:
-            _filter.update({"child": child})
-        if isinstance(child_id, str):
-            child_id = child_id.encode("utf-8")
-        if child_id is not None:
-            _filter.update({"child-id": child_id})
-
-        logger.info("Terminating SA with parameters: '%s'", _filter)
-        # Don't wait for an unreachable peer to confirm.
-        _filter["timeout"] = b"-1"
-        try:
-            for i in vcs.terminate(_filter):
-                logger.debug(i)
-
-        except vici.exception.SessionException:
-            logger.warning(
-                "Termination of SA '%s' may have failed.",
-                _filter,
-                exc_info=True,
-            )
-        except vici.exception.CommandException:
-            logger.warning("Termination of SA '%s' failed.", _filter, exc_info=True)
+                charon.terminate(vcs, child_id=child["uniqueid"])

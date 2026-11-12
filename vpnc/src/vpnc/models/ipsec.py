@@ -7,8 +7,6 @@ from enum import Enum
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING, Literal
 
-import vici
-import vici.exception
 from pydantic import BaseModel, Field, field_validator
 
 from vpnc import config, helpers
@@ -120,14 +118,8 @@ class ConnectionConfigIPsec(BaseModel):
         name = connection.name(network_instance)
         try:
             with charon.session() as vcs:
-                # Don't wait for an unreachable peer to confirm.
-                for i in vcs.terminate({"ike": name.encode(), "timeout": b"-1"}):
-                    logger.info(i)
-        except (
-            OSError,
-            vici.exception.SessionException,
-            vici.exception.CommandException,
-        ):
+                charon.terminate(vcs, ike=name)
+        except OSError:
             logger.warning("Terminating the SAs of %s failed.", name, exc_info=True)
 
     def intf_name(
