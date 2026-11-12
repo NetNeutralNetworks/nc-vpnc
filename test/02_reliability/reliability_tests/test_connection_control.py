@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 import time
 from typing import Any
 
@@ -183,3 +184,36 @@ class TestConnectionLogs:
             line["message"] == f"Resetting connection {SSH[1]}." for line in ssh
         )
         assert all(SSH[1] in line["message"] for line in ssh)
+
+    def test_follow(self) -> None:
+        """A followed log shows new lines when they're logged."""
+        host, name = IPSEC
+        with tempfile.TemporaryFile("w+") as output:
+
+            def lines() -> list[str]:
+                output.seek(0)
+                return output.read().splitlines()
+
+            command = f"{VPNCTL} connections logs {name} -n 1 -f"
+            follower = subprocess.Popen(  # noqa: S603
+                ["docker", "exec", f"clab-vpnc-{host}", *command.split()],  # noqa: S607
+                stdout=output,
+            )
+            try:
+                conftest.wait_until(lines, timeout=10, message="the last line")
+                shown = len(lines())
+                conftest.run_cmd(host, f"{VPNCTL} connections reset {name}")
+                conftest.wait_until(
+                    lambda: any(
+                        f"Resetting connection {name}." in line
+                        for line in lines()[shown:]
+                    ),
+                    timeout=10,
+                    message="the reset to show in the followed log",
+                )
+            finally:
+                follower.kill()
+                follower.wait()
+                # Killing docker exec leaves vpnctl running in the container.
+                conftest.run_cmd_shell(host, "pkill -f 'connections logs' || true")
+        conftest.wait_until(all_up, timeout=UP_TIMEOUT, message="connections to be up")

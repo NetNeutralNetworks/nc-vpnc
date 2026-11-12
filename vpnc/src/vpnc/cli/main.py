@@ -16,9 +16,11 @@ import socket
 import subprocess
 import sys
 import tempfile
-import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 SOCKET = os.environ.get("VPNCTL_SOCKET", "/run/vpnc/api.sock")
 
@@ -40,24 +42,24 @@ class _UnixConnection(http.client.HTTPConnection):
         self.sock.connect(SOCKET)
 
 
-def request(
+@contextlib.contextmanager
+def _call(
     method: str,
     path: str,
     *,
     params: dict[str, Any] | None = None,
     body: Any = None,  # noqa: ANN401
-) -> Any:  # noqa: ANN401
-    """Call the API and return the decoded response (text for text/plain)."""
+    timeout: float | None = 60,
+) -> Iterator[http.client.HTTPResponse]:
+    """Call the API and yield the response; exit if vpnc can't be reached."""
     if params := {k: v for k, v in (params or {}).items() if v is not None}:
         path += "?" + urlencode(params)
-    conn = _UnixConnection("localhost", timeout=60)
+    conn = _UnixConnection("localhost", timeout=timeout)
     try:
         payload = json.dumps(body) if body is not None else None
         headers = {"Content-Type": "application/json"} if payload else {}
         conn.request(method, path, body=payload, headers=headers)
-        response = conn.getresponse()
-        data = response.read().decode()
-        content_type = response.getheader("Content-Type", "")
+        yield conn.getresponse()
     except FileNotFoundError:
         fail(f"vpnc isn't running: no API at {SOCKET}.", code=2)
     except PermissionError:
@@ -66,13 +68,47 @@ def request(
         fail(f"vpnc isn't running: nothing listens on {SOCKET}.", code=2)
     except TimeoutError:
         fail("vpnc didn't answer in time.", code=2)
+    except BrokenPipeError:
+        # The output, e.g. piped into head.
+        raise
+    except (http.client.HTTPException, ConnectionError):
+        fail("vpnc closed the connection.", code=2)
     finally:
         conn.close()
+
+
+def _decode(response: http.client.HTTPResponse) -> Any:  # noqa: ANN401
+    """Return the decoded response (text for text/plain); raise its error."""
+    data = response.read().decode()
+    content_type = response.getheader("Content-Type", "")
     decoded: Any = json.loads(data) if "json" in content_type else data
     if response.status >= 400:  # noqa: PLR2004
         problem = decoded if isinstance(decoded, dict) else {"detail": decoded}
         raise ApiError(response.status, problem)
     return decoded
+
+
+def request(
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+    body: Any = None,  # noqa: ANN401
+) -> Any:  # noqa: ANN401
+    """Call the API and return the decoded response (text for text/plain)."""
+    with _call(method, path, params=params, body=body) as response:
+        return _decode(response)
+
+
+def stream(path: str, params: dict[str, Any]) -> Iterator[Any]:
+    """Yield the JSON lines of a response that continues, until vpnc ends it."""
+    with _call("GET", path, params=params, timeout=None) as response:
+        if response.status >= 400:  # noqa: PLR2004
+            _decode(response)
+        for line in response:
+            # Empty lines keep the stream alive.
+            if line.strip():
+                yield json.loads(line)
 
 
 def fail(message: str, code: int = 1) -> None:
@@ -423,39 +459,27 @@ def _print_log(line: dict[str, Any], *, source: bool = True) -> None:
 
 def show_log(
     args: argparse.Namespace,
-    fetch: Any,  # noqa: ANN401
+    path: str,
+    params: dict[str, Any],
     *,
     source: bool = True,
 ) -> None:
     """Print log lines; with --follow, keep printing new ones."""
-    data = fetch(args.lines)
+    params = {**params, "lines": args.lines}
     if not args.follow:
+        data = request("GET", path, params=params)
         if not dump(data, args.output):
             for line in data:
                 _print_log(line, source=source)
         return
-    seen: set[tuple[str, ...]] = set()
-    while True:
-        for line in data:
-            key = tuple(line.values())
-            if key not in seen:
-                seen.add(key)
-                _print_log(line, source=source)
+    for line in stream(path, {**params, "follow": "true"}):
+        _print_log(line, source=source)
         sys.stdout.flush()
-        time.sleep(1)
-        data = fetch(100)
 
 
 def cmd_connections_logs(args: argparse.Namespace) -> None:
     """Show a connection's log: vpnc's, SSH's and charon's (IPsec) lines."""
-    show_log(
-        args,
-        lambda count: request(
-            "GET",
-            f"/v1/connections/{quote(args.id)}/logs",
-            params={"lines": count, "level": args.level},
-        ),
-    )
+    show_log(args, f"/v1/connections/{quote(args.id)}/logs", {"level": args.level})
 
 
 def cmd_logs(args: argparse.Namespace) -> None:
@@ -467,11 +491,7 @@ def cmd_logs(args: argparse.Namespace) -> None:
         params: dict[str, Any] = {"level": args.level}
     else:
         path, params = "/v1/logs", {"source": args.source, "level": args.level}
-    show_log(
-        args,
-        lambda count: request("GET", path, params={**params, "lines": count}),
-        source=bool(args.ni),
-    )
+    show_log(args, path, params, source=bool(args.ni))
 
 
 def cmd_bgp_neighbor(args: argparse.Namespace) -> None:
@@ -1088,17 +1108,19 @@ OPTION_VALUES = {
 
 def _ids(kind: str) -> list[str]:
     """Return the ids an argument completes to, from the API."""
-    paths = {
-        "tenant": ["/v1/tenants"],
-        "network_instance": ["/v1/network-instances"],
-        "connection": ["/v1/connections"],
-        "filter": ["/v1/tenants", "/v1/network-instances"],
-        "target": ["/v1/config/tenants"],
-        "control": ["/v1/tenants", "/v1/network-instances", "/v1/connections"],
+    keys = {
+        "tenant": ["tenants"],
+        "network_instance": ["network_instances"],
+        "connection": ["connections"],
+        "filter": ["tenants", "network_instances"],
+        "target": ["config_tenants"],
+        "control": ["tenants", "network_instances", "connections"],
     }.get(kind, [])
     if kind == "neighbor":
         return [n["neighbor"] for n in request("GET", "/v1/bgp/neighbors")]
-    ids = [item["id"] for path in paths for item in request("GET", path)]
+    # Without their state, which takes longer to read.
+    data = request("GET", "/v1/ids")
+    ids = [item for key in keys for item in data[key]]
     return [*ids, "service"] if kind == "target" else ids
 
 

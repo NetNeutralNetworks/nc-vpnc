@@ -160,12 +160,21 @@ def wireguard_ports() -> list[int]:
     return sorted(wireguard_port_users())
 
 
+# The ports last opened, with the identity of EXTERNAL's namespace.
+_WIREGUARD_PORTS_OPENED: tuple[tuple[int, int], list[int]] | None = None
+
+
 def open_wireguard_ports() -> None:
     """Make EXTERNAL accept exactly the configured WireGuard ports, right away.
 
-    The full check does the same through EXTERNAL's table.
+    Only when they changed: the full check does the same through EXTERNAL's
+    table, and corrects changes made by hand.
     """
+    global _WIREGUARD_PORTS_OPENED  # noqa: PLW0603
     ports = wireguard_ports()
+    opened = (state.netns_identity(config.EXTERNAL_NI), ports)
+    if opened == _WIREGUARD_PORTS_OPENED:
+        return
     try:
         current = nftables.set_elements(config.EXTERNAL_NI, "wireguard_ports")
         if sorted(current) != ports:
@@ -177,6 +186,8 @@ def open_wireguard_ports() -> None:
             )
     except nftables.NftablesError:
         logger.exception("Updating the WireGuard ports failed.")
+        return
+    _WIREGUARD_PORTS_OPENED = opened
 
 
 class NetworkInstance(BaseModel):
@@ -560,8 +571,11 @@ class NetworkInstance(BaseModel):
         ):
             ni_dl, dl_state = dl.ipr, dl.state
             ni_core, core_state = core.ipr, core.state
-            state.ensure_veth(ni_core, core_state, veth_c, veth_d, self.id)
-            if state.refresh_link(ni_dl, dl_state, veth_d) is None:
+            created = state.ensure_veth(ni_core, core_state, veth_c, veth_d, self.id)
+            # Only read when it isn't in the snapshot, or was just created.
+            if (created or veth_d not in dl_state.links) and (
+                state.refresh_link(ni_dl, dl_state, veth_d) is None
+            ):
                 # The peer is elsewhere, e.g. in a namespace that was replaced.
                 state.delete_link(ni_core, core_state, veth_c)
                 state.ensure_veth(ni_core, core_state, veth_c, veth_d, self.id)

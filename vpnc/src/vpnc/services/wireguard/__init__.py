@@ -8,7 +8,6 @@ from __future__ import annotations
 import ipaddress
 import logging
 import pathlib
-from ipaddress import IPv4Address
 from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, FileSystemLoader
@@ -16,7 +15,6 @@ from pyroute2 import WireGuard
 from pyroute2.netlink.exceptions import NetlinkError
 
 from vpnc import config, files, shared
-from vpnc.models import enums
 from vpnc.network import namespace
 
 if TYPE_CHECKING:
@@ -31,49 +29,27 @@ TEMPLATES_DIR = BASE_DIR.joinpath("templates")
 TEMPLATES_ENV = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=False)  # noqa: S701
 
 
-def generate_config(
-    network_instance: NetworkInstance,
-) -> None:
-    """Generate wireguard configurations."""
-    wg_template = TEMPLATES_ENV.get_template("wireguard.conf.j2")
-
-    for connection in network_instance.connections.values():
-        if connection.config.type != enums.ConnectionType.WIREGUARD:
-            continue
-        remote_addrs_list: list[str] = []
-        for addr in connection.config.remote_addrs:
-            if isinstance(addr, IPv4Address):
-                remote_addrs_list.append(f"{addr}:{connection.config.remote_port}")
-                continue
-            remote_addrs_list.append(f"[{addr}]:{connection.config.remote_port}")
-
-        # tunnel_addrs_list: list[str] = []
-        # if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(network_instance)
-        # for addr in if_ipv4 + if_ipv6:
-        #     tunnel_addrs_list.append(f"{addr.ip +1}/{addr.network.prefixlen}")
-        routes_list: list[str] = []
-        for routes in connection.routes.ipv4 + connection.routes.ipv6:
-            routes_list.append(str(routes.to))
-        wg_cfg: dict[str, Any] = {
-            "local_port": connection.config.local_port,
-            # "remote_addrs": ",".join(remote_addrs_list),
-            "remote_addrs": f"{connection.config.remote_addrs[0]}:{connection.config.remote_port}",
-            "routes": ",".join(routes_list),
-            "private_key": connection.config.private_key.get_secret_value(),
-            "public_key": connection.config.public_key,
-        }
-
-        wg_render = wg_template.render(**wg_cfg)
-
-        wg_path = config.WIREGUARD_CONFIG_DIR.joinpath(
-            f"wg-{network_instance.id}-{connection.id}.conf",
+def generate_config(network_instance: NetworkInstance, connection: Connection) -> None:
+    """Write the WireGuard configuration file of a connection."""
+    cfg = connection.config
+    wg_render = TEMPLATES_ENV.get_template("wireguard.conf.j2").render(
+        local_port=cfg.local_port,
+        remote_addrs=f"{cfg.remote_addrs[0]}:{cfg.remote_port}",
+        routes=",".join(
+            str(route.to) for route in connection.routes.ipv4 + connection.routes.ipv6
+        ),
+        private_key=cfg.private_key.get_secret_value(),
+        public_key=cfg.public_key,
+    )
+    wg_path = config.WIREGUARD_CONFIG_DIR.joinpath(
+        f"wg-{network_instance.id}-{connection.id}.conf",
+    )
+    if files.ensure_file(wg_path, wg_render, secret=True):
+        logger.info(
+            "Generated network instance %s connection %s WireGuard configuration.",
+            network_instance.id,
+            connection.id,
         )
-        if files.ensure_file(wg_path, wg_render, secret=True):
-            logger.info(
-                "Generated network instance %s connection %s WireGuard configuration.",
-                network_instance.id,
-                connection.id,
-            )
 
 
 KEEPALIVE = 25

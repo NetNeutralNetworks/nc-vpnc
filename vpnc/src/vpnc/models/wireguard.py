@@ -82,7 +82,7 @@ class ConnectionConfigWireGuard(BaseModel):
             state.ensure_link_state(ni_dl, ni_state, wg, up=True)
             state.ensure_addresses(ni_dl, ni_state, wg, [*if_ipv4, *if_ipv6])
 
-        wireguard.generate_config(network_instance)
+        wireguard.generate_config(network_instance, connection)
         wireguard.sync(network_instance, connection, wg)
 
         return wg

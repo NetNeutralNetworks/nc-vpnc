@@ -39,14 +39,14 @@ _CLEANUP: set[str] = set()
 def add(name: str, cleanup: bool = False) -> str:  # noqa: FBT001, FBT002
     """Add a namespace to the system, replacing a stale (unmounted) netns file."""
     path = NETNS_DIR / name
-    if name in netns.listnetns() and not os.path.ismount(path):
+    if path.exists() and not os.path.ismount(path):
         logger.warning(
             "Stale namespace file %s, recreating it.",
             path,
         )
         path.unlink(missing_ok=True)
 
-    if name not in netns.listnetns():
+    if not path.exists():
         _create(name)
 
     if cleanup and name not in _CLEANUP:
@@ -58,15 +58,13 @@ def add(name: str, cleanup: bool = False) -> str:  # noqa: FBT001, FBT002
 
 def delete(name: str) -> None:
     """Delete a namespace from the system."""
-    ns_list = netns.listnetns()
-
-    if name in ns_list:
+    if exists(name):
         netns.remove(name)
 
 
 def exists(name: str) -> bool:
     """Return whether a namespace exists."""
-    return name in netns.listnetns()
+    return (NETNS_DIR / name).exists()
 
 
 @dataclass(frozen=True)

@@ -23,7 +23,7 @@ from vpnc import config, shared
 from vpnc.models import enums, tenant
 from vpnc.models.network_instance import jool_instances
 from vpnc.network import events, namespace, state
-from vpnc.services import configuration, frr, strongswan, watchdog
+from vpnc.services import configuration, frr, strongswan
 
 if TYPE_CHECKING:
     from vpnc.models.network_instance import NetworkInstance
@@ -169,17 +169,32 @@ def configured_network_instances() -> dict[str, tuple[str, NetworkInstance]]:
     }
 
 
+def configured_network_instance(tenant_id: str, ni_id: str) -> NetworkInstance | None:
+    """Return a network instance as configured now; None if it isn't anymore."""
+    if (tenant_config := config.VPNC_CONFIG_TENANT.get(tenant_id)) is None:
+        return None
+    return next(
+        (ni for ni in tenant_config.network_instances.values() if ni.id == ni_id),
+        None,
+    )
+
+
 def apply_network_instance(network_instance: NetworkInstance) -> bool:
     """Reconcile a network instance and its routes.
 
     Returns whether the configuration was updated (new NPTv6 prefixes).
     """
     previous = APPLIED.get(network_instance.id)
+    if previous is network_instance:
+        # Unchanged: nothing of it is gone.
+        previous = None
     with state.session():
         updated = network_instance.reconcile(previous)
-    # Monitor before reading the links again, so no change is missed.
-    watch(network_instance.id)
-    reconcile_routes(network_instance, previous)
+        if watch(network_instance.id):
+            # The links were read before they were monitored: read them again,
+            # so no change is missed.
+            state.changed(network_instance.id)
+        reconcile_routes(network_instance, previous)
     APPLIED[network_instance.id] = network_instance
     return updated
 
@@ -204,14 +219,14 @@ def check_network_instances(keys: set[str] | None) -> None:
 
 def _check_network_instances(keys: set[str] | None) -> None:
     updated_tenants: set[str] = set()
-    for ni_id in list(configured_network_instances()):
+    for ni_id, (tenant_id, _) in list(configured_network_instances().items()):
         if keys is not None and ni_id not in keys:
             continue
         if keys is None:
             RECONCILER.run_triggered()
-        if (current := configured_network_instances().get(ni_id)) is None:
+        network_instance = configured_network_instance(tenant_id, ni_id)
+        if network_instance is None:
             continue
-        tenant_id, network_instance = current
         try:
             if apply_network_instance(network_instance):
                 updated_tenants.add(tenant_id)
@@ -263,14 +278,14 @@ def remove_network_instance(network_instance: NetworkInstance) -> None:
         frr.generate_config()
 
 
-def watch(ni_id: str) -> None:
+def watch(ni_id: str) -> bool:
     """Reconcile a network instance when its links or global addresses change.
 
-    Link changes only affect its routes.
+    Link changes only affect its routes. Returns whether it wasn't watched yet.
     """
     identity = state.netns_identity(ni_id)
     if WATCHED.get(ni_id) == identity:
-        return
+        return False
     # The namespace was replaced: the old socket is in, and keeps, the old one.
     unwatch(ni_id)
 
@@ -292,6 +307,7 @@ def watch(ni_id: str) -> None:
     WATCHED[ni_id] = identity
     # Registered after the namespace cleanup, so it runs before it.
     atexit.register(unwatch, ni_id)
+    return True
 
 
 def unwatch(ni_id: str) -> None:
@@ -317,7 +333,6 @@ def reconcile_routes(
     ):
         return
 
-    # A new session: the links of the network instance are read again.
     with (
         state.session(),
         state.netns(net_inst.id) as dl,
@@ -395,4 +410,3 @@ RECONCILER.register(
 )
 RECONCILER.register("network_instances", check_network_instances)
 RECONCILER.register("routes", check_routes)
-RECONCILER.register("watchdog", watchdog.check)

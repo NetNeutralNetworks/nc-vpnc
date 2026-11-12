@@ -137,16 +137,32 @@ def _write(ni_id: str, conns: dict[str, Connection]) -> None:
     files.ensure_file(path, render(conns), secret=True)
 
 
+def _pending(
+    conns: dict[str, Connection],
+    loaded: set[str] | None = None,
+) -> dict[str, str]:
+    """Return the fingerprints of the connections to load.
+
+    Those that changed, or that charon lacks (loaded: its names).
+    """
+    pending: dict[str, str] = {}
+    for name, (conn, shared) in conns.items():
+        fingerprint = json.dumps([conn, shared], sort_keys=True)
+        if LOADED.get(name) != fingerprint or (
+            loaded is not None and name not in loaded
+        ):
+            pending[name] = fingerprint
+    return pending
+
+
 def _load(
     vcs: vici.Session,
     conns: dict[str, Connection],
     loaded: set[str] | None = None,
 ) -> None:
     """Load connections that changed, or that charon lacks (loaded: its names)."""
-    for name, (conn, shared) in conns.items():
-        fingerprint = json.dumps([conn, shared], sort_keys=True)
-        if LOADED.get(name) == fingerprint and (loaded is None or name in loaded):
-            continue
+    for name, fingerprint in _pending(conns, loaded).items():
+        conn, shared = conns[name]
         vcs.load_conn({name: conn})
         vcs.load_shared(shared)
         LOADED[name] = fingerprint
@@ -179,10 +195,13 @@ def apply(network_instance: NetworkInstance) -> None:
     """
     conns = connections(network_instance)
     _write(network_instance.id, conns)
+    gone = _own(network_instance.id, set(LOADED)) - conns.keys()
+    if not gone and not _pending(conns):
+        return
     try:
         with charon.session() as vcs:
             _load(vcs, conns)
-            _unload(vcs, _own(network_instance.id, set(LOADED)) - conns.keys())
+            _unload(vcs, gone)
     except VICI_ERRORS:
         logger.exception(
             "Loading the IPsec connections of %s failed.",
