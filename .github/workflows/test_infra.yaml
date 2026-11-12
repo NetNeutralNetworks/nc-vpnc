@@ -14,11 +14,11 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Docker CLI
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Build vpnc image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           load: true
           context: .
@@ -27,7 +27,7 @@ jobs:
           tags: nc-vpnc:latest
           cache-from: type=gha,scope=${{ github.ref_name }}-26.04
       - name: Build lab image and cache layers
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           load: true
           context: .
@@ -38,7 +38,7 @@ jobs:
           cache-to: type=gha,scope=${{ github.ref_name }}-26.04,mode=max
       - name: Save images
         run: docker save nc-vpnc:latest nc-vpnc-lab:latest | zstd -T0 -3 > images.tar.zst
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: images
           path: images.tar.zst
@@ -71,11 +71,11 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install runner dependencies (Jool, containerlab)
         # sudo drops the environment; install.sh skips the upgrade in Actions.
         run: sudo --preserve-env=GITHUB_ACTIONS test/00_setup/install.sh
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: images
       - name: Load images
