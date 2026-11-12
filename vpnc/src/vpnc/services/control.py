@@ -6,13 +6,9 @@ no peer and SSH doesn't run. Its interface remains.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import threading
 from typing import TYPE_CHECKING
-
-import vici
-import vici.exception
 
 from vpnc import shared
 from vpnc.models import enums
@@ -36,29 +32,25 @@ class ControlError(Exception):
     """The connection can't be stopped, started or reset."""
 
 
-def _vici() -> contextlib.AbstractContextManager[vici.Session]:
-    return charon.session(charon.VICI_TIMEOUT + TERMINATE_TIMEOUT)
-
-
 def _terminate(name: str, *, force: bool = False) -> None:
     """Terminate a connection's IKE SAs; with force without telling the peer."""
-    request = {"ike": name, "timeout": str(TERMINATE_TIMEOUT * 1000)}
-    if force:
-        request["force"] = "yes"
-    with _vici() as vcs, contextlib.suppress(vici.exception.CommandException):
+    with charon.session(charon.VICI_TIMEOUT + TERMINATE_TIMEOUT) as vcs:
         # Fails when there's no SA, or the peer doesn't confirm in time.
-        for _ in vcs.terminate(request):
-            pass
+        charon.terminate(
+            vcs,
+            ike=name,
+            wait=TERMINATE_TIMEOUT,
+            force=force,
+            warn=False,
+        )
 
 
 def _initiate(name: str, connection: Connection) -> None:
     if connection.config.initiation != Initiation.INITIATOR:
         # The peer sets the connection up again.
         return
-    with _vici() as vcs, contextlib.suppress(vici.exception.CommandException):
-        # Don't wait: an unreachable peer would block.
-        for _ in vcs.initiate({"ike": name, "child": name, "timeout": "-1"}):
-            pass
+    with charon.session() as vcs:
+        charon.initiate(vcs, name, warn=False)
 
 
 def _check(connection: Connection) -> enums.ConnectionType:

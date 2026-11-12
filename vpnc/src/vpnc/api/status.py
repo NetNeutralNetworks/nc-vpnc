@@ -7,13 +7,11 @@ import json
 import logging
 import os
 import re
-import socket
 import subprocess
 import time
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal
 
-import vici
 from pydantic import BaseModel
 
 import vpnc
@@ -22,7 +20,6 @@ from vpnc.models import enums, tenant
 from vpnc.network import namespace, state
 from vpnc.api import config_files
 from vpnc.services import charon, configuration, ssh, vpncmangle, wireguard
-from vpnc.services.charon import VICI_SOCKET, VICI_TIMEOUT
 
 if TYPE_CHECKING:
     from vpnc.models.connections import Connection
@@ -176,27 +173,9 @@ def _ipsec_sas(
         for name, sa in item.items():
             # A connection can have several (rekeying, duplicates): the one
             # that's up counts.
-            if name not in sas or (_sa_up(sa) and not _sa_up(sas[name])):
+            if name not in sas or (charon.sa_up(sa) and not charon.sa_up(sas[name])):
                 sas[name] = sa
     return sas
-
-
-def _sa_up(sa: dict[str, Any]) -> bool:
-    """Return whether an IKE SA (as vici returns it) is established with a child."""
-    return sa.get("state") == b"ESTABLISHED" and any(
-        child.get("state") == b"INSTALLED"
-        for child in sa.get("child-sas", {}).values()
-    )
-
-
-def _decode(value: Any) -> Any:  # noqa: ANN401
-    if isinstance(value, bytes):
-        return value.decode()
-    if isinstance(value, dict):
-        return {k: _decode(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_decode(v) for v in value]
-    return value
 
 
 def _ipsec(
@@ -207,7 +186,7 @@ def _ipsec(
     sa = sas.get(name)
     if sa is None:
         return "down", str(connection.config.remote_addrs[0]), {}
-    sa = _decode(sa)
+    sa = charon.decode(sa)
     children = [
         {"name": child.get("name"), "state": child.get("state")}
         for child in sa.get("child-sas", {}).values()
@@ -219,12 +198,7 @@ def _ipsec(
         "established_seconds": int(sa.get("established", 0)) or None,
         "child_sas": children,
     }
-    if sa.get("state") == "ESTABLISHED" and any(
-        child["state"] == "INSTALLED" for child in children
-    ):
-        current: State = "up"
-    else:
-        current = "connecting"
+    current: State = "up" if charon.sa_up(sa) else "connecting"
     return current, sa.get("remote-host"), details
 
 
@@ -642,15 +616,11 @@ class Version(BaseModel):
 def version() -> Version:
     """Return the versions of vpnc, the kernel, strongSwan and FRR (hub mode)."""
     strongswan = None
-    sock = socket.socket(socket.AF_UNIX)
-    sock.settimeout(VICI_TIMEOUT)
     try:
-        sock.connect(VICI_SOCKET)
-        strongswan = _decode(vici.Session(sock).version()).get("version")
+        with charon.session() as vcs:
+            strongswan = charon.decode(vcs.version()).get("version")
     except OSError:
         logger.warning("Reading the strongSwan version failed.", exc_info=True)
-    finally:
-        sock.close()
     frr = None
     if tenant.get_default_tenant().mode == enums.ServiceMode.HUB:
         with contextlib.suppress(OSError, subprocess.SubprocessError):
