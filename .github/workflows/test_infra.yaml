@@ -11,8 +11,7 @@ concurrency:
 jobs:
   # Build the images once; the test jobs load them.
   build:
-    # The images are Ubuntu 26.04; the runner stays on 24.04.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +68,7 @@ jobs:
             lab: scale
             # -rP shows the measurements (printed by passing tests).
             tests: test/03_performance -rP
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4

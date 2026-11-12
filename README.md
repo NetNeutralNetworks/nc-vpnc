@@ -47,7 +47,7 @@ vpncmangle (started by vpnc) rewrites DNS answers from tenants: A records become
 
 ## Installation
 
-vpnc runs on Ubuntu 24.04 or 26.04 with systemd. As root, in the repository root:
+vpnc runs on Ubuntu 26.04 with systemd. As root, in the repository root:
 
 ```bash
 ~$ apt-get install -y make
