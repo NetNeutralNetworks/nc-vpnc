@@ -153,17 +153,31 @@ def network_instances() -> dict[str, NetworkInstance]:
 
 def _ipsec_sas() -> dict[str, dict[str, Any]]:
     """Return the IKE SAs by connection name."""
+    sas: dict[str, dict[str, Any]] = {}
     sock = socket.socket(socket.AF_UNIX)
     sock.settimeout(VICI_TIMEOUT)
     try:
         sock.connect(VICI_SOCKET)
-        session = vici.Session(sock)
-        return {name: sa for item in session.list_sas() for name, sa in item.items()}
+        for item in vici.Session(sock).list_sas():
+            for name, sa in item.items():
+                # A connection can have several (rekeying, duplicates): the one
+                # that's up counts.
+                if name not in sas or (_sa_up(sa) and not _sa_up(sas[name])):
+                    sas[name] = sa
     except OSError:
         logger.warning("Reading the IPsec SAs failed.", exc_info=True)
         return {}
     finally:
         sock.close()
+    return sas
+
+
+def _sa_up(sa: dict[str, Any]) -> bool:
+    """Return whether an IKE SA (as vici returns it) is established with a child."""
+    return sa.get("state") == b"ESTABLISHED" and any(
+        child.get("state") == b"INSTALLED"
+        for child in sa.get("child-sas", {}).values()
+    )
 
 
 def _decode(value: Any) -> Any:  # noqa: ANN401
