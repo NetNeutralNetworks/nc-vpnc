@@ -9,13 +9,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  # Build the images once per Ubuntu version; the test jobs load them.
+  # Build the images once; the test jobs load them.
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        # Ubuntu version of the container images; the runner stays on 24.04.
-        version: ["24.04", "26.04"]
+    # The images are Ubuntu 26.04; the runner stays on 24.04.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -27,25 +23,25 @@ jobs:
         with:
           load: true
           context: .
-          file: docker/${{ matrix.version }}/Dockerfile
+          file: docker/26.04/Dockerfile
           target: vpnc
           tags: nc-vpnc:latest
-          cache-from: type=gha,scope=${{ github.ref_name }}-${{ matrix.version }}
+          cache-from: type=gha,scope=${{ github.ref_name }}-26.04
       - name: Build lab image and cache layers
         uses: docker/build-push-action@v6
         with:
           load: true
           context: .
-          file: docker/${{ matrix.version }}/Dockerfile
+          file: docker/26.04/Dockerfile
           target: lab
           tags: nc-vpnc-lab:latest
-          cache-from: type=gha,scope=${{ github.ref_name }}-${{ matrix.version }}
-          cache-to: type=gha,scope=${{ github.ref_name }}-${{ matrix.version }},mode=max
+          cache-from: type=gha,scope=${{ github.ref_name }}-26.04
+          cache-to: type=gha,scope=${{ github.ref_name }}-26.04,mode=max
       - name: Save images
         run: docker save nc-vpnc:latest nc-vpnc-lab:latest | zstd -T0 -3 > images.tar.zst
       - uses: actions/upload-artifact@v4
         with:
-          name: images-${{ matrix.version }}
+          name: images
           path: images.tar.zst
           retention-days: 1
           compression-level: 0
@@ -53,11 +49,10 @@ jobs:
   # Each shard deploys its own lab, as the reliability tests disrupt it.
   test:
     needs: build
-    name: test (${{ matrix.version }}, ${{ matrix.shard.name }})
+    name: test (${{ matrix.shard.name }})
     strategy:
       fail-fast: false
       matrix:
-        version: ["24.04", "26.04"]
         shard:
           - name: sanity
             lab: base
@@ -83,7 +78,7 @@ jobs:
         run: sudo --preserve-env=GITHUB_ACTIONS test/00_setup/install.sh
       - uses: actions/download-artifact@v4
         with:
-          name: images-${{ matrix.version }}
+          name: images
       - name: Load images
         run: zstd -dc images.tar.zst | docker load
       - name: Deploy the ${{ matrix.shard.lab }} lab
