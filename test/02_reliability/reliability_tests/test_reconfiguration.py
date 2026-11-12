@@ -29,10 +29,14 @@ NI_KEY = "00"
 CORE_LINK = f"{NI}_C"
 APPLY_TIMEOUT = 60
 # Drift is corrected by the full check, which runs every 30 seconds.
-DRIFT_TIMEOUT = 90
+DRIFT_TIMEOUT = 120
+# Time to confirm a commit: much longer than applying one takes.
+CONFIRM = 30
 
 DRIFT_NI = "C0001-00"
 DRIFT_NI_KEY = "00"
+# An address of its xfrm0 on hub00.
+DRIFT_ADDRESS = "100.99.0.1/28"
 
 # A DNS server of C0001-00 (through NAT64), and a name with only an AAAA record
 # in a network that is translated with NPTv6.
@@ -475,13 +479,13 @@ class TestReconfiguration:
     def test_unconfirmed_commit_rolls_back(self) -> None:
         """A commit that isn't confirmed in time is rolled back; it stays staged."""
         set_route("10.209.0.0/24")
-        output = vpnctl("config commit C0002 --confirm 10s")
+        output = vpnctl(f"config commit C0002 --confirm {CONFIRM}s")
         assert "vpnctl config confirm C0002" in output
-        wait_for_route("10.209.0.0/24")
         staged = {c["id"]: c for c in vpnctl_json("config list")}
         assert staged["C0002"]["confirm_by"] is not None
+        wait_for_route("10.209.0.0/24", timeout=CONFIRM)
 
-        wait_for_route("10.201.0.0/24", timeout=10 + APPLY_TIMEOUT)
+        wait_for_route("10.201.0.0/24", timeout=CONFIRM + APPLY_TIMEOUT)
         staged = {c["id"]: c for c in vpnctl_json("config list")}
         assert staged["C0002"]["status"] == "modified"
         assert staged["C0002"]["confirm_by"] is None
@@ -489,11 +493,11 @@ class TestReconfiguration:
     def test_confirmed_commit_stays(self) -> None:
         """A confirmed commit isn't rolled back."""
         set_route("10.209.0.0/24")
-        vpnctl("config commit C0002 --confirm 10s")
-        wait_for_route("10.209.0.0/24")
+        vpnctl(f"config commit C0002 --confirm {CONFIRM}s")
+        wait_for_route("10.209.0.0/24", timeout=CONFIRM)
         assert vpnctl("config confirm C0002") == "Confirmed.\n"
 
-        time.sleep(15)
+        time.sleep(CONFIRM + 5)
         assert "10.209.0.0/24" in route_destinations(NI)
         assert vpnctl("config diff C0002") == "No changes.\n"
 
@@ -670,13 +674,52 @@ def drift_snapshot() -> dict[str, Any]:
     return snapshot
 
 
-def assert_drift_corrected(tamper: str) -> None:
-    """Run a command that changes the lab by hand and wait until it's corrected."""
-    expected = drift_snapshot()
-    conftest.run_cmd_shell(HOST, tamper)
-    assert drift_snapshot() != expected, f"'{tamper}' didn't change anything"
+def hub_settled() -> bool:
+    """Return whether the lab's connections are up and the SSH tunnel passes traffic."""
+    return all(
+        c["state"] == "up"
+        for c in vpnctl_json("connections list")
+        if c["id"].startswith(("C0001-", "CORE-"))
+    ) and conftest.ssh_tunnel_works(HOST)
+
+
+@pytest.fixture(scope="class")
+def drift_baseline() -> dict[str, Any]:
+    """Return the state the drift tests start from and return to.
+
+    Taken once, before anything is changed: a snapshot between two tests could
+    be of a connection that is still recovering.
+    """
+
+    def stable() -> dict[str, Any] | None:
+        snapshot = drift_snapshot()
+        return snapshot if hub_settled() and drift_snapshot() == snapshot else None
+
+    return conftest.wait_until(
+        stable,
+        timeout=DRIFT_TIMEOUT,
+        message=f"{HOST} to be up before the drift tests",
+    )
+
+
+def assert_drift_corrected(tamper: str, expected: dict[str, Any]) -> None:
+    """Run a command that removes something by hand and wait until it's corrected.
+
+    The command fails if there's nothing to remove. Starts and ends in the
+    expected state, with the connections up.
+    """
+
+    def corrected() -> bool:
+        return drift_snapshot() == expected and hub_settled()
+
     conftest.wait_until(
-        lambda: drift_snapshot() == expected,
+        corrected,
+        timeout=DRIFT_TIMEOUT,
+        message=f"{HOST} to be as before the drift tests",
+    )
+    conftest.run_cmd_shell(HOST, tamper)
+    conftest.wait_until(
+        corrected,
         timeout=DRIFT_TIMEOUT,
         message=f"drift from '{tamper}' to be corrected",
     )
@@ -685,23 +728,33 @@ def assert_drift_corrected(tamper: str) -> None:
 class TestDrift:
     """Manual changes are corrected by the full check."""
 
-    def test_deleted_route(self) -> None:
+    def test_deleted_route(self, drift_baseline: dict[str, Any]) -> None:
         """A deleted route is restored."""
-        assert_drift_corrected(f"ip --netns {DRIFT_NI} route del 172.16.30.1/32")
-
-    def test_deleted_address(self) -> None:
-        """A deleted interface address is restored."""
         assert_drift_corrected(
-            f"ip --netns {DRIFT_NI} address flush dev xfrm0 scope global",
+            f"ip --netns {DRIFT_NI} route del 172.16.30.1/32",
+            drift_baseline,
         )
 
-    def test_deleted_interface(self) -> None:
-        """A deleted XFRM interface is recreated with its addresses and routes."""
-        assert_drift_corrected(f"ip --netns {DRIFT_NI} link del xfrm0")
+    def test_deleted_address(self, drift_baseline: dict[str, Any]) -> None:
+        """A deleted interface address is restored."""
+        assert_drift_corrected(
+            f"ip --netns {DRIFT_NI} address del {DRIFT_ADDRESS} dev xfrm0",
+            drift_baseline,
+        )
 
-    def test_deleted_core_link(self) -> None:
+    def test_deleted_interface(self, drift_baseline: dict[str, Any]) -> None:
+        """A deleted XFRM interface is recreated with its addresses and routes."""
+        assert_drift_corrected(
+            f"ip --netns {DRIFT_NI} link del xfrm0",
+            drift_baseline,
+        )
+
+    def test_deleted_core_link(self, drift_baseline: dict[str, Any]) -> None:
         """A deleted link between CORE and a network instance is recreated."""
-        assert_drift_corrected(f"ip --netns CORE link del {DRIFT_NI}_C")
+        assert_drift_corrected(
+            f"ip --netns CORE link del {DRIFT_NI}_C",
+            drift_baseline,
+        )
 
     def test_removed_wireguard_peer(self) -> None:
         """A WireGuard peer removed by hand is restored."""
@@ -748,7 +801,12 @@ class TestDnsTranslation:
         path = "/opt/ncubed/config/vpnc/active/C0001.yaml"
         # mgt00 is answered through either hub.
         original = {hub: conftest.run_cmd(hub, f"cat {path}") for hub in HUBS}
-        assert dns_answer() == DNS_ANSWER
+        # The server is behind the SSH tunnel, which an earlier test may have reset.
+        conftest.wait_until(
+            lambda: dns_answer() == DNS_ANSWER,
+            timeout=DRIFT_TIMEOUT,
+            message="the translated DNS answer before the test",
+        )
         try:
             for hub, text in original.items():
                 tenant = yaml.safe_load(text)

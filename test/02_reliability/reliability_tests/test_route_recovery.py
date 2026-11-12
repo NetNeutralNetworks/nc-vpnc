@@ -26,7 +26,7 @@ SSH_INTERFACE = "tun1"
 CORE_INTERFACE = f"{NETWORK_INSTANCE}_C"
 
 ROUTE_TIMEOUT = 30
-# A previous test may leave the SSH tunnel reconnecting (backoff up to 30s).
+# The SSH tunnel may have to reconnect (backoff up to 30s) before all is healthy.
 HEALTHY_TIMEOUT = 90
 # The strongSwan monitor resyncs XFRM interface states every 30 seconds.
 XFRM_RESYNC_TIMEOUT = 60
@@ -70,6 +70,8 @@ def healthy_routes(host: str) -> dict[str, frozenset[Route]]:
         routes = get_all_routes(host)
         if any(r[1] == "blackhole" for netns in routes.values() for r in netns):
             return None
+        if not conftest.ssh_tunnel_works(host) or get_all_routes(host) != routes:
+            return None
         return routes
 
     return conftest.wait_until(
@@ -83,7 +85,7 @@ def wait_for_routes(host: str, expected: dict[str, frozenset[Route]]) -> None:
     """Wait until the routes are equal to the expected routes."""
     conftest.wait_until(
         lambda: get_all_routes(host) == expected,
-        timeout=ROUTE_TIMEOUT,
+        timeout=HEALTHY_TIMEOUT,
         message=f"routes on {host} to be restored",
     )
 
@@ -94,6 +96,17 @@ def set_link(host: str, ifname: str, state: str) -> None:
         host,
         f"ip --netns {NETWORK_INSTANCE} link set dev {ifname} {state}",
     )
+
+
+def link_is_up(host: str, ifname: str) -> bool:
+    """Return whether an interface in the tested network instance is set up."""
+    output = json.loads(
+        conftest.run_cmd(
+            host,
+            f"ip --json --netns {NETWORK_INSTANCE} link show dev {ifname}",
+        ),
+    )
+    return "UP" in output[0]["flags"]
 
 
 @pytest.mark.parametrize("host", HUBS)
@@ -160,11 +173,12 @@ class TestRouteRecovery:
         set_link(host, XFRM_INTERFACE, "down")
         try:
             conftest.wait_until(
-                lambda: get_all_routes(host) == expected,
+                lambda: link_is_up(host, XFRM_INTERFACE),
                 timeout=XFRM_RESYNC_TIMEOUT,
-                message=f"{XFRM_INTERFACE} on {host} to be brought up and routes"
-                " restored",
+                message=f"{XFRM_INTERFACE} on {host} to be brought up",
             )
         finally:
             # Leave the lab usable if the monitor didn't correct it.
             set_link(host, XFRM_INTERFACE, "up")
+        # The SSH tunnel over it may have timed out meanwhile and reconnects.
+        wait_for_routes(host, expected)
