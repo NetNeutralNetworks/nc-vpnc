@@ -34,15 +34,7 @@ class TrafficSelectors(BaseModel):
     local: set[IPv4Network | IPv6Network] = Field(default_factory=set)
     remote: set[IPv4Network | IPv6Network] = Field(default_factory=set)
 
-    @field_validator("local", "remote", mode="before")
-    @classmethod
-    def _coerce_traffic_selectors(
-        cls,
-        v: set[IPv4Network | IPv6Network] | None,
-    ) -> set[IPv4Network | IPv6Network]:
-        if v is None:
-            return set()
-        return v
+    _none_as_default = helpers.none_as_default("local", "remote")
 
 
 class ConnectionConfigIPsec(BaseModel):
@@ -62,11 +54,6 @@ class ConnectionConfigIPsec(BaseModel):
     psk: Secret
     traffic_selectors: TrafficSelectors = Field(default_factory=TrafficSelectors)
 
-    @field_validator("type", mode="before")
-    @classmethod
-    def _coerce_type(cls, v: str) -> enums.ConnectionType:
-        return enums.ConnectionType(v)
-
     @field_validator("ike_version", mode="before")
     @classmethod
     def coerce_ike_version(cls, v: str | int) -> int | str:
@@ -75,12 +62,7 @@ class ConnectionConfigIPsec(BaseModel):
             return int(v)
         return v
 
-    @field_validator("traffic_selectors", mode="before")
-    @classmethod
-    def _coerce_traffic_selectors(cls, v: TrafficSelectors | None) -> TrafficSelectors:
-        if v is None:
-            return TrafficSelectors(local=set(), remote=set())
-        return v
+    _none_as_default = helpers.none_as_default("traffic_selectors")
 
     def add(
         self,

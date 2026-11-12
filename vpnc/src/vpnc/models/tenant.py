@@ -130,18 +130,21 @@ class BGP(BaseModel):
     globals: BGPGlobal
 
 
-class ServiceEndpoint(Tenant):
-    """Define a service data structure."""
+# The highest prefix length per downlink prefix of a hub.
+MAX_PREFIX_LENGTHS = {
+    "prefix_downlink_interface_v4": 16,
+    "prefix_downlink_interface_v6": 32,
+    "prefix_downlink_nat64": 32,
+    "prefix_downlink_nptv6": 12,
+}
 
-    model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
-    id: str = "DEFAULT"
-    name: str = "DEFAULT"
-    mode: Literal[ServiceMode.ENDPOINT] = ServiceMode.ENDPOINT
-    network_instances: dict[
-        str,
-        NetworkInstanceCore | NetworkInstanceExternal | NetworkInstanceEndpoint,
-    ] = Field(default_factory=dict)
+class ServiceTenant(Tenant):
+    """What the service (DEFAULT) has in both modes."""
+
+    id: str = config.DEFAULT_TENANT
+    name: str = config.DEFAULT_TENANT
+    mode: ServiceMode
 
     # VPN CONFIG
     # IKE local identifier for VPNs
@@ -152,15 +155,10 @@ class ServiceEndpoint(Tenant):
             msg = f"network instance '{key}' can't be part of {self.id}"
             raise ValueError(msg)
 
-    @field_validator("mode", mode="before")
-    @classmethod
-    def _coerce_type(cls, v: str) -> ServiceMode:
-        return ServiceMode(v)
-
     @field_validator("id", "name")
     @classmethod
     def _validate_is_default(cls, v: str) -> str:
-        if v != "DEFAULT":
+        if v != config.DEFAULT_TENANT:
             msg = "default_tenant_error"
             raise PydanticCustomError(
                 msg,
@@ -169,27 +167,24 @@ class ServiceEndpoint(Tenant):
         return v
 
 
-class ServiceHub(Tenant):
+class ServiceEndpoint(ServiceTenant):
     """Define a service data structure."""
 
-    model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
+    mode: Literal[ServiceMode.ENDPOINT] = ServiceMode.ENDPOINT
+    network_instances: dict[
+        str,
+        NetworkInstanceCore | NetworkInstanceExternal | NetworkInstanceEndpoint,
+    ] = Field(default_factory=dict)
 
-    id: str = "DEFAULT"
-    name: str = "DEFAULT"
+
+class ServiceHub(ServiceTenant):
+    """Define a service data structure."""
+
     mode: Literal[ServiceMode.HUB] = ServiceMode.HUB
     network_instances: dict[
         str,
         NetworkInstanceDownlink | NetworkInstanceCore | NetworkInstanceExternal,
     ] = Field(default_factory=dict)
-
-    # VPN CONFIG
-    # IKE local identifier for VPNs
-    local_id: str = r"%any"
-
-    def _check_key(self, key: str) -> None:
-        if key not in SERVICE_NETWORK_INSTANCES[self.mode]:
-            msg = f"network instance '{key}' can't be part of {self.id}"
-            raise ValueError(msg)
 
     # OVERLAY CONFIG
     # IPv4 prefix for downlink interfaces. Must be a /16, will get subnetted into /24s
@@ -209,84 +204,17 @@ class ServiceHub(Tenant):
     ## BGP config
     bgp: BGP
 
-    @field_validator("mode", mode="before")
+    @field_validator(*MAX_PREFIX_LENGTHS)
     @classmethod
-    def _coerce_type(cls, v: str) -> ServiceMode:
-        return ServiceMode(v)
-
-    @field_validator("id", "name")
-    @classmethod
-    def _validate_is_default(cls, v: str) -> str:
-        if v != "DEFAULT":
-            msg = "default_tenant_error"
-            raise PydanticCustomError(
-                msg,
-                "The default tenant id and name should be 'DEFAULT'",
-            )
-        return v
-
-    @field_validator("prefix_downlink_interface_v4")
-    @classmethod
-    def set_default_prefix_downlink_interface_v4(
+    def _check_prefix_length(
         cls,
-        v: IPv4Network,
-        _: ValidationInfo,
-    ) -> IPv4Network:
-        """Check if the value adheres to the limits."""
-        if v.prefixlen > 16:  # noqa: PLR2004
-            msg = "'prefix_downlink_interface_v4' prefix length must be '16' or lower."
-            raise NetmaskValueError(
-                msg,
-            )
-
-        return v
-
-    @field_validator("prefix_downlink_interface_v6")
-    @classmethod
-    def set_default_prefix_downlink_interface_v6(
-        cls,
-        v: IPv6Network,
-        _: ValidationInfo,
-    ) -> IPv6Network:
-        """Check if the value adheres to the limits."""
-        if v.prefixlen > 32:  # noqa: PLR2004
-            msg = "'prefix_downlink_interface_v6' prefix length must be '32' or lower."
-            raise NetmaskValueError(
-                msg,
-            )
-
-        return v
-
-    @field_validator("prefix_downlink_nat64")
-    @classmethod
-    def set_default_prefix_downlink_nat64(
-        cls,
-        v: IPv6Network,
-        _: ValidationInfo,
-    ) -> IPv6Network:
-        """Check if the value adheres to the limits."""
-        if v.prefixlen > 32:  # noqa: PLR2004
-            msg = "'prefix_downlink_nat64' prefix length must be '32' or lower."
-            raise NetmaskValueError(
-                msg,
-            )
-
-        return v
-
-    @field_validator("prefix_downlink_nptv6")
-    @classmethod
-    def set_default_prefix_downlink_nptv6(
-        cls,
-        v: IPv6Network,
-        _: ValidationInfo,
-    ) -> IPv6Network:
-        """Check if the value adheres to the limits."""
-        if v.prefixlen > 12:  # noqa: PLR2004
-            msg = "'prefix_downlink_nptv6' prefix length must be '12' or lower."
-            raise NetmaskValueError(
-                msg,
-            )
-
+        v: IPv4Network | IPv6Network,
+        info: ValidationInfo,
+    ) -> IPv4Network | IPv6Network:
+        maximum = MAX_PREFIX_LENGTHS[str(info.field_name)]
+        if v.prefixlen > maximum:
+            msg = f"'{info.field_name}' prefix length must be '{maximum}' or lower."
+            raise NetmaskValueError(msg)
         return v
 
 

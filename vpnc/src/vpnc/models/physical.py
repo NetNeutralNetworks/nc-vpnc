@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Literal
 
 import pyroute2
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 from vpnc.models import connections, enums
 from vpnc.network import state
@@ -22,11 +22,6 @@ class ConnectionConfigPhysical(BaseModel):
 
     type: Literal[enums.ConnectionType.PHYSICAL] = enums.ConnectionType.PHYSICAL
     interface_name: str
-
-    @field_validator("type", mode="before")
-    @classmethod
-    def _coerce_type(cls, v: str) -> enums.ConnectionType:
-        return enums.ConnectionType(v)
 
     def add(
         self,

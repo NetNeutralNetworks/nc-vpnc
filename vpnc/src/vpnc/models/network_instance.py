@@ -27,7 +27,7 @@ from pydantic import (
     field_validator,
 )
 
-from vpnc import config
+from vpnc import config, helpers
 from vpnc.models import connections, enums, tenant
 from vpnc.network import namespace, nftables, state
 from vpnc.services import configuration, frr, strongswan
@@ -239,12 +239,7 @@ class NetworkInstance(BaseModel):
         # Read as hexadecimal, as the prefixes in use are.
         return int(self._key, 16)
 
-    @field_validator("metadata", mode="before")
-    @classmethod
-    def _coerce_metadata(cls, v: dict[str, Any] | None) -> dict[str, Any]:
-        if v is None:
-            return {}
-        return v
+    _none_as_default = helpers.none_as_default("metadata")
 
     @field_validator("connections")
     @classmethod
