@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from vpnc import shared
+from vpnc import helpers, shared
 from vpnc.api import status
 from vpnc.models import enums
 from vpnc.models.ipsec import Initiation
@@ -91,7 +91,7 @@ def check(
     """
     if keys is not None:
         return
-    network_instances = list(status.network_instances().values())
+    network_instances = list(helpers.network_instances().values())
     connections: dict[str, tuple[NetworkInstance, Connection]] = {
         c.name(ni): (ni, c)
         for ni in network_instances

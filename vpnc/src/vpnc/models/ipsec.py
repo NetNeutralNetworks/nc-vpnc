@@ -11,7 +11,7 @@ import vici
 import vici.exception
 from pydantic import BaseModel, Field, field_validator
 
-from vpnc import config
+from vpnc import config, helpers
 from vpnc.models import connections, enums
 from vpnc.models.secret import Secret
 from vpnc.network import state
@@ -91,12 +91,7 @@ class ConnectionConfigIPsec(BaseModel):
     ) -> str:
         """Create an XFRM interface."""
         xfrm = self.intf_name(network_instance, connection)
-        vpn_id = int(f"0x1000000{connection.id}", 16)
-        if network_instance.type == enums.NetworkInstanceType.DOWNLINK:
-            vpn_id = int(
-                f"0x{network_instance.id.replace('-', '')}{connection.id}",
-                16,
-            )
+        vpn_id = self.if_id(network_instance, connection)
 
         if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
             network_instance,
@@ -141,4 +136,18 @@ class ConnectionConfigIPsec(BaseModel):
         connection: connections.Connection,
     ) -> str:
         """Return the name of the connection interface."""
-        return f"xfrm{connection.id}"
+        return helpers.xfrm_interface_name(connection.id)
+
+    def if_id(
+        self,
+        network_instance: vpnc.models.network_instance.NetworkInstance,
+        connection: connections.Connection,
+    ) -> int:
+        """Return the XFRM if_id, which the interface and charon's SAs share.
+
+        E.g. 0xC0001001 for C0001-00-1, and 0x10000001 for CORE-1.
+        """
+        base = 0x10000000
+        if network_instance.type == enums.NetworkInstanceType.DOWNLINK:
+            base = int(network_instance.id.replace("-", ""), 16) << 4
+        return base + connection.id

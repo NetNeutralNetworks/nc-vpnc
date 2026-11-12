@@ -1,64 +1,54 @@
-"""Miscellaneous functions used throughout the service."""
+"""Functions used throughout the service."""
 
 from __future__ import annotations
 
-import logging
-import subprocess
-import sys
+import time
+from ipaddress import IPv4Network, IPv6Network
+from typing import TYPE_CHECKING, TypeVar
 
 from vpnc import config, shared
-from vpnc.models import enums, tenant
 
-logger = logging.getLogger("vpnc")
+if TYPE_CHECKING:
+    from vpnc.models.network_instance import NetworkInstance
 
-
-def signal_handler(*_: object) -> None:
-    """Shut down the program gracefully."""
-    logger.info("SIGTERM received. Stopping all threads.")
-    shared.STOP_EVENT.set()
+Net = TypeVar("Net", IPv4Network, IPv6Network)
 
 
-def check_system_requirements() -> None:
-    """Check if required kernel modules are installed."""
-    module_list: list[str] = [
-        "xfrm_interface",
-        # nftables NAT and masquerading.
-        "nft_chain_nat",
-        "nft_masq",
-        "veth",
-        "wireguard",
-    ]
-    module: str = ""
-    try:
-        for module in module_list:
-            logger.debug("Verifying kernel module %s is installed", module)
-            subprocess.run(  # noqa: S603
-                ["/usr/sbin/modinfo", module],
-                check=True,
-                stdout=subprocess.PIPE,
-            )
-    except subprocess.CalledProcessError:
-        logger.critical("The '%s' kernel module isn't installed. Exiting.", module)
-        sys.exit(1)
+def network_instances() -> dict[str, NetworkInstance]:
+    """Return the configured network instances by id."""
+    return {
+        ni.id: ni
+        for tenant_config in list(config.VPNC_CONFIG_TENANT.values())
+        for ni in tenant_config.network_instances.values()
+    }
 
-    tenant_config, _ = tenant.load_tenant_config(config.VPNC_A_CONFIG_PATH_SERVICE)
-    if not isinstance(tenant_config, (tenant.ServiceHub, tenant.ServiceEndpoint)):
-        logger.critical("Service configuration is invalid")
-        sys.exit(1)
 
-    if tenant_config.mode != enums.ServiceMode.HUB:
-        return
+def split_connection_name(name: str) -> tuple[str, str]:
+    """Return the network instance and number of a connection's name."""
+    network_instance_id, _, number = name.rpartition("-")
+    return network_instance_id, number
 
-    # vpncmangle queues DNS responses with nftables.
-    hub_module_list: list[str] = ["nft_queue"]
-    try:
-        for module in hub_module_list:
-            logger.debug("Verifying kernel module %s is installed", module)
-            subprocess.run(  # noqa: S603
-                ["/usr/sbin/modinfo", module],
-                stdout=subprocess.PIPE,
-                check=True,
-            )
-    except subprocess.CalledProcessError:
-        logger.critical("The '%s' kernel module isn't installed. Exiting.", module)
-        sys.exit(1)
+
+def xfrm_interface_name(number: int | str) -> str:
+    """Return the name of the XFRM interface of a connection's number."""
+    return f"xfrm{number}"
+
+
+def nth_subnet(network: Net, new_prefix: int, n: int) -> Net:
+    """Return subnet n of a network, like list(network.subnets(new_prefix))[n]."""
+    if not 0 <= n < 1 << (new_prefix - network.prefixlen):
+        msg = f"{network} has no subnet {n} of length /{new_prefix}"
+        raise IndexError(msg)
+    size = 1 << (network.max_prefixlen - new_prefix)
+    return type(network)((int(network.network_address) + n * size, new_prefix))
+
+
+def printable(text: str) -> str:
+    """Return text with its non-printable characters replaced by '?'."""
+    return "".join(c if c.isprintable() else "?" for c in text)
+
+
+def auto_resets(name: str) -> int:
+    """Return how often the watchdog reset a connection in the last 24 hours."""
+    since = time.time() - shared.AUTO_RESET_HISTORY
+    return sum(t >= since for t in shared.AUTO_RESETS.get(name, []))

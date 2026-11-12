@@ -5,15 +5,68 @@ import logging
 import os
 import resource
 import signal
+import subprocess
 import sys
 from logging.handlers import RotatingFileHandler
 
-from vpnc import config, core, files, helpers, migration
-from vpnc.models import tenant
+from vpnc import config, core, files, migration, shared
+from vpnc.models import enums, tenant
 
 # LOGGER
 # Get logger
 logger = logging.getLogger()
+
+
+def _signal_handler(*_: object) -> None:
+    """Shut down the program gracefully."""
+    logger.info("SIGTERM received. Stopping all threads.")
+    shared.STOP_EVENT.set()
+
+
+def _check_system_requirements() -> None:
+    """Check if required kernel modules are installed."""
+    module_list: list[str] = [
+        "xfrm_interface",
+        # nftables NAT and masquerading.
+        "nft_chain_nat",
+        "nft_masq",
+        "veth",
+        "wireguard",
+    ]
+    module: str = ""
+    try:
+        for module in module_list:
+            logger.debug("Verifying kernel module %s is installed", module)
+            subprocess.run(  # noqa: S603
+                ["/usr/sbin/modinfo", module],
+                check=True,
+                stdout=subprocess.PIPE,
+            )
+    except subprocess.CalledProcessError:
+        logger.critical("The '%s' kernel module isn't installed. Exiting.", module)
+        sys.exit(1)
+
+    tenant_config, _ = tenant.load_tenant_config(config.VPNC_A_CONFIG_PATH_SERVICE)
+    if not isinstance(tenant_config, (tenant.ServiceHub, tenant.ServiceEndpoint)):
+        logger.critical("Service configuration is invalid")
+        sys.exit(1)
+
+    if tenant_config.mode != enums.ServiceMode.HUB:
+        return
+
+    # vpncmangle queues DNS responses with nftables.
+    hub_module_list: list[str] = ["nft_queue"]
+    try:
+        for module in hub_module_list:
+            logger.debug("Verifying kernel module %s is installed", module)
+            subprocess.run(  # noqa: S603
+                ["/usr/sbin/modinfo", module],
+                stdout=subprocess.PIPE,
+                check=True,
+            )
+    except subprocess.CalledProcessError:
+        logger.critical("The '%s' kernel module isn't installed. Exiting.", module)
+        sys.exit(1)
 
 
 def main() -> None:
@@ -63,15 +116,15 @@ def main() -> None:
     migration.migrate_all()
 
     # check for required kernel modules.
-    helpers.check_system_requirements()
+    _check_system_requirements()
     # Every network instance keeps sockets open; systemd's soft limit is 1024.
     _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
 
     # Used to gracefully shutdown, allows the atexit commands to run when a
     # signal is received.
-    signal.signal(signal.SIGINT, helpers.signal_handler)
-    signal.signal(signal.SIGTERM, helpers.signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
 
     # Start the concentrator
     try:

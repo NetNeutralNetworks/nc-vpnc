@@ -16,7 +16,7 @@ import vici
 import vici.exception
 from pyroute2.netlink.exceptions import NetlinkError
 
-from vpnc import config, shared
+from vpnc import config, helpers, shared
 from vpnc.network import namespace, state
 from vpnc.services.charon import VICI_SOCKET, VICI_TIMEOUT
 
@@ -303,7 +303,8 @@ class Monitor(threading.Thread):
         None if its tenant has no configuration (anymore).
         """
         if ike_name.startswith(config.CORE_NI):
-            return config.CORE_NI, f"xfrm{config.split_connection_name(ike_name)[1]}"
+            number = helpers.split_connection_name(ike_name)[1]
+            return config.CORE_NI, helpers.xfrm_interface_name(number)
         if not (match := config.DOWNLINK_CON_RE.match(ike_name)):
             msg = f"Invalid connection name '{ike_name}'"
             raise ValueError(msg)
@@ -313,7 +314,7 @@ class Monitor(threading.Thread):
         if not config.VPNC_A_CONFIG_DIR.joinpath(f"{tenant_id}.yaml").exists():
             logger.info("No configuration file found for '%s'", tenant_id)
             return None
-        return network_instance, f"xfrm{connection_id}"
+        return network_instance, helpers.xfrm_interface_name(connection_id)
 
     def set_xfrm_interface_state(self, ike_name: str) -> None:
         """Set a connection's XFRM interface up if its tunnel is up, down otherwise.

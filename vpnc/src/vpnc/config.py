@@ -32,13 +32,6 @@ DOWNLINK_NI_RE = re.compile(rf"^{TENANT_ID}-\d{{2}}$")
 # network instance, the tenant and the connection's number.
 DOWNLINK_CON_RE = re.compile(rf"^(({TENANT_ID})-\d{{2}})-(\d)$")
 
-
-def split_connection_name(name: str) -> tuple[str, str]:
-    """Return the network instance and number of a connection's name."""
-    network_instance_id, _, number = name.rpartition("-")
-    return network_instance_id, number
-
-
 # Group of the user charon runs as (swan), to reduce attack surface
 _PWD = list(filter(lambda x: x.pw_name == "swan", pwd.getpwall()))
 IPSEC_GROUP = _PWD[0].pw_gid if _PWD else 0

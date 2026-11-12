@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from vpnc import config
+from vpnc import config, helpers
 from vpnc.models import connections, enums
 from vpnc.models.secret import Secret
 from vpnc.network import state
@@ -56,7 +56,7 @@ class ConnectionConfigWireGuard(BaseModel):
                 user
                 for user in users
                 if wireguard.listen_port(
-                    config.split_connection_name(user)[0],
+                    helpers.split_connection_name(user)[0],
                     f"wg-{user}",
                 )
                 == self.local_port
