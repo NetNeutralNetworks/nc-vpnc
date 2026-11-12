@@ -11,7 +11,9 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-LOG_DIR = pathlib.Path("/var/log/ncubed/vpnc")
+from vpnc import config
+
+LOG_DIR = config.LOG_DIR
 VPNC_LOG = LOG_DIR / "vpnc.log"
 # Written by charon, see config/strongswan/vpnc.conf.
 CHARON_LOG = LOG_DIR / "charon.log"

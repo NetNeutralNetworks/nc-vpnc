@@ -40,7 +40,7 @@ VPNCTL    := /usr/local/bin/vpnctl /etc/bash_completion.d/vpnctl \
 
 .PHONY: help hub endpoint addon update root apt-update packages python-packages \
 	build-packages hub-packages frr snmpd config misc-config venv pip-vpnc \
-	pip-vpncmangle vpnctl service start
+	pip-vpncmangle lock vpnctl service start
 
 help:
 	@echo "As root: make hub | make endpoint | make addon | make update"
@@ -86,7 +86,6 @@ packages: apt-update
 	$(SYSTEMCTL) stop ipsec.service strongswan-starter.service || true
 	getent group swan > /dev/null || groupadd swan
 	id swan > /dev/null 2>&1 || useradd -g swan swan
-	chown -R swan:swan /etc/swanctl
 
 python-packages: apt-update
 	$(APT) install -y python3 python3-pip python3-venv
@@ -118,7 +117,7 @@ snmpd: apt-update
 	$(APT) install -y snmpd
 	sed -i -E 's/^(rocommunity6? .*)/#\1/; s/^(agentaddress.*)/#\1/' /etc/snmp/snmpd.conf
 	sed -i 's/^rouser authPrivUser authpriv -V systemonly$$/#&/' /etc/snmp/snmpd.conf
-	[ -e $(SNMP_CONF) ] || install -D -m 644 config/snmp/vpnc.conf $(SNMP_CONF)
+	install -D -m 644 config/snmp/vpnc.conf $(SNMP_CONF)
 	$(SYSTEMCTL) enable snmpd.service
 	$(SYSTEMCTL) restart snmpd.service
 	@echo "Configure SNMP with the following command (if not already configured) after stopping the snmpd service."
@@ -132,7 +131,7 @@ config: $(CONFDIR)/candidate/DEFAULT.yaml $(CONFDIR)/active/DEFAULT.yaml \
 	$(if $(filter endpoint,$(MODE)),,[ -e $(CONFDIR)/candidate/config.yaml.example ] || \
 		install -m 600 config/vpnc/config/config.yaml.example $(CONFDIR)/candidate/)
 	chmod 700 $(CONFDIR)/candidate $(CONFDIR)/active $(CONFDIR)/history
-	mkdir -p $(LOGDIR)
+	install -d -m 750 $(LOGDIR)
 
 # These hold pre-shared and private keys.
 $(CONFDIR)/candidate $(CONFDIR)/active $(CONFDIR)/history:
@@ -155,11 +154,13 @@ misc-config: $(MISC_CONF)
 /etc/logrotate.d/vpnc:
 	install -D -m 644 config/logrotate/vpnc $@
 
-$(SNMP_CONF):
-	install -D -m 644 config/snmp/vpnc.conf $@
+# vpnc's own drop-in: replaced when it changes.
+$(SNMP_CONF): config/snmp/vpnc.conf
+	install -D -m 644 $< $@
 	$(SYSTEMCTL) try-restart snmpd.service
 
-# Python packages. Stamps live in the venv, so a new venv reinstalls them.
+# Python packages, at the locked versions (make lock). Stamps live in the venv,
+# so a new venv reinstalls them.
 
 # Recreate a missing or broken venv (e.g. Python changed in a release upgrade).
 ifneq ($(shell $(VENV)/bin/python3 -c pass 2>/dev/null && echo ok),ok)
@@ -170,16 +171,39 @@ $(VENV)/pyvenv.cfg:
 
 venv: $(VENV)/pyvenv.cfg
 
+PIP := $(VENV)/bin/python3 -m pip install
+
 pip-vpnc: $(STAMP)/vpnc
 pip-vpncmangle: $(STAMP)/vpncmangle
 
-$(STAMP)/vpnc: $(VPNC_SRC) | $(VENV)/pyvenv.cfg
-	$(VENV)/bin/python3 -m pip install --upgrade ./vpnc
+# The packages are built with these tools, not with the newest pip would fetch.
+# A wildcard, like the sources: absent in the Docker step that only runs vpnctl.
+$(STAMP)/build: $(wildcard requirements-build.txt) | $(VENV)/pyvenv.cfg
+	$(PIP) --require-hashes -r requirements-build.txt
 	mkdir -p $(@D) && touch $@
 
-$(STAMP)/vpncmangle: $(VPNCMANGLE_SRC) | $(VENV)/pyvenv.cfg
-	$(VENV)/bin/python3 -m pip install --upgrade ./vpncmangle
+$(STAMP)/vpnc: $(VPNC_SRC) $(STAMP)/build
+	$(PIP) --require-hashes --no-build-isolation -r vpnc/requirements.txt
+	$(PIP) --upgrade --no-deps --no-build-isolation ./vpnc
 	mkdir -p $(@D) && touch $@
+
+$(STAMP)/vpncmangle: $(VPNCMANGLE_SRC) $(STAMP)/build
+	$(PIP) --require-hashes --no-build-isolation -r vpncmangle/requirements.txt
+	$(PIP) --upgrade --no-deps --no-build-isolation ./vpncmangle
+	mkdir -p $(@D) && touch $@
+
+# Lock the dependencies to their newest versions, with hashes. Not as root; run
+# it with the Python version of the installs (needs python3-venv).
+LOCK_VENV := /tmp/vpnc-lock
+COMPILE    = CUSTOM_COMPILE_COMMAND="make lock" $(LOCK_VENV)/bin/pip-compile --quiet \
+	--upgrade --generate-hashes --allow-unsafe --strip-extras
+
+lock:
+	python3 -m venv --clear $(LOCK_VENV)
+	$(LOCK_VENV)/bin/pip install --quiet pip-tools
+	$(COMPILE) --output-file requirements-build.txt requirements-build.in
+	cd vpnc && $(COMPILE) --constraint ../requirements-build.txt --output-file requirements.txt pyproject.toml
+	cd vpncmangle && $(COMPILE) --constraint ../requirements-build.txt --output-file requirements.txt pyproject.toml
 
 # vpnctl on the PATH, with bash and zsh completion and the login banner.
 vpnctl: $(VPNCTL) typer-cleanup

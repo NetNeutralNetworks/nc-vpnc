@@ -1,10 +1,17 @@
-{#- CORE: IPv6 from the uplinks (BGP, management); no IPv4 except forwarding in ENDPOINT mode. #}
+{#- CORE: BGP and BFD from the uplinks, IPv6 forwarded from them; no IPv4 except forwarding in ENDPOINT mode. #}
     chain input {
         type filter hook input priority filter; policy drop;
         meta l4proto ipv6-icmp jump icmpv6-in-out
-{%- for interface in interfaces %}
-        meta nfproto ipv6 iifname "{{ interface }}" accept
-{%- endfor %}
+        meta nfproto ipv6 ct state established,related accept
+{%- if mode.name == "HUB" %}
+  {%- for interface in interfaces %}
+    {%- if bgp_neighbors %}
+        iifname "{{ interface }}" ip6 saddr { {{ bgp_neighbors | join(", ") }} } tcp dport 179 accept
+    {%- endif %}
+        {#- BFD: single hop, echo, multihop and micro. #}
+        meta nfproto ipv6 iifname "{{ interface }}" udp dport { 3784, 3785, 4784, 6784 } accept
+  {%- endfor %}
+{%- endif %}
     }
 
     chain forward {

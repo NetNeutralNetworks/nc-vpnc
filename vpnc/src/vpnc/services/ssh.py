@@ -29,6 +29,13 @@ RESTART_DELAY_MIN = 1
 RESTART_DELAY_MAX = 30
 # A tunnel that stayed up this long (seconds) resets the delay.
 STABLE_AFTER = 60
+# Characters logged of a line ssh prints.
+MAX_LINE = 500
+
+
+def printable(text: str) -> str:
+    """Return text with its non-printable characters replaced by '?'."""
+    return "".join(c if c.isprintable() else "?" for c in text)
 
 
 class SshTunnel(threading.Thread):
@@ -63,12 +70,14 @@ class SshTunnel(threading.Thread):
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
                     text=True,
+                    errors="replace",
                 )
                 self.started = time.time()
             # Logged with the connection name, so it shows in its logs.
             last = ""
             for line in proc.stderr or []:
-                if line := line.strip():
+                # From the server: no control characters (e.g. terminal escapes).
+                if line := printable(line.strip())[:MAX_LINE]:
                     logger.info("SSH tunnel %s: %s", self.connection_name, line)
                     last = line
             proc.wait()

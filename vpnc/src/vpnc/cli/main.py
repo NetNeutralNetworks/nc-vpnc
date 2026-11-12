@@ -122,6 +122,11 @@ def size(count: int | None) -> str:
     return str(count)
 
 
+def clean(text: str) -> str:
+    """Return text without control characters (e.g. a peer's terminal escapes)."""
+    return "".join(c if c.isprintable() else "?" for c in text)
+
+
 def cell(value: Any) -> str:  # noqa: ANN401
     """Return a table cell: lists comma separated, empty as '-'."""
     if value is None or value == []:
@@ -130,7 +135,7 @@ def cell(value: Any) -> str:  # noqa: ANN401
         return ", ".join(cell(v) for v in value)
     if isinstance(value, bool):
         return "yes" if value else "no"
-    return str(value)
+    return clean(str(value))
 
 
 def table(rows: list[dict[str, Any]], columns: list[tuple[str, str]]) -> None:
@@ -410,7 +415,7 @@ def cmd_connections_reset(args: argparse.Namespace) -> None:
 
 def _print_log(line: dict[str, Any], *, source: bool = True) -> None:
     prefix = f"{line['time']}  {line['source']:<6}  " if source else f"{line['time']}  "
-    first, *rest = line["message"].split("\n")
+    first, *rest = (clean(part) for part in line["message"].split("\n"))
     print(f"{prefix}{line['level']:<7}  {first}")
     for extra in rest:
         print(f"    {extra}")

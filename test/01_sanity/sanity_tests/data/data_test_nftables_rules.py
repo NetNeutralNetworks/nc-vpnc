@@ -63,8 +63,11 @@ TABLES = [
             "\tchain input {\n"
             "\t\ttype filter hook input priority filter; policy drop;\n"
             "\t\tmeta l4proto ipv6-icmp jump icmpv6-in-out\n"
-            '\t\tmeta nfproto ipv6 iifname "xfrm0" accept\n'
-            '\t\tmeta nfproto ipv6 iifname "xfrm1" accept\n'
+            "\t\tmeta nfproto ipv6 ct state established,related accept\n"
+            '\t\tiifname "xfrm0" ip6 saddr { fd00:1:2::1, fd00:1:2::1:1 } tcp dport 179 accept\n'
+            '\t\tmeta nfproto ipv6 iifname "xfrm0" udp dport { 3784, 3785, 4784, 6784 } accept\n'
+            '\t\tiifname "xfrm1" ip6 saddr { fd00:1:2::1, fd00:1:2::1:1 } tcp dport 179 accept\n'
+            '\t\tmeta nfproto ipv6 iifname "xfrm1" udp dport { 3784, 3785, 4784, 6784 } accept\n'
             "\t}\n"
             "\n"
             "\tchain forward {\n"
@@ -222,8 +225,11 @@ TABLES = [
             "\tchain input {\n"
             "\t\ttype filter hook input priority filter; policy drop;\n"
             "\t\tmeta l4proto ipv6-icmp jump icmpv6-in-out\n"
-            '\t\tmeta nfproto ipv6 iifname "xfrm0" accept\n'
-            '\t\tmeta nfproto ipv6 iifname "xfrm1" accept\n'
+            "\t\tmeta nfproto ipv6 ct state established,related accept\n"
+            '\t\tiifname "xfrm0" ip6 saddr { fd00:1:2::3, fd00:1:2::1:3 } tcp dport 179 accept\n'
+            '\t\tmeta nfproto ipv6 iifname "xfrm0" udp dport { 3784, 3785, 4784, 6784 } accept\n'
+            '\t\tiifname "xfrm1" ip6 saddr { fd00:1:2::3, fd00:1:2::1:3 } tcp dport 179 accept\n'
+            '\t\tmeta nfproto ipv6 iifname "xfrm1" udp dport { 3784, 3785, 4784, 6784 } accept\n'
             "\t}\n"
             "\n"
             "\tchain forward {\n"
@@ -380,8 +386,7 @@ TABLES = [
             "\tchain input {\n"
             "\t\ttype filter hook input priority filter; policy drop;\n"
             "\t\tmeta l4proto ipv6-icmp jump icmpv6-in-out\n"
-            '\t\tmeta nfproto ipv6 iifname "xfrm0" accept\n'
-            '\t\tmeta nfproto ipv6 iifname "xfrm1" accept\n'
+            "\t\tmeta nfproto ipv6 ct state established,related accept\n"
             "\t}\n"
             "\n"
             "\tchain forward {\n"
@@ -493,8 +498,7 @@ TABLES = [
             "\tchain input {\n"
             "\t\ttype filter hook input priority filter; policy drop;\n"
             "\t\tmeta l4proto ipv6-icmp jump icmpv6-in-out\n"
-            '\t\tmeta nfproto ipv6 iifname "wg-CORE-0" accept\n'
-            '\t\tmeta nfproto ipv6 iifname "wg-CORE-1" accept\n'
+            "\t\tmeta nfproto ipv6 ct state established,related accept\n"
             "\t}\n"
             "\n"
             "\tchain forward {\n"
