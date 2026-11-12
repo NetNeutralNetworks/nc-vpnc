@@ -72,12 +72,14 @@ This reinstalls vpnc (and vpncmangle on a hub) and restarts vpnc only if somethi
 
 The configuration is YAML, one file per tenant plus `service` (the `DEFAULT` file). Change it with `vpnctl` or the API: changes are validated, staged and applied on commit (see [vpnctl](#vpnctl)). Service settings `mode` and `prefix_downlink_*` need a restart; everything else applies right away.
 
+Files have a `version`, currently 0.1.4. vpnc converts files of version 0.1.3 at startup and when they are put in `active/`; the originals are kept in `/opt/ncubed/config/vpnc/backup/`. Other versions are refused.
+
 Examples: [config-hub.yaml.example](config/vpnc/config/config-hub.yaml.example), [config-endpoint.yaml.example](config/vpnc/config/config-endpoint.yaml.example) and the tenant [config.yaml.example](config/vpnc/config/config.yaml.example).
 
 ### Service
 
 ```yaml
-version: 0.1.3
+version: 0.1.4
 id: DEFAULT
 name: DEFAULT
 mode: hub                     # hub | endpoint
@@ -104,13 +106,12 @@ bgp:
 ### Tenants
 
 ```yaml
-version: 0.1.3
+version: 0.1.4
 id: C0001                     # a-f or 2-9, then 4 digits
 name: Healthcare inc.
 metadata: {}                  # free key-value pairs, also on network instances and connections
 network_instances:
-  C0001-00:
-    id: C0001-00
+  00:                         # 00-99; the network instance is named C0001-00
     type: downlink
     connections:
       0: {...}                # see Connections
@@ -119,8 +120,7 @@ network_instances:
 ### Connections
 
 ```yaml
-0:
-  id: 0                       # 0-9
+0:                            # 0-9
   interface:                  # optional on downlinks in hub mode (calculated)
     ipv4: [100.99.0.1/28]
     ipv6: [fdcc:cbe::1/64]
@@ -191,8 +191,8 @@ Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Change
 ~$ sudo vpnctl config list                   # tenants and their staged changes
 ~$ sudo vpnctl config show C0001 [PATH] [--candidate] [--reveal-secrets]
 ~$ sudo vpnctl config edit C0001 [PATH]      # in $EDITOR, validated; a new id creates a tenant
-~$ sudo vpnctl config set C0001 network_instances.C0001-00.connections.0.routes.ipv4.0.to 10.0.0.0/24
-~$ sudo vpnctl config set C0001 network_instances.C0001-00.connections.0.config.psk   # prompts, e.g. for a secret
+~$ sudo vpnctl config set C0001 network_instances.00.connections.0.routes.ipv4.0.to 10.0.0.0/24
+~$ sudo vpnctl config set C0001 network_instances.00.connections.0.config.psk   # prompts, e.g. for a secret
 ~$ sudo vpnctl config delete C0001 [PATH]    # without a path: the tenant
 ~$ sudo vpnctl config diff C0001
 ~$ sudo vpnctl config commit C0001|--all [--confirm 5m]   # rolled back unless confirmed in time

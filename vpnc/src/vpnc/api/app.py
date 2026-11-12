@@ -107,7 +107,7 @@ def _select(prefix: str | None, tenant_id: str | None) -> list[Any]:
     return [
         ni
         for ni_id, ni in sorted(status.network_instances().items())
-        if (tenant_id is None or status.tenant_of(ni_id) == tenant_id)
+        if (tenant_id is None or ni.tenant_id == tenant_id)
         and (prefix is None or ni_id.startswith(prefix))
     ]
 

@@ -25,8 +25,9 @@ TENANT_RE = re.compile(r"^([2-9A-F]\d{4}|DEFAULT)$")
 DOWNLINK_TEN_FILE_RE = r".+\/[2-9A-F]\d{4}\.yaml$"
 # Match only non-default tenant network instances
 DOWNLINK_NI_RE = re.compile(r"^[2-9A-F]\d{4}-\d{2}$")
-# Match only non-default tenant network instance connections
-DOWNLINK_CON_RE = re.compile(r"^[2-9A-F]\d{4}-\d{2}-\d$")
+# Match only non-default tenant network instance connections; the groups are the
+# network instance, the tenant and the connection's number.
+DOWNLINK_CON_RE = re.compile(r"^(([2-9A-F]\d{4})-\d{2})-(\d)$")
 
 # UID and GID used by strongswan to reduce attack surface
 _PWD = list(filter(lambda x: x.pw_name == "swan", pwd.getpwall()))
@@ -47,11 +48,14 @@ VPNC_C_CONFIG_DIR = Path("/opt/ncubed/config/vpnc/candidate/")
 VPNC_C_CONFIG_PATH_SERVICE = VPNC_C_CONFIG_DIR.joinpath(f"{DEFAULT_TENANT}.yaml")
 # Earlier active configurations
 VPNC_HISTORY_DIR = Path("/opt/ncubed/config/vpnc/history/")
+# Files of earlier configuration versions, from before they were converted
+VPNC_BACKUP_DIR = Path("/opt/ncubed/config/vpnc/backup/")
 # Directories holding secrets (pre-shared and private keys)
 SECRET_DIRS = (
     VPNC_A_CONFIG_DIR,
     VPNC_C_CONFIG_DIR,
     VPNC_HISTORY_DIR,
+    VPNC_BACKUP_DIR,
     IPSEC_CONFIG_DIR,
     WIREGUARD_CONFIG_DIR,
 )

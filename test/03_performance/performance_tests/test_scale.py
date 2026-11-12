@@ -93,7 +93,7 @@ def hub_initiates(index: int) -> bool:
     return index % 2 == 0
 
 
-def connection(index: int, connection_id: int) -> dict[str, Any]:
+def connection(index: int) -> dict[str, Any]:
     """Return hub00's connection; index numbers all connections."""
     routes = {
         "ipv4": [{"to": f"10.{150 + index // 250}.{index % 250}.0/24"}],
@@ -119,7 +119,7 @@ def connection(index: int, connection_id: int) -> dict[str, Any]:
             "initiation": "start" if hub_initiates(index) else "none",
             "psk": PSK,
         }
-    return {"id": connection_id, "routes": routes, "config": config}
+    return {"routes": routes, "config": config}
 
 
 def scale_tenants() -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
@@ -134,15 +134,15 @@ def scale_tenants() -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
             count = 2 if len(network_instances) < NIS_WITH_TWO else 1
             connections = {}
             for connection_id in range(count):
-                connections[connection_id] = connection(len(indexes), connection_id)
+                connections[connection_id] = connection(len(indexes))
                 indexes[f"{ni}-{connection_id}"] = len(indexes)
-            network_instances[ni] = tenant_nis[ni] = {
-                "id": ni,
+            # Configured by its number; named after the tenant and the number.
+            network_instances[ni] = tenant_nis[f"{n:02d}"] = {
                 "type": "downlink",
                 "connections": connections,
             }
         tenants[tenant_id] = {
-            "version": "0.1.3",
+            "version": "0.1.4",
             "id": tenant_id,
             "name": "Scale test",
             "network_instances": tenant_nis,
@@ -296,11 +296,11 @@ def established() -> set[str]:
     return up & with_child
 
 
-def interface_name(ni: str, conn: dict[str, Any]) -> str:
-    """Return the interface name of a connection."""
+def interface_name(name: str, conn: dict[str, Any]) -> str:
+    """Return the interface name of a connection, e.g. of C0001-00-0."""
     if conn["config"]["type"] == "wireguard":
-        return f"wg-{ni}-{conn['id']}"
-    return f"xfrm{conn['id']}"
+        return f"wg-{name}"
+    return f"xfrm{name[-1]}"
 
 
 def connection_problems(
@@ -311,7 +311,7 @@ def connection_problems(
     sas: set[str] | None,
 ) -> list[str]:
     """Return what isn't applied (with sas: or up) of a connection."""
-    interface = interface_name(name[:8], conn)
+    interface = interface_name(name, conn)
     addresses = current["addresses"].get(interface)
     if addresses is None:
         return [f"{name}: no {interface}"]
@@ -344,9 +344,9 @@ def missing(network_instances: dict[str, Any], *, tunnels: bool = True) -> list[
             continue
         if f"{ni}_C" not in links:
             problems.append(f"{ni}: no link in CORE")
-        for conn in network_instance["connections"].values():
+        for connection_id, conn in network_instance["connections"].items():
             problems += connection_problems(
-                f"{ni}-{conn['id']}",
+                f"{ni}-{connection_id}",
                 conn,
                 namespaces[ni],
                 conns,
@@ -446,7 +446,7 @@ class TestScale:
         """A route change in the last network instance is applied within seconds."""
         ni = f"{TENANTS[-1]}-{NIS_PER_TENANT - 1:02d}"
         tenant = yaml.safe_load(yaml.safe_dump(TENANT_CONFIG[TENANTS[-1]]))
-        changed = tenant["network_instances"][ni]
+        changed = tenant["network_instances"][ni[-2:]]
         changed["connections"][0]["routes"]["ipv4"].append({"to": "10.199.0.0/24"})
         write_tenant(tenant)
         try:

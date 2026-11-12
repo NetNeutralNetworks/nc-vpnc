@@ -7,7 +7,7 @@ import signal
 import sys
 from logging.handlers import RotatingFileHandler
 
-from vpnc import config, core, files, helpers
+from vpnc import config, core, files, helpers, migration
 from vpnc.models import tenant
 
 # LOGGER
@@ -48,6 +48,7 @@ def main() -> None:
     config.VPNC_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
     for directory in config.SECRET_DIRS:
         files.secure_tree(directory)
+    migration.migrate_all()
 
     # check for required kernel modules.
     helpers.check_system_requirements()

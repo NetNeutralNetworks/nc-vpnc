@@ -1,5 +1,5 @@
 ---
-version: 0.1.3
+version: 0.1.4
 
 id: DEFAULT
 name: DEFAULT
@@ -12,13 +12,11 @@ mode: hub
 # Network configuration
 network_instances:
   EXTERNAL:
-    id: EXTERNAL
     type: external # external
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
       0:
-        id: 0
         # Optional, arbitrary key-value pairs
         metadata: {}
         interface:
@@ -38,13 +36,11 @@ network_instances:
           type: physical # ipsec | physical | wireguard
           interface_name: eth1
   CORE:
-    id: CORE
     type: core # core, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
       0:
-        id: 0
         # Optional, arbitrary key-value pairs
         metadata: {}
         interface:
@@ -95,7 +91,6 @@ network_instances:
           #   - 172.30.0.0/16
           #   - 172.31.0.0/16
       1:
-        id: 1
         metadata: {}
         interface:
           ipv6:

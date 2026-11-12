@@ -1,5 +1,5 @@
 ---
-version: 0.1.3
+version: 0.1.4
 
 id: DEFAULT
 name: DEFAULT
@@ -12,13 +12,11 @@ mode: endpoint
 # Network configuration
 network_instances:
   EXTERNAL:
-    id: EXTERNAL
     type: external # external
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
       0:
-        id: 0
         # Optional, arbitrary key-value pairs
         metadata: {}
         interface:
@@ -38,13 +36,11 @@ network_instances:
           type: physical # ipsec | physical | wireguard
           interface_name: eth1
   CORE:
-    id: CORE
     type: core # core
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
       0:
-        id: 0
         # Optional, arbitrary key-value pairs
         metadata: {}
         interface:
@@ -72,7 +68,6 @@ network_instances:
           private_key: wDce0Xch/bwiMMbnhDvZaiaOCE/K/ERTXMvHTXQRFWw=
           public_key: rKdmw6z5GSWnOK3k+LN4Wc2jxH17TYzIlRI5gPiiv2U=
       1:
-        id: 1
         metadata: {}
         interface:
         # List of IPv4 and IPv6 networks natively reachable via this connection.
@@ -91,13 +86,11 @@ network_instances:
           private_key: 8NXTx0XzfdAhRWJbYx/cuRNwY9ONLDg8o1LKs+IxpHM=
           public_key: QId/IeB4jutXdyCqoIP6zHdp0etP59+MvfRhsU8OeFA=
   ENDPOINT:
-    id: ENDPOINT
     type: endpoint # endpoint
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
       0:
-        id: 0
         # Optional, arbitrary key-value pairs
         metadata: {}
         interface:

@@ -14,9 +14,9 @@ from ipaddress import (
 )
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
-from vpnc.models import enums, info, tenant
+from vpnc.models import enums, tenant
 from vpnc.models.ipsec import ConnectionConfigIPsec  # noqa: TCH001
 from vpnc.models.physical import ConnectionConfigPhysical  # noqa: TCH001
 from vpnc.models.ssh import ConnectionConfigSSH
@@ -24,7 +24,6 @@ from vpnc.models.wireguard import ConnectionConfigWireGuard  # noqa: TCH001
 
 if TYPE_CHECKING:
     from vpnc.models import network_instance
-    from vpnc.models.info import TenantInformation
 
 logger = logging.getLogger("vpnc")
 
@@ -109,7 +108,6 @@ class Connection(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    id: int = Field(ge=0, le=9)
     metadata: dict[str, Any] = Field(default_factory=dict)
     interface: Interface = Field(default_factory=Interface)
     routes: Routes = Field(default_factory=Routes)
@@ -119,6 +117,18 @@ class Connection(BaseModel):
         | ConnectionConfigSSH
         | ConnectionConfigWireGuard
     )
+
+    # Not configured: the network instance sets it from the key.
+    _id: int = PrivateAttr()
+
+    def set_id(self, key: int) -> None:
+        """Set the number of the connection in its network instance."""
+        self._id = key
+
+    @property
+    def id(self) -> int:
+        """Return the number of the connection in its network instance."""
+        return self._id
 
     @field_validator("metadata", mode="before")
     @classmethod
@@ -147,56 +157,28 @@ class Connection(BaseModel):
     ) -> tuple[list[IPv4Interface], list[IPv6Interface]]:
         """Calculate Interface IP addresses for a DOWNLINK if not configured."""
         default_tenant = tenant.get_default_tenant()
-        is_downlink: bool = network_instance.type == enums.NetworkInstanceType.DOWNLINK
-        ni_info: TenantInformation | None = None
-        if is_downlink:
-            ni_info = info.parse_downlink_network_instance_name(
-                network_instance.id,
-            )
-
+        interface_ipv4_address = self.interface.ipv4  # pylint: disable=no-member
+        interface_ipv6_address = self.interface.ipv6  # pylint: disable=no-member
         if (
-            not self.interface.ipv4  # pylint: disable=no-member
-            and is_downlink
-            and ni_info
-            and default_tenant.mode == enums.ServiceMode.HUB
+            network_instance.type != enums.NetworkInstanceType.DOWNLINK
+            or default_tenant.mode != enums.ServiceMode.HUB
         ):
-            pdi4 = default_tenant.prefix_downlink_interface_v4
-            network_instance_id = ni_info.network_instance_id
-            if network_instance_id is None:
-                logger.critical(
-                    "Network instance ID should never be None here. "
-                    "Something has gone horribly wrong.",
-                )
-                raise ValueError
+            return interface_ipv4_address, interface_ipv6_address
 
-            ipv4_ni_network = nth_subnet(pdi4, 24, network_instance_id)
+        if not interface_ipv4_address:
+            pdi4 = default_tenant.prefix_downlink_interface_v4
+            ipv4_ni_network = nth_subnet(pdi4, 24, network_instance.number)
             ipv4_con_network = nth_subnet(ipv4_ni_network, 28, self.id)
             interface_ipv4_address = [
                 ipaddress.IPv4Interface(f"{ipv4_con_network[1]}/28"),
             ]
-        else:
-            interface_ipv4_address = self.interface.ipv4  # pylint: disable=no-member
 
-        if (
-            not self.interface.ipv6  # pylint: disable=no-member
-            and is_downlink
-            and ni_info
-            and default_tenant.mode == enums.ServiceMode.HUB
-        ):
-            network_instance_id = ni_info.network_instance_id
-            if network_instance_id is None:
-                logger.critical(
-                    "Network instance ID should never be None here. "
-                    "Something has gone horribly wrong.",
-                )
-                raise ValueError
+        if not interface_ipv6_address:
             pdi6 = default_tenant.prefix_downlink_interface_v6
-            ipv6_ni_network = nth_subnet(pdi6, 48, network_instance_id)
+            ipv6_ni_network = nth_subnet(pdi6, 48, network_instance.number)
             interface_ipv6_address = [
                 ipaddress.IPv6Interface(nth_subnet(ipv6_ni_network, 64, self.id)),
             ]
-        else:
-            interface_ipv6_address = self.interface.ipv6  # pylint: disable=no-member
 
         return interface_ipv4_address, interface_ipv6_address
 

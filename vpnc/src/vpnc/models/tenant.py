@@ -27,7 +27,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
-from vpnc import config
+from vpnc import config, migration
 from vpnc.models.enums import ServiceMode
 
 # Needed for pydantim ports and type checking
@@ -69,29 +69,40 @@ class Tenant(BaseModel):
     @field_validator("version", mode="before")
     @classmethod
     def _coerce_version(cls, v: str) -> Version:
-        return Version(v)
+        version = Version(str(v))
+        if version != Version(migration.CURRENT):
+            raise ValueError(migration.unsupported(v))
+        return version
 
     @field_serializer("version")
     def _version_to_str(self, v: Version) -> str:
         return str(v)
 
+    @field_validator("network_instances", mode="before")
+    @classmethod
+    def _coerce_keys(cls, v: Any) -> Any:  # noqa: ANN401
+        if not isinstance(v, dict):
+            return v
+        return {network_instance_key(key): value for key, value in v.items()}
+
     @model_validator(mode="after")
-    def _check_network_instance_ids(self) -> Tenant:
-        """Refuse network instances of another tenant or of the service."""
+    def _name_network_instances(self) -> Tenant:
+        """Name the network instances after the tenant and their key."""
         for key, network_instance in self.network_instances.items():
-            if key != network_instance.id:
-                msg = f"network instance '{key}' has the id '{network_instance.id}'"
-                raise ValueError(msg)
-            if not self._owns(key):
-                msg = f"network instance '{key}' can't be part of {self.id}"
-                raise ValueError(msg)
+            self._check_key(key)
+            network_instance.set_name(self.id, key)
         return self
 
-    def _owns(self, network_instance_id: str) -> bool:
-        """Return whether the id is one of this tenant's, e.g. C0001-00."""
-        return bool(
-            re.fullmatch(rf"{re.escape(self.id)}-\d{{2}}", network_instance_id),
-        )
+    def _check_key(self, key: str) -> None:
+        """Refuse keys that aren't a network instance number, e.g. 00."""
+        if not re.fullmatch(r"\d{2}", key):
+            msg = f"network instance '{key}' should be two digits, e.g. 00"
+            raise ValueError(msg)
+
+
+def network_instance_key(key: Any) -> Any:  # noqa: ANN401
+    """Return a network instance key as in the model: YAML reads 00 as 0."""
+    return f"{key:02d}" if isinstance(key, int) else key
 
 
 class BGPGlobal(BaseModel):
@@ -136,8 +147,10 @@ class ServiceEndpoint(Tenant):
     # IKE local identifier for VPNs
     local_id: str = r"%any"
 
-    def _owns(self, network_instance_id: str) -> bool:
-        return network_instance_id in SERVICE_NETWORK_INSTANCES[self.mode]
+    def _check_key(self, key: str) -> None:
+        if key not in SERVICE_NETWORK_INSTANCES[self.mode]:
+            msg = f"network instance '{key}' can't be part of {self.id}"
+            raise ValueError(msg)
 
     @field_validator("mode", mode="before")
     @classmethod
@@ -173,8 +186,10 @@ class ServiceHub(Tenant):
     # IKE local identifier for VPNs
     local_id: str = r"%any"
 
-    def _owns(self, network_instance_id: str) -> bool:
-        return network_instance_id in SERVICE_NETWORK_INSTANCES[self.mode]
+    def _check_key(self, key: str) -> None:
+        if key not in SERVICE_NETWORK_INSTANCES[self.mode]:
+            msg = f"network instance '{key}' can't be part of {self.id}"
+            raise ValueError(msg)
 
     # OVERLAY CONFIG
     # IPv4 prefix for downlink interfaces. Must be a /16, will get subnetted into /24s
@@ -321,6 +336,8 @@ def load_tenant_config(
         )
         return None, None
 
+    if isinstance(config_yaml, dict):
+        config_yaml = migration.upgrade(config_yaml)
     try:
         tenant = Tenants(config=config_yaml).config
     except pydantic_core.ValidationError:

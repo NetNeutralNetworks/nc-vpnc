@@ -640,7 +640,7 @@ def cmd_bgp_neighbors(args: argparse.Namespace) -> None:
 
 # Configuration commands. Changes are staged in the candidate; commit applies them.
 
-NEW_TENANT = {"version": "0.1.3", "name": "", "network_instances": {}}
+NEW_TENANT = {"version": "0.1.4", "name": "", "network_instances": {}}
 
 
 def config_path(target: str) -> str:
@@ -651,7 +651,7 @@ def config_path(target: str) -> str:
 
 
 def split(path: str | None) -> list[str]:
-    """Return the keys of a dotted path, e.g. network_instances.C0001-00.type."""
+    """Return the keys of a dotted path, e.g. network_instances.00.type."""
     return [k for k in (path or "").split(".") if k]
 
 
@@ -1282,7 +1282,7 @@ def parser() -> argparse.ArgumentParser:
     cfg = group("config", "configuration: stage changes, then commit them")
     add(cfg, "list", cmd_config_list)
     target = {"help": "a tenant (e.g. C0001) or 'service'"}
-    path = {"help": "dotted, e.g. network_instances.C0001-00.connections.0"}
+    path = {"help": "dotted, e.g. network_instances.00.connections.0"}
     p = add(cfg, "show", cmd_config_show)
     p.add_argument("target", **target)
     p.add_argument("path", nargs="?", **path)
