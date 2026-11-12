@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyroute2 import netns
 
-from vpnc import config, shared
+from vpnc import config, helpers, shared
 from vpnc.models import enums, tenant
 from vpnc.models.network_instance import jool_instances
 from vpnc.network import events, namespace, state
@@ -160,15 +160,6 @@ APPLIED: dict[str, NetworkInstance] = {}
 WATCHED: dict[str, tuple[int, int]] = {}
 
 
-def configured_network_instances() -> dict[str, tuple[str, NetworkInstance]]:
-    """Return the configured network instances with their tenant id."""
-    return {
-        ni.id: (tenant.id, ni)
-        for tenant in list(config.VPNC_CONFIG_TENANT.values())
-        for ni in tenant.network_instances.values()
-    }
-
-
 def configured_network_instance(tenant_id: str, ni_id: str) -> NetworkInstance | None:
     """Return a network instance as configured now; None if it isn't anymore."""
     if (tenant_config := config.VPNC_CONFIG_TENANT.get(tenant_id)) is None:
@@ -219,9 +210,10 @@ def check_network_instances(keys: set[str] | None) -> None:
 
 def _check_network_instances(keys: set[str] | None) -> None:
     updated_tenants: set[str] = set()
-    for ni_id, (tenant_id, _) in list(configured_network_instances().items()):
+    for ni_id, configured in list(helpers.network_instances().items()):
         if keys is not None and ni_id not in keys:
             continue
+        tenant_id = configured.tenant_id
         if keys is None:
             RECONCILER.run_triggered()
         network_instance = configured_network_instance(tenant_id, ni_id)
@@ -235,11 +227,11 @@ def _check_network_instances(keys: set[str] | None) -> None:
 
     for tenant_id in updated_tenants:
         configuration.write_tenant(tenant_id)
-    remove_unconfigured(configured_network_instances(), keys)
+    remove_unconfigured(helpers.network_instances(), keys)
 
 
 def remove_unconfigured(
-    configured: dict[str, tuple[str, NetworkInstance]],
+    configured: dict[str, NetworkInstance],
     keys: set[str] | None,
 ) -> None:
     """Remove network instances that are no longer configured."""
@@ -262,7 +254,7 @@ def remove_unconfigured(
             namespace.delete(name)
             # The kernel deleted its link to CORE.
             state.changed(config.CORE_NI)
-    delete_stale_core_routes([ni for _, ni in configured.values()])
+    delete_stale_core_routes(list(configured.values()))
 
 
 def remove_network_instance(network_instance: NetworkInstance) -> None:
@@ -397,7 +389,7 @@ def check_routes(keys: set[str] | None) -> None:
     """
     if keys is None:
         return
-    for ni_id, (_, network_instance) in configured_network_instances().items():
+    for ni_id, network_instance in helpers.network_instances().items():
         if ni_id in keys and namespace.exists(ni_id):
             reconcile_routes(network_instance)
 

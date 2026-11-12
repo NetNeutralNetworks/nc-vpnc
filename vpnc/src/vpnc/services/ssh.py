@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import vpnc.models.connections
 import vpnc.models.ssh
-from vpnc import shared
+from vpnc import helpers, shared
 from vpnc.models import enums
 
 if TYPE_CHECKING:
@@ -31,11 +31,6 @@ RESTART_DELAY_MAX = 30
 STABLE_AFTER = 60
 # Characters logged of a line ssh prints.
 MAX_LINE = 500
-
-
-def printable(text: str) -> str:
-    """Return text with its non-printable characters replaced by '?'."""
-    return "".join(c if c.isprintable() else "?" for c in text)
 
 
 class SshTunnel(threading.Thread):
@@ -77,7 +72,7 @@ class SshTunnel(threading.Thread):
             last = ""
             for line in proc.stderr or []:
                 # From the server: no control characters (e.g. terminal escapes).
-                if line := printable(line.strip())[:MAX_LINE]:
+                if line := helpers.printable(line.strip())[:MAX_LINE]:
                     logger.info("SSH tunnel %s: %s", self.connection_name, line)
                     last = line
             proc.wait()

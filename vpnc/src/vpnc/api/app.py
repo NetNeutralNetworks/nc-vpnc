@@ -13,7 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 
-from vpnc import config
+from vpnc import config, helpers
 from vpnc.api import config_files, diagnostics, logs, status
 from vpnc.api.config_files import (
     CommitResult,
@@ -112,7 +112,7 @@ def _select(prefix: str | None, tenant_id: str | None) -> list[Any]:
     """Return network instances by tenant and/or id prefix (e.g. C0001-0)."""
     return [
         ni
-        for ni_id, ni in sorted(status.network_instances().items())
+        for ni_id, ni in sorted(helpers.network_instances().items())
         if (tenant_id is None or ni.tenant_id == tenant_id)
         and (prefix is None or ni_id.startswith(prefix))
     ]
@@ -129,7 +129,7 @@ def list_network_instances(
 @app.get("/v1/network-instances/{ni_id}")
 def get_network_instance(ni_id: str) -> status.NetworkInstanceState:
     """Return a network instance with its NAT64 and NPTv6 translations."""
-    if (ni := status.network_instances().get(ni_id)) is None:
+    if (ni := helpers.network_instances().get(ni_id)) is None:
         _not_found("network instance", ni_id)
     return status.network_instance_states([ni], translations=True)[0]
 
@@ -155,8 +155,8 @@ def list_connections(
 
 
 def _connection(connection_id: str) -> tuple[NetworkInstance, Connection]:
-    ni_id, conn = config.split_connection_name(connection_id)
-    ni = status.network_instances().get(ni_id)
+    ni_id, conn = helpers.split_connection_name(connection_id)
+    ni = helpers.network_instances().get(ni_id)
     if ni is None or not conn.isdigit() or int(conn) not in ni.connections:
         _not_found("connection", connection_id)
     return ni, ni.connections[int(conn)]
@@ -247,7 +247,7 @@ def get_network_instance_logs(
     follow: Follow = False,  # noqa: FBT002
 ) -> Any:  # noqa: ANN401
     """Return the last log lines of a network instance and its connections."""
-    if ni_id not in status.network_instances():
+    if ni_id not in helpers.network_instances():
         _not_found("network instance", ni_id)
     queries = logs.network_instance_queries(ni_id, level=level)
     return _logs(queries, lines, follow=follow)
@@ -297,7 +297,7 @@ def list_bgp_routes() -> list[status.BgpRoute]:
 
 
 def _network_instance(ni_id: str) -> str:
-    if ni_id not in status.network_instances():
+    if ni_id not in helpers.network_instances():
         _not_found("network instance", ni_id)
     return ni_id
 

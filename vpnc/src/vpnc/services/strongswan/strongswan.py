@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import vici
 import vici.exception
 
-from vpnc import config, files
+from vpnc import config, files, helpers
 from vpnc.models import enums, tenant
 from vpnc.network import namespace
 from vpnc.services import charon
@@ -40,10 +40,6 @@ LOADED: dict[str, str] = {}
 def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
     """Return the IPsec connections of a network instance by name."""
     default_tenant = tenant.get_default_tenant()
-    vpn_id = 0x10000000
-    if network_instance.type == enums.NetworkInstanceType.DOWNLINK:
-        vpn_id = int(f"0x{network_instance.id.replace('-', '')}0", 16)
-
     result: dict[str, Connection] = {}
     for connection in network_instance.connections.values():
         cfg = connection.config
@@ -53,7 +49,7 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
         if name in STOPPED_CONNECTIONS:
             continue
         remote_id = cfg.remote_id or str(cfg.remote_addrs[0])
-        xfrm_id = hex(vpn_id + connection.id)
+        xfrm_id = hex(cfg.if_id(network_instance, connection))
         initiator = cfg.initiation.value == "start"
         local_ts = [str(x) for x in cfg.traffic_selectors.local]
         remote_ts = [str(x) for x in cfg.traffic_selectors.remote]
@@ -184,7 +180,7 @@ def _unload(vcs: vici.Session, names: set[str]) -> None:
 
 
 def _own(ni_id: str, names: set[str]) -> set[str]:
-    return {name for name in names if config.split_connection_name(name)[0] == ni_id}
+    return {name for name in names if helpers.split_connection_name(name)[0] == ni_id}
 
 
 def apply(network_instance: NetworkInstance) -> None:

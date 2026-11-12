@@ -12,10 +12,11 @@ from ipaddress import (
     IPv6Interface,
     IPv6Network,
 )
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
+from vpnc import helpers
 from vpnc.models import enums, tenant
 from vpnc.models.ipsec import ConnectionConfigIPsec  # noqa: TCH001
 from vpnc.models.physical import ConnectionConfigPhysical  # noqa: TCH001
@@ -26,18 +27,6 @@ if TYPE_CHECKING:
     from vpnc.models import network_instance
 
 logger = logging.getLogger("vpnc")
-
-Net = TypeVar("Net", IPv4Network, IPv6Network)
-
-
-def nth_subnet(network: Net, new_prefix: int, n: int) -> Net:
-    """Return subnet n of a network, like list(network.subnets(new_prefix))[n]."""
-    if not 0 <= n < 1 << (new_prefix - network.prefixlen):
-        msg = f"{network} has no subnet {n} of length /{new_prefix}"
-        raise IndexError(msg)
-    size = 1 << (network.max_prefixlen - new_prefix)
-    return type(network)((int(network.network_address) + n * size, new_prefix))
-
 
 class Interface(BaseModel):
     """Define interface configuration such as IP addresses."""
@@ -167,18 +156,17 @@ class Connection(BaseModel):
 
         if not interface_ipv4_address:
             pdi4 = default_tenant.prefix_downlink_interface_v4
-            ipv4_ni_network = nth_subnet(pdi4, 24, network_instance.number)
-            ipv4_con_network = nth_subnet(ipv4_ni_network, 28, self.id)
+            ipv4_ni_network = helpers.nth_subnet(pdi4, 24, network_instance.number)
+            ipv4_con_network = helpers.nth_subnet(ipv4_ni_network, 28, self.id)
             interface_ipv4_address = [
                 ipaddress.IPv4Interface(f"{ipv4_con_network[1]}/28"),
             ]
 
         if not interface_ipv6_address:
             pdi6 = default_tenant.prefix_downlink_interface_v6
-            ipv6_ni_network = nth_subnet(pdi6, 48, network_instance.number)
-            interface_ipv6_address = [
-                ipaddress.IPv6Interface(nth_subnet(ipv6_ni_network, 64, self.id)),
-            ]
+            ipv6_ni_network = helpers.nth_subnet(pdi6, 48, network_instance.number)
+            ipv6_con_network = helpers.nth_subnet(ipv6_ni_network, 64, self.id)
+            interface_ipv6_address = [ipaddress.IPv6Interface(ipv6_con_network)]
 
         return interface_ipv4_address, interface_ipv6_address
 

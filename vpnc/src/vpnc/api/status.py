@@ -17,7 +17,7 @@ import vici
 from pydantic import BaseModel
 
 import vpnc
-from vpnc import config, shared
+from vpnc import config, helpers, shared
 from vpnc.models import enums, tenant
 from vpnc.network import namespace, state
 from vpnc.api import config_files
@@ -135,15 +135,6 @@ class BgpNeighbor(BaseModel):
     prefixes_sent: int | None
 
 
-def network_instances() -> dict[str, NetworkInstance]:
-    """Return the configured network instances by id."""
-    return {
-        ni.id: ni
-        for tenant_config in list(config.VPNC_CONFIG_TENANT.values())
-        for ni in tenant_config.network_instances.values()
-    }
-
-
 class Ids(BaseModel):
     """The ids of what's configured, e.g. to complete commands."""
 
@@ -156,7 +147,7 @@ class Ids(BaseModel):
 
 def ids() -> Ids:
     """Return the ids of the tenants, network instances and connections."""
-    configured = network_instances()
+    configured = helpers.network_instances()
     return Ids(
         tenants=sorted(config.VPNC_CONFIG_TENANT),
         network_instances=sorted(configured),
@@ -293,7 +284,8 @@ def connection_states(
     their state comes from the SAs. Enough to count connections that are up. The
     SAs are listed, unless a listing (as vici returns it) is given.
     """
-    selected = list(network_instances().values()) if selected is None else selected
+    if selected is None:
+        selected = list(helpers.network_instances().values())
     sas = (
         _ipsec_sas(sas_listing)
         if any(
@@ -334,7 +326,7 @@ def connection_states(
                 if ctype == enums.ConnectionType.SSH:
                     details = _ssh(name)
             if ctype != enums.ConnectionType.PHYSICAL:
-                details["auto_resets_24h"] = shared.auto_resets(name)
+                details["auto_resets_24h"] = helpers.auto_resets(name)
             if name in shared.STOPPED_CONNECTIONS:
                 current = "stopped"
             output.append(
@@ -446,7 +438,7 @@ def status() -> Status:
     return Status(
         mode=tenant.get_default_tenant().mode.value,
         tenants=len(config.VPNC_CONFIG_TENANT),
-        network_instances=len(network_instances()),
+        network_instances=len(helpers.network_instances()),
         connections_up=up,
         connections=total,
         vpncmangle=_vpncmangle(),
