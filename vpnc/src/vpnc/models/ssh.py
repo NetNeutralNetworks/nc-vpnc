@@ -6,7 +6,7 @@ import logging
 from ipaddress import IPv4Address, IPv6Address
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 import vpnc.models.network_instance
 import vpnc.services.ssh
@@ -33,11 +33,6 @@ class ConnectionConfigSSH(BaseModel):
     )
     # Used as an ssh argument: a user name only, not an option.
     username: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
-
-    @field_validator("type", mode="before")
-    @classmethod
-    def _coerce_type(cls, v: str) -> enums.ConnectionType:
-        return enums.ConnectionType(v)
 
     def add(
         self,

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import time
 from ipaddress import IPv4Network, IPv6Network
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
+
+from pydantic import BaseModel, ValidationInfo, field_validator
 
 from vpnc import config, shared
 
@@ -46,6 +48,22 @@ def nth_subnet(network: Net, new_prefix: int, n: int) -> Net:
 def printable(text: str) -> str:
     """Return text with its non-printable characters replaced by '?'."""
     return "".join(c if c.isprintable() else "?" for c in text)
+
+
+def none_as_default(*fields: str) -> Any:  # noqa: ANN401
+    """Return a validator that gives fields their default when they're None.
+
+    A key without a value in YAML is None.
+    """
+
+    def validate(cls: type[BaseModel], v: Any, info: ValidationInfo) -> Any:  # noqa: ANN401
+        if v is None and info.field_name is not None:
+            return cls.model_fields[info.field_name].get_default(
+                call_default_factory=True,
+            )
+        return v
+
+    return field_validator(*fields, mode="before")(classmethod(validate))
 
 
 def auto_resets(name: str) -> int:

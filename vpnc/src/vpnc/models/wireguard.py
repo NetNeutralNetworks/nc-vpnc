@@ -6,7 +6,7 @@ import logging
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from vpnc import config, helpers
 from vpnc.models import connections, enums
@@ -30,11 +30,6 @@ class ConnectionConfigWireGuard(BaseModel):
     remote_port: int = Field(default=51820, ge=1, le=65535)
     private_key: Secret
     public_key: str
-
-    @field_validator("type", mode="before")
-    @classmethod
-    def _coerce_type(cls, v: str) -> enums.ConnectionType:
-        return enums.ConnectionType(v)
 
     def add(
         self,

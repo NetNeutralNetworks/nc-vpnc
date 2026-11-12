@@ -34,15 +34,7 @@ class Interface(BaseModel):
     ipv6: list[IPv6Interface] = Field(default_factory=list)
     ipv4: list[IPv4Interface] = Field(default_factory=list)
 
-    @field_validator("ipv6", "ipv4", mode="before")
-    @classmethod
-    def _coerce_addresses(
-        cls,
-        v: list[IPv4Interface | IPv6Interface] | None,
-    ) -> list[IPv4Interface | IPv6Interface]:
-        if v is None:
-            return []
-        return v
+    _none_as_default = helpers.none_as_default("ipv6", "ipv4")
 
 
 class RouteIPv4(BaseModel):
@@ -81,15 +73,7 @@ class Routes(BaseModel):
     ipv6: list[RouteIPv6] = Field(default_factory=list)
     ipv4: list[RouteIPv4] = Field(default_factory=list)
 
-    @field_validator("ipv6", "ipv4", mode="before")
-    @classmethod
-    def _coerce_addresses(
-        cls,
-        v: list[RouteIPv4 | RouteIPv6] | None,
-    ) -> list[RouteIPv4 | RouteIPv6]:
-        if v is None:
-            return []
-        return v
+    _none_as_default = helpers.none_as_default("ipv6", "ipv4")
 
 
 class Connection(BaseModel):
@@ -119,26 +103,7 @@ class Connection(BaseModel):
         """Return the number of the connection in its network instance."""
         return self._id
 
-    @field_validator("metadata", mode="before")
-    @classmethod
-    def _coerce_metadata(cls, v: dict[str, Any] | None) -> dict[str, Any]:
-        if v is None:
-            return {}
-        return v
-
-    @field_validator("interface", mode="before")
-    @classmethod
-    def _coerce_interface(cls, v: Interface | None) -> Interface:
-        if v is None:
-            return Interface(ipv6=[], ipv4=[])
-        return v
-
-    @field_validator("routes", mode="before")
-    @classmethod
-    def _coerce_routes(cls, v: Routes | None) -> Routes:
-        if v is None:
-            return Routes(ipv6=[], ipv4=[])
-        return v
+    _none_as_default = helpers.none_as_default("metadata", "interface", "routes")
 
     def calc_interface_ip_addresses(
         self,
