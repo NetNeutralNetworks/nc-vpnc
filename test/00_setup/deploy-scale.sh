@@ -1,6 +1,6 @@
 #! /bin/bash
 # Deploy the scale lab next to the normal lab (as root).
-# Usage: deploy-scale.sh [24.04|26.04]  (default: the last built image)
+# Usage: deploy-scale.sh [26.04]  (default: the last built image)
 set -euo pipefail
 cd "$(dirname -- "$BASH_SOURCE")"
 export VPNC_VERSION="${1:-latest}"
