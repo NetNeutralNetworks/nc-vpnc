@@ -420,11 +420,11 @@ def _check_wireguard_ports(candidates: dict[str, Model | None]) -> None:
             tenants[other_id] = other
     tenants |= {k: v for k, v in candidates.items() if v is not None}
     own = {
-        f"{ni.id}-{connection_id}"
+        connection.name(ni)
         for tenant_id in candidates
         if tenant_id in tenants
         for ni in tenants[tenant_id].network_instances.values()
-        for connection_id in ni.connections
+        for connection in ni.connections.values()
     }
     for port, names in wireguard_port_users(tenants.values()).items():
         if len(names) > 1 and own & set(names):

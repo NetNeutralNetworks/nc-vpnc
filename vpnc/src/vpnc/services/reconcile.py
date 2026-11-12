@@ -353,7 +353,7 @@ def reconcile_routes(
         state.ensure_routes(ni_dl, ni_state, ni_routes)
 
         ni_core, core_state = core.ipr, core.state
-        core_link = f"{net_inst.id}_C"
+        core_link = net_inst.veth_core
         managed = {r.dst for r in [*core_routes, *previous_core]} | {
             dst for dst, route in core_state.routes.items() if route.dev == core_link
         }
@@ -368,7 +368,7 @@ def delete_core_routes(net_inst: NetworkInstance) -> None:
     ):
         return
     _, core_routes = net_inst.desired_routes({})
-    core_link = f"{net_inst.id}_C"
+    core_link = net_inst.veth_core
     with state.netns(config.CORE_NI) as core:
         managed = {r.dst for r in core_routes} | {
             dst for dst, route in core.state.routes.items() if route.dev == core_link

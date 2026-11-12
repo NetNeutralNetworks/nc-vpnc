@@ -42,7 +42,7 @@ def generate_config(network_instance: NetworkInstance, connection: Connection) -
         public_key=cfg.public_key,
     )
     wg_path = config.WIREGUARD_CONFIG_DIR.joinpath(
-        f"wg-{network_instance.id}-{connection.id}.conf",
+        f"{connection.intf_name(network_instance)}.conf",
     )
     if files.ensure_file(wg_path, wg_render, secret=True):
         logger.info(
@@ -103,7 +103,7 @@ def sync(
     cfg = connection.config
     private_key = cfg.private_key.get_secret_value()
     desired = _peer(connection)
-    stopped = f"{network_instance.id}-{connection.id}" in shared.STOPPED_CONNECTIONS
+    stopped = connection.name(network_instance) in shared.STOPPED_CONNECTIONS
 
     def run() -> None:
         # The socket is opened in this thread's namespace.

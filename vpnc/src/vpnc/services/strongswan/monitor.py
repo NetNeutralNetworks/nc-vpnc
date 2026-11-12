@@ -303,7 +303,7 @@ class Monitor(threading.Thread):
         None if its tenant has no configuration (anymore).
         """
         if ike_name.startswith(config.CORE_NI):
-            return config.CORE_NI, f"xfrm{ike_name[-1]}"
+            return config.CORE_NI, f"xfrm{config.split_connection_name(ike_name)[1]}"
         if not (match := config.DOWNLINK_CON_RE.match(ike_name)):
             msg = f"Invalid connection name '{ike_name}'"
             raise ValueError(msg)

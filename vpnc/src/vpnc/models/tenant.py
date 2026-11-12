@@ -58,7 +58,7 @@ class Tenant(BaseModel):
 
     version: Version
 
-    id: str = Field(pattern=r"^[2-9a-fA-F]\d{4}$")
+    id: str = Field(pattern=config.TENANT_ID_PATTERN)
     name: str
     metadata: dict[str, Any] = Field(default_factory=dict)
     network_instances: dict[

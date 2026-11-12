@@ -166,7 +166,7 @@ def _start(
     network_instance: vpnc.models.network_instance.NetworkInstance,
     connection: vpnc.models.connections.Connection,
 ) -> None:
-    connection_name = f"{network_instance.id}-{connection.id}"
+    connection_name = connection.name(network_instance)
     ssh_master_socket = SSH_SOCKET_DIR.joinpath(f"{connection_name}.sock")
     if connection_name in shared.STOPPED_CONNECTIONS:
         stop(network_instance, connection)
@@ -240,7 +240,7 @@ def stop(
     connection: vpnc.models.connections.Connection,
 ) -> None:
     """Stop an SSH tunnel."""
-    connection_name = f"{network_instance.id}-{connection.id}"
+    connection_name = connection.name(network_instance)
     with LOCK:
         SSH_CONNECTIONS.pop(connection_name, None)
         tunnel = SSH_TUNNELS.pop(connection_name, None)

@@ -155,7 +155,7 @@ def list_connections(
 
 
 def _connection(connection_id: str) -> tuple[NetworkInstance, Connection]:
-    ni_id, _, conn = connection_id.rpartition("-")
+    ni_id, conn = config.split_connection_name(connection_id)
     ni = status.network_instances().get(ni_id)
     if ni is None or not conn.isdigit() or int(conn) not in ni.connections:
         _not_found("connection", connection_id)
@@ -403,7 +403,9 @@ def list_configs() -> list[ConfigSummary]:
     return config_files.summaries()
 
 
-def tenant_id_path(tenant_id: Annotated[str, Path(pattern=r"^[2-9A-F]\d{4}$")]) -> str:
+def tenant_id_path(
+    tenant_id: Annotated[str, Path(pattern=config.TENANT_ID_PATTERN)],
+) -> str:
     """Return the tenant id from the path."""
     return tenant_id
 

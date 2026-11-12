@@ -69,10 +69,10 @@ def path_down(
         return False
     server = connection.config.remote_addrs[0]
     return any(
-        states[f"{ni.id}-{other.id}"].state != "up"
+        states[other.name(ni)].state != "up"
         for other in ni.connections.values()
         if other is not connection
-        and f"{ni.id}-{other.id}" in states
+        and other.name(ni) in states
         and any(
             server in route.to
             for route in [*other.routes.ipv4, *other.routes.ipv6]
@@ -93,7 +93,7 @@ def check(
         return
     network_instances = list(status.network_instances().values())
     connections: dict[str, tuple[NetworkInstance, Connection]] = {
-        f"{ni.id}-{c.id}": (ni, c)
+        c.name(ni): (ni, c)
         for ni in network_instances
         for c in ni.connections.values()
     }

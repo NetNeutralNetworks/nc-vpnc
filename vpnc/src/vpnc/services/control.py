@@ -83,7 +83,7 @@ def _apply(ni: NetworkInstance, connection: Connection) -> None:
 def stop(ni: NetworkInstance, connection: Connection) -> None:
     """Stop a connection."""
     ctype = _check(connection)
-    name = f"{ni.id}-{connection.id}"
+    name = connection.name(ni)
     with LOCK:
         logger.info("Stopping connection %s.", name)
         shared.STOPPED_CONNECTIONS.add(name)
@@ -95,7 +95,7 @@ def stop(ni: NetworkInstance, connection: Connection) -> None:
 def start(ni: NetworkInstance, connection: Connection) -> None:
     """Start a stopped connection."""
     ctype = _check(connection)
-    name = f"{ni.id}-{connection.id}"
+    name = connection.name(ni)
     with LOCK:
         logger.info("Starting connection %s.", name)
         shared.STOPPED_CONNECTIONS.discard(name)
@@ -110,7 +110,7 @@ def reset(ni: NetworkInstance, connection: Connection, *, force: bool = False) -
     With force, IKE SAs are removed without waiting for the peer.
     """
     ctype = _check(connection)
-    name = f"{ni.id}-{connection.id}"
+    name = connection.name(ni)
     if name in shared.STOPPED_CONNECTIONS:
         msg = f"{name} is stopped; start it instead."
         raise ControlError(msg)

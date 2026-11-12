@@ -107,7 +107,7 @@ bgp:
 
 ```yaml
 version: 0.1.4
-id: C0001                     # a-f or 2-9, then 4 digits
+id: C0001                     # A-F or 2-9, then 4 digits
 name: Healthcare inc.
 metadata: {}                  # free key-value pairs, also on network instances and connections
 network_instances:
