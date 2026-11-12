@@ -338,6 +338,8 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
         items.append(("Last handshake", f"{duration(ago)} ago" if ago else "never"))
     if "uptime_seconds" in details:
         items.append(("Uptime", duration(details["uptime_seconds"])))
+    if "auto_resets_24h" in details:
+        items.append(("Auto resets (24h)", details["auto_resets_24h"]))
     if counters := data.get("counters"):
         for label, direction in (("Received", "rx"), ("Sent", "tx")):
             items.append(

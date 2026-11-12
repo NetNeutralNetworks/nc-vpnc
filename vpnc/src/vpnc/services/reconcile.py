@@ -23,7 +23,7 @@ from vpnc import config, shared
 from vpnc.models import enums, tenant
 from vpnc.models.network_instance import jool_instances
 from vpnc.network import events, namespace, state
-from vpnc.services import configuration, frr, strongswan
+from vpnc.services import configuration, frr, strongswan, watchdog
 
 if TYPE_CHECKING:
     from vpnc.models.network_instance import NetworkInstance
@@ -395,3 +395,4 @@ RECONCILER.register(
 )
 RECONCILER.register("network_instances", check_network_instances)
 RECONCILER.register("routes", check_routes)
+RECONCILER.register("watchdog", watchdog.check)
