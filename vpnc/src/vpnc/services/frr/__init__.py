@@ -110,7 +110,7 @@ def observe() -> BaseObserver:
     # Configure the event handler that watches directories.
     # This doesn't start the handler.
     observer.schedule(
-        event_handler=FRRHandler(patterns=["frr.conf"], ignore_directories=True),
+        event_handler=FRRHandler(patterns=["**/frr.conf"], ignore_directories=True),
         path=config.FRR_CONFIG_PATH.parent,
         recursive=False,
     )

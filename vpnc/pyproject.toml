@@ -7,7 +7,8 @@ name = "vpnc"
 description = "Manages vpnc configuration"
 readme = "README.md"
 authors = [{ name="Tony Fortes Ramos", email="tony.fortesramos@ncubed.nl" }]
-requires-python = ">=3.10"
+# watchdog 7 needs 3.11.
+requires-python = ">=3.11"
 keywords = ["ncubed", "vpnc", "vpn"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -19,21 +20,20 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
 
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 
     "Topic :: System :: Networking",
 ]
 dependencies = [
-    "fastapi>=0.139,<1",
-    "Jinja2~=3.1",
-    "pydantic~=2.10",
+    "fastapi~=0.162.2",
+    "Jinja2~=3.1.6",
+    "pydantic~=2.14.3",
     "pyroute2~=0.9.7",
-    "PyYAML~=6.0",
-    "uvicorn>=0.51,<1",
-    "vici~=5.9",
-    "watchdog~=4.0",
+    "PyYAML~=6.0.3",
+    "uvicorn~=0.54.0",
+    "vici~=6.0.3",
+    "watchdog~=7.1.0",
     "packaging",
 ]
 dynamic = ["version"]

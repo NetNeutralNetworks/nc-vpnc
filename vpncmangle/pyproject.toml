@@ -7,7 +7,8 @@ name = "vpncmangle"
 description = "Runs vpncmangle to edit DNS responses"
 readme = "README.md"
 authors = [{ name="Tony Fortes Ramos", email="tony.fortesramos@ncubed.nl" }]
-requires-python = ">=3.10"
+# watchdog 7 needs 3.11.
+requires-python = ">=3.11"
 keywords = ["ncubed", "vpncmangle", "mangle"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -19,16 +20,16 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
 
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 
     "Topic :: System :: Networking",
 ]
 dependencies = [
-    "NetfilterQueue~=1.1",
+    "NetfilterQueue~=1.1.0",
     # The answer sections are lists since 2.6.
-    "scapy~=2.6",
+    "scapy~=2.8.0",
+    "watchdog~=7.1.0",
 ]
 dynamic = ["version"]
 
