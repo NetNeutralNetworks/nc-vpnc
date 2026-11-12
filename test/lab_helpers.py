@@ -20,6 +20,8 @@ CONTAINER_PREFIX = "clab-vpnc-"
 
 # Server of the hubs' SSH tunnels.
 SSH_SERVER = "cli00"
+# Behind the SSH server; C0001-00 routes it via the SSH tunnel.
+SSH_TUNNEL_TARGET = "172.16.31.1/22"
 SSH_REJECT_NEW = (
     "INPUT -i eth1 -p tcp --dport 22 -m conntrack --ctstate NEW"
     " -j REJECT --reject-with tcp-reset"
@@ -106,6 +108,18 @@ def wait_until(
             msg = f"Timed out after {timeout}s waiting for {message}. Last: {last!r}"
             raise TimeoutError(msg)
         time.sleep(interval)
+
+
+def ssh_tunnel_works(host: str) -> bool:
+    """Return whether a TCP connection through the hub's SSH tunnel succeeds."""
+    try:
+        run_cmd_shell(
+            host,
+            f"ip netns exec C0001-00 timeout 2 bash -c '</dev/tcp/{SSH_TUNNEL_TARGET}'",
+        )
+    except subprocess.CalledProcessError:
+        return False
+    return True
 
 
 def close_ssh_sessions() -> None:

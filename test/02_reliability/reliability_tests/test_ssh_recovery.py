@@ -28,6 +28,17 @@ def tunnel_works(host: str) -> bool:
     return True
 
 
+def ssh_pid(host: str) -> str:
+    """Return the pid of the SSH tunnel's ssh, or '' if it doesn't run."""
+    try:
+        return conftest.run_cmd(
+            host,
+            f"pgrep -f ControlPath=/run/vpnc/ssh/{NETWORK_INSTANCE}-1.sock",
+        ).strip()
+    except subprocess.CalledProcessError:
+        return ""
+
+
 def wait_for_tunnels() -> None:
     """Wait until the SSH tunnels of all hubs pass traffic."""
     for host in HUBS:
@@ -44,8 +55,15 @@ class TestSshRecovery:
     def test_server_closes_sessions(self) -> None:
         """Tunnels reconnect after the server closes the sessions (ssh exits 0)."""
         wait_for_tunnels()
+        before = {host: ssh_pid(host) for host in HUBS}
         conftest.close_ssh_sessions()
-        wait_for_tunnels()
+        for host in HUBS:
+            conftest.wait_until(
+                lambda host=host: ssh_pid(host) not in ("", before[host])
+                and tunnel_works(host),
+                timeout=RECOVERY_TIMEOUT,
+                message=f"a new ssh on {host}",
+            )
 
     def test_server_unreachable(self) -> None:
         """Tunnels reconnect after the server was unreachable for a while."""

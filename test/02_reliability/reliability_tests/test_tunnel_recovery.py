@@ -166,7 +166,11 @@ class TestIkeSaRecovery:
         ifname: str,
     ) -> None:
         """The XFRM interface comes back up with its addresses, and BGP recovers."""
-        assert sa_installed(host, ike), f"{ike} on {host} isn't up before the test"
+        conftest.wait_until(
+            lambda: sa_installed(host, ike),
+            timeout=SA_RECOVERY_TIMEOUT,
+            message=f"{ike} on {host} to be up before the test",
+        )
 
         with ike_blocked(host):
             # --force: don't wait for the peer to confirm the DELETE, which can't

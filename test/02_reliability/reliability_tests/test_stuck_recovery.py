@@ -81,7 +81,13 @@ def connections_up() -> Any:  # noqa: ANN401
     # A full check sees them up, so earlier resets don't delay the next one.
     time.sleep(FULL_CHECK)
     yield
-    conftest.wait_until(all_up, timeout=UP_TIMEOUT, message="connections to be up")
+    try:
+        conftest.wait_until(all_up, timeout=UP_TIMEOUT, message="connections to be up")
+    except TimeoutError:
+        # A failed test leaves them down until the next automatic reset.
+        for host, name in (IPSEC, SSH):
+            conftest.run_cmd(host, f"{VPNCTL} connections reset {name}")
+        conftest.wait_until(all_up, timeout=UP_TIMEOUT, message="connections to be up")
 
 
 class TestStuckRecovery:
@@ -92,22 +98,22 @@ class TestStuckRecovery:
 
         The SSH tunnel over it goes down too, but isn't reset: that can't help.
         """
-        ike_id = connection(*IPSEC)["details"]["ike_id"]
+        # The IKE SA's id isn't compared: a rekey changes it too.
         ipsec_resets = resets(*IPSEC) + resets(*IPSEC_RESPONDER)
         ssh_resets = resets(*SSH)
         conftest.run_cmd(IPSEC[0], f"swanctl --terminate --child {IPSEC[1]}")
 
         time.sleep(FULL_CHECK)
-        details = connection(*IPSEC)["details"]
-        assert details["ike_id"] == ike_id
-        assert details["ike_state"] == "ESTABLISHED"
-        assert details["child_sas"] == []
+        current = connection(*IPSEC)
+        assert current["state"] != "up"
+        assert current["details"]["child_sas"] == []
+        assert resets(*IPSEC) + resets(*IPSEC_RESPONDER) == ipsec_resets
 
-        def replaced() -> bool:
-            current = connection(*IPSEC)
-            return current["state"] == "up" and current["details"]["ike_id"] != ike_id
-
-        conftest.wait_until(replaced, timeout=RESET_TIMEOUT, message="a new IKE SA")
+        conftest.wait_until(
+            lambda: connection(*IPSEC)["state"] == "up",
+            timeout=RESET_TIMEOUT,
+            message=f"{IPSEC[1]} to be up after a reset",
+        )
         assert resets(*IPSEC) + resets(*IPSEC_RESPONDER) > ipsec_resets
         conftest.wait_until(all_up, timeout=UP_TIMEOUT, message="SSH to reconnect")
         assert resets(*SSH) == ssh_resets

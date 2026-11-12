@@ -16,6 +16,7 @@ from lab_helpers import (  # noqa: E402
     run_cmd_shell,
     run_cmd_vtysh,
     ssh_server_down,
+    ssh_tunnel_works,
     wait_until,
     write_file,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "run_cmd_shell",
     "run_cmd_vtysh",
     "ssh_server_down",
+    "ssh_tunnel_works",
     "wait_until",
     "write_file",
 ]
