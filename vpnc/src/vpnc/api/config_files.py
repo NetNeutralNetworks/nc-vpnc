@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import yaml
 from pydantic import BaseModel
 
-from vpnc import config, files
+from vpnc import config, files, migration
 from vpnc.models import tenant
 from vpnc.models.network_instance import wireguard_port_users
 from vpnc.models.secret import REVEAL
@@ -37,7 +37,7 @@ DIRS: dict[Revision, pathlib.Path] = {
     "candidate": config.VPNC_C_CONFIG_DIR,
 }
 # The configuration version of new tenants.
-VERSION = "0.1.3"
+VERSION = migration.CURRENT
 HISTORY_DIR = config.VPNC_HISTORY_DIR
 # Revisions kept per tenant; 1 is the most recent.
 HISTORY = 5
@@ -138,6 +138,7 @@ def validate(tenant_id: str, data: Any) -> Model:  # noqa: ANN401
     """Return the validated configuration (ValidationError if invalid)."""
     if not isinstance(data, dict):
         raise ConfigError(422, "Invalid configuration", "Expected a mapping.")
+    data = migration.upgrade(data)
     model = (
         tenant.Service(config=data).config
         if tenant_id == config.DEFAULT_TENANT

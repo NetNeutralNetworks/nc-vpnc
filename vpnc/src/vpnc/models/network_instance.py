@@ -23,9 +23,9 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     field_validator,
 )
-from pydantic_core import PydanticCustomError
 
 from vpnc import config
 from vpnc.models import connections, enums, tenant
@@ -184,11 +184,39 @@ class NetworkInstance(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    id: str
     type: Any
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     connections: dict[int, connections.Connection]
+
+    # Not configured: the tenant sets them from its id and the key.
+    _tenant_id: str = PrivateAttr()
+    _key: str = PrivateAttr()
+
+    def set_name(self, tenant_id: str, key: str) -> None:
+        """Name it after its tenant and key, and number its connections by theirs."""
+        self._tenant_id = tenant_id
+        self._key = key
+        for number, connection in self.connections.items():
+            connection.set_id(number)
+
+    @property
+    def tenant_id(self) -> str:
+        """Return the id of the tenant, e.g. C0001."""
+        return self._tenant_id
+
+    @property
+    def id(self) -> str:
+        """Return the name, e.g. C0001-00; the service's are named by their key."""
+        if self._tenant_id == config.DEFAULT_TENANT:
+            return self._key
+        return f"{self._tenant_id}-{self._key}"
+
+    @property
+    def number(self) -> int:
+        """Return the number of a tenant's network instance, for its prefixes."""
+        # Read as hexadecimal, as the prefixes in use are.
+        return int(self._key, 16)
 
     @field_validator("metadata", mode="before")
     @classmethod
@@ -199,22 +227,14 @@ class NetworkInstance(BaseModel):
 
     @field_validator("connections")
     @classmethod
-    def validate_connection_id_uniqueness(
+    def _check_connection_keys(
         cls,
-        v: dict[int, connections.Connection] | None,
+        v: dict[int, connections.Connection],
     ) -> dict[int, connections.Connection]:
-        """Validate that all connections in the list have unique identifiers."""
-        if v is None:
-            return {}
-        seen_ids: list[int] = []
-        for key, connection in v.items():
-            connection_id = connection.id
-            if connection_id != key:
-                err_type = "unique_list_key"
-                msg = "Connection is duplicated"
-                raise PydanticCustomError(err_type, msg)
-            seen_ids.append(connection_id)
-
+        for key in v:
+            if not 0 <= key <= 9:  # noqa: PLR2004
+                msg = f"connection {key} should be 0 to 9"
+                raise ValueError(msg)
         return v
 
     @abstractmethod
@@ -583,9 +603,9 @@ def _refuse_ipsec(
 
     Elsewhere their XFRM interface ids would clash with CORE's.
     """
-    for connection in v.values():
+    for key, connection in v.items():
         if connection.config.type == enums.ConnectionType.IPSEC:
-            msg = f"connection {connection.id}: IPsec isn't supported here"
+            msg = f"connection {key}: IPsec isn't supported here"
             raise ValueError(msg)
     return v
 
@@ -676,11 +696,7 @@ class NetworkInstanceDownlink(NetworkInstance):
             return updated, nptv6_list
 
         # Get NPTv6 prefix for this network instance
-        if not (
-            nptv6_scope := configuration.get_network_instance_nptv6_scope(
-                self.id,
-            )
-        ):
+        if not (nptv6_scope := configuration.get_network_instance_nptv6_scope(self)):
             return updated, []
 
         # Get only routes that should have NPTv6 performed.

@@ -24,12 +24,15 @@ CANDIDATE_FILE = "/opt/ncubed/config/vpnc/candidate/C0002.yaml"
 HISTORY_DIR = "/opt/ncubed/config/vpnc/history/C0002"
 VPNCTL = "/opt/ncubed/vpnc/bin/vpnctl"
 NI = "C0002-00"
+# Its key in the tenant's configuration.
+NI_KEY = "00"
 CORE_LINK = f"{NI}_C"
 APPLY_TIMEOUT = 60
 # Drift is corrected by the full check, which runs every 30 seconds.
 DRIFT_TIMEOUT = 90
 
 DRIFT_NI = "C0001-00"
+DRIFT_NI_KEY = "00"
 
 # A DNS server of C0001-00 (through NAT64), and a name with only an AAAA record
 # in a network that is translated with NPTv6.
@@ -50,7 +53,10 @@ def ipsec_connection(
     routes_4: list[str],
     routes_6: list[str],
 ) -> dict[str, Any]:
-    """Return an IPsec responder connection to a peer that doesn't exist."""
+    """Return an IPsec responder connection to a peer that doesn't exist.
+
+    Its id is its key in the configuration.
+    """
     return {
         "id": connection_id,
         "interface": {"ipv4": [addresses[0]], "ipv6": [addresses[1]]},
@@ -80,14 +86,16 @@ BASE_CONNECTION = ipsec_connection(
 def write_tenant(connections: list[dict[str, Any]]) -> None:
     """Write the test tenant's configuration."""
     tenant = {
-        "version": "0.1.3",
+        "version": "0.1.4",
         "id": "C0002",
         "name": "Reconfiguration test",
         "network_instances": {
-            NI: {
-                "id": NI,
+            NI_KEY: {
                 "type": "downlink",
-                "connections": {c["id"]: c for c in connections},
+                "connections": {
+                    c["id"]: {k: v for k, v in c.items() if k != "id"}
+                    for c in connections
+                },
             },
         },
     }
@@ -451,7 +459,7 @@ class TestReconfiguration:
         history = vpnctl_json("config history C0002")
         assert [(h["revision"], h["exists"]) for h in history] == [(1, True)]
         revision = vpnctl_json("config history C0002 1")
-        assert revision["network_instances"][NI]["connections"]["0"]["routes"][
+        assert revision["network_instances"][NI_KEY]["connections"]["0"]["routes"][
             "ipv4"
         ] == [{"to": "10.201.0.0/24", "via": None}]
 
@@ -502,7 +510,7 @@ class TestReconfiguration:
     @pytest.mark.parametrize("secret", ["new secret", "12345"])
     def test_config_set_prompted_secret(self, secret: str) -> None:
         """A prompted value (here on stdin) is taken as text, e.g. a secret."""
-        psk = f"network_instances.{NI}.connections.0.config.psk"
+        psk = f"network_instances.{NI_KEY}.connections.0.config.psk"
         conftest.run_cmd_shell(
             HOST,
             f"bash -c 'echo \"{secret}\" | {VPNCTL} config set C0002 {psk}'",
@@ -541,6 +549,51 @@ class TestRestartNotice:
         )
 
 
+class TestOldConfiguration:
+    """Configuration of the previous version is converted."""
+
+    def test_old_file_is_converted(self) -> None:
+        """A 0.1.3 file is applied, converted in place and its original kept."""
+        backup = "/opt/ncubed/config/vpnc/backup/0.1.3/active/C0002.yaml"
+        old = yaml.safe_dump(
+            {
+                "version": "0.1.3",
+                "id": "C0002",
+                "name": "Conversion test",
+                "network_instances": {
+                    NI: {
+                        "id": NI,
+                        "type": "downlink",
+                        "connections": {0: BASE_CONNECTION},
+                    },
+                },
+            },
+        )
+        try:
+            conftest.write_file(HOST, TENANT_FILE, old)
+            conftest.wait_until(
+                lambda: connection_applied(BASE_CONNECTION),
+                timeout=APPLY_TIMEOUT,
+                message=f"the 0.1.3 tenant C0002 to be applied on {HOST}",
+            )
+            new = yaml.safe_load(conftest.run_cmd(HOST, f"cat {TENANT_FILE}"))
+            assert new["version"] == "0.1.4"
+            assert [f"{key:02}" for key in new["network_instances"]] == [NI_KEY]
+            network_instance = next(iter(new["network_instances"].values()))
+            assert "id" not in network_instance
+            # vpnc may have written the file again (NPTv6 prefixes).
+            assert [int(key) for key in network_instance["connections"]] == [0]
+            assert "id" not in next(iter(network_instance["connections"].values()))
+            assert conftest.run_cmd(HOST, f"cat {backup}") == old
+        finally:
+            conftest.run_cmd(HOST, f"rm -f {TENANT_FILE} {backup}")
+            conftest.wait_until(
+                tenant_removed,
+                timeout=APPLY_TIMEOUT,
+                message=f"tenant C0002 to be removed from {HOST}",
+            )
+
+
 def set_route(route: str) -> None:
     """Stage the test connection's IPv4 route."""
     vpnctl(f"config set C0002 {ROUTES_PATH}.ipv4.0.to {route}")
@@ -556,7 +609,7 @@ def wait_for_route(route: str, timeout: float = APPLY_TIMEOUT) -> None:
     )
 
 
-ROUTES_PATH = f"network_instances.{NI}.connections.0.routes"
+ROUTES_PATH = f"network_instances.{NI_KEY}.connections.0.routes"
 
 
 def tenant_ids() -> list[str]:
@@ -699,7 +752,12 @@ class TestDnsTranslation:
         try:
             for hub, text in original.items():
                 tenant = yaml.safe_load(text)
-                connections = tenant["network_instances"][DRIFT_NI]["connections"]
+                # YAML reads an unquoted 00 as 0.
+                network_instances = {
+                    f"{key:02d}" if isinstance(key, int) else key: ni
+                    for key, ni in tenant["network_instances"].items()
+                }
+                connections = network_instances[DRIFT_NI_KEY]["connections"]
                 for connection in connections.values():
                     for route in (connection.get("routes") or {}).get("ipv6") or []:
                         if route["to"] == DNS_ROUTE:
@@ -727,18 +785,15 @@ PORT_TENANTS = ("B0001", "C0003", "C0004")
 
 def wireguard_tenant(tenant_id: str, port: int, route: str = "10.210.0.0/24") -> str:
     """Return a tenant with one WireGuard connection to a peer that doesn't exist."""
-    ni = f"{tenant_id}-00"
     tenant = {
-        "version": "0.1.3",
+        "version": "0.1.4",
         "id": tenant_id,
         "name": "WireGuard port test",
         "network_instances": {
-            ni: {
-                "id": ni,
+            "00": {
                 "type": "downlink",
                 "connections": {
                     0: {
-                        "id": 0,
                         "routes": {"ipv4": [{"to": route}]},
                         "config": {
                             "type": "wireguard",

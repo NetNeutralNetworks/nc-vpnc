@@ -16,7 +16,6 @@ import vici
 import vici.exception
 
 from vpnc import config, shared
-from vpnc.models import info
 from vpnc.network import namespace
 from vpnc.services.charon import VICI_SOCKET, VICI_TIMEOUT
 
@@ -298,16 +297,16 @@ class Monitor(threading.Thread):
         """
         if ike_name.startswith(config.CORE_NI):
             return config.CORE_NI, f"xfrm{ike_name[-1]}"
-        ni_info = info.parse_downlink_network_instance_name(ike_name)
-        tenant_config_file = config.VPNC_A_CONFIG_DIR.joinpath(
-            f"{ni_info.tenant}.yaml",
-        )
+        if not (match := config.DOWNLINK_CON_RE.match(ike_name)):
+            msg = f"Invalid connection name '{ike_name}'"
+            raise ValueError(msg)
+        network_instance, tenant_id, connection_id = match.groups()
         # A deleted connection's SA is terminated by the reconciler. Until then
         # it can still rekey or change state.
-        if ni_info.network_instance is None or not tenant_config_file.exists():
-            logger.info("No configuration file found for '%s'", ni_info.tenant)
+        if not config.VPNC_A_CONFIG_DIR.joinpath(f"{tenant_id}.yaml").exists():
+            logger.info("No configuration file found for '%s'", tenant_id)
             return None
-        return ni_info.network_instance, f"xfrm{ni_info.connection_id}"
+        return network_instance, f"xfrm{connection_id}"
 
     def set_xfrm_interface_state(self, ike_name: str) -> None:
         """Set a connection's XFRM interface up if its tunnel is up, down otherwise.

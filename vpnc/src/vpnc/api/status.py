@@ -135,13 +135,6 @@ class BgpNeighbor(BaseModel):
     prefixes_sent: int | None
 
 
-def tenant_of(network_instance_id: str) -> str:
-    """Return the tenant of a network instance (CORE etc. belong to DEFAULT)."""
-    if "-" in network_instance_id:
-        return network_instance_id.split("-", 1)[0]
-    return config.DEFAULT_TENANT
-
-
 def network_instances() -> dict[str, NetworkInstance]:
     """Return the configured network instances by id."""
     return {
@@ -320,7 +313,7 @@ def connection_states(
             output.append(
                 ConnectionState(
                     id=name,
-                    tenant=tenant_of(ni.id),
+                    tenant=ni.tenant_id,
                     network_instance=ni.id,
                     type=ctype.value,
                     state=current,
@@ -359,14 +352,14 @@ def network_instance_states(
         up, total = _counts(by_ni.get(ni.id, []))
         item = NetworkInstanceState(
             id=ni.id,
-            tenant=tenant_of(ni.id),
+            tenant=ni.tenant_id,
             type=ni.type.value,
             connections_up=up,
             connections=total,
         )
         if hub and ni.type == enums.NetworkInstanceType.DOWNLINK:
             nat64 = configuration.get_network_instance_nat64_scope(ni)
-            nptv6 = configuration.get_network_instance_nptv6_scope(ni.id)
+            nptv6 = configuration.get_network_instance_nptv6_scope(ni)
             item.nat64_scope = str(nat64) if nat64 else None
             item.nptv6_scope = str(nptv6) if nptv6 else None
             if translations:

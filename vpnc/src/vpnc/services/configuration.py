@@ -20,8 +20,8 @@ from watchdog.observers import Observer
 
 import vpnc.models.network_instance
 import vpnc.models.tenant
-from vpnc import config, files
-from vpnc.models import enums, info
+from vpnc import config, files, migration
+from vpnc.models import enums
 from vpnc.models.secret import REVEAL
 from vpnc.network import namespace, nftables
 from vpnc.services import vpncmangle
@@ -151,6 +151,7 @@ def manage_tenant(path: pathlib.Path) -> None:
 
 def _manage_tenant(path: pathlib.Path) -> None:
     default_tenant = vpnc.models.tenant.get_default_tenant()
+    migration.migrate_file(path)
     # Before reading: a later change is seen as one.
     if (file_state := _file_state(path)) is not None:
         FILE_STATES[path] = file_state
@@ -227,8 +228,8 @@ def _add_nptv6_prefixes_to_candidate(
     Other staged changes are kept, and the prefixes stay the same after a commit.
     """
     assigned = {
-        (ni.id, str(connection.id), str(route.to)): str(route.nptv6_prefix)
-        for ni in tenant.network_instances.values()
+        (key, str(connection.id), str(route.to)): str(route.nptv6_prefix)
+        for key, ni in tenant.network_instances.items()
         for connection in ni.connections.values()
         for route in connection.routes.ipv6
         if route.nptv6_prefix
@@ -240,14 +241,15 @@ def _add_nptv6_prefixes_to_candidate(
     if not assigned or not isinstance(candidate, dict):
         return
     changed = False
-    for ni_id, ni in (candidate.get("network_instances") or {}).items():
+    for key, ni in (candidate.get("network_instances") or {}).items():
+        ni_key = vpnc.models.tenant.network_instance_key(key)
         for connection_id, connection in (ni.get("connections") or {}).items():
             for route in (connection.get("routes") or {}).get("ipv6") or []:
                 try:
                     to = str(IPv6Network(route["to"]))
                 except (KeyError, TypeError, ValueError):
                     continue
-                prefix = assigned.get((ni_id, str(connection_id), to))
+                prefix = assigned.get((ni_key, str(connection_id), to))
                 if prefix and not route.get("nptv6_prefix"):
                     route["nptv6_prefix"] = prefix
                     changed = True
@@ -314,13 +316,18 @@ def _delete_downlink_tenant(path: pathlib.Path) -> None:
     )
 
 
+def _downlink_offset(
+    network_instance: vpnc.models.network_instance.NetworkInstance,
+) -> str:
+    """Return a hub's DOWNLINK as the groups of its scopes, e.g. c:1:0 for C0001-00."""
+    tenant_id = network_instance.tenant_id
+    return f"{tenant_id[0]}:{int(tenant_id[1:], 16):x}:{network_instance.number}"
+
+
 def get_network_instance_nat64_scope(
     network_instance: vpnc.models.network_instance.NetworkInstance,
 ) -> IPv6Network | None:
-    """Return the IPv6 NPTv6 scope for a network instance.
-
-    This scope  is always a /48.
-    """
+    """Return the IPv6 NAT64 scope for a network instance. This is always a /96."""
     default_tenant = vpnc.models.tenant.get_default_tenant()
 
     if network_instance.type != enums.NetworkInstanceType.DOWNLINK:
@@ -329,50 +336,29 @@ def get_network_instance_nat64_scope(
     if default_tenant.mode != enums.ServiceMode.HUB:
         return None
 
-    ni_info = info.parse_downlink_network_instance_name(
-        network_instance.id,
-    )
-
-    tenant_ext = ni_info.tenant_ext_str  # c, d, e, f
-    tenant_id = ni_info.tenant_id  # remote identifier
-    network_instance_id = ni_info.network_instance_id  # connection number
-
     nat64_prefix = default_tenant.prefix_downlink_nat64
     nat64_network_address = int(nat64_prefix[0])
-    offset = f"0:0:{tenant_ext}:{tenant_id:x}:{network_instance_id}::"
+    offset = f"0:0:{_downlink_offset(network_instance)}::"
     nat64_offset = int(IPv6Address(offset))
     nat64_address = IPv6Address(nat64_network_address + nat64_offset)
     return IPv6Network(nat64_address).supernet(new_prefix=96)
 
 
 def get_network_instance_nptv6_scope(
-    network_instance_name: str,
+    network_instance: vpnc.models.network_instance.NetworkInstance,
 ) -> IPv6Network | None:
     """Return the IPv6 NPTv6 scope for a network instance. This is always a /48."""
-    if network_instance_name in (
-        config.CORE_NI,
-        config.DEFAULT_NI,
-        config.ENDPOINT_NI,
-        config.EXTERNAL_NI,
-    ):
-        return None
-
     default_tenant = vpnc.models.tenant.get_default_tenant()
+
+    if network_instance.type != enums.NetworkInstanceType.DOWNLINK:
+        return None
 
     if default_tenant.mode != enums.ServiceMode.HUB:
         return None
 
-    ni_info = info.parse_downlink_network_instance_name(
-        network_instance_name,
-    )
-
-    tenant_ext = ni_info.tenant_ext_str
-    tenant_id = ni_info.tenant_id
-    network_instance_id = ni_info.network_instance_id
-
     nptv6_superscope = default_tenant.prefix_downlink_nptv6
     nptv6_network_address = int(nptv6_superscope[0])
-    offset = f"{tenant_ext}:{tenant_id:x}:{network_instance_id}::"
+    offset = f"{_downlink_offset(network_instance)}::"
     nptv6_offset = int(IPv6Address(offset))
     nptv6_address = IPv6Address(nptv6_network_address + nptv6_offset)
     return IPv6Network(nptv6_address).supernet(new_prefix=48)
