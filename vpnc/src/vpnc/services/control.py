@@ -40,12 +40,14 @@ def _vici() -> contextlib.AbstractContextManager[vici.Session]:
     return charon.session(charon.VICI_TIMEOUT + TERMINATE_TIMEOUT)
 
 
-def _terminate(name: str) -> None:
+def _terminate(name: str, *, force: bool = False) -> None:
+    """Terminate a connection's IKE SAs; with force without telling the peer."""
+    request = {"ike": name, "timeout": str(TERMINATE_TIMEOUT * 1000)}
+    if force:
+        request["force"] = "yes"
     with _vici() as vcs, contextlib.suppress(vici.exception.CommandException):
         # Fails when there's no SA, or the peer doesn't confirm in time.
-        for _ in vcs.terminate(
-            {"ike": name, "timeout": str(TERMINATE_TIMEOUT * 1000)},
-        ):
+        for _ in vcs.terminate(request):
             pass
 
 
@@ -102,8 +104,11 @@ def start(ni: NetworkInstance, connection: Connection) -> None:
             _initiate(name, connection)
 
 
-def reset(ni: NetworkInstance, connection: Connection) -> None:
-    """Set a connection up again: a new IKE SA, WireGuard session or SSH session."""
+def reset(ni: NetworkInstance, connection: Connection, *, force: bool = False) -> None:
+    """Set a connection up again: a new IKE SA, WireGuard session or SSH session.
+
+    With force, IKE SAs are removed without waiting for the peer.
+    """
     ctype = _check(connection)
     name = f"{ni.id}-{connection.id}"
     if name in shared.STOPPED_CONNECTIONS:
@@ -112,7 +117,7 @@ def reset(ni: NetworkInstance, connection: Connection) -> None:
     with LOCK:
         logger.info("Resetting connection %s.", name)
         if ctype == enums.ConnectionType.IPSEC:
-            _terminate(name)
+            _terminate(name, force=force)
             _initiate(name, connection)
             return
         # Removes the WireGuard peer or stops ssh, then sets it up again.

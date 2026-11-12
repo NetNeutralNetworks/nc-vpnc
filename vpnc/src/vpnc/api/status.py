@@ -313,6 +313,8 @@ def connection_states(
                 current = "up" if link is not None and link.passes_traffic else "down"
                 if ctype == enums.ConnectionType.SSH:
                     details = _ssh(name)
+            if ctype != enums.ConnectionType.PHYSICAL:
+                details["auto_resets_24h"] = shared.auto_resets(name)
             if name in shared.STOPPED_CONNECTIONS:
                 current = "stopped"
             output.append(
