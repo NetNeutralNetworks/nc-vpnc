@@ -254,11 +254,6 @@ class NetworkInstance(BaseModel):
         return v
 
     @abstractmethod
-    def delete(self) -> None:
-        """Delete a network instance."""
-        raise NotImplementedError
-
-    @abstractmethod
     def set_firewall(self) -> bool:
         """Make the namespace's nftables table as configured."""
         raise NotImplementedError
@@ -447,7 +442,7 @@ class NetworkInstance(BaseModel):
                 if link.kind in ("xfrm", "tun", "wireguard") and name not in configured:
                     state.delete_link(dl.ipr, dl.state, name)
 
-    def delete_network_instance(self) -> None:
+    def delete(self) -> None:
         """Delete a network instance (Linux namespace)."""
         if self.type in (
             enums.NetworkInstanceType.DOWNLINK,
@@ -455,19 +450,7 @@ class NetworkInstance(BaseModel):
         ):
             self._delete_network_instance_link()
 
-        # Break connections.
-        ssh_connections = [
-            x
-            for x in self.connections.values()
-            if x.config.type == enums.ConnectionType.SSH
-        ]
-        other_connections = [
-            x
-            for x in self.connections.values()
-            if x.config.type != enums.ConnectionType.SSH
-        ]
-        sorted_connections = ssh_connections + other_connections
-        for conn in sorted_connections:
+        for conn in _ssh_first(self.connections.values()):
             logger.info(
                 "Deleting network instance %s connection %s.",
                 self.id,
@@ -534,18 +517,7 @@ class NetworkInstance(BaseModel):
         # Configured interfaces for connections.
         configured_connections = self._get_network_instance_connections()
 
-        # It is important to break SSH connections first as these always depend on
-        # another connection.
-        ssh_connections = [
-            x for x in active_connections if x.config.type == enums.ConnectionType.SSH
-        ]
-        other_connections = [
-            x for x in active_connections if x.config.type != enums.ConnectionType.SSH
-        ]
-
-        sorted_connections = ssh_connections + other_connections
-
-        for conn in sorted_connections:
+        for conn in _ssh_first(active_connections):
             interface_name = conn.intf_name(self)
             if not interface_name or interface_name in configured_connections:
                 continue
@@ -615,6 +587,16 @@ class NetworkInstance(BaseModel):
         NAT64_APPLIED.pop(self.id, None)
 
 
+def _ssh_first(
+    items: Iterable[connections.Connection],
+) -> list[connections.Connection]:
+    """Return connections in the order to delete them.
+
+    SSH connections first: they always depend on another connection.
+    """
+    return sorted(items, key=lambda c: c.config.type != enums.ConnectionType.SSH)
+
+
 def _refuse_ipsec(
     v: dict[int, connections.Connection],
 ) -> dict[int, connections.Connection]:
@@ -638,10 +620,6 @@ class NetworkInstanceExternal(NetworkInstance):
 
     _no_ipsec = field_validator("connections")(_refuse_ipsec)
 
-    def delete(self) -> None:
-        """Delete an EXTERNAL network instance."""
-        self.delete_network_instance()
-
     def set_firewall(self) -> bool:
         """Accept only IKE, ESP and the configured WireGuard ports."""
         self._apply_firewall("nft-external.conf.j2", wireguard_ports=wireguard_ports())
@@ -657,10 +635,6 @@ class NetworkInstanceCore(NetworkInstance):
         strongswan.apply(self)
         if tenant.get_default_tenant().mode == enums.ServiceMode.HUB:
             frr.generate_config()
-
-    def delete(self) -> None:
-        """Delete a CORE network instance."""
-        self.delete_network_instance()
 
     def set_firewall(self) -> bool:
         """Accept BGP and BFD from the uplinks, and forward IPv6 from them."""
@@ -695,11 +669,6 @@ class NetworkInstanceDownlink(NetworkInstance):
     def _reconcile_services(self) -> None:
         self._set_downlink_nat64()
         strongswan.apply(self)
-
-    def delete(self) -> None:
-        """Delete a DOWNLINK network instance."""
-        self._delete_network_instance_link()
-        self.delete_network_instance()
 
     def set_firewall(self) -> bool:
         """Accept traffic from CORE and ICMPv6 only; NPTv6 and NAT66.
@@ -856,10 +825,6 @@ class NetworkInstanceEndpoint(NetworkInstance):
     )
 
     _no_ipsec = field_validator("connections")(_refuse_ipsec)
-
-    def delete(self) -> None:
-        """Delete an ENDPOINT network instance."""
-        self.delete_network_instance()
 
     def set_firewall(self) -> bool:
         """Accept traffic from CORE and ICMPv6 only; NAT."""
