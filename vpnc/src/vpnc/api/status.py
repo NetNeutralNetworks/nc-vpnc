@@ -243,8 +243,7 @@ def _counters(ni_id: str) -> dict[str, Counters]:
 def _snapshot(ni_id: str) -> state.NetnsState:
     """Read the links and addresses of a network instance (not its routes)."""
     try:
-        with namespace.IPRoute(ni_id) as ipr:
-            return state.NetnsState.read(ipr, routes=False)
+        return state.NetnsState.read(ni_id, routes=False)
     except FileNotFoundError:
         return state.NetnsState(name=ni_id)
 

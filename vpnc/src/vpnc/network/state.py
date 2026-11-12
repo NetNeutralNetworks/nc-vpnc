@@ -52,7 +52,16 @@ RT_SCOPE_LINK = 253
 # For route dumps the kernel filters (pyroute2 filters after receiving all).
 SOL_NETLINK = 270
 NETLINK_GET_STRICT_CHK = 12
+RTM_GETLINK = 18
+RTM_GETADDR = 22
 RTM_GETROUTE = 26
+# Attributes of links (linux/if_link.h) and addresses (linux/if_addr.h).
+IFLA_IFNAME = 3
+IFLA_LINKINFO = 18
+IFLA_INFO_KIND = 1
+IFLA_INFO_DATA = 2
+IFLA_XFRM_IF_ID = 2
+IFA_ADDRESS = 1
 NLMSG_ERROR = 2
 NLMSG_DONE = 3
 NLM_F_REQUEST = 0x1
@@ -105,44 +114,70 @@ class NetnsState:
     routes: dict[IPNetwork, Route] = field(default_factory=dict)
 
     @classmethod
-    def read(cls, ipr: namespace.IPRoute, *, routes: bool = True) -> NetnsState:
-        """Read the state of the namespace of ipr; without routes, if not needed."""
-        state = cls(name=ipr.netns)
+    def read(cls, name: str, *, routes: bool = True) -> NetnsState:
+        """Read the state of a namespace; without routes, if not needed.
+
+        Only the attributes vpnc uses are parsed: pyroute2 decodes all of them
+        (statistics, per-family settings), which takes most of a full check.
+        """
+        state = cls(name=name)
         names: dict[int, str] = {}
-        for msg in ipr.get_links():
-            name = msg.get("ifname")
-            names[msg["index"]] = name
-            info = msg.get(("IFLA_LINKINFO", "IFLA_INFO_KIND"))
-            if_id = msg.get(("IFLA_LINKINFO", "IFLA_INFO_DATA", "IFLA_XFRM_IF_ID"))
-            state.links[name] = Link(msg["index"], info, msg["flags"], if_id)
-            state.addresses[name] = set()
-            state.link_local[name] = set()
-        for msg in ipr.get_addr():
-            name = names.get(msg["index"])
-            if name is None:
-                continue
-            address = ipaddress.ip_interface(
-                f"{msg.get('address')}/{msg['prefixlen']}",
-            )
-            if msg["scope"] == RT_SCOPE_UNIVERSE:
-                state.addresses[name].add(address)
-            elif msg["scope"] == RT_SCOPE_LINK:
-                state.link_local[name].add(address)
-        if not routes:
-            return state
-        for msg in owned_route_messages(ipr.netns):
-            route = _route_from_msg(msg, names)
-            state.routes[route.dst] = route
+        with _dump_socket(name) as sock:
+            # struct ifinfomsg: family, type, index, flags, change.
+            for msg in _dump(sock, RTM_GETLINK, bytes(16)):
+                _, _, index, flags, _ = struct.unpack_from("BxHiII", msg, 16)
+                attributes = _attributes(msg[32:])
+                ifname = _string(attributes[IFLA_IFNAME])
+                info = _attributes(attributes.get(IFLA_LINKINFO, b""))
+                kind = _string(info[IFLA_INFO_KIND]) if IFLA_INFO_KIND in info else None
+                if_id = None
+                if kind == "xfrm":
+                    data = _attributes(info.get(IFLA_INFO_DATA, b""))
+                    if IFLA_XFRM_IF_ID in data:
+                        (if_id,) = struct.unpack("I", data[IFLA_XFRM_IF_ID])
+                names[index] = ifname
+                state.links[ifname] = Link(index, kind, flags, if_id)
+                state.addresses[ifname] = set()
+                state.link_local[ifname] = set()
+            # struct ifaddrmsg: family, prefixlen, flags, scope, index.
+            for msg in _dump(sock, RTM_GETADDR, bytes(8)):
+                _, prefixlen, _, scope, index = struct.unpack_from("4BI", msg, 16)
+                raw = _attributes(msg[24:]).get(IFA_ADDRESS)
+                if (owner := names.get(index)) is None or raw is None:
+                    continue
+                address = ipaddress.ip_interface((raw, prefixlen))
+                if scope == RT_SCOPE_UNIVERSE:
+                    state.addresses[owner].add(address)
+                elif scope == RT_SCOPE_LINK:
+                    state.link_local[owner].add(address)
+            if routes:
+                for route_msg in _owned_route_messages(sock):
+                    route = _route_from_msg(route_msg, names)
+                    state.routes[route.dst] = route
         return state
 
 
-def owned_route_messages(netns: str) -> list[rtmsg]:
-    """Return the owned routes of the main table of a namespace.
+def _string(value: bytes) -> str:
+    return value.rstrip(b"\0").decode()
 
-    The kernel only sends these (strict check), instead of every route (e.g. a
-    full BGP table) for pyroute2 to parse and filter.
-    """
-    messages: list[rtmsg] = []
+
+def _attributes(data: bytes) -> dict[int, bytes]:
+    """Return the values of netlink attributes by type (nested ones as bytes)."""
+    attributes: dict[int, bytes] = {}
+    offset = 0
+    while offset + 4 <= len(data):
+        length, kind = struct.unpack_from("HH", data, offset)
+        if length < 4:  # noqa: PLR2004
+            break
+        # Without the nested and byte order flags.
+        attributes[kind & 0x3FFF] = data[offset + 4 : offset + length]
+        offset += (length + 3) & ~3
+    return attributes
+
+
+@contextlib.contextmanager
+def _dump_socket(netns: str) -> Iterator[socket.socket]:
+    """Open a netlink socket in a namespace (FileNotFoundError if missing)."""
     with socket.socket(
         socket.AF_NETLINK,
         socket.SOCK_RAW,
@@ -150,37 +185,55 @@ def owned_route_messages(netns: str) -> list[rtmsg]:
         fileno=namespace.netlink_socket(netns),
     ) as sock:
         sock.setsockopt(SOL_NETLINK, NETLINK_GET_STRICT_CHK, 1)
-        for seq, proto in enumerate(OWNED_PROTOCOLS, start=1):
-            # struct rtmsg: family, dst_len, src_len, tos, table, protocol, scope,
-            # type, flags.
-            body = struct.pack("4B4BI", 0, 0, 0, 0, RT_TABLE_MAIN, proto, 0, 0, 0)
-            header = struct.pack(
-                "IHHII",
-                16 + len(body),
-                RTM_GETROUTE,
-                NLM_F_REQUEST | NLM_F_DUMP,
-                seq,
-                0,
-            )
-            sock.send(header + body)
-            messages.extend(_receive_dump(sock))
-    return messages
+        yield sock
 
 
-def _receive_dump(sock: socket.socket) -> Iterator[rtmsg]:
+def _dump(sock: socket.socket, msg_type: int, body: bytes) -> Iterator[bytes]:
+    """Request a dump and return its messages, with their headers."""
+    header = struct.pack(
+        "IHHII",
+        16 + len(body),
+        msg_type,
+        NLM_F_REQUEST | NLM_F_DUMP,
+        1,
+        0,
+    )
+    sock.send(header + body)
     while True:
         data = sock.recv(1 << 20)
         offset = 0
         while offset < len(data):
-            length, msg_type = struct.unpack_from("IH", data, offset)
-            if msg_type == NLMSG_DONE:
+            length, received = struct.unpack_from("IH", data, offset)
+            if received == NLMSG_DONE:
                 return
-            if msg_type == NLMSG_ERROR:
+            if received == NLMSG_ERROR:
                 raise NetlinkError(-struct.unpack_from("i", data, offset + 16)[0])
-            msg = rtmsg(data[offset : offset + length])
-            msg.decode()
-            yield msg
+            yield data[offset : offset + length]
             offset += (length + 3) & ~3
+
+
+def owned_route_messages(netns: str) -> list[rtmsg]:
+    """Return the owned routes of the main table of a namespace."""
+    with _dump_socket(netns) as sock:
+        return _owned_route_messages(sock)
+
+
+def _owned_route_messages(sock: socket.socket) -> list[rtmsg]:
+    """Return the owned routes of the main table.
+
+    The kernel only sends these (strict check), instead of every route (e.g. a
+    full BGP table) for pyroute2 to parse and filter.
+    """
+    messages: list[rtmsg] = []
+    for proto in OWNED_PROTOCOLS:
+        # struct rtmsg: family, dst_len, src_len, tos, table, protocol, scope,
+        # type, flags.
+        body = struct.pack("4B4BI", 0, 0, 0, 0, RT_TABLE_MAIN, proto, 0, 0, 0)
+        for data in _dump(sock, RTM_GETROUTE, body):
+            msg = rtmsg(data)
+            msg.decode()
+            messages.append(msg)
+    return messages
 
 
 # Per namespace, bumped by changed(): shared snapshots are read again.
@@ -283,7 +336,7 @@ class Netns:
         generation = _GENERATIONS.get(self.name, 0)
         if self._state is None or self._generation != generation:
             self._generation = generation
-            self._state = NetnsState.read(self.ipr)
+            self._state = NetnsState.read(self.name)
         return self._state
 
     def invalidate(self) -> None:
