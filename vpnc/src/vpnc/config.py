@@ -19,15 +19,25 @@ DEFAULT_NI = "DEFAULT"  # name of the DEFAULT network instance
 ENDPOINT_NI = "ENDPOINT"  # name of the ENDPOINT network instance
 EXTERNAL_NI = "EXTERNAL"  # name of the EXTERNAL untrusted network instance
 
-# Match only non-default tenants
-TENANT_RE = re.compile(r"^([2-9A-F]\d{4}|DEFAULT)$")
+# The id of a non-default tenant, e.g. C0001.
+TENANT_ID = r"[2-9A-F]\d{4}"
+TENANT_ID_PATTERN = rf"^{TENANT_ID}$"
+# Match all tenants
+TENANT_RE = re.compile(rf"^({TENANT_ID}|{DEFAULT_TENANT})$")
 # Match only non-default tenant configuration files
-DOWNLINK_TEN_FILE_RE = r".+\/[2-9A-F]\d{4}\.yaml$"
+DOWNLINK_TEN_FILE_RE = rf".+\/{TENANT_ID}\.yaml$"
 # Match only non-default tenant network instances
-DOWNLINK_NI_RE = re.compile(r"^[2-9A-F]\d{4}-\d{2}$")
+DOWNLINK_NI_RE = re.compile(rf"^{TENANT_ID}-\d{{2}}$")
 # Match only non-default tenant network instance connections; the groups are the
 # network instance, the tenant and the connection's number.
-DOWNLINK_CON_RE = re.compile(r"^(([2-9A-F]\d{4})-\d{2})-(\d)$")
+DOWNLINK_CON_RE = re.compile(rf"^(({TENANT_ID})-\d{{2}})-(\d)$")
+
+
+def split_connection_name(name: str) -> tuple[str, str]:
+    """Return the network instance and number of a connection's name."""
+    network_instance_id, _, number = name.rpartition("-")
+    return network_instance_id, number
+
 
 # Group of the user charon runs as (swan), to reduce attack surface
 _PWD = list(filter(lambda x: x.pw_name == "swan", pwd.getpwall()))

@@ -49,7 +49,7 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
         cfg = connection.config
         if cfg.type != enums.ConnectionType.IPSEC:
             continue
-        name = f"{network_instance.id}-{connection.id}"
+        name = connection.name(network_instance)
         if name in STOPPED_CONNECTIONS:
             continue
         remote_id = cfg.remote_id or str(cfg.remote_addrs[0])
@@ -184,7 +184,7 @@ def _unload(vcs: vici.Session, names: set[str]) -> None:
 
 
 def _own(ni_id: str, names: set[str]) -> set[str]:
-    return {name for name in names if name.rsplit("-", 1)[0] == ni_id}
+    return {name for name in names if config.split_connection_name(name)[0] == ni_id}
 
 
 def apply(network_instance: NetworkInstance) -> None:

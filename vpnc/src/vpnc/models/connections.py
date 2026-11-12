@@ -196,6 +196,10 @@ class Connection(BaseModel):
         """Delete a connection."""
         return self.config.delete(network_instance, self)
 
+    def name(self, network_instance: network_instance.NetworkInstance) -> str:
+        """Return the name of the connection, e.g. C0001-00-0."""
+        return f"{network_instance.id}-{self.id}"
+
     def intf_name(self, network_instance: network_instance.NetworkInstance) -> str:
         """Return the name of the connection's interface."""
         return self.config.intf_name(network_instance, self)

@@ -48,14 +48,17 @@ class ConnectionConfigWireGuard(BaseModel):
             wireguard_port_users,
         )
 
-        name = f"{network_instance.id}-{connection.id}"
+        name = connection.name(network_instance)
         users = wireguard_port_users().get(self.local_port, [name])
         if len(users) > 1:
             # The interface that has the port keeps it; otherwise the first name.
             holders = [
                 user
                 for user in users
-                if wireguard.listen_port(user.rsplit("-", 1)[0], f"wg-{user}")
+                if wireguard.listen_port(
+                    config.split_connection_name(user)[0],
+                    f"wg-{user}",
+                )
                 == self.local_port
             ]
             holder = (holders or users)[0]
@@ -110,4 +113,4 @@ class ConnectionConfigWireGuard(BaseModel):
         connection: connections.Connection,
     ) -> str:
         """Return the name of the connection interface."""
-        return f"wg-{network_instance.id}-{connection.id}"
+        return f"wg-{connection.name(network_instance)}"

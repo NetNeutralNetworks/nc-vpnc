@@ -122,7 +122,7 @@ class ConnectionConfigIPsec(BaseModel):
         with state.netns(network_instance.id) as dl:
             state.delete_link(dl.ipr, dl.state, interface_name)
 
-        name = f"{network_instance.id}-{connection.id}"
+        name = connection.name(network_instance)
         try:
             with charon.session() as vcs:
                 # Don't wait for an unreachable peer to confirm.

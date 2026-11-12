@@ -161,7 +161,7 @@ def ids() -> Ids:
         tenants=sorted(config.VPNC_CONFIG_TENANT),
         network_instances=sorted(configured),
         connections=sorted(
-            f"{ni.id}-{connection.id}"
+            connection.name(ni)
             for ni in configured.values()
             for connection in ni.connections.values()
         ),
@@ -313,7 +313,7 @@ def connection_states(
             snapshot = state.NetnsState(name=ni.id)
         ni_counters = _counters(ni.id) if counters else {}
         for connection in ni.connections.values():
-            name = f"{ni.id}-{connection.id}"
+            name = connection.name(ni)
             ifname = connection.intf_name(ni)
             link = snapshot.links.get(ifname) if ifname else None
             addresses = sorted(

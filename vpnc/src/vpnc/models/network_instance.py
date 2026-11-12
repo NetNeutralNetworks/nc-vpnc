@@ -150,7 +150,7 @@ def wireguard_port_users(
             for connection in network_instance.connections.values():
                 if connection.config.type == enums.ConnectionType.WIREGUARD:
                     users.setdefault(connection.config.local_port, []).append(
-                        f"{network_instance.id}-{connection.id}",
+                        connection.name(network_instance),
                     )
     return {port: sorted(names) for port, names in users.items()}
 
@@ -224,6 +224,16 @@ class NetworkInstance(BaseModel):
         return f"{self._tenant_id}-{self._key}"
 
     @property
+    def veth_core(self) -> str:
+        """Return the name of its link's end in CORE."""
+        return f"{self.id}_C"
+
+    @property
+    def veth_downlink(self) -> str:
+        """Return the name of its end of the link with CORE."""
+        return f"{self.id}_D"
+
+    @property
     def number(self) -> int:
         """Return the number of a tenant's network instance, for its prefixes."""
         # Read as hexadecimal, as the prefixes in use are.
@@ -282,7 +292,7 @@ class NetworkInstance(BaseModel):
         blackholed otherwise. The advertisements in CORE (IPv6 prefixes and the NAT64
         scope) are only active when all connections of the network instance are up.
         """
-        core_link = f"{self.id}_C"
+        core_link = self.veth_core
         ni_routes: list[state.Route] = []
         core_routes: list[state.Route] = []
 
@@ -363,7 +373,7 @@ class NetworkInstance(BaseModel):
         ):
             return []
         default_tenant = tenant.get_default_tenant()
-        veth = f"{self.id}_D"
+        veth = self.veth_downlink
         routes: list[state.Route] = []
         core_ni = default_tenant.network_instances[config.CORE_NI]
         for connection in core_ni.connections.values():
@@ -557,8 +567,8 @@ class NetworkInstance(BaseModel):
     ) -> None:
         """Create a link and routes between a DOWNLINK and the CORE network instance."""
         default_tenant = tenant.get_default_tenant()
-        veth_c = f"{self.id}_C"
-        veth_d = f"{self.id}_D"
+        veth_c = self.veth_core
+        veth_d = self.veth_downlink
 
         logger.debug(
             "Setting up the connection between %s and the %s network instance",
@@ -605,7 +615,7 @@ class NetworkInstance(BaseModel):
     ) -> None:
         """Delete a link between a DOWNLINK and the CORE network instance."""
         with state.netns(self.id) as dl:
-            state.delete_link(dl.ipr, dl.state, f"{self.id}_D")
+            state.delete_link(dl.ipr, dl.state, self.veth_downlink)
         namespace.run(self.id, ["/usr/bin/jool", "instance", "remove", self.id])
         NAT64_APPLIED.pop(self.id, None)
 
@@ -705,7 +715,7 @@ class NetworkInstanceDownlink(NetworkInstance):
         self._apply_firewall(
             "nft-downlink.conf.j2",
             mode=tenant.get_default_tenant().mode,
-            core_interfaces=[f"{self.id}_D"],
+            core_interfaces=[self.veth_downlink],
             downlink_interfaces=sorted(self._get_network_instance_connections()),
             nptv6_networks=nptv6_networks,
         )
@@ -861,7 +871,7 @@ class NetworkInstanceEndpoint(NetworkInstance):
         self._apply_firewall(
             "nft-endpoint.conf.j2",
             mode=tenant.get_default_tenant().mode,
-            core_interfaces=[f"{self.id}_D"],
+            core_interfaces=[self.veth_downlink],
             downlink_interfaces=sorted(self._get_network_instance_connections()),
             nptv6_networks=[],
         )
