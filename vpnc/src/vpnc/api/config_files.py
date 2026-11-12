@@ -173,9 +173,23 @@ def _dump(model: Model | None, *, reveal: bool) -> dict[str, Any] | None:
 
 
 def _yaml(data: dict[str, Any] | None) -> str:
-    if data is None:
-        return ""
-    return yaml.safe_dump(data, explicit_start=True, explicit_end=True)
+    return "" if data is None else files.to_yaml(data)
+
+
+def _same(first: Model | None, second: Model | None) -> bool:
+    """Return whether two configurations are the same, secrets included."""
+    return _dump(first, reveal=True) == _dump(second, reveal=True)
+
+
+def _changed(tenant_id: str) -> bool:
+    """Return whether the candidate differs from the active configuration."""
+    return not _same(_load(tenant_id, "candidate"), _load(tenant_id, "active"))
+
+
+def _keep_service(tenant_id: str) -> None:
+    """Refuse removing the service."""
+    if tenant_id == config.DEFAULT_TENANT:
+        raise ConfigError(409, "Conflict", "The service can't be removed.")
 
 
 def tenant_ids() -> list[str]:
@@ -201,7 +215,7 @@ def summaries() -> list[ConfigSummary]:
             status = "added"
         elif candidate is None:
             status = "deleted"
-        elif _dump(active, reveal=True) != _dump(candidate, reveal=True):
+        elif not _same(active, candidate):
             status = "modified"
         else:
             status = "unchanged"
@@ -273,8 +287,7 @@ def patch_candidate(tenant_id: str, patch: Any) -> dict[str, Any]:  # noqa: ANN4
 def delete_candidate(tenant_id: str) -> CommitResult:
     """Stage removing a tenant."""
     check_id(tenant_id)
-    if tenant_id == config.DEFAULT_TENANT:
-        raise ConfigError(409, "Conflict", "The service can't be removed.")
+    _keep_service(tenant_id)
     with LOCK:
         if _load(tenant_id, "candidate") is None:
             if _text(tenant_id, "active") is None:
@@ -346,6 +359,11 @@ def _pending_path(tenant_id: str) -> pathlib.Path:
     return HISTORY_DIR / tenant_id / "pending.json"
 
 
+def _pending_ids() -> list[str]:
+    """Return the tenants (and service) with a commit to confirm."""
+    return sorted(p.parent.name for p in HISTORY_DIR.glob("*/pending.json"))
+
+
 def _pending(tenant_id: str) -> dict[str, Any] | None:
     try:
         return json.loads(_pending_path(tenant_id).read_text(encoding="utf-8"))
@@ -391,8 +409,7 @@ def _roll_back_unconfirmed(tenant_id: str) -> None:
 
 def resume_pending() -> None:
     """Schedule the rollbacks of unconfirmed commits (e.g. after a restart)."""
-    for path in HISTORY_DIR.glob("*/pending.json"):
-        tenant_id = path.parent.name
+    for tenant_id in _pending_ids():
         if pending := _pending(tenant_id):
             logger.warning(
                 "The commit of %s isn't confirmed; rolling back at %s.",
@@ -451,14 +468,15 @@ def commit(
         previous = _text(tenant_id, "active")
         changed = False
         if _text(tenant_id, "candidate") is not None:
-            candidate = _dump(_load(tenant_id, "candidate"), reveal=True)
-            if candidate is None and tenant_id == config.DEFAULT_TENANT:
-                raise ConfigError(409, "Conflict", "The service can't be removed.")
+            candidate = _load(tenant_id, "candidate")
+            if candidate is None:
+                _keep_service(tenant_id)
             if check_ports:
-                _check_wireguard_ports({tenant_id: _load(tenant_id, "candidate")})
+                _check_wireguard_ports({tenant_id: candidate})
             # Only changed configurations: the files may differ in formatting.
-            if candidate != _dump(_load(tenant_id, "active"), reveal=True):
-                changed = _set_active(tenant_id, _yaml(candidate) or None)
+            if not _same(candidate, _load(tenant_id, "active")):
+                text = _yaml(_dump(candidate, reveal=True))
+                changed = _set_active(tenant_id, text or None)
             if candidate is None:
                 _path(tenant_id, "candidate").unlink()
         if changed:
@@ -550,21 +568,14 @@ def restore(tenant_id: str, revision: int) -> CommitResult:
             _path(tenant_id, "candidate").unlink(missing_ok=True)
         else:
             delete_candidate(tenant_id)
-    changed = _dump(_load(tenant_id, "candidate"), reveal=True) != _dump(
-        _load(tenant_id, "active"),
-        reveal=True,
-    )
-    return CommitResult(id=tenant_id, changed=changed)
+    return CommitResult(id=tenant_id, changed=_changed(tenant_id))
 
 
 def discard(tenant_id: str) -> CommitResult:
     """Drop the staged changes."""
     check_id(tenant_id)
     with LOCK:
-        changed = _dump(_load(tenant_id, "candidate"), reveal=True) != _dump(
-            _load(tenant_id, "active"),
-            reveal=True,
-        )
+        changed = _changed(tenant_id)
         _path(tenant_id, "candidate").unlink(missing_ok=True)
     return CommitResult(id=tenant_id, changed=changed)
 
@@ -575,8 +586,8 @@ def _staged_ids() -> list[str]:
         p.stem
         for p in DIRS["candidate"].glob("*.yaml")
         if config.TENANT_RE.match(p.stem)
-    } | {p.parent.name for p in HISTORY_DIR.glob("*/pending.json")}
-    return sorted(ids)
+    }
+    return sorted(ids | set(_pending_ids()))
 
 
 def commit_all(confirm: int | None = None) -> list[CommitResult]:
@@ -597,9 +608,7 @@ def commit_all(confirm: int | None = None) -> list[CommitResult]:
 
 def confirm_all() -> list[CommitResult]:
     """Confirm all commits."""
-    return [
-        confirm(p.parent.name) for p in sorted(HISTORY_DIR.glob("*/pending.json"))
-    ]
+    return [confirm(tenant_id) for tenant_id in _pending_ids()]
 
 
 def discard_all() -> list[CommitResult]:

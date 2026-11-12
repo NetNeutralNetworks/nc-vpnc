@@ -71,6 +71,11 @@ def decode(value: Any) -> Any:  # noqa: ANN401
     return value
 
 
+def loaded_connections(vcs: vici.Session) -> set[str]:
+    """Return the names of the connections loaded in charon."""
+    return {name.decode() for name in vcs.get_conns()["conns"]}
+
+
 def is_initiator(connection: dict[str, Any]) -> bool:
     """Return whether a list-conns entry is an initiator (close_action=start)."""
     return any(

@@ -9,7 +9,7 @@ import re
 import threading
 import time
 from ipaddress import AddressValueError, IPv4Network, IPv6Address, IPv6Network
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from watchdog.events import (
@@ -23,8 +23,8 @@ import vpnc.models.tenant
 from vpnc import config, files, migration
 from vpnc.models import enums
 from vpnc.models.secret import REVEAL
-from vpnc.network import namespace, nftables
-from vpnc.services import vpncmangle
+from vpnc.network import nftables
+from vpnc.services import jool, vpncmangle
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -57,13 +57,11 @@ def observe_configuration() -> BaseObserver:
     class ConfigurationHandler(RegexMatchingEventHandler):
         """Handler for the event monitoring."""
 
-        def on_created(self, event: FileSystemEvent) -> None:
-            logger.info("File %s: %s", event.event_type, event.src_path)
-            handle(manage_tenant, event.src_path)
-
         def on_modified(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
             handle(manage_tenant, event.src_path)
+
+        on_created = on_modified
 
         def on_deleted(self, event: FileSystemEvent) -> None:
             logger.info("File %s: %s", event.event_type, event.src_path)
@@ -149,8 +147,19 @@ def manage_tenant(path: pathlib.Path) -> None:
         _manage_tenant(path)
 
 
+def _unsupported(tenant: Any, *, hub: bool) -> bool:  # noqa: ANN401
+    """Return whether it isn't the service in ENDPOINT mode, which has no tenants."""
+    if hub or getattr(tenant, "mode", None):
+        return False
+    logger.warning(
+        "VPNC in ENDPOINT mode doesn't support"
+        " configuration files other than DEFAULT. Ignoring.",
+    )
+    return True
+
+
 def _manage_tenant(path: pathlib.Path) -> None:
-    default_tenant = vpnc.models.tenant.get_default_tenant()
+    hub = vpnc.models.tenant.is_hub()
     migration.migrate_file(path)
     # Before reading: a later change is seen as one.
     if (file_state := _file_state(path)) is not None:
@@ -159,15 +168,7 @@ def _manage_tenant(path: pathlib.Path) -> None:
     if not tenant:
         return
 
-    if default_tenant.mode == enums.ServiceMode.ENDPOINT and not getattr(
-        tenant,
-        "mode",
-        None,
-    ):
-        logger.warning(
-            "VPNC in ENDPOINT mode doesn't support"
-            " configuration files other than DEFAULT. Ignoring.",
-        )
+    if _unsupported(tenant, hub=hub):
         return
 
     previous_ids: set[str] = set()
@@ -179,10 +180,7 @@ def _manage_tenant(path: pathlib.Path) -> None:
     config.VPNC_CONFIG_TENANT[tenant.id] = tenant
     TENANT_PATHS[tenant.id] = path
 
-    if (
-        default_tenant.mode == enums.ServiceMode.HUB
-        and tenant.name != config.DEFAULT_TENANT
-    ):
+    if hub and tenant.name != config.DEFAULT_TENANT:
         # DNS mangling
         vpncmangle.generate_config()
 
@@ -201,11 +199,7 @@ def write_tenant(tenant_id: str) -> None:
     path = TENANT_PATHS.get(tenant_id)
     if tenant is None or path is None:
         return
-    output = yaml.safe_dump(
-        tenant.model_dump(mode="json", context=REVEAL),
-        explicit_start=True,
-        explicit_end=True,
-    )
+    output = files.to_yaml(tenant.model_dump(mode="json", context=REVEAL))
     with files.CONFIG_LOCK:
         if not loaded(path):
             # A newer file (e.g. a commit): written back once that's applied.
@@ -254,11 +248,7 @@ def _add_nptv6_prefixes_to_candidate(
                     route["nptv6_prefix"] = prefix
                     changed = True
     if changed:
-        files.ensure_file(
-            path,
-            yaml.safe_dump(candidate, explicit_start=True, explicit_end=True),
-            secret=True,
-        )
+        files.ensure_file(path, files.to_yaml(candidate), secret=True)
         logger.info("Added NPTv6 prefixes to the candidate %s.", path)
 
 
@@ -269,7 +259,7 @@ def delete_downlink_tenant(path: pathlib.Path) -> None:
 
 
 def _delete_downlink_tenant(path: pathlib.Path) -> None:
-    default_tenant = vpnc.models.tenant.get_default_tenant()
+    hub = vpnc.models.tenant.is_hub()
     FILE_STATES.pop(path, None)
 
     tenant_id = path.stem
@@ -292,19 +282,11 @@ def _delete_downlink_tenant(path: pathlib.Path) -> None:
     if active_tenant := config.VPNC_CONFIG_TENANT.pop(tenant_id, None):
         active_network_instances = list(active_tenant.network_instances.values())
 
-    if default_tenant.mode == enums.ServiceMode.ENDPOINT and not getattr(
-        active_tenant,
-        "mode",
-        None,
-    ):
-        logger.warning(
-            "VPNC in ENDPOINT mode doesn't support"
-            " configuration files other than DEFAULT. Ignoring.",
-        )
+    if _unsupported(active_tenant, hub=hub):
         return
 
     TENANT_PATHS.pop(tenant_id, None)
-    if default_tenant.mode == enums.ServiceMode.HUB:
+    if hub:
         # Without the tenant's DNS translations.
         vpncmangle.generate_config()
     # The reconciler removes the network instances.
@@ -368,19 +350,10 @@ def get_network_instance_nat64_mappings_state(
     network_instance_name: str,
 ) -> tuple[IPv6Network, IPv4Network] | None:
     """Retrieve the live NAT64 mapping configured in Jool."""
-    output = namespace.run(
-        network_instance_name,
-        ["/usr/bin/jool", "--instance", network_instance_name, "global", "display"],
-    ).stdout
-    pool6 = [
-        fields[1]
-        for fields in map(str.split, output.splitlines())
-        if len(fields) > 1 and "pool6" in fields[0]
-    ]
-    if len(pool6) != 1:
+    if (pool6 := jool.pool6(network_instance_name)) is None:
         return None
     try:
-        return IPv6Network(pool6[0]), IPv4Network("0.0.0.0/0")
+        return IPv6Network(pool6), IPv4Network("0.0.0.0/0")
     except (AddressValueError, ValueError):
         return None
 

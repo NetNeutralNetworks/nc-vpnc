@@ -148,7 +148,7 @@ def _upgrade_text(text: str, data: dict[str, Any]) -> str:
             return text
     except (ValueError, TypeError, AttributeError, yaml.YAMLError):
         pass
-    return yaml.safe_dump(expected, explicit_start=True, explicit_end=True)
+    return files.to_yaml(expected)
 
 
 def _backup_path(path: pathlib.Path, version: str, text: str) -> pathlib.Path:

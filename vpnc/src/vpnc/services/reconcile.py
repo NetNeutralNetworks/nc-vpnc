@@ -266,7 +266,7 @@ def remove_network_instance(network_instance: NetworkInstance) -> None:
     # The kernel deleted its link to CORE.
     state.changed(config.CORE_NI)
     delete_core_routes(network_instance)
-    if tenant.get_default_tenant().mode == enums.ServiceMode.HUB:
+    if tenant.is_hub():
         frr.generate_config()
 
 
@@ -319,10 +319,7 @@ def reconcile_routes(
     network instance's destinations (current and previous) and routes via its link
     are managed, as CORE holds the routes of all network instances.
     """
-    if (
-        net_inst.type == enums.NetworkInstanceType.CORE
-        and tenant.get_default_tenant().mode == enums.ServiceMode.HUB
-    ):
+    if net_inst.type == enums.NetworkInstanceType.CORE and tenant.is_hub():
         return
 
     with (
@@ -344,27 +341,29 @@ def reconcile_routes(
             return
         state.ensure_routes(ni_dl, ni_state, ni_routes)
 
-        ni_core, core_state = core.ipr, core.state
-        core_link = net_inst.veth_core
-        managed = {r.dst for r in [*core_routes, *previous_core]} | {
-            dst for dst, route in core_state.routes.items() if route.dev == core_link
-        }
-        state.ensure_routes(ni_core, core_state, core_routes, managed=managed)
+        managed = _core_destinations(core, net_inst, [*core_routes, *previous_core])
+        state.ensure_routes(core.ipr, core.state, core_routes, managed=managed)
+
+
+def _core_destinations(
+    core: state.Netns,
+    net_inst: NetworkInstance,
+    routes: list[state.Route],
+) -> set[state.IPNetwork]:
+    """Return the destinations in CORE of the routes and of routes via its link."""
+    core_link = net_inst.veth_core
+    return {r.dst for r in routes} | {
+        dst for dst, route in core.state.routes.items() if route.dev == core_link
+    }
 
 
 def delete_core_routes(net_inst: NetworkInstance) -> None:
     """Delete a network instance's routes in CORE."""
-    if net_inst.type not in (
-        enums.NetworkInstanceType.DOWNLINK,
-        enums.NetworkInstanceType.ENDPOINT,
-    ):
+    if not net_inst.linked_to_core:
         return
     _, core_routes = net_inst.desired_routes({})
-    core_link = net_inst.veth_core
     with state.netns(config.CORE_NI) as core:
-        managed = {r.dst for r in core_routes} | {
-            dst for dst, route in core.state.routes.items() if route.dev == core_link
-        }
+        managed = _core_destinations(core, net_inst, core_routes)
         state.ensure_routes(core.ipr, core.state, [], managed=managed)
 
 

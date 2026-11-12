@@ -19,6 +19,8 @@ from vpnc.services import charon
 from vpnc.shared import STOPPED_CONNECTIONS
 
 if TYPE_CHECKING:
+    import pathlib
+
     from vpnc.models.network_instance import NetworkInstance
 
 logger = logging.getLogger("vpnc")
@@ -35,6 +37,16 @@ VICI_ERRORS = (
 
 # Per connection, what vpnc last loaded into charon.
 LOADED: dict[str, str] = {}
+
+
+def _key_id(name: str) -> str:
+    """Return the id of a connection's pre-shared key in charon."""
+    return f"ike-{name}"
+
+
+def _path(ni_id: str) -> pathlib.Path:
+    """Return the file with a network instance's connections."""
+    return config.IPSEC_CONFIG_DIR.joinpath(f"{ni_id}.conf")
 
 
 def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
@@ -86,7 +98,7 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
             "children": {name: child},
         }
         shared = {
-            "id": f"ike-{name}",
+            "id": _key_id(name),
             "type": "IKE",
             "data": cfg.psk.get_secret_value(),
             "owners": [remote_id],
@@ -126,7 +138,7 @@ def render(conns: dict[str, Connection]) -> str:
 
 def _write(ni_id: str, conns: dict[str, Connection]) -> None:
     """Write the connections for operators; charon gets them over vici."""
-    path = config.IPSEC_CONFIG_DIR.joinpath(f"{ni_id}.conf")
+    path = _path(ni_id)
     if not conns:
         path.unlink(missing_ok=True)
         return
@@ -169,7 +181,7 @@ def _unload(vcs: vici.Session, names: set[str]) -> None:
     for name in sorted(names):
         for unload, arg in (
             (vcs.unload_conn, {"name": name}),
-            (vcs.unload_shared, {"id": f"ike-{name}"}),
+            (vcs.unload_shared, {"id": _key_id(name)}),
         ):
             try:
                 unload(arg)
@@ -207,10 +219,10 @@ def apply(network_instance: NetworkInstance) -> None:
 
 def remove(ni_id: str) -> None:
     """Unload the connections of a removed network instance and delete its file."""
-    config.IPSEC_CONFIG_DIR.joinpath(f"{ni_id}.conf").unlink(missing_ok=True)
+    _path(ni_id).unlink(missing_ok=True)
     try:
         with charon.session() as vcs:
-            loaded = {name.decode() for name in vcs.get_conns()["conns"]}
+            loaded = charon.loaded_connections(vcs)
             _unload(vcs, _own(ni_id, loaded | set(LOADED)))
     except VICI_ERRORS:
         logger.exception("Unloading the IPsec connections of %s failed.", ni_id)
@@ -223,17 +235,16 @@ def sync(vcs: vici.Session) -> None:
     what isn't configured.
     """
     conns: dict[str, Connection] = {}
-    for tenant_config in list(config.VPNC_CONFIG_TENANT.values()):
-        for network_instance in tenant_config.network_instances.values():
-            conns |= connections(network_instance)
-    loaded = {name.decode() for name in vcs.get_conns()["conns"]}
+    for network_instance in helpers.network_instances().values():
+        conns |= connections(network_instance)
+    loaded = charon.loaded_connections(vcs)
     keys = {key.decode() for key in vcs.get_shared()["keys"]}
     # A connection whose key is missing is loaded again.
-    _load(vcs, conns, {name for name in loaded if f"ike-{name}" in keys})
+    _load(vcs, conns, {name for name in loaded if _key_id(name) in keys})
     if unknown := loaded - conns.keys():
         logger.warning("Unloading unknown IPsec connections: %s.", sorted(unknown))
         _unload(vcs, unknown)
-    for key in keys - {f"ike-{name}" for name in conns}:
+    for key in keys - {_key_id(name) for name in conns}:
         logger.warning("Unloading unknown IPsec key %s.", key)
         vcs.unload_shared({"id": key})
 

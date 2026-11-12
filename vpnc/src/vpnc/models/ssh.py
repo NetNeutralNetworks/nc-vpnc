@@ -48,15 +48,10 @@ class ConnectionConfigSSH(BaseModel):
             raise ValueError(err)
         tun = self.intf_name(network_instance, connection)
 
-        if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
-            network_instance,
-        )
-
         with state.netns(network_instance.id) as dl:
-            ni_dl, ni_state = dl.ipr, dl.state
-            state.ensure_tun(ni_dl, ni_state, tun)
-            state.ensure_link_state(ni_dl, ni_state, tun, up=True)
-            state.ensure_addresses(ni_dl, ni_state, tun, [*if_ipv4, *if_ipv6])
+            state.ensure_tun(dl.ipr, dl.state, tun)
+            state.ensure_link_state(dl.ipr, dl.state, tun, up=True)
+            connection.ensure_addresses(network_instance, dl)
 
         vpnc.services.ssh.start(network_instance, connection)
         return tun
@@ -68,9 +63,7 @@ class ConnectionConfigSSH(BaseModel):
     ) -> None:
         """Delete a connection."""
         vpnc.services.ssh.stop(network_instance, connection)
-        interface_name = self.intf_name(network_instance, connection)
-        with state.netns(network_instance.id) as dl:
-            state.delete_link(dl.ipr, dl.state, interface_name)
+        connection.delete_interface(network_instance)
 
     def intf_name(
         self,

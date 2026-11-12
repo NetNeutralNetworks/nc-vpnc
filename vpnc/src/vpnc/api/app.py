@@ -126,11 +126,16 @@ def list_network_instances(
     return status.network_instance_states(_select(None, tenant_id))
 
 
+def _network_instance(ni_id: str) -> NetworkInstance:
+    if (ni := helpers.network_instances().get(ni_id)) is None:
+        _not_found("network instance", ni_id)
+    return ni
+
+
 @app.get("/v1/network-instances/{ni_id}")
 def get_network_instance(ni_id: str) -> status.NetworkInstanceState:
     """Return a network instance with its NAT64 and NPTv6 translations."""
-    if (ni := helpers.network_instances().get(ni_id)) is None:
-        _not_found("network instance", ni_id)
+    ni = _network_instance(ni_id)
     return status.network_instance_states([ni], translations=True)[0]
 
 
@@ -247,14 +252,12 @@ def get_network_instance_logs(
     follow: Follow = False,  # noqa: FBT002
 ) -> Any:  # noqa: ANN401
     """Return the last log lines of a network instance and its connections."""
-    if ni_id not in helpers.network_instances():
-        _not_found("network instance", ni_id)
-    queries = logs.network_instance_queries(ni_id, level=level)
+    queries = logs.network_instance_queries(_network_instance(ni_id).id, level=level)
     return _logs(queries, lines, follow=follow)
 
 
 def _hub_only() -> None:
-    if tenant.get_default_tenant().mode != enums.ServiceMode.HUB:
+    if not tenant.is_hub():
         raise ConfigError(409, "Conflict", "BGP only runs in hub mode.")
 
 
@@ -296,25 +299,20 @@ def list_bgp_routes() -> list[status.BgpRoute]:
 # Troubleshooting inside a network instance.
 
 
-def _network_instance(ni_id: str) -> str:
-    if ni_id not in helpers.network_instances():
-        _not_found("network instance", ni_id)
-    return ni_id
-
-
 @app.get("/v1/network-instances/{ni_id}/routes")
 def list_routes(
     ni_id: str,
     family: Annotated[Literal["4", "6"] | None, Query()] = None,
 ) -> list[diagnostics.Route]:
     """Return the routes of a network instance (installed, blackhole etc.)."""
-    return diagnostics.routes(_network_instance(ni_id), int(family) if family else None)
+    ni = _network_instance(ni_id)
+    return diagnostics.routes(ni.id, int(family) if family else None)
 
 
 @app.post("/v1/network-instances/{ni_id}/ping")
 def ping(ni_id: str, body: diagnostics.PingRequest) -> diagnostics.PingResult:
     """Ping from a network instance."""
-    return diagnostics.ping(_network_instance(ni_id), body)
+    return diagnostics.ping(_network_instance(ni_id).id, body)
 
 
 @app.post("/v1/network-instances/{ni_id}/traceroute")
@@ -323,13 +321,13 @@ def traceroute(
     body: diagnostics.TracerouteRequest,
 ) -> diagnostics.TracerouteResult:
     """Traceroute from a network instance."""
-    return diagnostics.traceroute(_network_instance(ni_id), body)
+    return diagnostics.traceroute(_network_instance(ni_id).id, body)
 
 
 @app.post("/v1/network-instances/{ni_id}/tcp")
 def tcp(ni_id: str, body: diagnostics.TcpRequest) -> diagnostics.TcpResult:
     """Open a TCP connection from a network instance."""
-    return diagnostics.tcp(_network_instance(ni_id), body)
+    return diagnostics.tcp(_network_instance(ni_id).id, body)
 
 
 @app.get("/v1/logs", response_model=list[logs.LogLine])

@@ -151,9 +151,7 @@ class NetnsState:
                 elif scope == RT_SCOPE_LINK:
                     state.link_local[owner].add(address)
             if routes:
-                for route_msg in _owned_route_messages(sock):
-                    route = _route_from_msg(route_msg, names)
-                    state.routes[route.dst] = route
+                state.routes = _routes(_owned_route_messages(sock), names)
         return state
 
 
@@ -408,6 +406,12 @@ def _route_from_msg(msg: dict, names: dict[int, str]) -> Route:  # type: ignore[
     )
 
 
+def _routes(messages: list[rtmsg], names: dict[int, str]) -> dict[IPNetwork, Route]:
+    """Return the routes of route messages by destination."""
+    routes = (_route_from_msg(msg, names) for msg in messages)
+    return {route.dst: route for route in routes}
+
+
 def refresh_link(ipr: namespace.IPRoute, state: NetnsState, name: str) -> Link | None:
     """Reread one interface into the snapshot and return it."""
     state.links.pop(name, None)
@@ -429,10 +433,7 @@ def refresh_link(ipr: namespace.IPRoute, state: NetnsState, name: str) -> Link |
 def refresh_routes(ipr: namespace.IPRoute, state: NetnsState) -> None:
     """Reread the owned routes into the snapshot."""
     names = {link.index: name for name, link in state.links.items()}
-    state.routes = {}
-    for msg in owned_route_messages(ipr.netns):
-        route = _route_from_msg(msg, names)
-        state.routes[route.dst] = route
+    state.routes = _routes(owned_route_messages(ipr.netns), names)
 
 
 def delete_link(ipr: namespace.IPRoute, state: NetnsState, name: str) -> bool:
