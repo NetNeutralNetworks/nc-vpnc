@@ -5,7 +5,6 @@ from __future__ import annotations
 import atexit
 import json
 import logging
-import os
 import sys
 import time
 from typing import TYPE_CHECKING, Any
@@ -135,8 +134,7 @@ def _write(ni_id: str, conns: dict[str, Connection]) -> None:
     if not conns:
         path.unlink(missing_ok=True)
         return
-    if files.ensure_file(path, render(conns), secret=True):
-        os.chown(path, config.IPSEC_USER, config.IPSEC_GROUP)
+    files.ensure_file(path, render(conns), secret=True)
 
 
 def _load(

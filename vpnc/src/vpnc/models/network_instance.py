@@ -644,11 +644,24 @@ class NetworkInstanceCore(NetworkInstance):
         self.delete_network_instance()
 
     def set_firewall(self) -> bool:
-        """Accept traffic from the uplinks, not from the DOWNLINK network instances."""
+        """Accept BGP and BFD from the uplinks, and forward IPv6 from them."""
+        default_tenant = tenant.get_default_tenant()
+        bgp_neighbors: list[str] = []
+        if default_tenant.mode == enums.ServiceMode.HUB:
+            # CORE has no IPv4.
+            bgp_neighbors = [
+                str(address)
+                for address in sorted(
+                    neighbor.neighbor_address
+                    for neighbor in default_tenant.bgp.neighbors
+                    if neighbor.neighbor_address.version == 6  # noqa: PLR2004
+                )
+            ]
         self._apply_firewall(
             "nft-core.conf.j2",
-            mode=tenant.get_default_tenant().mode,
+            mode=default_tenant.mode,
             interfaces=sorted(self._get_network_instance_connections()),
+            bgp_neighbors=bgp_neighbors,
         )
         return False
 

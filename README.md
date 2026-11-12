@@ -60,7 +60,7 @@ This upgrades the system packages, installs vpnc in `/opt/ncubed/vpnc`, `vpnctl`
 ~$ make update
 ```
 
-This reinstalls vpnc (and vpncmangle on a hub) and restarts vpnc only if something changed. Configuration files are only installed when missing, so local edits are kept. Then configure the service:
+This reinstalls vpnc (and vpncmangle on a hub) and restarts vpnc only if something changed. Configuration files are only installed when missing, so local edits are kept. The Python dependencies are installed at the versions and hashes in the lock files (`requirements*.txt`). Then configure the service:
 
 ```bash
 ~$ sudo vpnctl config edit service
@@ -234,3 +234,5 @@ vpnctl uses vpnc's local REST API on the Unix socket `/run/vpnc/api.sock` (root 
 ## Development
 
 The lab tests run in containerlab; see [test/README.md](test/README.md).
+
+`make lock` (not as root, with the Python version of the installs) locks the dependencies and build tools to their newest versions that match `pyproject.toml` and `requirements-build.in`.

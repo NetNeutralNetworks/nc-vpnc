@@ -10,7 +10,7 @@ import time
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from vpnc.network import namespace
 
@@ -38,10 +38,10 @@ class PingRequest(BaseModel):
     """A ping."""
 
     destination: IPAddress
-    count: int = 5
-    size: int = 56
+    count: int = Field(5, ge=1, le=100)
+    size: int = Field(56, ge=0, le=65500)
     # Seconds to wait for each reply.
-    timeout: float = 1
+    timeout: float = Field(1, gt=0, le=10)
 
 
 class PingResult(BaseModel):
@@ -60,7 +60,7 @@ class TracerouteRequest(BaseModel):
     """A traceroute."""
 
     destination: IPAddress
-    max_hops: int = 20
+    max_hops: int = Field(20, ge=1, le=64)
 
 
 class Hop(BaseModel):
@@ -83,8 +83,8 @@ class TcpRequest(BaseModel):
     """A TCP connection test."""
 
     address: IPAddress
-    port: int
-    timeout: float = 3
+    port: int = Field(ge=1, le=65535)
+    timeout: float = Field(3, gt=0, le=30)
 
 
 class TcpResult(BaseModel):

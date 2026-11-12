@@ -1,0 +1,6 @@
+# The tools vpnc, vpncmangle (their pyproject.toml) and NetfilterQueue (its
+# setup.py) are built with.
+cython
+setuptools>=64
+setuptools-scm>=8
+wheel

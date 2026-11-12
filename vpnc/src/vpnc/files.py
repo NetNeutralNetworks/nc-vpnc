@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import stat
 import threading
 from typing import TYPE_CHECKING
@@ -31,24 +32,35 @@ def ensure_file(path: Path, content: str, *, secret: bool = False) -> bool:
         changed = True
     if changed:
         # Replaced in one step, so readers never see a partly written file. The
-        # name isn't matched by the file watchers.
-        temporary = path.with_name(f".{path.name}.tmp")
+        # name isn't matched by the file watchers, and is new: an existing file
+        # or symbolic link isn't written to.
+        temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
         mode = SECRET_FILE_MODE if secret else 0o666
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-        temporary.replace(path)
-    if secret and stat.S_IMODE(path.stat().st_mode) != SECRET_FILE_MODE:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        fd = os.open(temporary, flags, mode)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
+            temporary.replace(path)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+    elif secret and stat.S_IMODE(path.stat().st_mode) != SECRET_FILE_MODE:
         path.chmod(SECRET_FILE_MODE)
     return changed
 
 
 def secure_tree(directory: Path) -> None:
-    """Make a directory with secrets, and all in it, only accessible by its owner."""
-    if not directory.is_dir():
+    """Make a directory with secrets, and all in it, only accessible by root.
+
+    Owned by another user, that user could replace what vpnc writes there.
+    """
+    if directory.is_symlink() or not directory.is_dir():
         return
+    os.chown(directory, 0, 0)
     directory.chmod(SECRET_DIR_MODE)
     for path in directory.rglob("*"):
         if path.is_symlink():
             continue
+        os.chown(path, 0, 0)
         path.chmod(SECRET_DIR_MODE if path.is_dir() else SECRET_FILE_MODE)

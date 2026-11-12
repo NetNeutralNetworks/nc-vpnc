@@ -317,22 +317,20 @@ def load_tenant_config(
     if not config.TENANT_RE.match(path.stem):
         logger.error("Invalid filename found in %s. Skipping.", path)
         return None, None
+    # Errors are logged without the file's content: it holds secrets.
     try:
         with path.open(encoding="utf-8") as f:
-            try:
-                config_yaml = yaml.safe_load(f)
-            except (yaml.YAMLError, TypeError):
-                logger.critical(
-                    "Configuration is not valid '%s'.",
-                    path,
-                    exc_info=True,
-                )
-                return None, None
+            config_yaml = yaml.safe_load(f)
     except FileNotFoundError:
+        logger.critical("Configuration file could not be found at '%s'.", path)
+        return None, None
+    except (yaml.YAMLError, TypeError) as err:
+        mark = getattr(err, "problem_mark", None)
         logger.critical(
-            "Configuration file could not be found at '%s'.",
+            "Configuration is not valid '%s': %s%s.",
             path,
-            exc_info=True,
+            getattr(err, "problem", None) or type(err).__name__,
+            f" at line {mark.line + 1}, column {mark.column + 1}" if mark else "",
         )
         return None, None
 
@@ -340,11 +338,14 @@ def load_tenant_config(
         config_yaml = migration.upgrade(config_yaml)
     try:
         tenant = Tenants(config=config_yaml).config
-    except pydantic_core.ValidationError:
+    except pydantic_core.ValidationError as err:
         logger.critical(
-            "Configuration file '%s' doesn't adhere to the schema",
+            "Configuration file '%s' doesn't adhere to the schema:\n%s",
             path,
-            exc_info=True,
+            "\n".join(
+                f"  {'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+                for error in err.errors(include_input=False, include_context=False)
+            ),
         )
         return None, None
 

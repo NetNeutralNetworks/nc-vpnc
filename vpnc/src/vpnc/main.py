@@ -2,6 +2,7 @@
 """Starts the service and runs it in either endpoint or hub mode."""
 
 import logging
+import os
 import resource
 import signal
 import sys
@@ -17,6 +18,11 @@ logger = logging.getLogger()
 
 def main() -> None:
     """Run the VPNC service."""
+    # The logs name tenants and peers: not readable for all.
+    config.LOG_DIR.mkdir(parents=True, exist_ok=True)
+    os.chown(config.LOG_DIR, 0, config.IPSEC_GROUP)
+    config.LOG_DIR.chmod(0o750)
+
     # Configure logging
     logger.setLevel(level=logging.INFO)
     formatter = logging.Formatter(
@@ -27,7 +33,7 @@ def main() -> None:
         datefmt="%m/%d/%Y %H:%M:%S %p",
     )
     rothandler = RotatingFileHandler(
-        "/var/log/ncubed/vpnc/vpnc.log",
+        config.LOG_DIR / "vpnc.log",
         maxBytes=100000,
         backupCount=5,
     )
@@ -44,8 +50,14 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Also repairs files written readable for all by earlier versions.
+    # Also repairs what earlier versions left readable for all, or owned by
+    # charon's user, who could then replace what vpnc writes there as root.
     config.VPNC_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    if config.IPSEC_CONFIG_DIR.parent.is_dir():
+        os.chown(config.IPSEC_CONFIG_DIR.parent, 0, 0, follow_symlinks=False)
+        if config.IPSEC_CONFIG_DIR.is_symlink():
+            config.IPSEC_CONFIG_DIR.unlink()
+            config.IPSEC_CONFIG_DIR.mkdir()
     for directory in config.SECRET_DIRS:
         files.secure_tree(directory)
     migration.migrate_all()
