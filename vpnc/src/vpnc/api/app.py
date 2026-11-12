@@ -5,12 +5,12 @@ Errors are RFC 9457 problem details (application/problem+json).
 
 import pathlib
 import subprocess
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Annotated, Any, Literal, NoReturn
 
 from fastapi import APIRouter, Body, Depends, FastAPI, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 
 from vpnc import config
@@ -86,6 +86,12 @@ def _not_found(kind: str, item_id: str) -> NoReturn:
 def get_status() -> status.Status:
     """Return an overview of the service."""
     return status.status()
+
+
+@app.get("/v1/ids")
+def get_ids() -> status.Ids:
+    """Return the ids of what's configured, without its state."""
+    return status.ids()
 
 
 @app.get("/v1/tenants")
@@ -195,28 +201,56 @@ def reset_connection(connection_id: str) -> status.ConnectionState:
     return _control(connection_id, control.reset)
 
 
-@app.get("/v1/connections/{connection_id}/logs")
+def _logs(
+    queries: list[logs.Query],
+    lines: int,
+    *,
+    follow: bool,
+) -> Any:  # noqa: ANN401
+    """Return the last log lines; with follow, as a stream that continues.
+
+    The stream has a JSON log line per line; empty lines keep it alive.
+    """
+    if not follow:
+        return logs.last(queries, lines)
+
+    async def stream() -> AsyncIterator[str]:
+        async for line in logs.follow(queries, lines):
+            yield (line.model_dump_json() if line else "") + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
+Lines = Annotated[int, Query(ge=1, le=10000)]
+Follow = Annotated[bool, Query(description="Keep sending new lines (JSON lines).")]
+
+
+@app.get("/v1/connections/{connection_id}/logs", response_model=list[logs.LogLine])
 def get_connection_logs(
     connection_id: str,
-    lines: Annotated[int, Query(ge=1, le=10000)] = 100,
+    lines: Lines = 100,
     level: logs.Level = "info",
-) -> list[logs.LogLine]:
+    follow: Follow = False,  # noqa: FBT002
+) -> Any:  # noqa: ANN401
     """Return a connection's last log lines: vpnc's (incl. SSH) and charon's."""
     _, connection = _connection(connection_id)
     ipsec = connection.config.type == enums.ConnectionType.IPSEC
-    return logs.connection_logs(connection_id, ipsec=ipsec, level=level, count=lines)
+    queries = logs.connection_queries(connection_id, ipsec=ipsec, level=level)
+    return _logs(queries, lines, follow=follow)
 
 
-@app.get("/v1/network-instances/{ni_id}/logs")
+@app.get("/v1/network-instances/{ni_id}/logs", response_model=list[logs.LogLine])
 def get_network_instance_logs(
     ni_id: str,
-    lines: Annotated[int, Query(ge=1, le=10000)] = 100,
+    lines: Lines = 100,
     level: logs.Level = "info",
-) -> list[logs.LogLine]:
+    follow: Follow = False,  # noqa: FBT002
+) -> Any:  # noqa: ANN401
     """Return the last log lines of a network instance and its connections."""
     if ni_id not in status.network_instances():
         _not_found("network instance", ni_id)
-    return logs.network_instance_logs(ni_id, level=level, count=lines)
+    queries = logs.network_instance_queries(ni_id, level=level)
+    return _logs(queries, lines, follow=follow)
 
 
 def _hub_only() -> None:
@@ -298,17 +332,18 @@ def tcp(ni_id: str, body: diagnostics.TcpRequest) -> diagnostics.TcpResult:
     return diagnostics.tcp(_network_instance(ni_id), body)
 
 
-@app.get("/v1/logs")
+@app.get("/v1/logs", response_model=list[logs.LogLine])
 def get_logs(
     source: logs.Source = "vpnc",
     level: logs.Level = "info",
-    lines: Annotated[int, Query(ge=1, le=10000)] = 100,
-) -> list[logs.LogLine]:
+    lines: Lines = 100,
+    follow: Follow = False,  # noqa: FBT002
+) -> Any:  # noqa: ANN401
     """Return the last lines of vpnc's, vpncmangle's or charon's log.
 
     The level doesn't apply to charon's log, whose lines have a subsystem.
     """
-    return logs.daemon_logs(source, level, lines)
+    return _logs(logs.daemon_queries(source, level), lines, follow=follow)
 
 
 UNIT = "ncubed-vpnc.service"

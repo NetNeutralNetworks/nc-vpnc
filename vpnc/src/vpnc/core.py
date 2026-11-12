@@ -18,6 +18,7 @@ from vpnc.services import (
     reconcile,
     strongswan,
     vpncmangle,
+    watchdog,
 )
 
 logger = logging.getLogger("vpnc")
@@ -96,10 +97,19 @@ def concentrator() -> None:
     logger.info("Starting Strongswan monitor")
     sa_mon = strongswan.Monitor(daemon=True)
     sa_mon.start()
-    reconcile.RECONCILER.register(
-        "strongswan",
-        lambda _: sa_mon.reconcile_connections(),
-    )
+
+    def check_connections(keys: set[str] | None) -> None:
+        """Reconcile charon's connections, then reset connections that stay down.
+
+        Both use one listing of the SAs.
+        """
+        sas_listing = None
+        try:
+            sas_listing = sa_mon.reconcile_connections()
+        finally:
+            watchdog.check(keys, sas_listing)
+
+    reconcile.RECONCILER.register("connections", check_connections)
 
     # Create and mount the CORE network instance. This provides the management
     # connectivity. The CORE namespace has no internet connectivity.

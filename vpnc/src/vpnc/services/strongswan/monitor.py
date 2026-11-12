@@ -8,15 +8,16 @@ import re
 import socket
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from types import MappingProxyType
 from typing import Any, TypeAlias
 
 import vici
 import vici.exception
+from pyroute2.netlink.exceptions import NetlinkError
 
 from vpnc import config, shared
-from vpnc.network import namespace
+from vpnc.network import namespace, state
 from vpnc.services.charon import VICI_SOCKET, VICI_TIMEOUT
 
 logger = logging.getLogger("vpnc")
@@ -27,9 +28,6 @@ IkeData: TypeAlias = MappingProxyType[str, bytes | IkeProperties]
 EventType: TypeAlias = bytes
 Event: TypeAlias = tuple[EventType, IkeData]
 
-# Interval in seconds at which all XFRM interface states are checked against the
-# state of their tunnels, to correct missed events.
-XFRM_RESYNC_INTERVAL = 30
 # Interface flag (linux/if.h).
 IFF_UP = 0x1
 
@@ -129,8 +127,12 @@ class Monitor(threading.Thread):
             daemon=True,
         ).start()
 
-    def reconcile_connections(self) -> None:
-        """Sync connections, initiate missing initiator SAs, remove unknown SAs."""
+    def reconcile_connections(self) -> list[dict[str, Any]]:
+        """Sync connections, initiate missing initiator SAs, remove unknown SAs.
+
+        Also corrects the XFRM interface states (missed events). The SAs are
+        listed once, and returned for the checks that follow.
+        """
         # Imported here: the package imports this module first.
         from vpnc.services.strongswan import strongswan  # noqa: PLC0415
 
@@ -140,7 +142,10 @@ class Monitor(threading.Thread):
         conns: dict[str, dict[str, Any]] = {
             name: details for conn in vcs.list_conns() for name, details in conn.items()
         }
-        sas: set[str] = {name for sa in vcs.list_sas() for name in sa}
+        listing: list[dict[str, Any]] = list(vcs.list_sas())
+        # Right away: an event may change a state after the listing.
+        self.resync_xfrm_interface_states(conns, listing)
+        sas: set[str] = {name for sa in listing for name in sa}
         logger.debug("Configured connections: %s", list(conns))
         logger.debug("Active connections: %s", sas)
 
@@ -159,16 +164,17 @@ class Monitor(threading.Thread):
             logger.info("Terminating connection '%s'", sa)
             self.terminate_sa(vcs=vcs, ike=sa)
 
-        self.remove_stale_policies(vcs)
+        self.remove_stale_policies(listing)
+        return listing
 
-    def remove_stale_policies(self, vcs: vici.Session) -> None:
+    def remove_stale_policies(self, listing: list[dict[str, Any]]) -> None:
         """Delete XFRM policies whose if_id has had no child SA for two checks.
 
         Policies don't expire, so they stay when charon dies and the SA doesn't
         come back. Waiting a check avoids racing an SA that is being set up.
         """
         active: set[int] = set()
-        for sa in vcs.list_sas():
+        for sa in listing:
             for ike in sa.values():
                 for child in ike.get("child-sas", {}).values():
                     for key in ("if-id-in", "if-id-out"):
@@ -219,15 +225,17 @@ class Monitor(threading.Thread):
     def monitor_xfrm_interface_state(self) -> None:
         """Monitor VPN tunnel state and set interface state accordingly.
 
-        Acts on IKE/child up/down events, and every XFRM_RESYNC_INTERVAL seconds
-        checks all configured connections, so a missed event or a wrong interface
-        state is corrected.
+        Acts on IKE/child up/down events. Events missed while it wasn't listening
+        are corrected when it starts, others by the full check.
         """
         vcs = self.connect(timeout=None)
 
         # At startup check all interface states
-        self.resync_xfrm_interface_states()
-        last_resync = time.monotonic()
+        session = self.connect()
+        self.resync_xfrm_interface_states(
+            (name.decode() for name in session.get_conns()["conns"]),
+            list(session.list_sas()),
+        )
 
         # Then check the queue for new events
         for event in vcs.listen(
@@ -236,9 +244,6 @@ class Monitor(threading.Thread):
         ):
             if shared.STOP_EVENT.is_set():
                 return
-            if time.monotonic() - last_resync >= XFRM_RESYNC_INTERVAL:
-                self.resync_xfrm_interface_states()
-                last_resync = time.monotonic()
             if event == (None, None):
                 continue
             event_type, event_data = event
@@ -246,34 +251,36 @@ class Monitor(threading.Thread):
                 continue
             self.resolve_xfrm_interface_state(event_data)
 
-    def resync_xfrm_interface_states(self) -> None:
-        """Set the XFRM interface state of all configured connections.
+    def resync_xfrm_interface_states(
+        self,
+        names: Iterable[str],
+        listing: list[dict[str, Any]],
+    ) -> None:
+        """Set the XFRM interface state of the connections (names), from the SAs.
 
-        With one list of all SAs and one socket per network instance.
+        With one read per network instance.
         """
-        vcs = self.connect()
         up = {
             name
-            for sa in vcs.list_sas()
+            for sa in listing
             for name, ike_data in sa.items()
             if tunnel_is_up(ike_data)
         }
         interfaces: dict[str, list[tuple[str, str]]] = {}
-        for ike_name in vcs.get_conns()["conns"]:
-            name = ike_name.decode()
+        for name in names:
             if (interface := self.xfrm_interface(name)) is not None:
                 interfaces.setdefault(interface[0], []).append((name, interface[1]))
         for network_instance_name, connections in interfaces.items():
             try:
-                with namespace.IPRoute(network_instance_name) as netns:
+                with state.session(), state.netns(network_instance_name) as netns:
                     for name, ifname in connections:
-                        self.set_link_state(
-                            netns,
+                        state.ensure_link_state(
+                            netns.ipr,
+                            netns.state,
                             ifname,
                             up=name in up,
-                            missing_ok=True,
                         )
-            except OSError as err:
+            except (OSError, NetlinkError) as err:
                 # E.g. a network instance that is being removed.
                 logger.debug(
                     "Setting the interface states in %s failed: %s",
@@ -332,12 +339,10 @@ class Monitor(threading.Thread):
         ifname: str,
         *,
         up: bool,
-        missing_ok: bool = False,
     ) -> None:
         """Set an interface up or down, if it isn't."""
         if not (iflookup := netns.link_lookup(ifname=ifname)):
-            log = logger.debug if missing_ok else logger.warning
-            log(
+            logger.warning(
                 "Network instance %s interface %s doesn't exist.",
                 netns.netns,
                 ifname,

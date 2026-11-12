@@ -180,6 +180,14 @@ class TestVpnctl:
         ]
         assert sorted(line.split()[0] for line in lines[1:]) == sorted(HUB_CONNECTIONS)
 
+    def test_completion(self) -> None:
+        """Completion offers the connections, and the tenants with configuration."""
+        connections = conftest.run_cmd("hub00", f"{VPNCTL} __complete connections show")
+        assert sorted(connections.split()) == sorted(HUB_CONNECTIONS)
+
+        targets = conftest.run_cmd("hub00", f"{VPNCTL} __complete config show")
+        assert sorted(targets.split()) == ["C0001", "service"]
+
 
 def neighbor_address(host: str, hostname: str) -> str:
     """Return the address of a BGP neighbor."""
@@ -294,6 +302,29 @@ class TestVpnctlLogsAndCounters:
 
         assert vpnctl("hub00", "logs --source vpncmangle")
         assert vpnctl("hub00", "logs --source charon")
+
+    def test_follow_logs(self) -> None:
+        """A followed log shows the last lines and stays open."""
+        follower = subprocess.run(  # noqa: S603
+            [  # noqa: S607
+                "docker",
+                "exec",
+                "clab-vpnc-hub00",
+                "timeout",
+                "3",
+                VPNCTL,
+                "logs",
+                "-n",
+                "5",
+                "-f",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        # Ended by timeout.
+        assert follower.returncode == 124  # noqa: PLR2004
+        assert len(follower.stdout.splitlines()) >= 5  # noqa: PLR2004
 
     def test_network_instance_logs(self) -> None:
         """A network instance's log has its vpnc lines and its IKE SAs' lines."""

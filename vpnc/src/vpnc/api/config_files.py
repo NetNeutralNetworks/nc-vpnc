@@ -178,16 +178,22 @@ def _yaml(data: dict[str, Any] | None) -> str:
     return yaml.safe_dump(data, explicit_start=True, explicit_end=True)
 
 
+def tenant_ids() -> list[str]:
+    """Return the tenants with a configuration file (not the service)."""
+    return sorted(
+        {
+            p.stem
+            for directory in DIRS.values()
+            for p in directory.glob("*.yaml")
+            if config.TENANT_RE.match(p.stem) and p.stem != config.DEFAULT_TENANT
+        },
+    )
+
+
 def summaries() -> list[ConfigSummary]:
     """Return the tenants with configuration (not the service)."""
-    ids = {
-        p.stem
-        for directory in DIRS.values()
-        for p in directory.glob("*.yaml")
-        if config.TENANT_RE.match(p.stem) and p.stem != config.DEFAULT_TENANT
-    }
     output: list[ConfigSummary] = []
-    for tenant_id in sorted(ids):
+    for tenant_id in tenant_ids():
         active, candidate = _load(tenant_id, "active"), _load(tenant_id, "candidate")
         if active is None and candidate is None:
             continue

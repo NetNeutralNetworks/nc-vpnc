@@ -21,7 +21,7 @@ from vpnc import config, shared
 from vpnc.models import enums, tenant
 from vpnc.network import namespace, state
 from vpnc.api import config_files
-from vpnc.services import configuration, ssh, vpncmangle, wireguard
+from vpnc.services import charon, configuration, ssh, vpncmangle, wireguard
 from vpnc.services.charon import VICI_SOCKET, VICI_TIMEOUT
 
 if TYPE_CHECKING:
@@ -144,24 +144,49 @@ def network_instances() -> dict[str, NetworkInstance]:
     }
 
 
-def _ipsec_sas() -> dict[str, dict[str, Any]]:
-    """Return the IKE SAs by connection name."""
+class Ids(BaseModel):
+    """The ids of what's configured, e.g. to complete commands."""
+
+    tenants: list[str]
+    network_instances: list[str]
+    connections: list[str]
+    # Tenants with an active or staged configuration.
+    config_tenants: list[str]
+
+
+def ids() -> Ids:
+    """Return the ids of the tenants, network instances and connections."""
+    configured = network_instances()
+    return Ids(
+        tenants=sorted(config.VPNC_CONFIG_TENANT),
+        network_instances=sorted(configured),
+        connections=sorted(
+            f"{ni.id}-{connection.id}"
+            for ni in configured.values()
+            for connection in ni.connections.values()
+        ),
+        config_tenants=config_files.tenant_ids(),
+    )
+
+
+def _ipsec_sas(
+    listing: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Return the IKE SAs by connection name; listed, unless a listing is given."""
+    if listing is None:
+        try:
+            with charon.session() as vcs:
+                listing = list(vcs.list_sas())
+        except OSError:
+            logger.warning("Reading the IPsec SAs failed.", exc_info=True)
+            return {}
     sas: dict[str, dict[str, Any]] = {}
-    sock = socket.socket(socket.AF_UNIX)
-    sock.settimeout(VICI_TIMEOUT)
-    try:
-        sock.connect(VICI_SOCKET)
-        for item in vici.Session(sock).list_sas():
-            for name, sa in item.items():
-                # A connection can have several (rekeying, duplicates): the one
-                # that's up counts.
-                if name not in sas or (_sa_up(sa) and not _sa_up(sas[name])):
-                    sas[name] = sa
-    except OSError:
-        logger.warning("Reading the IPsec SAs failed.", exc_info=True)
-        return {}
-    finally:
-        sock.close()
+    for item in listing:
+        for name, sa in item.items():
+            # A connection can have several (rekeying, duplicates): the one
+            # that's up counts.
+            if name not in sas or (_sa_up(sa) and not _sa_up(sas[name])):
+                sas[name] = sa
     return sas
 
 
@@ -260,15 +285,17 @@ def connection_states(
     *,
     counters: bool = False,
     interfaces: bool = True,
+    sas_listing: list[dict[str, Any]] | None = None,
 ) -> list[ConnectionState]:
     """Return the live state of the connections of the network instances.
 
     Without interfaces, network instances with only IPsec connections aren't read:
-    their state comes from the SAs. Enough to count connections that are up.
+    their state comes from the SAs. Enough to count connections that are up. The
+    SAs are listed, unless a listing (as vici returns it) is given.
     """
     selected = list(network_instances().values()) if selected is None else selected
     sas = (
-        _ipsec_sas()
+        _ipsec_sas(sas_listing)
         if any(
             c.config.type == enums.ConnectionType.IPSEC
             for ni in selected

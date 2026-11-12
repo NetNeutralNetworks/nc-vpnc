@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from vpnc import shared
 from vpnc.api import status
@@ -81,8 +81,14 @@ def path_down(
     )
 
 
-def check(keys: set[str] | None) -> None:
-    """Reset the connections that have been down too long."""
+def check(
+    keys: set[str] | None,
+    sas_listing: list[dict[str, Any]] | None = None,
+) -> None:
+    """Reset the connections that have been down too long.
+
+    With the SAs as just listed (as vici returns them), if given.
+    """
     if keys is not None:
         return
     network_instances = list(status.network_instances().values())
@@ -94,7 +100,12 @@ def check(keys: set[str] | None) -> None:
     now = time.monotonic()
     down: set[str] = set()
     states = {
-        s.id: s for s in status.connection_states(network_instances, interfaces=False)
+        s.id: s
+        for s in status.connection_states(
+            network_instances,
+            interfaces=False,
+            sas_listing=sas_listing,
+        )
     }
     for current in states.values():
         if current.id not in connections:
