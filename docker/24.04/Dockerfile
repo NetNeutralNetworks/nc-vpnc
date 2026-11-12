@@ -32,6 +32,7 @@ RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
 COPY --from=build /opt/ncubed/ /opt/ncubed/
 
 RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
+    --mount=type=bind,source=./setup/,target=/tmp/repo/setup/              \
     make -C /tmp/repo vpnctl
 
 # Configuration and logging directories.
