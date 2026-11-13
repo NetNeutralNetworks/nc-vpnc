@@ -12,6 +12,7 @@ import http.client
 import json
 import os
 import pathlib
+import shutil
 import socket
 import subprocess
 import sys
@@ -626,6 +627,36 @@ def cmd_tcp(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_capture(args: argparse.Namespace) -> None:
+    """Capture packets with tcpdump on a connection, or in a network instance."""
+    if shutil.which("tcpdump") is None:
+        fail("tcpdump isn't installed.")
+    try:
+        connection = request("GET", f"/v1/connections/{quote(args.target)}")
+    except ApiError as err:
+        if err.status != 404:  # noqa: PLR2004
+            raise
+        # A network instance: all its interfaces.
+        if not pathlib.Path("/run/netns", args.target).exists():
+            fail(f"{args.target} isn't a connection or network instance.")
+        namespace, interface = args.target, "any"
+    else:
+        namespace, interface = connection["network_instance"], connection["interface"]
+        if interface is None:
+            fail(f"{args.target} has no interface.")
+    command = ["ip", "netns", "exec", namespace, "tcpdump", "-l", "-n", "-i", interface]
+    if args.count:
+        command += ["-c", str(args.count)]
+    if args.verbose:
+        command.append("-" + "v" * args.verbose)
+    if args.write:
+        # As root: tcpdump otherwise can't write in root's directories.
+        command += ["-Z", "root", "-w", args.write]
+    sys.stdout.flush()
+    # tcpdump takes over: Ctrl-C ends it with its summary.
+    os.execvp(command[0], [*command, *args.filter])  # noqa: S606
+
+
 def cmd_version(args: argparse.Namespace) -> None:
     """Show the versions of vpnctl, vpnc and the software it runs."""
     from vpnc import __version__  # noqa: PLC0415
@@ -1075,6 +1106,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "ping": {},
     "traceroute": {},
     "tcp": {},
+    "capture": {},
     "logs": {},
     "version": {},
     "service": {"restart": None, "stop": None},
@@ -1122,6 +1154,8 @@ OPTION_VALUES = {
     "--timeout": [],
     "-n": [],
     "--lines": [],
+    "-w": [],
+    "--write": [],
 }
 
 
@@ -1134,6 +1168,7 @@ def _ids(kind: str) -> list[str]:
         "filter": ["tenants", "network_instances"],
         "target": ["config_tenants"],
         "control": ["tenants", "network_instances", "connections"],
+        "capture": ["network_instances", "connections"],
     }.get(kind, [])
     if kind == "neighbor":
         return [n["neighbor"] for n in request("GET", "/v1/bgp/neighbors")]
@@ -1159,6 +1194,8 @@ def complete(words: list[str]) -> list[str]:
         return [c for c in COMMANDS if c != "network-instances"]
     if positional[0] in NI_COMMANDS:
         return _ids("network_instance") if len(positional) == 1 else []
+    if positional[0] == "capture":
+        return _ids("capture") if len(positional) == 1 else []
     actions = COMMANDS.get(positional[0], {})
     if len(positional) == 1:
         return list(actions)
@@ -1308,6 +1345,18 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("port", type=int)
     p.add_argument("-t", "--timeout", type=float, default=3, help="default: 3s")
 
+    p = add(commands, "capture", cmd_capture)
+    p.add_argument("target", help="a connection (C0001-00-0) or network instance")
+    p.add_argument(
+        "filter",
+        nargs="*",
+        metavar="TCPDUMP",
+        help="tcpdump's options and filter, e.g. -e port 443",
+    )
+    p.add_argument("-c", "--count", type=int, help="stop after this many packets")
+    p.add_argument("-v", "--verbose", action="count", default=0, help="up to -vvv")
+    p.add_argument("-w", "--write", metavar="FILE", help="a pcap file ('-': stdout)")
+
     p = add(commands, "logs", cmd_logs)
     p.add_argument("--source", choices=SOURCES, default="vpnc")
     p.add_argument(
@@ -1375,13 +1424,51 @@ def parser() -> argparse.ArgumentParser:
     return main
 
 
+# vpnctl capture's own options; the ones in the first take a value.
+CAPTURE_OPTIONS = ("-c", "--count", "-w", "--write", "-o", "--output")
+CAPTURE_FLAGS = ("-h", "--help")
+
+
+def capture_arguments(words: list[str]) -> list[str]:
+    """Return capture's arguments with tcpdump's (options and filter) after '--'.
+
+    So tcpdump's own options can be given as they are, e.g. -e or -s 96.
+    """
+    own: list[str] = []
+    rest: list[str] = []
+    target = False
+    words = list(words)
+    while words:
+        word = words.pop(0)
+        if word == "--":
+            rest += words
+            break
+        if word in CAPTURE_OPTIONS and words:
+            own += [word, words.pop(0)]
+        elif (
+            word in CAPTURE_FLAGS
+            or word.strip("v") == "-"
+            or word.startswith(("--count=", "--write=", "--output="))
+        ):
+            own.append(word)
+        elif not target and not word.startswith("-"):
+            own.append(word)
+            target = True
+        else:
+            rest.append(word)
+    return [*own, "--", *rest]
+
+
 def main() -> None:
     """Run vpnctl."""
     if sys.argv[1:2] == ["__complete"]:
         with contextlib.suppress(ApiError, SystemExit):
             print("\n".join(complete(sys.argv[2:])))
         return
-    args = parser().parse_args()
+    words = sys.argv[1:]
+    if words[:1] == ["capture"]:
+        words = ["capture", *capture_arguments(words[1:])]
+    args = parser().parse_args(words)
     args.output = getattr(args, "output", "table")
     try:
         args.func(args)

@@ -76,12 +76,12 @@ apt-update:
 # strongswan metapackage installs charon-systemd instead.
 # python3-packaging: the Docker venv uses system site packages, pip relies on it.
 # kmod: vpnc runs modinfo and modprobe.
-# iputils-ping, traceroute: vpnctl ping and traceroute.
+# iputils-ping, traceroute, tcpdump: vpnctl ping, traceroute and capture.
 packages: apt-update
 	$(if $(SYSTEMD),$(APT) upgrade -y)
 	$(APT) install -y nftables iproute2 kmod \
 		strongswan strongswan-swanctl strongswan-starter strongswan-charon \
-		python3-packaging ssh wireguard iputils-ping traceroute
+		python3-packaging ssh wireguard iputils-ping traceroute tcpdump
 	$(SYSTEMCTL) mask ipsec.service strongswan-starter.service
 	$(SYSTEMCTL) stop ipsec.service strongswan-starter.service || true
 	getent group swan > /dev/null || groupadd swan
