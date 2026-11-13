@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 import vpnc.models.network_instance
 import vpnc.services.ssh
+from vpnc import helpers
 from vpnc.models import connections, enums
 from vpnc.network import state
 
@@ -20,6 +21,7 @@ class ConnectionConfigSSH(BaseModel):
     """Defines an SSH connection data structure."""
 
     type: Literal[enums.ConnectionType.SSH] = enums.ConnectionType.SSH
+    _upper = helpers.upper("type")
     remote_addrs: list[IPv4Address | IPv6Address] = Field(min_length=1)
     remote_config: bool = False
     # Required. Specifies the remote
@@ -50,8 +52,8 @@ class ConnectionConfigSSH(BaseModel):
 
         with state.netns(network_instance.id) as dl:
             state.ensure_tun(dl.ipr, dl.state, tun)
-            state.ensure_link_state(dl.ipr, dl.state, tun, up=True)
-            connection.ensure_addresses(network_instance, dl)
+            state.ensure_link_state(dl.ipr, dl.state, tun, up=connection.enabled)
+            connection.ensure_mtu_and_addresses(network_instance, dl)
 
         vpnc.services.ssh.start(network_instance, connection)
         return tun

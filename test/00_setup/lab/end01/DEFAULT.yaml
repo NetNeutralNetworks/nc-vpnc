@@ -7,12 +7,12 @@ name: DEFAULT
 metadata: {}
 # Runtime mode
 # Defines if the service is running in endpoint or hub mode
-mode: endpoint
+mode: ENDPOINT
 
 # Network configuration
 network_instances:
   EXTERNAL:
-    type: external # external
+    type: EXTERNAL # EXTERNAL
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -33,10 +33,10 @@ network_instances:
             via: 192.0.2.1
         # Config of type physical
         config:
-          type: physical # ipsec | physical | wireguard
+          type: PHYSICAL # IPSEC | PHYSICAL | WIREGUARD
           interface_name: eth1
   CORE:
-    type: core # core
+    type: CORE # CORE
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -60,7 +60,7 @@ network_instances:
           ipv4:
           - to: 100.99.1.0/28
         config:
-          type: wireguard # ipsec | physical | wireguard
+          type: WIREGUARD # IPSEC | PHYSICAL | WIREGUARD
           # local_port: 51820
           # IPv6 or IPv4 address
           remote_addrs: [192.0.2.5, 2001:db8::5]
@@ -78,7 +78,7 @@ network_instances:
           ipv4:
           - to: 100.100.1.0/28
         config:
-          type: wireguard # ipsec | physical | wireguard
+          type: WIREGUARD # IPSEC | PHYSICAL | WIREGUARD
           local_port: 51821
           # IPv6 or IPv4 address
           remote_addrs: [192.0.2.6, 2001:db8::6]
@@ -86,7 +86,7 @@ network_instances:
           private_key: 8NXTx0XzfdAhRWJbYx/cuRNwY9ONLDg8o1LKs+IxpHM=
           public_key: QId/IeB4jutXdyCqoIP6zHdp0etP59+MvfRhsU8OeFA=
   ENDPOINT:
-    type: endpoint # endpoint
+    type: ENDPOINT # ENDPOINT
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -112,7 +112,7 @@ network_instances:
           - to: default
             via: 172.17.30.1
         config:
-          type: physical # ipsec | ssh | physical
+          type: PHYSICAL # IPSEC | SSH | PHYSICAL
           interface_name: eth2
 
 # VPN CONFIG

@@ -24,8 +24,8 @@ logger = logging.getLogger("vpnc")
 class Initiation(Enum):
     """Define if the VPN connection automatically starts."""
 
-    INITIATOR = "start"
-    RESPONDER = "none"
+    INITIATOR = "START"
+    RESPONDER = "NONE"
 
 
 class TrafficSelectors(BaseModel):
@@ -63,6 +63,7 @@ class ConnectionConfigIPsec(BaseModel):
         return v
 
     _none_as_default = helpers.none_as_default("traffic_selectors")
+    _upper = helpers.upper("type", "initiation")
 
     def add(
         self,
@@ -78,7 +79,7 @@ class ConnectionConfigIPsec(BaseModel):
             state.netns(config.EXTERNAL_NI) as ext,
         ):
             state.ensure_xfrm(dl.ipr, ext.ipr, dl.state, xfrm, vpn_id)
-            connection.ensure_addresses(network_instance, dl)
+            connection.ensure_mtu_and_addresses(network_instance, dl)
 
         return xfrm
 

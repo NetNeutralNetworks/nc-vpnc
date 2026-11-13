@@ -11,7 +11,7 @@ from typing import Annotated, Any, Literal, NoReturn
 from fastapi import APIRouter, Body, Depends, FastAPI, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
-from pydantic import ValidationError
+from pydantic import BeforeValidator, ValidationError
 
 from vpnc import config, helpers
 from vpnc.api import config_files, diagnostics, logs, status
@@ -36,6 +36,8 @@ app = FastAPI(
 )
 
 PROBLEM = "application/problem+json"
+# Values are upper case; lower case is accepted.
+Upper = BeforeValidator(lambda v: v.upper() if isinstance(v, str) else v)
 ConfigBody = Annotated[dict[str, Any], Body()]
 
 
@@ -143,19 +145,24 @@ def get_network_instance(ni_id: str) -> status.NetworkInstanceState:
 def list_connections(
     tenant_id: Annotated[str | None, Query(alias="tenant")] = None,
     ni_id: Annotated[str | None, Query(alias="network_instance")] = None,
-    state: Annotated[status.State | None, Query()] = None,
-    connection_type: Annotated[enums.ConnectionType | None, Query(alias="type")] = None,
-    counters: bool = False,  # noqa: FBT001, FBT002
+    admin_status: Annotated[status.AdminStatus | None, Upper] = None,
+    oper_status: Annotated[status.OperStatus | None, Upper] = None,
+    connection_type: Annotated[
+        enums.ConnectionType | None,
+        Upper,
+        Query(alias="type"),
+    ] = None,
 ) -> list[status.ConnectionState]:
-    """Return the connections, optionally filtered (and with traffic counters)."""
+    """Return the connections, optionally filtered."""
     selected = [
         ni for ni in _select(None, tenant_id) if ni_id is None or ni.id == ni_id
     ]
     return [
         s
-        for s in status.connection_states(selected, counters=counters)
-        if (state is None or s.state == state)
-        and (connection_type is None or s.type == connection_type.value)
+        for s in status.connection_states(selected)
+        if (admin_status is None or s.admin_status == admin_status)
+        and (oper_status is None or s.oper_status == oper_status)
+        and (connection_type is None or s.type == connection_type)
     ]
 
 
@@ -169,7 +176,7 @@ def _connection(connection_id: str) -> tuple[NetworkInstance, Connection]:
 
 def _connection_state(connection_id: str) -> status.ConnectionState:
     ni, _ = _connection(connection_id)
-    states = status.connection_states([ni], counters=True)
+    states = status.connection_states([ni])
     return next(s for s in states if s.id == connection_id)
 
 
@@ -179,31 +186,34 @@ def get_connection(connection_id: str) -> status.ConnectionState:
     return _connection_state(connection_id)
 
 
-def _control(connection_id: str, action: Any) -> status.ConnectionState:  # noqa: ANN401
-    ni, connection = _connection(connection_id)
-    try:
-        action(ni, connection)
-    except control.ControlError as err:
-        raise ConfigError(409, "Conflict", str(err)) from err
+def _set_enabled(connection_id: str, *, enabled: bool) -> status.ConnectionState:
+    ni, _ = _connection(connection_id)
+    config_files.set_enabled(ni.tenant_id, connection_id, enabled=enabled)
+    # As loaded now.
+    control.apply(*_connection(connection_id))
     return _connection_state(connection_id)
 
 
 @app.post("/v1/connections/{connection_id}/stop")
 def stop_connection(connection_id: str) -> status.ConnectionState:
-    """Stop a VPN connection until it's started, or vpnc restarts."""
-    return _control(connection_id, control.stop)
+    """Disable a connection: enabled is set to false in its configuration."""
+    return _set_enabled(connection_id, enabled=False)
 
 
 @app.post("/v1/connections/{connection_id}/start")
 def start_connection(connection_id: str) -> status.ConnectionState:
-    """Start a stopped VPN connection."""
-    return _control(connection_id, control.start)
+    """Enable a connection: enabled is set to true in its configuration."""
+    return _set_enabled(connection_id, enabled=True)
 
 
 @app.post("/v1/connections/{connection_id}/reset")
 def reset_connection(connection_id: str) -> status.ConnectionState:
     """Set a VPN connection up again (new IKE SA, WireGuard or SSH session)."""
-    return _control(connection_id, control.reset)
+    try:
+        control.reset(*_connection(connection_id))
+    except control.ControlError as err:
+        raise ConfigError(409, "Conflict", str(err)) from err
+    return _connection_state(connection_id)
 
 
 def _logs(
@@ -227,6 +237,7 @@ def _logs(
 
 
 Lines = Annotated[int, Query(ge=1, le=10000)]
+Level = Annotated[logs.Level, Upper]
 Follow = Annotated[bool, Query(description="Keep sending new lines (JSON lines).")]
 
 
@@ -234,7 +245,7 @@ Follow = Annotated[bool, Query(description="Keep sending new lines (JSON lines).
 def get_connection_logs(
     connection_id: str,
     lines: Lines = 100,
-    level: logs.Level = "info",
+    level: Level = "INFO",
     follow: Follow = False,  # noqa: FBT002
 ) -> Any:  # noqa: ANN401
     """Return a connection's last log lines: vpnc's (incl. SSH) and charon's."""
@@ -248,7 +259,7 @@ def get_connection_logs(
 def get_network_instance_logs(
     ni_id: str,
     lines: Lines = 100,
-    level: logs.Level = "info",
+    level: Level = "INFO",
     follow: Follow = False,  # noqa: FBT002
 ) -> Any:  # noqa: ANN401
     """Return the last log lines of a network instance and its connections."""
@@ -333,7 +344,7 @@ def tcp(ni_id: str, body: diagnostics.TcpRequest) -> diagnostics.TcpResult:
 @app.get("/v1/logs", response_model=list[logs.LogLine])
 def get_logs(
     source: logs.Source = "vpnc",
-    level: logs.Level = "info",
+    level: Level = "INFO",
     lines: Lines = 100,
     follow: Follow = False,  # noqa: FBT002
 ) -> Any:  # noqa: ANN401

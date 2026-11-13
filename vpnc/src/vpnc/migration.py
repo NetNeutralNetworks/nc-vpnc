@@ -42,24 +42,48 @@ class Step(NamedTuple):
     text: Callable[[str, dict[str, Any]], str] | None = None
 
 
+def _upper(data: dict[str, Any], *keys: str) -> dict[str, Any]:
+    """Return a mapping with the string values of keys in upper case."""
+    return {
+        k: v.upper() if k in keys and isinstance(v, str) else v
+        for k, v in data.items()
+    }
+
+
+def _connection_0_1_3(connection: Any) -> Any:  # noqa: ANN401
+    if not isinstance(connection, dict):
+        return connection
+    connection = {k: v for k, v in connection.items() if k != "id"}
+    if isinstance(settings := connection.get("config"), dict):
+        connection["config"] = _upper(settings, "type", "initiation")
+    return connection
+
+
 def _data_0_1_3(data: dict[str, Any]) -> dict[str, Any]:
-    """Shorten the network instance keys (C0001-00 to 00) and drop the ids."""
+    """Shorten the network instance keys (C0001-00 to 00) and drop the ids.
+
+    And write the mode, types and initiation in upper case.
+    """
     prefix = f"{data.get('id')}-"
     network_instances = {}
     for key, value in (data.get("network_instances") or {}).items():
         network_instance = value
         if isinstance(value, dict):
-            network_instance = {k: v for k, v in value.items() if k != "id"}
+            network_instance = _upper(
+                {k: v for k, v in value.items() if k != "id"},
+                "type",
+            )
             if isinstance(connections := value.get("connections"), dict):
                 network_instance["connections"] = {
-                    connection_key: {k: v for k, v in connection.items() if k != "id"}
-                    if isinstance(connection, dict)
-                    else connection
+                    connection_key: _connection_0_1_3(connection)
                     for connection_key, connection in connections.items()
                 }
         short = key.removeprefix(prefix) if isinstance(key, str) else key
         network_instances[short] = network_instance
-    return {**data, "network_instances": network_instances}
+    return {**_upper(data, "mode"), "network_instances": network_instances}
+
+
+VALUE_RE = re.compile(r"^(\s*[\"']?)(\w+)")
 
 
 def _text_0_1_3(text: str, data: dict[str, Any]) -> str:
@@ -76,13 +100,34 @@ def _text_0_1_3(text: str, data: dict[str, Any]) -> str:
             stack.pop()
         stack.append((indent, key))
         path = [k for _, k in stack]
-        if path[0] != "network_instances":
-            lines.append(line)
-        elif len(path) == 2 and (short := full_key.fullmatch(key)):  # noqa: PLR2004
+        nested = path[0] == "network_instances"
+        depth = len(path)
+        in_connection = depth > 4 and path[2] == "connections"  # noqa: PLR2004
+        short = None
+        if nested and depth == 2:  # noqa: PLR2004
+            short = full_key.fullmatch(key)
+        is_id = nested and key == "id"
+        if short:
             lines.append(f"{match[1]}{short[1]}:{line[match.end() :]}")
-        elif path[-1] != "id" or not (
-            len(path) == 3 or (len(path) == 5 and path[2] == "connections")  # noqa: PLR2004
+        elif is_id and (depth == 3 or (in_connection and depth == 5)):  # noqa: PLR2004
+            continue
+        elif (
+            path == ["mode"]
+            or (nested and depth == 3 and key == "type")  # noqa: PLR2004
+            or (
+                in_connection
+                and depth == 6  # noqa: PLR2004
+                and path[4] == "config"
+                and key in ("type", "initiation")
+            )
         ):
+            value = VALUE_RE.sub(
+                lambda m: m[1] + m[2].upper(),
+                line[match.end() :],
+                count=1,
+            )
+            lines.append(line[: match.end()] + value)
+        else:
             lines.append(line)
     return "".join(lines)
 

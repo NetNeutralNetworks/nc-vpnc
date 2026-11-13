@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import vpnc.models.connections
 import vpnc.models.ssh
-from vpnc import helpers, shared
+from vpnc import helpers
 from vpnc.models import enums
 
 if TYPE_CHECKING:
@@ -163,7 +163,7 @@ def _start(
 ) -> None:
     connection_name = connection.name(network_instance)
     ssh_master_socket = SSH_SOCKET_DIR.joinpath(f"{connection_name}.sock")
-    if connection_name in shared.STOPPED_CONNECTIONS:
+    if not connection.enabled:
         stop(network_instance, connection)
         return
 

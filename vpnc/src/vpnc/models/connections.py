@@ -88,6 +88,10 @@ class Connection(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # False: admin down. The interface is down; a VPN isn't set up.
+    enabled: bool = True
+    # None: the interface's default. IPv6 needs 1280.
+    mtu: int | None = Field(default=None, ge=1280, le=65535)
     interface: Interface = Field(default_factory=Interface)
     routes: Routes = Field(default_factory=Routes)
     config: (
@@ -141,12 +145,18 @@ class Connection(BaseModel):
 
         return interface_ipv4_address, interface_ipv6_address
 
-    def ensure_addresses(
+    def ensure_mtu_and_addresses(
         self,
         network_instance: network_instance.NetworkInstance,
         netns: state.Netns,
     ) -> None:
-        """Give the connection's interface its addresses, in its (open) namespace."""
+        """Give the connection's interface its MTU and addresses, in its namespace."""
+        state.ensure_mtu(
+            netns.ipr,
+            netns.state,
+            self.intf_name(network_instance),
+            self.mtu,
+        )
         if_ipv4, if_ipv6 = self.calc_interface_ip_addresses(network_instance)
         state.ensure_addresses(
             netns.ipr,

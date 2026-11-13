@@ -27,7 +27,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
-from vpnc import config, migration
+from vpnc import config, helpers, migration
 from vpnc.models.enums import ServiceMode
 
 # Needed for pydantim ports and type checking
@@ -145,6 +145,8 @@ class ServiceTenant(Tenant):
     id: str = config.DEFAULT_TENANT
     name: str = config.DEFAULT_TENANT
     mode: ServiceMode
+
+    _upper = helpers.upper("mode")
 
     # VPN CONFIG
     # IKE local identifier for VPNs

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from pyroute2 import WireGuard
 from pyroute2.netlink.exceptions import NetlinkError
 
-from vpnc import config, files, shared
+from vpnc import config, files
 from vpnc.network import namespace
 
 if TYPE_CHECKING:
@@ -94,12 +94,12 @@ def sync(
 ) -> None:
     """Configure a WireGuard interface as desired, changing only what differs.
 
-    Unchanged peers keep their session. A stopped connection has no peer.
+    Unchanged peers keep their session. A disabled connection has no peer.
     """
     cfg = connection.config
     private_key = cfg.private_key.get_secret_value()
     desired = _peer(connection)
-    stopped = connection.name(network_instance) in shared.STOPPED_CONNECTIONS
+    stopped = not connection.enabled
 
     def run() -> None:
         # The socket is opened in this thread's namespace.

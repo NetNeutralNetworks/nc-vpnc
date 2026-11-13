@@ -226,6 +226,7 @@ class NetworkInstance(BaseModel):
         )
 
     _none_as_default = helpers.none_as_default("metadata")
+    _upper = helpers.upper("type")
 
     @field_validator("connections")
     @classmethod

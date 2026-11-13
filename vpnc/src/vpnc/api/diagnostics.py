@@ -24,12 +24,12 @@ TRACEROUTE_HOP_RE = re.compile(r"^\s*(\d+)\s+(?:(\S+)\s+([\d.]+) ms|\*)")
 class Route(BaseModel):
     """A route in a network instance's routing table."""
 
-    destination: str
-    # unicast, blackhole, unreachable, local etc.
+    prefix: str
+    # UNICAST, BLACKHOLE, UNREACHABLE, LOCAL etc.
     type: str
-    gateways: list[str]
+    next_hops: list[str]
     interfaces: list[str]
-    # Who installed it, e.g. kernel, bgp, vpnc.
+    # Who installed it, e.g. KERNEL, BGP, VPNC.
     protocol: str | None
     metric: int | None
 
@@ -102,15 +102,17 @@ def routes(ni_id: str, family: Literal[4, 6] | None = None) -> list[Route]:
     output: list[Route] = []
     for fam in (family,) if family else (4, 6):
         result = namespace.run(ni_id, ["/usr/sbin/ip", "-j", f"-{fam}", "route"])
+        default = "0.0.0.0/0" if fam == 4 else "::/0"  # noqa: PLR2004, S104
         for route in json.loads(result.stdout or "[]"):
             hops = route.get("nexthops") or [route]
+            protocol = route.get("protocol")
             output.append(
                 Route(
-                    destination=route["dst"],
-                    type=route.get("type", "unicast"),
-                    gateways=[h["gateway"] for h in hops if h.get("gateway")],
+                    prefix=default if route["dst"] == "default" else route["dst"],
+                    type=route.get("type", "unicast").upper(),
+                    next_hops=[h["gateway"] for h in hops if h.get("gateway")],
                     interfaces=[h["dev"] for h in hops if h.get("dev")],
-                    protocol=route.get("protocol"),
+                    protocol=str(protocol).upper() if protocol else None,
                     metric=route.get("metric"),
                 ),
             )

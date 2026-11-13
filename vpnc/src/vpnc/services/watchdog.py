@@ -45,13 +45,13 @@ DOWN: dict[str, Down] = {}
 
 def resettable(current: status.ConnectionState, connection: Connection) -> bool:
     """Return whether a reset could set the connection up."""
-    if current.state in ("up", "stopped"):
+    if current.oper_status == "UP" or current.admin_status == "DOWN":
         return False
     ctype = connection.config.type
     if ctype == enums.ConnectionType.IPSEC:
         return (
             connection.config.initiation == Initiation.INITIATOR
-            or current.state == "connecting"
+            or current.oper_status == "DORMANT"
         )
     if ctype in (enums.ConnectionType.WIREGUARD, enums.ConnectionType.SSH):
         # Without its interface, the network instance check creates it first.
@@ -69,7 +69,7 @@ def path_down(
         return False
     server = connection.config.remote_addrs[0]
     return any(
-        states[other.name(ni)].state != "up"
+        states[other.name(ni)].oper_status != "UP"
         for other in ni.connections.values()
         if other is not connection
         and other.name(ni) in states
@@ -121,7 +121,7 @@ def check(
         logger.warning(
             "Connection %s has been %s for %ds. Resetting it.",
             current.id,
-            current.state,
+            current.oper_status,
             now - entry.since,
         )
         try:

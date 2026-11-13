@@ -55,6 +55,15 @@ def printable(text: str) -> str:
     return "".join(c if c.isprintable() else "?" for c in text)
 
 
+def upper(*fields: str) -> Any:  # noqa: ANN401
+    """Return a validator that upper-cases fields, whose values were lower case."""
+
+    def validate(_: type[BaseModel], v: Any) -> Any:  # noqa: ANN401
+        return v.upper() if isinstance(v, str) else v
+
+    return field_validator(*fields, mode="before")(classmethod(validate))
+
+
 def none_as_default(*fields: str) -> Any:  # noqa: ANN401
     """Return a validator that gives fields their default when they're None.
 

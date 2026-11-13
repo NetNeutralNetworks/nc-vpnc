@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Literal
 import pyroute2
 from pydantic import BaseModel
 
+from vpnc import helpers
 from vpnc.models import connections, enums
 from vpnc.network import state
 
@@ -21,6 +22,7 @@ class ConnectionConfigPhysical(BaseModel):
     """Defines a local connection data structure."""
 
     type: Literal[enums.ConnectionType.PHYSICAL] = enums.ConnectionType.PHYSICAL
+    _upper = helpers.upper("type")
     interface_name: str
 
     def add(
@@ -38,8 +40,8 @@ class ConnectionConfigPhysical(BaseModel):
             if ifname not in dl.state.links:
                 logger.critical("Physical interface %s not found.", ifname)
                 raise ValueError
-            state.ensure_link_state(dl.ipr, dl.state, ifname, up=True)
-            connection.ensure_addresses(network_instance, dl)
+            state.ensure_link_state(dl.ipr, dl.state, ifname, up=connection.enabled)
+            connection.ensure_mtu_and_addresses(network_instance, dl)
 
         return ifname
 

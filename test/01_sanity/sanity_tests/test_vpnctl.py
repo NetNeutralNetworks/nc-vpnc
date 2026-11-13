@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from typing import Any
 
@@ -13,45 +14,45 @@ from . import conftest
 VPNCTL = "/opt/ncubed/vpnc/bin/vpnctl"
 
 HUB_CONNECTIONS = {
-    "C0001-00-0": ("ipsec", "xfrm0"),
-    "C0001-00-1": ("ssh", "tun1"),
-    "C0001-01-0": ("wireguard", "wg-C0001-01-0"),
-    "CORE-0": ("ipsec", "xfrm0"),
-    "CORE-1": ("ipsec", "xfrm1"),
-    "EXTERNAL-0": ("physical", "eth1"),
+    "C0001-00-0": ("IPSEC", "xfrm0"),
+    "C0001-00-1": ("SSH", "tun1"),
+    "C0001-01-0": ("WIREGUARD", "wg-C0001-01-0"),
+    "CORE-0": ("IPSEC", "xfrm0"),
+    "CORE-1": ("IPSEC", "xfrm1"),
+    "EXTERNAL-0": ("PHYSICAL", "eth1"),
 }
 CONNECTIONS = {
     "hub00": HUB_CONNECTIONS,
     "hub01": HUB_CONNECTIONS,
     "end00": {
-        "CORE-0": ("ipsec", "xfrm0"),
-        "CORE-1": ("ipsec", "xfrm1"),
-        "ENDPOINT-0": ("physical", "eth2"),
-        "EXTERNAL-0": ("physical", "eth1"),
+        "CORE-0": ("IPSEC", "xfrm0"),
+        "CORE-1": ("IPSEC", "xfrm1"),
+        "ENDPOINT-0": ("PHYSICAL", "eth2"),
+        "EXTERNAL-0": ("PHYSICAL", "eth1"),
     },
     "end01": {
-        "CORE-0": ("wireguard", "wg-CORE-0"),
-        "CORE-1": ("wireguard", "wg-CORE-1"),
-        "ENDPOINT-0": ("physical", "eth2"),
-        "EXTERNAL-0": ("physical", "eth1"),
+        "CORE-0": ("WIREGUARD", "wg-CORE-0"),
+        "CORE-1": ("WIREGUARD", "wg-CORE-1"),
+        "ENDPOINT-0": ("PHYSICAL", "eth2"),
+        "EXTERNAL-0": ("PHYSICAL", "eth1"),
     },
 }
 
 TRANSLATIONS_C0001_00 = [
-    {"type": "nat64", "local": "fdcc:0:c:1::/96", "remote": "0.0.0.0/0"},
-    {"type": "nptv6", "local": "fd6c:1::/52", "remote": "fdff:db8:c57::/52"},
+    {"type": "NAT64", "local": "fdcc:0:c:1::/96", "remote": "0.0.0.0/0"},
+    {"type": "NPTV6", "local": "fd6c:1::/52", "remote": "fdff:db8:c57::/52"},
     {
-        "type": "nptv6",
+        "type": "NPTV6",
         "local": "fd6c:1:0:1000::/52",
         "remote": "fdff:db8:c57:1000::/52",
     },
     {
-        "type": "nptv6",
+        "type": "NPTV6",
         "local": "fd6c:1:0:2000::/56",
         "remote": "fdff:db8:c57:2000::/56",
     },
     {
-        "type": "nptv6",
+        "type": "NPTV6",
         "local": "fd6c:1:0:3000::/52",
         "remote": "fdff:db8:c57:3000::/52",
     },
@@ -72,7 +73,7 @@ class TestVpnctl:
         status = vpnctl(host, "status")
 
         hub = host.startswith("hub")
-        assert status["mode"] == ("hub" if hub else "endpoint")
+        assert status["mode"] == ("HUB" if hub else "ENDPOINT")
         assert status["restart_needed"] == []
         if hub:
             assert status["vpncmangle"]["running"] is True
@@ -92,12 +93,12 @@ class TestVpnctl:
     def test_connections(self, host: str) -> None:
         """Every connection is listed with its type and interface, and is up."""
         connections = {
-            c["id"]: (c["type"], c["interface"], c["state"])
+            c["id"]: (c["type"], c["interface"], c["admin_status"], c["oper_status"])
             for c in vpnctl(host, "connections list")
         }
 
         assert connections == {
-            cid: (ctype, ifname, "up")
+            cid: (ctype, ifname, "UP", "UP")
             for cid, (ctype, ifname) in CONNECTIONS[host].items()
         }
 
@@ -110,12 +111,13 @@ class TestVpnctl:
 
     @pytest.mark.parametrize("host", list(CONNECTIONS))
     def test_connection_type_filter(self, host: str) -> None:
-        """Connections can be listed per type."""
+        """Connections can be listed per type; lower case is accepted."""
         connections = vpnctl(host, "connections list --type ipsec")
 
         assert sorted(c["id"] for c in connections) == sorted(
-            cid for cid, (ctype, _) in CONNECTIONS[host].items() if ctype == "ipsec"
+            cid for cid, (ctype, _) in CONNECTIONS[host].items() if ctype == "IPSEC"
         )
+        assert vpnctl(host, "connections list --oper-status DOWN") == []
 
     @pytest.mark.parametrize("host", ["hub00", "end00"])
     def test_ipsec_logs(self, host: str) -> None:
@@ -147,9 +149,9 @@ class TestVpnctl:
         """Both management routers are BGP neighbors, established."""
         neighbors = vpnctl(host, "bgp neighbors")
 
-        assert {(n["hostname"], n["state"]) for n in neighbors} == {
-            ("mgt00", "Established"),
-            ("mgt01", "Established"),
+        assert {(n["hostname"], n["session_state"]) for n in neighbors} == {
+            ("mgt00", "ESTABLISHED"),
+            ("mgt01", "ESTABLISHED"),
         }
 
     @pytest.mark.parametrize("host", ["end00", "end01"])
@@ -171,10 +173,12 @@ class TestVpnctl:
         """The default output is a table with a header and a row per connection."""
         lines = conftest.run_cmd("hub00", f"{VPNCTL} connections list").splitlines()
 
-        assert lines[0].split() == [
+        assert re.split(r"\s{2,}", lines[0]) == [
             "CONNECTION",
             "TYPE",
-            "STATE",
+            "ADMIN",
+            "OPER",
+            "LAST CHANGE",
             "REMOTE",
             "INTERFACE",
         ]
@@ -192,7 +196,7 @@ class TestVpnctl:
 def neighbor_address(host: str, hostname: str) -> str:
     """Return the address of a BGP neighbor."""
     neighbors = vpnctl(host, "bgp neighbors")
-    return next(n["neighbor"] for n in neighbors if n["hostname"] == hostname)
+    return next(n["neighbor_address"] for n in neighbors if n["hostname"] == hostname)
 
 
 @pytest.mark.parametrize("host", ["hub00", "hub01"])
@@ -203,11 +207,12 @@ class TestVpnctlBgp:
         """A neighbor shows its state, BFD and the prefixes it accepted."""
         neighbor = vpnctl(host, f"bgp neighbor {neighbor_address(host, 'mgt00')}")
 
-        assert neighbor["state"] == "Established"
+        assert neighbor["session_state"] == "ESTABLISHED"
+        assert neighbor["last_established"]
         # Only hub00 has BFD.
-        assert neighbor["bfd"] == ("Up" if host == "hub00" else None)
-        families = {f["family"]: f for f in neighbor["address_families"]}
-        assert families["ipv6Unicast"]["accepted"] >= 1
+        assert neighbor["bfd"] == ("UP" if host == "hub00" else None)
+        families = {f["afi_safi_name"]: f["prefixes"] for f in neighbor["afi_safis"]}
+        assert families["IPV6_UNICAST"]["received"] >= 1
 
     def test_routes(self, host: str) -> None:
         """The BGP table has the management prefix, learned from both routers."""
@@ -234,11 +239,13 @@ class TestVpnctlTroubleshooting:
 
     def test_routes(self) -> None:
         """A network instance's routes show where they come from."""
-        core = {r["destination"]: r for r in vpnctl("hub00", "routes CORE -6")}
-        downlink = {r["destination"]: r for r in vpnctl("hub00", "routes C0001-00 -4")}
+        core = {r["prefix"]: r for r in vpnctl("hub00", "routes CORE -6")}
+        downlink = {r["prefix"]: r for r in vpnctl("hub00", "routes C0001-00 -4")}
+        external = {r["prefix"]: r for r in vpnctl("hub00", "routes EXTERNAL -4")}
 
-        assert core["fd00::/16"]["protocol"] == "bgp"
+        assert core["fd00::/16"]["protocol"] == "BGP"
         assert downlink["172.16.30.1"]["interfaces"] == ["xfrm0"]
+        assert external["0.0.0.0/0"]["next_hops"] == ["192.0.2.1"]
 
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_ping(self, host: str) -> None:
@@ -358,11 +365,21 @@ class TestVpnctlLogsAndCounters:
         vpnctl("hub00", "tcp C0001-00 172.16.31.1 22")
         after = vpnctl("hub00", "connections show C0001-00-1")
 
-        assert after["counters"]["tx_packets"] > before["counters"]["tx_packets"]
-        assert after["counters"]["rx_packets"] > before["counters"]["rx_packets"]
-        assert after["details"]["uptime_seconds"] >= 0
+        assert after["counters"]["out_pkts"] > before["counters"]["out_pkts"]
+        assert after["counters"]["in_pkts"] > before["counters"]["in_pkts"]
+
+    def test_rate(self) -> None:
+        """Traffic through the SSH tunnel shows in its rates."""
+
+        def rates() -> bool:
+            vpnctl("hub00", "tcp C0001-00 172.16.31.1 22")
+            rates = vpnctl("hub00", "connections show C0001-00-1")["rates"]
+            return rates["in_bits_rate"] > 0 and rates["out_bits_rate"] > 0
+
+        conftest.wait_until(rates, timeout=60, message="a traffic rate")
 
     def test_wide_list(self) -> None:
-        """The wide list shows the received and sent bytes."""
+        """The wide list shows the MTU, the bytes in and out, and their rates."""
         header = conftest.run_cmd("hub00", f"{VPNCTL} connections list -o wide")
-        assert header.splitlines()[0].split()[5:7] == ["RX", "TX"]
+        columns = re.split(r"\s{2,}", header.splitlines()[0])
+        assert columns[7:12] == ["MTU", "IN", "OUT", "IN RATE", "OUT RATE"]

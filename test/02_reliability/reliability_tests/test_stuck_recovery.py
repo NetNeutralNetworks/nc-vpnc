@@ -69,7 +69,7 @@ def ssh_tunnel_works() -> bool:
 def all_up() -> bool:
     """Return whether the connections are up (and SSH passes traffic)."""
     return (
-        all(connection(*c)["state"] == "up" for c in (IPSEC, SSH))
+        all(connection(*c)["oper_status"] == "UP" for c in (IPSEC, SSH))
         and ssh_tunnel_works()
     )
 
@@ -105,12 +105,12 @@ class TestStuckRecovery:
 
         time.sleep(FULL_CHECK)
         current = connection(*IPSEC)
-        assert current["state"] != "up"
+        assert current["oper_status"] != "UP"
         assert current["details"]["child_sas"] == []
         assert resets(*IPSEC) + resets(*IPSEC_RESPONDER) == ipsec_resets
 
         conftest.wait_until(
-            lambda: connection(*IPSEC)["state"] == "up",
+            lambda: connection(*IPSEC)["oper_status"] == "UP",
             timeout=RESET_TIMEOUT,
             message=f"{IPSEC[1]} to be up after a reset",
         )
@@ -140,7 +140,7 @@ class TestStuckRecovery:
         try:
             time.sleep(FULL_CHECK)
             assert ssh_pid() == hung
-            assert connection(*SSH)["state"] == "down"
+            assert connection(*SSH)["oper_status"] == "DOWN"
 
             conftest.wait_until(
                 lambda: ssh_pid() not in ("", hung) and ssh_tunnel_works(),

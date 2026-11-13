@@ -1,7 +1,7 @@
-"""Stop, start and reset connections until vpnc restarts.
+"""Apply a connection's enabled setting right away, and reset connections.
 
-A stopped connection stays down: IPsec is unloaded from charon, WireGuard has
-no peer and SSH doesn't run. Its interface remains.
+A disabled connection (enabled: false) stays down: its interface is down, IPsec
+is unloaded from charon, WireGuard has no peer and SSH doesn't run.
 """
 
 from __future__ import annotations
@@ -10,9 +10,9 @@ import logging
 import threading
 from typing import TYPE_CHECKING
 
-from vpnc import shared
 from vpnc.models import enums
 from vpnc.models.ipsec import Initiation
+from vpnc.network import state
 from vpnc.services import charon, ssh, wireguard
 from vpnc.services.strongswan import strongswan
 
@@ -29,7 +29,7 @@ LOCK = threading.Lock()
 
 
 class ControlError(Exception):
-    """The connection can't be stopped, started or reset."""
+    """The connection can't be reset."""
 
 
 def _terminate(name: str, *, force: bool = False) -> None:
@@ -53,16 +53,8 @@ def _initiate(name: str, connection: Connection) -> None:
         charon.initiate(vcs, name, warn=False)
 
 
-def _check(connection: Connection) -> enums.ConnectionType:
-    ctype = connection.config.type
-    if ctype == enums.ConnectionType.PHYSICAL:
-        msg = "A physical connection can't be stopped, started or reset."
-        raise ControlError(msg)
-    return ctype
-
-
-def _apply(ni: NetworkInstance, connection: Connection) -> None:
-    """Make the connection as configured, or stopped."""
+def _apply_service(ni: NetworkInstance, connection: Connection) -> None:
+    """Load or unload IPsec, set or remove the WireGuard peer, run or stop ssh."""
     ctype = connection.config.type
     if ctype == enums.ConnectionType.IPSEC:
         strongswan.apply(ni)
@@ -72,28 +64,36 @@ def _apply(ni: NetworkInstance, connection: Connection) -> None:
         ssh.start(ni, connection)
 
 
-def stop(ni: NetworkInstance, connection: Connection) -> None:
-    """Stop a connection."""
-    ctype = _check(connection)
-    name = connection.name(ni)
-    with LOCK:
-        logger.info("Stopping connection %s.", name)
-        shared.STOPPED_CONNECTIONS.add(name)
-        _apply(ni, connection)
-        if ctype == enums.ConnectionType.IPSEC:
-            _terminate(name)
+def _apply(ni: NetworkInstance, connection: Connection) -> None:
+    """Make the connection as configured: enabled or disabled."""
+    # An XFRM interface follows its SAs.
+    if connection.config.type != enums.ConnectionType.IPSEC:
+        with state.netns(ni.id) as netns:
+            state.ensure_link_state(
+                netns.ipr,
+                netns.state,
+                connection.intf_name(ni),
+                up=connection.enabled,
+            )
+    _apply_service(ni, connection)
 
 
-def start(ni: NetworkInstance, connection: Connection) -> None:
-    """Start a stopped connection."""
-    ctype = _check(connection)
+def apply(ni: NetworkInstance, connection: Connection) -> None:
+    """Enable or disable a connection as configured, without waiting for a check."""
     name = connection.name(ni)
     with LOCK:
-        logger.info("Starting connection %s.", name)
-        shared.STOPPED_CONNECTIONS.discard(name)
+        logger.info(
+            "%s connection %s.",
+            "Enabling" if connection.enabled else "Disabling",
+            name,
+        )
         _apply(ni, connection)
-        if ctype == enums.ConnectionType.IPSEC:
+        if connection.config.type != enums.ConnectionType.IPSEC:
+            return
+        if connection.enabled:
             _initiate(name, connection)
+        else:
+            _terminate(name)
 
 
 def reset(ni: NetworkInstance, connection: Connection, *, force: bool = False) -> None:
@@ -101,10 +101,13 @@ def reset(ni: NetworkInstance, connection: Connection, *, force: bool = False) -
 
     With force, IKE SAs are removed without waiting for the peer.
     """
-    ctype = _check(connection)
+    ctype = connection.config.type
     name = connection.name(ni)
-    if name in shared.STOPPED_CONNECTIONS:
-        msg = f"{name} is stopped; start it instead."
+    if ctype == enums.ConnectionType.PHYSICAL:
+        msg = "A physical connection can't be reset."
+        raise ControlError(msg)
+    if not connection.enabled:
+        msg = f"{name} is disabled; start it instead."
         raise ControlError(msg)
     with LOCK:
         logger.info("Resetting connection %s.", name)
@@ -113,9 +116,5 @@ def reset(ni: NetworkInstance, connection: Connection, *, force: bool = False) -
             _initiate(name, connection)
             return
         # Removes the WireGuard peer or stops ssh, then sets it up again.
-        shared.STOPPED_CONNECTIONS.add(name)
-        try:
-            _apply(ni, connection)
-        finally:
-            shared.STOPPED_CONNECTIONS.discard(name)
-        _apply(ni, connection)
+        _apply_service(ni, connection.model_copy(update={"enabled": False}))
+        _apply_service(ni, connection)

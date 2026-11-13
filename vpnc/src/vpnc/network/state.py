@@ -22,7 +22,7 @@ import pyroute2
 from pyroute2.netlink.exceptions import NetlinkError
 from pyroute2.netlink.rtnl.rtmsg import rtmsg
 
-from vpnc.network import namespace
+from vpnc.network import namespace, traffic
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -57,7 +57,9 @@ RTM_GETADDR = 22
 RTM_GETROUTE = 26
 # Attributes of links (linux/if_link.h) and addresses (linux/if_addr.h).
 IFLA_IFNAME = 3
+IFLA_MTU = 4
 IFLA_LINKINFO = 18
+IFLA_STATS64 = 23
 IFLA_INFO_KIND = 1
 IFLA_INFO_DATA = 2
 IFLA_XFRM_IF_ID = 2
@@ -76,6 +78,7 @@ class Link:
     kind: str | None
     flags: int
     xfrm_if_id: int | None = None
+    mtu: int | None = None
 
     @property
     def up(self) -> bool:
@@ -109,6 +112,8 @@ class NetnsState:
 
     name: str
     links: dict[str, Link] = field(default_factory=dict)
+    # As read; not kept up to date.
+    counters: dict[str, traffic.Counters] = field(default_factory=dict)
     addresses: dict[str, set[IPInterface]] = field(default_factory=dict)
     link_local: dict[str, set[IPInterface]] = field(default_factory=dict)
     routes: dict[IPNetwork, Route] = field(default_factory=dict)
@@ -118,7 +123,7 @@ class NetnsState:
         """Read the state of a namespace; without routes, if not needed.
 
         Only the attributes vpnc uses are parsed: pyroute2 decodes all of them
-        (statistics, per-family settings), which takes most of a full check.
+        (per-family settings etc.), which takes most of a full check.
         """
         state = cls(name=name)
         names: dict[int, str] = {}
@@ -136,7 +141,14 @@ class NetnsState:
                     if IFLA_XFRM_IF_ID in data:
                         (if_id,) = struct.unpack("I", data[IFLA_XFRM_IF_ID])
                 names[index] = ifname
-                state.links[ifname] = Link(index, kind, flags, if_id)
+                mtu = None
+                if IFLA_MTU in attributes:
+                    (mtu,) = struct.unpack("I", attributes[IFLA_MTU])
+                state.links[ifname] = Link(index, kind, flags, if_id, mtu)
+                if IFLA_STATS64 in attributes:
+                    state.counters[ifname] = traffic.Counters.unpack(
+                        attributes[IFLA_STATS64],
+                    )
                 state.addresses[ifname] = set()
                 state.link_local[ifname] = set()
             # struct ifaddrmsg: family, prefixlen, flags, scope, index.
@@ -152,6 +164,7 @@ class NetnsState:
                     state.link_local[owner].add(address)
             if routes:
                 state.routes = _routes(_owned_route_messages(sock), names)
+        traffic.record(name, state.counters)
         return state
 
 
@@ -423,6 +436,7 @@ def refresh_link(ipr: namespace.IPRoute, state: NetnsState, name: str) -> Link |
         msg.get(("IFLA_LINKINFO", "IFLA_INFO_KIND")),
         msg["flags"],
         msg.get(("IFLA_LINKINFO", "IFLA_INFO_DATA", "IFLA_XFRM_IF_ID")),
+        msg.get("IFLA_MTU"),
     )
     state.links[name] = link
     state.addresses.setdefault(name, set())
@@ -589,6 +603,34 @@ def ensure_link_state(
         "up" if up else "down",
     )
     ipr.link("set", index=link.index, state="up" if up else "down")
+    refresh_link(ipr, state, name)
+    return True
+
+
+# The MTU interfaces had before vpnc changed it (their default), to set it back.
+# Forgotten when vpnc restarts: an MTU removed while it's stopped stays.
+_DEFAULT_MTU: dict[tuple[str, str], int] = {}
+
+
+def ensure_mtu(
+    ipr: namespace.IPRoute,
+    state: NetnsState,
+    name: str,
+    mtu: int | None,
+) -> bool:
+    """Ensure an interface's MTU; None is its default."""
+    if (link := state.links.get(name)) is None or link.mtu is None:
+        return False
+    key = (state.name, name)
+    if mtu is None:
+        if (mtu := _DEFAULT_MTU.pop(key, None)) is None:
+            return False
+    elif mtu != link.mtu:
+        _DEFAULT_MTU.setdefault(key, link.mtu)
+    if mtu == link.mtu:
+        return False
+    logger.info("Setting the MTU of %s in %s to %d.", name, state.name, mtu)
+    ipr.link("set", index=link.index, mtu=mtu)
     refresh_link(ipr, state, name)
     return True
 
