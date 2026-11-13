@@ -7,12 +7,12 @@ name: DEFAULT
 metadata: {}
 # Runtime mode
 # Defines if the service is running in endpoint or hub mode
-mode: hub
+mode: HUB
 
 # Network configuration
 network_instances:
   EXTERNAL:
-    type: external # external
+    type: EXTERNAL # EXTERNAL
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -33,10 +33,10 @@ network_instances:
             via: 192.0.2.1
         # Config of type physical
         config:
-          type: physical # ipsec | physical | wireguard
+          type: PHYSICAL # IPSEC | PHYSICAL | WIREGUARD
           interface_name: eth1
   CORE:
-    type: core # core, IPv4 is ignored for core in hub mode.
+    type: CORE # core, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -62,7 +62,7 @@ network_instances:
           # IPv4 prefixes are ignored for core and downlink in hub mode.
           ipv4: []
         config:
-          type: ipsec # ipsec | physical | wireguard
+          type: IPSEC # IPSEC | PHYSICAL | WIREGUARD
           # Optional: If not set, defaults to the default service local_id value.
           # local_id: 192.0.2.5
           # IPv6 or IPv4 address
@@ -79,8 +79,8 @@ network_instances:
           # ipsec_proposal: aes256gcm16-prfsha384-ecp384
           # Optional: The IPsec lifetime in seconds
           ipsec_lifetime: 90
-          # Optional, defaults to start. Start means inititate and respond, none means respond only.
-          # initiation: start
+          # Optional, defaults to START: initiate and respond. NONE: respond only.
+          # initiation: START
           psk: "secret&pass<word>core"
           # Optional
           # traffic_selectors:
@@ -106,7 +106,7 @@ network_instances:
           # IPv4 prefixes are ignored for core and downlink in hub mode.
           ipv4: []
         config:
-          type: ipsec
+          type: IPSEC
           remote_addrs: [2001:db8::4]
           ike_lifetime: 300
           ipsec_lifetime: 90

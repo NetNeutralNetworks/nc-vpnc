@@ -72,7 +72,7 @@ This reinstalls vpnc (and vpncmangle on a hub) and restarts vpnc only if somethi
 
 The configuration is YAML, one file per tenant plus `service` (the `DEFAULT` file). Change it with `vpnctl` or the API: changes are validated, staged and applied on commit (see [vpnctl](#vpnctl)). Service settings `mode` and `prefix_downlink_*` need a restart; everything else applies right away.
 
-Files have a `version`, currently 0.1.4. vpnc converts files of version 0.1.3 at startup and when they are put in `active/`; the originals are kept in `/opt/ncubed/config/vpnc/backup/`. Other versions are refused.
+Values like `HUB` and `IPSEC` are upper case; lower case is still read. Files have a `version`, currently 0.1.4. vpnc converts files of version 0.1.3 at startup and when they are put in `active/`; the originals are kept in `/opt/ncubed/config/vpnc/backup/`. Other versions are refused.
 
 Examples: [config-hub.yaml.example](config/vpnc/config/config-hub.yaml.example), [config-endpoint.yaml.example](config/vpnc/config/config-endpoint.yaml.example) and the tenant [config.yaml.example](config/vpnc/config/config.yaml.example).
 
@@ -82,7 +82,7 @@ Examples: [config-hub.yaml.example](config/vpnc/config/config-hub.yaml.example),
 version: 0.1.4
 id: DEFAULT
 name: DEFAULT
-mode: hub                     # hub | endpoint
+mode: HUB                     # HUB | ENDPOINT
 local_id: "%any"              # IKE identity, default for all connections
 network_instances:            # EXTERNAL and CORE (and ENDPOINT in endpoint mode)
   EXTERNAL: {...}             # see Network instances
@@ -112,7 +112,7 @@ name: Healthcare inc.
 metadata: {}                  # free key-value pairs, also on network instances and connections
 network_instances:
   00:                         # 00-99; the network instance is named C0001-00
-    type: downlink
+    type: DOWNLINK
     connections:
       0: {...}                # see Connections
 ```
@@ -121,6 +121,8 @@ network_instances:
 
 ```yaml
 0:                            # 0-9
+  enabled: true               # false: admin down (interface down, VPN not set up)
+  mtu: 1400                   # optional; default: the interface's own
   interface:                  # optional on downlinks in hub mode (calculated)
     ipv4: [100.99.0.1/28]
     ipv6: [fdcc:cbe::1/64]
@@ -136,10 +138,10 @@ network_instances:
 
 | `type` | Settings (defaults) |
 |---|---|
-| `ipsec` | `remote_addrs`, `psk`, `local_id`, `remote_id`, `ike_version` (2), `ike_proposal` and `ipsec_proposal` (`aes256gcm16-prfsha384-ecp384`), `ike_lifetime` (86400), `ipsec_lifetime` (3600), `initiation` (`start`: initiate and respond; `none`: respond only), `traffic_selectors` (`local`, `remote`; empty means route based) |
-| `wireguard` | `remote_addrs`, `private_key`, `public_key`, `local_port` and `remote_port` (51820) |
-| `ssh` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config` (false: also configure the remote end), `remote_config_interface` (masquerade on the remote end) |
-| `physical` | `interface_name` |
+| `IPSEC` | `remote_addrs`, `psk`, `local_id`, `remote_id`, `ike_version` (2), `ike_proposal` and `ipsec_proposal` (`aes256gcm16-prfsha384-ecp384`), `ike_lifetime` (86400), `ipsec_lifetime` (3600), `initiation` (`START`: initiate and respond; `NONE`: respond only), `traffic_selectors` (`local`, `remote`; empty means route based) |
+| `WIREGUARD` | `remote_addrs`, `private_key`, `public_key`, `local_port` and `remote_port` (51820) |
+| `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config` (false: also configure the remote end), `remote_config_interface` (masquerade on the remote end) |
+| `PHYSICAL` | `interface_name` |
 
 `psk` and `private_key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
 
@@ -159,13 +161,13 @@ State, read live:
 ~$ sudo vpnctl tenants list
 ~$ sudo vpnctl ni list [C0001]               # network instances
 ~$ sudo vpnctl ni show C0001-00              # with NAT64 and NPTv6 translations
-~$ sudo vpnctl connections list [C0001 | C0001-00] [--state down] [--type ipsec]
-~$ sudo vpnctl connections show C0001-00-0   # e.g. IKE and child SAs, traffic counters
+~$ sudo vpnctl connections list [C0001 | C0001-00] [--oper-status DOWN] [--admin-status DOWN] [--type IPSEC]   # -o wide: MTU, traffic and its rate
+~$ sudo vpnctl connections show C0001-00-0   # e.g. last change, IKE and child SAs, traffic counters and rates
 ~$ sudo vpnctl connections logs C0001-00-0 [-n 100] [-f]   # vpnc's, ssh's and charon's lines
-~$ sudo vpnctl bgp neighbors                 # hub mode
+~$ sudo vpnctl bgp neighbors                 # hub mode; per address family
 ~$ sudo vpnctl bgp neighbor fd00:1:2::1      # in detail
 ~$ sudo vpnctl bgp routes [--received-from|--advertised-to NEIGHBOR]
-~$ sudo vpnctl logs [--source vpnc|vpncmangle|charon | --ni C0001-00] [--level warning] [-n 50] [-f]
+~$ sudo vpnctl logs [--source vpnc|vpncmangle|charon | --ni C0001-00] [--level WARNING] [-n 50] [-f]
 ~$ sudo vpnctl version
 ```
 
@@ -180,10 +182,11 @@ Troubleshooting inside a network instance (destinations are IP addresses):
 ~$ sudo vpnctl capture EXTERNAL esp          # or on all interfaces of a network instance
 ```
 
-VPN connections (IPsec, WireGuard, SSH) can be stopped until they're started again or vpnc restarts, and reset (a new IKE SA, WireGuard or SSH session):
+Connections can be stopped and started: this sets `enabled` in their configuration right away, so it lasts until they're started again. VPN connections (IPsec, WireGuard, SSH) can be reset (a new IKE SA, WireGuard or SSH session):
 
 ```bash
-~$ sudo vpnctl connections stop|start|reset|restart C0001-00-0 [C0001-01 ...]   # network instance/tenant: its VPN connections
+~$ sudo vpnctl connections stop|start C0001-00-0 [C0001-01 ...]      # network instance/tenant: its VPN connections
+~$ sudo vpnctl connections reset|restart C0001-00-0 [C0001-01 ...]
 ~$ sudo vpnctl service restart|stop                                            # vpnc itself (systemd)
 ```
 
@@ -205,6 +208,18 @@ Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Change
 ```
 
 Every command takes `-o table|wide|json|yaml`.
+
+State is named as in OpenConfig where it has a term, with upper case values (lower case is accepted in options):
+
+| | |
+|---|---|
+| `admin_status` | `UP`, or `DOWN`: disabled in the configuration (`enabled: false`) |
+| `oper_status` | `UP`, `DOWN`, or `DORMANT`: being set up (an IKE SA that isn't established) |
+| `last_change`, `interface_transitions` | when `oper_status` last changed, and how often since vpnc started; seen at least every full check (30 seconds) |
+| `counters` | `in_octets`, `in_pkts`, `in_errors`, `in_discards` and the same for `out` |
+| `rates` | `in_bits_rate` and `out_bits_rate` in bits per second, the average over `load_interval` seconds |
+| BGP | `neighbor_address`, `peer_as`, `session_state`, `last_established`, `established_transitions`, and per `afi_safi_name` the `prefixes` `received` and `sent` (after policy) |
+| Routes | `prefix`, `next_hops` |
 
 ## API
 

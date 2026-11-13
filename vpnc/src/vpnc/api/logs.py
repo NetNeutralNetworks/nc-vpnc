@@ -30,7 +30,7 @@ CHARON_LOG = LOG_DIR / "charon.log"
 VPNCMANGLE_LOG = LOG_DIR / "vpncmangle.log"
 LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 Source = Literal["vpnc", "vpncmangle", "charon"]
-Level = Literal["debug", "info", "warning", "error", "critical"]
+Level = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 # 11/11/2026 07:29:01 AM(File:vpnc,Line:1,func) - INFO - message
 VPNC_LINE_RE = re.compile(
@@ -70,7 +70,7 @@ class Query:
 
     path: pathlib.Path
     source: str
-    level: str = "info"
+    level: str = "INFO"
     # Python log: the message must match.
     name_re: re.Pattern[str] | None = None
     # Charon's log: the regex the name of a line's IKE SA must match; also lines
@@ -90,7 +90,7 @@ class Query:
     def python_line(self, match: re.Match[str], extra: list[str]) -> LogLine | None:
         """Return a Python log message (extra: its further lines), if selected."""
         level = match[2]
-        if level in LEVELS and LEVELS.index(level) < LEVELS.index(self.level.upper()):
+        if level in LEVELS and LEVELS.index(level) < LEVELS.index(self.level):
             return None
         message = "\n".join([match[3], *extra])
         if self.name_re is not None and not self.name_re.search(message):

@@ -7,18 +7,22 @@ name: DEFAULT
 metadata: {}
 # Runtime mode
 # Defines if the service is running in endpoint or hub mode
-mode: endpoint
+mode: ENDPOINT
 
 # Network configuration
 network_instances:
   EXTERNAL:
-    type: external # external
+    type: EXTERNAL # EXTERNAL
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
       0:
         # Optional, arbitrary key-value pairs
         metadata: {}
+        # Optional, defaults to true. false: admin down (interface down, VPN not set up).
+        # enabled: true
+        # Optional, defaults to the interface's own MTU. 1280 or more.
+        # mtu: 1400
         interface:
           ipv6:
           - 2001:db8::7/64
@@ -33,10 +37,10 @@ network_instances:
             via: 192.0.2.1
         # Config of type physical
         config:
-          type: physical # physical | wireguard
+          type: PHYSICAL # PHYSICAL | WIREGUARD
           interface_name: eth1
   CORE:
-    type: core # core
+    type: CORE # CORE
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -60,7 +64,7 @@ network_instances:
           ipv4:
           - to: 100.99.0.0/28
         config:
-          type: ipsec # ipsec | physical | wireguard
+          type: IPSEC # IPSEC | PHYSICAL | WIREGUARD
           # Optional: If not set, defaults to the default service local_id value.
           # local_id: 192.0.2.5
           # IPv6 or IPv4 address
@@ -77,8 +81,8 @@ network_instances:
           ipsec_proposal: aes128gcm16-prfsha384-ecp384
           # Optional: The IPsec lifetime in seconds
           ipsec_lifetime: 90
-          # Optional, defaults to start. Start means inititate and respond, none means respond only.
-          initiation: start
+          # Optional, defaults to START: initiate and respond. NONE: respond only.
+          initiation: START
           psk: secretpasswordendpoint
           # Optional
           # traffic_selectors:
@@ -99,17 +103,17 @@ network_instances:
           ipv4:
           - to: 100.100.0.0/28
         config:
-          type: ipsec # ipsec | physical | wireguard
+          type: IPSEC # IPSEC | PHYSICAL | WIREGUARD
           # IPv6 or IPv4 address
           remote_addrs: [192.0.2.6, 2001:db8::6]
           ike_proposal: aes128gcm16-prfsha384-ecp384
           ike_lifetime: 300
           ipsec_proposal: aes128gcm16-prfsha384-ecp384
           ipsec_lifetime: 90
-          initiation: start
+          initiation: START
           psk: secretpasswordendpoint
   ENDPOINT:
-    type: endpoint # endpoint
+    type: ENDPOINT # ENDPOINT
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -135,7 +139,7 @@ network_instances:
           - to: default
             via: 172.16.30.1
         config:
-          type: physical # physical | wireguard
+          type: PHYSICAL # PHYSICAL | WIREGUARD
           interface_name: eth2
 # VPN CONFIG
 # Optional: IKE local identifier for VPNs

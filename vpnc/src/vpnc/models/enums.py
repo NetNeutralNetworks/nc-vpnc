@@ -1,4 +1,4 @@
-"""Various enums used throughout the package."""
+"""Various enums used throughout the package. Their values are upper case."""
 
 from enum import Enum
 
@@ -6,23 +6,23 @@ from enum import Enum
 class ConnectionType(str, Enum):
     """Define the modes in which the connections can run."""
 
-    IPSEC = "ipsec"
-    PHYSICAL = "physical"
-    SSH = "ssh"
-    WIREGUARD = "wireguard"
+    IPSEC = "IPSEC"
+    PHYSICAL = "PHYSICAL"
+    SSH = "SSH"
+    WIREGUARD = "WIREGUARD"
 
 
 class ServiceMode(str, Enum):
     """Define the modes in which the service can run."""
 
-    HUB = "hub"
-    ENDPOINT = "endpoint"
+    HUB = "HUB"
+    ENDPOINT = "ENDPOINT"
 
 
 class NetworkInstanceType(str, Enum):
     """Define the modes in which the service can run."""
 
-    ENDPOINT = "endpoint"
-    EXTERNAL = "external"
-    CORE = "core"
-    DOWNLINK = "downlink"
+    ENDPOINT = "ENDPOINT"
+    EXTERNAL = "EXTERNAL"
+    CORE = "CORE"
+    DOWNLINK = "DOWNLINK"

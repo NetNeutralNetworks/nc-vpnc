@@ -10,7 +10,7 @@ metadata:
 # Network configuration
 network_instances:
   00:
-    type: downlink # default | external | core | downlink, IPv4 is ignored for core in hub mode.
+    type: DOWNLINK # DEFAULT | EXTERNAL | CORE | DOWNLINK, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -35,7 +35,7 @@ network_instances:
           - to: 172.16.30.1
             # via: # Optional, ignored for tunnel interfaces
         config:
-          type: ipsec # ipsec | ssh | physical
+          type: IPSEC # IPSEC | SSH | PHYSICAL
           # Optional: If not set, defaults to the default service local_id value.
           # local_id: 192.0.2.5
           # IPv6 or IPv4 address
@@ -52,8 +52,8 @@ network_instances:
           ipsec_proposal: aes128gcm16-prfsha384-ecp384
           # Optional: The IPsec lifetime in seconds
           ipsec_lifetime: 90
-          # Optional, defaults to start. 'start' means inititate and respond, 'none' means respond only.
-          initiation: none
+          # Optional, defaults to START: initiate and respond. NONE: respond only.
+          initiation: NONE
           psk: secretpasswordendpoint
           # Optional
           # traffic_selectors:
@@ -95,7 +95,7 @@ network_instances:
           - to: default
             # via: # Optional, ignored for tunnel interfaces
         config:
-          type: ssh # ipsec | ssh | physical
+          type: SSH # IPSEC | SSH | PHYSICAL
           remote_addrs: [172.16.30.1]
           # Required. Specifies the remote tunnel identifier to avoid overlap.
           remote_tunnel_id: 0
@@ -108,7 +108,7 @@ network_instances:
           username: root
 
   01:
-    type: downlink
+    type: DOWNLINK
     connections:
       0:
         routes:
@@ -126,7 +126,7 @@ network_instances:
           ipv4:
           - to: default
         config:
-          type: wireguard # ipsec | physical | wireguard
+          type: WIREGUARD # IPSEC | PHYSICAL | WIREGUARD
           # local_port: 51820
           remote_addrs: [192.0.2.8, 2001:db8::8]
           # remote_port: 51820

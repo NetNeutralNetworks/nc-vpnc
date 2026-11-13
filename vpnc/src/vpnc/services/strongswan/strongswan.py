@@ -14,9 +14,9 @@ import vici.exception
 
 from vpnc import config, files, helpers
 from vpnc.models import enums, tenant
+from vpnc.models.ipsec import Initiation
 from vpnc.network import namespace
 from vpnc.services import charon
-from vpnc.shared import STOPPED_CONNECTIONS
 
 if TYPE_CHECKING:
     import pathlib
@@ -58,11 +58,11 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
         if cfg.type != enums.ConnectionType.IPSEC:
             continue
         name = connection.name(network_instance)
-        if name in STOPPED_CONNECTIONS:
+        if not connection.enabled:
             continue
         remote_id = cfg.remote_id or str(cfg.remote_addrs[0])
         xfrm_id = hex(cfg.if_id(network_instance, connection))
-        initiator = cfg.initiation.value == "start"
+        initiator = cfg.initiation == Initiation.INITIATOR
         local_ts = [str(x) for x in cfg.traffic_selectors.local]
         remote_ts = [str(x) for x in cfg.traffic_selectors.remote]
         if not (local_ts and remote_ts):

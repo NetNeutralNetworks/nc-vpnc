@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import subprocess
 import tempfile
@@ -17,6 +18,8 @@ VPNCTL = "/opt/ncubed/vpnc/bin/vpnctl"
 IPSEC = ("end00", "CORE-0")
 WIREGUARD = ("hub00", "C0001-01-0")
 SSH = ("hub00", "C0001-00-1")
+# The tenant side of end01.
+PHYSICAL = ("end01", "ENDPOINT-0")
 CONNECTIONS = [IPSEC, WIREGUARD, SSH]
 # Behind the SSH server, routed via the SSH tunnel.
 SSH_TARGET = "172.16.31.1/22"
@@ -34,6 +37,24 @@ def vpnctl(host: str, args: str) -> Any:  # noqa: ANN401
 def connection(host: str, name: str) -> dict[str, Any]:
     """Return a connection's state and details."""
     return vpnctl(host, f"connections show {name}")
+
+
+def enabled(host: str, name: str) -> bool:
+    """Return whether the connection is enabled in its active configuration."""
+    ni, _, number = name.rpartition("-")
+    target, key = ("service", ni) if "-" not in ni else ni.split("-")
+    path = f"network_instances.{key}.connections.{number}.enabled"
+    return vpnctl(host, f"config show {target} {path}")
+
+
+def timestamp(text: str) -> float:
+    """Return the Unix time of an ISO 8601 time."""
+    return datetime.datetime.fromisoformat(text).timestamp()
+
+
+def physical_link() -> str:
+    """Return the link of the physical connection, as ip shows it."""
+    return conftest.run_cmd(PHYSICAL[0], "ip -n ENDPOINT link show eth2")
 
 
 def ssh_pid() -> str:
@@ -65,14 +86,17 @@ def is_down(host: str, name: str) -> bool:
     if (host, name) == IPSEC:
         return "ike_state" not in details
     if (host, name) == WIREGUARD:
-        return details["last_handshake_seconds_ago"] is None
+        return details["last_handshake"] is None
     return not ssh_pid() and not ssh_tunnel_works()
 
 
 def all_up() -> bool:
     """Return whether the connections are up (and SSH passes traffic)."""
     return (
-        all(connection(host, name)["state"] == "up" for host, name in CONNECTIONS)
+        all(
+            connection(host, name)["oper_status"] == "UP"
+            for host, name in CONNECTIONS
+        )
         and ssh_tunnel_works()
     )
 
@@ -83,7 +107,7 @@ def connections_up() -> Any:  # noqa: ANN401
     conftest.wait_until(all_up, timeout=UP_TIMEOUT, message="connections to be up")
     yield
     for host, name in CONNECTIONS:
-        if connection(host, name)["state"] == "stopped":
+        if connection(host, name)["admin_status"] == "DOWN":
             conftest.run_cmd(host, f"{VPNCTL} connections start {name}")
     conftest.wait_until(all_up, timeout=UP_TIMEOUT, message="connections to be up")
 
@@ -92,11 +116,15 @@ class TestConnectionControl:
     """Stop, start and reset."""
 
     def test_stop_and_start(self) -> None:
-        """Stopped connections stay down through a full check, and start again."""
+        """Stopped connections stay down through a full check, and start again.
+
+        Stopping one disables it in its configuration.
+        """
         for host, name in CONNECTIONS:
-            assert connection(host, name)["state"] == "up"
+            assert connection(host, name)["oper_status"] == "UP"
             output = conftest.run_cmd(host, f"{VPNCTL} connections stop {name}")
-            assert output == f"Stopped {name}; it's stopped.\n"
+            assert output == f"Stopped {name}; it's DOWN.\n"
+            assert enabled(host, name) is False
 
         for host, name in CONNECTIONS:
             conftest.wait_until(
@@ -107,29 +135,31 @@ class TestConnectionControl:
         time.sleep(FULL_CHECK)
         for host, name in CONNECTIONS:
             assert is_down(host, name), f"{name} on {host} came up again"
-            assert connection(host, name)["state"] == "stopped"
+            current = connection(host, name)
+            assert (current["admin_status"], current["oper_status"]) == ("DOWN", "DOWN")
 
         for host, name in CONNECTIONS:
             conftest.run_cmd(host, f"{VPNCTL} connections start {name}")
+            assert enabled(host, name) is True
         conftest.wait_until(all_up, timeout=UP_TIMEOUT, message="connections to start")
 
     def test_reset(self) -> None:
         """A reset sets up a new IKE SA, WireGuard session and ssh process."""
         ike_id = connection(*IPSEC)["details"]["ike_id"]
         pid = ssh_pid()
-        started = time.time()
+        started = int(time.time())
 
         for host, name in CONNECTIONS:
             conftest.run_cmd(host, f"{VPNCTL} connections reset {name}")
 
         def reset_done() -> bool:
-            handshake = connection(*WIREGUARD)["details"]["last_handshake_seconds_ago"]
+            handshake = connection(*WIREGUARD)["details"]["last_handshake"]
             ipsec = connection(*IPSEC)
             return (
-                ipsec["state"] == "up"
+                ipsec["oper_status"] == "UP"
                 and ipsec["details"]["ike_id"] != ike_id
                 and handshake is not None
-                and handshake <= time.time() - started
+                and timestamp(handshake) >= started
                 and ssh_pid() not in ("", pid)
             )
 
@@ -138,22 +168,60 @@ class TestConnectionControl:
 
     def test_network_instance(self) -> None:
         """A network instance's VPN connections are restarted; restart is reset."""
-        handshake_before = time.time()
+        handshake_before = int(time.time())
         output = conftest.run_cmd("hub00", f"{VPNCTL} connections restart C0001-01")
         assert output.startswith("Reset C0001-01-0;")
 
         def new_handshake() -> bool:
-            ago = connection(*WIREGUARD)["details"]["last_handshake_seconds_ago"]
-            return ago is not None and ago <= time.time() - handshake_before
+            handshake = connection(*WIREGUARD)["details"]["last_handshake"]
+            return handshake is not None and timestamp(handshake) >= handshake_before
 
         conftest.wait_until(new_handshake, timeout=UP_TIMEOUT, message="a handshake")
 
     def test_physical(self) -> None:
-        """A physical connection can't be stopped."""
+        """A physical connection can't be reset; stopped, its interface is down."""
         with pytest.raises(subprocess.CalledProcessError) as err:
-            conftest.run_cmd("hub00", f"{VPNCTL} connections stop EXTERNAL-0")
-
+            conftest.run_cmd("hub00", f"{VPNCTL} connections reset EXTERNAL-0")
         assert "physical connection" in err.value.stderr
+
+        host, name = PHYSICAL
+        conftest.run_cmd(host, f"{VPNCTL} connections stop {name}")
+        try:
+            conftest.wait_until(
+                lambda: "state DOWN" in physical_link(),
+                timeout=10,
+                message="the interface to be down",
+            )
+            assert connection(host, name)["oper_status"] == "DOWN"
+        finally:
+            conftest.run_cmd(host, f"{VPNCTL} connections start {name}")
+        conftest.wait_until(
+            lambda: connection(host, name)["oper_status"] == "UP",
+            timeout=10,
+            message="the interface to be up",
+        )
+
+    def test_mtu(self) -> None:
+        """A connection's MTU is set on its interface; without, it's the default."""
+        host, name = WIREGUARD
+        path = "network_instances.01.connections.0.mtu"
+        default = connection(host, name)["mtu"]
+        conftest.run_cmd(host, f"{VPNCTL} config set C0001 {path} 1380")
+        conftest.run_cmd(host, f"{VPNCTL} config commit C0001")
+        try:
+            conftest.wait_until(
+                lambda: connection(host, name)["mtu"] == 1380,  # noqa: PLR2004
+                timeout=10,
+                message="the MTU to be set",
+            )
+        finally:
+            conftest.run_cmd(host, f"{VPNCTL} config delete C0001 {path}")
+            conftest.run_cmd(host, f"{VPNCTL} config commit C0001")
+        conftest.wait_until(
+            lambda: connection(host, name)["mtu"] == default,
+            timeout=10,
+            message="the default MTU",
+        )
 
 
 class TestConnectionLogs:

@@ -315,7 +315,7 @@ class TestReconfiguration:
         )
 
         staged = {c["id"]: c["status"] for c in vpnctl_json("config list")}
-        assert staged["C0002"] == "modified"
+        assert staged["C0002"] == "MODIFIED"
 
         assert conftest.run_cmd(HOST, f"{VPNCTL} config commit C0002") == "Committed.\n"
         conftest.wait_until(
@@ -379,7 +379,7 @@ class TestReconfiguration:
         """Deleting a tenant is staged; commit removes it."""
         vpnctl("config delete C0002")
         staged = {c["id"]: c["status"] for c in vpnctl_json("config list")}
-        assert staged["C0002"] == "deleted"
+        assert staged["C0002"] == "DELETED"
         assert NI in netns_list()
 
         vpnctl("config commit C0002")
@@ -487,7 +487,7 @@ class TestReconfiguration:
 
         wait_for_route("10.201.0.0/24", timeout=CONFIRM + APPLY_TIMEOUT)
         staged = {c["id"]: c for c in vpnctl_json("config list")}
-        assert staged["C0002"]["status"] == "modified"
+        assert staged["C0002"]["status"] == "MODIFIED"
         assert staged["C0002"]["confirm_by"] is None
 
     def test_confirmed_commit_stays(self) -> None:
@@ -585,9 +585,12 @@ class TestOldConfiguration:
             assert [f"{key:02}" for key in new["network_instances"]] == [NI_KEY]
             network_instance = next(iter(new["network_instances"].values()))
             assert "id" not in network_instance
+            assert network_instance["type"] == "DOWNLINK"
             # vpnc may have written the file again (NPTv6 prefixes).
             assert [int(key) for key in network_instance["connections"]] == [0]
-            assert "id" not in next(iter(network_instance["connections"].values()))
+            connection = next(iter(network_instance["connections"].values()))
+            assert "id" not in connection
+            assert connection["config"]["type"] == "IPSEC"
             assert conftest.run_cmd(HOST, f"cat {backup}") == old
         finally:
             conftest.run_cmd(HOST, f"rm -f {TENANT_FILE} {backup}")
@@ -677,7 +680,7 @@ def drift_snapshot() -> dict[str, Any]:
 def hub_settled() -> bool:
     """Return whether the lab's connections are up and the SSH tunnel passes traffic."""
     return all(
-        c["state"] == "up"
+        c["oper_status"] == "UP"
         for c in vpnctl_json("connections list")
         if c["id"].startswith(("C0001-", "CORE-"))
     ) and conftest.ssh_tunnel_works(HOST)

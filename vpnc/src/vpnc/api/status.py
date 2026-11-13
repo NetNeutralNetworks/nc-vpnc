@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
+import datetime
 import json
 import logging
 import os
 import re
 import subprocess
+import threading
 import time
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal
@@ -15,11 +18,11 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel
 
 import vpnc
-from vpnc import config, helpers, shared
+from vpnc import config, helpers
 from vpnc.models import enums, tenant
-from vpnc.network import namespace, state
+from vpnc.network import state, traffic
 from vpnc.api import config_files
-from vpnc.services import charon, configuration, ssh, vpncmangle, wireguard
+from vpnc.services import charon, configuration, vpncmangle, wireguard
 
 if TYPE_CHECKING:
     from vpnc.models.connections import Connection
@@ -33,21 +36,33 @@ WIREGUARD_TIMEOUT = 180
 
 IPAddress = IPv4Address | IPv6Address
 
-# Stopped: through the API, until vpnc restarts.
-State = Literal["up", "down", "connecting", "stopped"]
+# Named and valued as in OpenConfig, like the counters and rates.
+AdminStatus = Literal["UP", "DOWN"]
+# DORMANT: being set up (an IKE SA that isn't established yet).
+OperStatus = Literal["UP", "DOWN", "DORMANT"]
 
 
 class Counters(BaseModel):
     """Traffic through a connection's interface since it was created."""
 
-    rx_bytes: int
-    rx_packets: int
-    rx_errors: int
-    rx_dropped: int
-    tx_bytes: int
-    tx_packets: int
-    tx_errors: int
-    tx_dropped: int
+    in_octets: int
+    in_pkts: int
+    in_errors: int
+    in_discards: int
+    out_octets: int
+    out_pkts: int
+    out_errors: int
+    out_discards: int
+
+
+class Rates(BaseModel):
+    """Traffic through a connection's interface: the average of the last seconds."""
+
+    # Seconds the rates are measured over.
+    load_interval: int
+    # Bits per second.
+    in_bits_rate: int
+    out_bits_rate: int
 
 
 class ConnectionState(BaseModel):
@@ -56,21 +71,30 @@ class ConnectionState(BaseModel):
     id: str
     tenant: str
     network_instance: str
-    type: str
-    state: State
+    type: enums.ConnectionType
+    # DOWN: disabled in the configuration.
+    admin_status: AdminStatus
+    oper_status: OperStatus
+    # When oper_status last changed, or vpnc first saw the connection.
+    last_change: str
+    # How often oper_status changed since vpnc started.
+    interface_transitions: int
     interface: str | None
+    mtu: int | None
     addresses: list[str]
     remote: str | None
     # Type specific, e.g. IKE state or the last WireGuard handshake.
     details: dict[str, Any]
-    # Only when asked for.
-    counters: Counters | None = None
+    # None without interface.
+    counters: Counters | None
+    # None until measured.
+    rates: Rates | None
 
 
 class Translation(BaseModel):
     """A NAT64 or NPTv6 translation: local (CORE side) to remote prefix."""
 
-    type: Literal["nat64", "nptv6"]
+    type: Literal["NAT64", "NPTV6"]
     local: str
     remote: str
 
@@ -80,7 +104,7 @@ class NetworkInstanceState(BaseModel):
 
     id: str
     tenant: str
-    type: str
+    type: enums.NetworkInstanceType
     connections_up: int
     connections: int
     nat64_scope: str | None = None
@@ -109,7 +133,7 @@ class VpncmangleState(BaseModel):
 class Status(BaseModel):
     """An overview of the service."""
 
-    mode: str
+    mode: enums.ServiceMode
     tenants: int
     network_instances: int
     connections_up: int
@@ -119,17 +143,32 @@ class Status(BaseModel):
     restart_needed: list[str]
 
 
-class BgpNeighbor(BaseModel):
-    """A BGP session in CORE."""
+class BgpPrefixes(BaseModel):
+    """A BGP session's prefixes in an address family, after policy."""
 
-    neighbor: str
+    received: int | None
+    sent: int | None
+
+
+class BgpAfiSafi(BaseModel):
+    """An address family of a BGP session."""
+
+    # E.g. IPV6_UNICAST.
+    afi_safi_name: str
+    prefixes: BgpPrefixes
+
+
+class BgpNeighbor(BaseModel):
+    """A BGP session in CORE, named as in OpenConfig."""
+
+    neighbor_address: str
     hostname: str | None
-    remote_as: int | None
-    address_family: str
-    state: str | None
-    uptime: str | None
-    prefixes_received: int | None
-    prefixes_sent: int | None
+    peer_as: int | None
+    # IDLE, CONNECT, ACTIVE, OPENSENT, OPENCONFIRM or ESTABLISHED.
+    session_state: str | None
+    # When the session last became established, or stopped being so.
+    last_established: str | None
+    afi_safis: list[BgpAfiSafi]
 
 
 class Ids(BaseModel):
@@ -178,14 +217,45 @@ def _ipsec_sas(
     return sas
 
 
+def _timestamp(seconds: float | None = None) -> str:
+    """Return a time (Unix; default now) as in the rest of the API: ISO 8601."""
+    time_ = datetime.datetime.fromtimestamp(seconds or time.time()).astimezone()
+    return time_.isoformat(timespec="seconds")
+
+
+@dataclasses.dataclass
+class _Seen:
+    """A connection's oper_status as last seen."""
+
+    status: OperStatus
+    last_change: str
+    transitions: int = 0
+
+
+# By connection; updated whenever the states are read (every full check at least).
+_SEEN: dict[str, _Seen] = {}
+_SEEN_LOCK = threading.Lock()
+
+
+def _track(name: str, current: OperStatus) -> tuple[str, int]:
+    """Return when a connection's oper_status last changed, and how often."""
+    with _SEEN_LOCK:
+        if (seen := _SEEN.get(name)) is None:
+            seen = _SEEN[name] = _Seen(current, _timestamp())
+        elif seen.status != current:
+            seen.status, seen.last_change = current, _timestamp()
+            seen.transitions += 1
+        return seen.last_change, seen.transitions
+
+
 def _ipsec(
     name: str,
     connection: Connection,
     sas: dict[str, dict[str, Any]],
-) -> tuple[State, str | None, dict[str, Any]]:
+) -> tuple[OperStatus, str | None, dict[str, Any]]:
     sa = sas.get(name)
     if sa is None:
-        return "down", str(connection.config.remote_addrs[0]), {}
+        return "DOWN", str(connection.config.remote_addrs[0]), {}
     sa = charon.decode(sa)
     children = [
         {"name": child.get("name"), "state": child.get("state")}
@@ -195,46 +265,24 @@ def _ipsec(
         "ike_state": sa.get("state"),
         # Changes when the IKE SA is set up again.
         "ike_id": int(sa.get("uniqueid", 0)) or None,
-        "established_seconds": int(sa.get("established", 0)) or None,
         "child_sas": children,
     }
-    current: State = "up" if charon.sa_up(sa) else "connecting"
+    current: OperStatus = "UP" if charon.sa_up(sa) else "DORMANT"
     return current, sa.get("remote-host"), details
 
 
 def _wireguard(
     ni: NetworkInstance,
     ifname: str,
-) -> tuple[State, str | None, dict[str, Any]]:
+) -> tuple[OperStatus, str | None, dict[str, Any]]:
     try:
         peer = wireguard.peer_status(ni.id, ifname)
     except Exception:  # noqa: BLE001
-        return "down", None, {}
+        return "DOWN", None, {}
     handshake = peer["last_handshake"]
-    age = int(time.time()) - handshake if handshake else None
-    details = {"last_handshake_seconds_ago": age}
-    current: State = "up" if age is not None and age < WIREGUARD_TIMEOUT else "down"
-    return current, peer["endpoint"], details
-
-
-def _counters(ni_id: str) -> dict[str, Counters]:
-    """Return the traffic counters of a network instance's interfaces."""
-    try:
-        result = namespace.run(ni_id, ["/usr/sbin/ip", "-j", "-s", "link"])
-    except FileNotFoundError:
-        return {}
-    output: dict[str, Counters] = {}
-    for link in json.loads(result.stdout or "[]"):
-        stats = link.get("stats64") or {}
-        rx, tx = stats.get("rx") or {}, stats.get("tx") or {}
-        output[link["ifname"]] = Counters(
-            **{
-                f"{direction}_{key}": counters.get(key, 0)
-                for direction, counters in (("rx", rx), ("tx", tx))
-                for key in ("bytes", "packets", "errors", "dropped")
-            },
-        )
-    return output
+    details = {"last_handshake": _timestamp(handshake) if handshake else None}
+    recent = handshake and time.time() - handshake < WIREGUARD_TIMEOUT
+    return ("UP" if recent else "DOWN"), peer["endpoint"], details
 
 
 def _snapshot(ni_id: str) -> state.NetnsState:
@@ -248,7 +296,6 @@ def _snapshot(ni_id: str) -> state.NetnsState:
 def connection_states(
     selected: list[NetworkInstance] | None = None,
     *,
-    counters: bool = False,
     interfaces: bool = True,
     sas_listing: list[dict[str, Any]] | None = None,
 ) -> list[ConnectionState]:
@@ -258,6 +305,7 @@ def connection_states(
     their state comes from the SAs. Enough to count connections that are up. The
     SAs are listed, unless a listing (as vici returns it) is given.
     """
+    everything = selected is None
     if selected is None:
         selected = list(helpers.network_instances().values())
     sas = (
@@ -277,7 +325,6 @@ def connection_states(
             snapshot = _snapshot(ni.id)
         else:
             snapshot = state.NetnsState(name=ni.id)
-        ni_counters = _counters(ni.id) if counters else {}
         for connection in ni.connections.values():
             name = connection.name(ni)
             ifname = connection.intf_name(ni)
@@ -289,6 +336,7 @@ def connection_states(
             remote = str(remote_addrs[0]) if remote_addrs else None
             details: dict[str, Any] = {}
             ctype = connection.config.type
+            current: OperStatus
             if ctype == enums.ConnectionType.IPSEC:
                 current, remote, details = _ipsec(name, connection, sas)
             elif ctype == enums.ConnectionType.WIREGUARD and link is not None:
@@ -296,38 +344,43 @@ def connection_states(
                 remote = endpoint or remote
             else:
                 # SSH (tun has carrier while ssh runs) and physical interfaces.
-                current = "up" if link is not None and link.passes_traffic else "down"
-                if ctype == enums.ConnectionType.SSH:
-                    details = _ssh(name)
+                current = "UP" if link is not None and link.passes_traffic else "DOWN"
             if ctype != enums.ConnectionType.PHYSICAL:
                 details["auto_resets_24h"] = helpers.auto_resets(name)
-            if name in shared.STOPPED_CONNECTIONS:
-                current = "stopped"
+            last_change, transitions = _track(name, current)
+            counters = snapshot.counters.get(ifname or "")
+            rates = traffic.rates(ni.id, ifname) if counters else None
             output.append(
                 ConnectionState(
                     id=name,
                     tenant=ni.tenant_id,
                     network_instance=ni.id,
-                    type=ctype.value,
-                    state=current,
+                    type=ctype,
+                    admin_status="UP" if connection.enabled else "DOWN",
+                    oper_status=current,
+                    last_change=last_change,
+                    interface_transitions=transitions,
                     interface=ifname if link is not None else None,
+                    mtu=link.mtu if link is not None else None,
                     addresses=addresses,
                     remote=remote,
                     details=details,
-                    counters=ni_counters.get(ifname or ""),
+                    counters=(
+                        Counters(**dataclasses.asdict(counters)) if counters else None
+                    ),
+                    rates=Rates(**dataclasses.asdict(rates)) if rates else None,
                 ),
             )
+    if everything:
+        # Connections that aren't configured anymore.
+        with _SEEN_LOCK:
+            for name in set(_SEEN) - {s.id for s in output}:
+                del _SEEN[name]
     return output
 
 
-def _ssh(name: str) -> dict[str, Any]:
-    tunnel = ssh.SSH_TUNNELS.get(name)
-    started = tunnel.started if tunnel is not None else None
-    return {"uptime_seconds": int(time.time() - started) if started else None}
-
-
 def _counts(states: list[ConnectionState]) -> tuple[int, int]:
-    return sum(s.state == "up" for s in states), len(states)
+    return sum(s.oper_status == "UP" for s in states), len(states)
 
 
 def network_instance_states(
@@ -346,7 +399,7 @@ def network_instance_states(
         item = NetworkInstanceState(
             id=ni.id,
             tenant=ni.tenant_id,
-            type=ni.type.value,
+            type=ni.type,
             connections_up=up,
             connections=total,
         )
@@ -366,10 +419,10 @@ def _translations(ni_id: str) -> list[Translation]:
     output: list[Translation] = []
     if nat64 := configuration.get_network_instance_nat64_mappings_state(ni_id):
         output.append(
-            Translation(type="nat64", local=str(nat64[0]), remote=str(nat64[1])),
+            Translation(type="NAT64", local=str(nat64[0]), remote=str(nat64[1])),
         )
     output.extend(
-        Translation(type="nptv6", local=str(local), remote=str(remote))
+        Translation(type="NPTV6", local=str(local), remote=str(remote))
         for local, remote in configuration.get_network_instance_nptv6_mappings_state(
             ni_id,
         )
@@ -410,7 +463,7 @@ def status() -> Status:
     states = connection_states(interfaces=False)
     up, total = _counts(states)
     return Status(
-        mode=tenant.get_default_tenant().mode.value,
+        mode=tenant.get_default_tenant().mode,
         tenants=len(config.VPNC_CONFIG_TENANT),
         network_instances=len(helpers.network_instances()),
         connections_up=up,
@@ -437,25 +490,18 @@ def _vpncmangle() -> VpncmangleState | None:
     )
 
 
-class BgpAddressFamily(BaseModel):
-    """A BGP session's prefixes in an address family."""
-
-    family: str
-    accepted: int | None
-    sent: int | None
-
-
 class BgpNeighborDetail(BgpNeighbor):
     """A BGP session in CORE, in detail."""
 
     local_as: int | None
-    connections_established: int | None
+    # How often the session became established.
+    established_transitions: int | None
     connections_dropped: int | None
     last_reset: str | None
-    hold_time_seconds: int | None
-    keepalive_seconds: int | None
+    # Seconds, as negotiated.
+    hold_time: int | None
+    keepalive_interval: int | None
     bfd: str | None
-    address_families: list[BgpAddressFamily]
 
 
 class BgpRoute(BaseModel):
@@ -488,24 +534,43 @@ def vtysh(command: str) -> Any:  # noqa: ANN401
         raise config_files.ConfigError(503, "Service unavailable", detail) from err
 
 
+def _session_state(state: str | None) -> str | None:
+    """Return FRR's session state as in OpenConfig, e.g. Idle (Admin) as IDLE."""
+    return state.split()[0].upper() if state else None
+
+
+def _afi_safi(family: str, received: int | None, sent: int | None) -> BgpAfiSafi:
+    """Return an address family with FRR's name as in OpenConfig: IPV6_UNICAST."""
+    return BgpAfiSafi(
+        afi_safi_name=re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", family).upper(),
+        prefixes=BgpPrefixes(received=received, sent=sent),
+    )
+
+
 def bgp_neighbors() -> list[BgpNeighbor]:
     """Return the BGP sessions in CORE (hub mode)."""
-    output: list[BgpNeighbor] = []
+    output: dict[str, BgpNeighbor] = {}
     for family, summary in vtysh(f"show bgp vrf {config.CORE_NI} summary").items():
         for peer, info in summary.get("peers", {}).items():
-            output.append(
+            neighbor = output.setdefault(
+                peer,
                 BgpNeighbor(
-                    neighbor=peer,
+                    neighbor_address=peer,
                     hostname=info.get("hostname"),
-                    remote_as=info.get("remoteAs"),
-                    address_family=family,
-                    state=info.get("state"),
-                    uptime=info.get("peerUptime"),
-                    prefixes_received=info.get("pfxRcd"),
-                    prefixes_sent=info.get("pfxSnt"),
+                    peer_as=info.get("remoteAs"),
+                    session_state=_session_state(info.get("state")),
+                    last_established=(
+                        _timestamp(epoch)
+                        if (epoch := info.get("peerUptimeEstablishedEpoch"))
+                        else None
+                    ),
+                    afi_safis=[],
                 ),
             )
-    return output
+            neighbor.afi_safis.append(
+                _afi_safi(family, info.get("pfxRcd"), info.get("pfxSnt")),
+            )
+    return list(output.values())
 
 
 def bgp_neighbor(neighbor: IPAddress) -> BgpNeighborDetail | None:
@@ -513,33 +578,34 @@ def bgp_neighbor(neighbor: IPAddress) -> BgpNeighborDetail | None:
     data = vtysh(f"show bgp vrf {config.CORE_NI} neighbors {neighbor}")
     if not (info := data.get(str(neighbor))):
         return None
-    families = [
-        BgpAddressFamily(
-            family=family,
-            accepted=af.get("acceptedPrefixCounter"),
-            sent=af.get("sentPrefixCounter"),
-        )
-        for family, af in (info.get("addressFamilyInfo") or {}).items()
-    ]
     hold = info.get("bgpTimerHoldTimeMsecs")
     keepalive = info.get("bgpTimerKeepAliveIntervalMsecs")
+    bfd = (info.get("peerBfdInfo") or {}).get("status")
     return BgpNeighborDetail(
-        neighbor=str(neighbor),
+        neighbor_address=str(neighbor),
         hostname=info.get("hostname"),
-        remote_as=info.get("remoteAs"),
+        peer_as=info.get("remoteAs"),
         local_as=info.get("localAs"),
-        address_family=", ".join(f.family for f in families),
-        state=info.get("bgpState"),
-        uptime=info.get("bgpTimerUpString"),
-        prefixes_received=sum(f.accepted or 0 for f in families),
-        prefixes_sent=sum(f.sent or 0 for f in families),
-        connections_established=info.get("connectionsEstablished"),
+        session_state=_session_state(info.get("bgpState")),
+        last_established=(
+            _timestamp(epoch)
+            if (epoch := info.get("bgpTimerUpEstablishedEpoch"))
+            else None
+        ),
+        afi_safis=[
+            _afi_safi(
+                family,
+                af.get("acceptedPrefixCounter"),
+                af.get("sentPrefixCounter"),
+            )
+            for family, af in (info.get("addressFamilyInfo") or {}).items()
+        ],
+        established_transitions=info.get("connectionsEstablished"),
         connections_dropped=info.get("connectionsDropped"),
         last_reset=info.get("lastResetDueTo"),
-        hold_time_seconds=hold // 1000 if hold is not None else None,
-        keepalive_seconds=keepalive // 1000 if keepalive is not None else None,
-        bfd=(info.get("peerBfdInfo") or {}).get("status"),
-        address_families=families,
+        hold_time=hold // 1000 if hold is not None else None,
+        keepalive_interval=keepalive // 1000 if keepalive is not None else None,
+        bfd=bfd.upper() if bfd else None,
     )
 
 

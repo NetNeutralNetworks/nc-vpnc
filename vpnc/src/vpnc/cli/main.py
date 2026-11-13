@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import datetime
 import http.client
 import json
 import os
@@ -147,6 +148,14 @@ def duration(seconds: float | None) -> str:
     return f"{secs}s"
 
 
+def age(timestamp: str | None) -> str:
+    """Return how long ago a time (ISO 8601) was, e.g. 2h13m."""
+    if not timestamp:
+        return "-"
+    then = datetime.datetime.fromisoformat(timestamp)
+    return duration((datetime.datetime.now(then.tzinfo) - then).total_seconds())
+
+
 def size(count: int | None) -> str:
     """Return a byte count, e.g. 1.2 MB."""
     if count is None:
@@ -157,6 +166,18 @@ def size(count: int | None) -> str:
             return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
         value /= 1000
     return str(count)
+
+
+def rate(bits: float | None) -> str:
+    """Return bits per second, e.g. 1.2 Mbit/s."""
+    if bits is None:
+        return "-"
+    value = float(bits)
+    for unit in ("bit/s", "kbit/s", "Mbit/s", "Gbit/s"):
+        if value < 1000 or unit == "Gbit/s":  # noqa: PLR2004
+            return f"{value:.0f} {unit}" if unit == "bit/s" else f"{value:.1f} {unit}"
+        value /= 1000
+    return str(bits)
 
 
 def clean(text: str) -> str:
@@ -332,31 +353,41 @@ def _filter(prefix: str | None) -> dict[str, str | None]:
 
 def cmd_connections_list(args: argparse.Namespace) -> None:
     """List the connections."""
-    wide = args.output == "wide"
     data = request(
         "GET",
         "/v1/connections",
         params={
             **_filter(args.filter),
-            "state": args.state,
+            "admin_status": args.admin_status,
+            "oper_status": args.oper_status,
             "type": args.type,
-            "counters": "true" if wide or structured(args.output) else None,
         },
     )
     if not dump(data, args.output):
         columns = [
             ("CONNECTION", "id"),
             ("TYPE", "type"),
-            ("STATE", "state"),
+            ("ADMIN", "admin_status"),
+            ("OPER", "oper_status"),
+            ("LAST CHANGE", "age"),
             ("REMOTE", "remote"),
             ("INTERFACE", "interface"),
         ]
-        if wide:
-            columns += [("RX", "rx"), ("TX", "tx"), ("ADDRESSES", "addresses")]
-            for row in data:
-                counters = row.get("counters") or {}
-                row["rx"] = size(counters.get("rx_bytes"))
-                row["tx"] = size(counters.get("tx_bytes"))
+        if args.output == "wide":
+            columns += [
+                ("MTU", "mtu"),
+                ("IN", "in"),
+                ("OUT", "out"),
+                ("IN RATE", "in_rate"),
+                ("OUT RATE", "out_rate"),
+                ("ADDRESSES", "addresses"),
+            ]
+        for row in data:
+            counters, rates = row.get("counters") or {}, row.get("rates") or {}
+            row["age"] = age(row["last_change"])
+            for direction in ("in", "out"):
+                row[direction] = size(counters.get(f"{direction}_octets"))
+                row[f"{direction}_rate"] = rate(rates.get(f"{direction}_bits_rate"))
         table(data, columns)
 
 
@@ -371,47 +402,56 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
         ("Tenant", data["tenant"]),
         ("Network instance", data["network_instance"]),
         ("Type", data["type"]),
-        ("State", data["state"]),
+        ("Admin status", data["admin_status"]),
+        ("Oper status", data["oper_status"]),
+        ("Last change", f"{data['last_change']} ({age(data['last_change'])} ago)"),
+        ("Interface transitions", data["interface_transitions"]),
         ("Remote", data.get("remote")),
         ("Interface", data.get("interface")),
+        ("MTU", data.get("mtu")),
         ("Addresses", data.get("addresses")),
     ]
     if "ike_state" in details:
         items += [
             ("IKE state", details["ike_state"]),
-            ("Established", duration(details.get("established_seconds"))),
             (
                 "Child SAs",
                 [f"{c['name']} {c['state']}" for c in details.get("child_sas", [])],
             ),
         ]
-    if "last_handshake_seconds_ago" in details:
-        ago = details["last_handshake_seconds_ago"]
-        items.append(("Last handshake", f"{duration(ago)} ago" if ago else "never"))
-    if "uptime_seconds" in details:
-        items.append(("Uptime", duration(details["uptime_seconds"])))
+    if "last_handshake" in details:
+        handshake = details["last_handshake"]
+        items.append(
+            ("Last handshake", f"{age(handshake)} ago" if handshake else "never"),
+        )
     if "auto_resets_24h" in details:
         items.append(("Auto resets (24h)", details["auto_resets_24h"]))
     if counters := data.get("counters"):
-        for label, direction in (("Received", "rx"), ("Sent", "tx")):
-            items.append(
-                (
-                    label,
-                    f"{size(counters[f'{direction}_bytes'])} "
-                    f"({counters[f'{direction}_packets']} packets, "
-                    f"{counters[f'{direction}_errors']} errors, "
-                    f"{counters[f'{direction}_dropped']} dropped)",
-                ),
+        items += [
+            (
+                label,
+                f"{size(counters[f'{direction}_octets'])} "
+                f"({counters[f'{direction}_pkts']} packets, "
+                f"{counters[f'{direction}_errors']} errors, "
+                f"{counters[f'{direction}_discards']} discards)",
             )
+            for label, direction in (("In", "in"), ("Out", "out"))
+        ]
+    if rates := data.get("rates"):
+        over = f"(over {duration(rates['load_interval'])})"
+        items += [
+            ("In rate", f"{rate(rates['in_bits_rate'])} {over}"),
+            ("Out rate", f"{rate(rates['out_bits_rate'])} {over}"),
+        ]
     fields(items)
 
 
 def _expand(target: str) -> list[str]:
-    """Return a network instance's or tenant's VPN connections (not physical)."""
+    """Return a network instance's or tenant's VPN connections (not PHYSICAL)."""
     ids = [
         c["id"]
         for c in request("GET", "/v1/connections", params=_filter(target))
-        if c["type"] != "physical"
+        if c["type"] != "PHYSICAL"
     ]
     if not ids:
         fail(f"No connection, network instance or tenant '{target}'.")
@@ -439,19 +479,19 @@ def _control(args: argparse.Namespace, action: str, done: str) -> None:
             continue
         results.append(data)
         if not structured(args.output):
-            print(f"{done} {data['id']}; it's {data['state']}.")
+            print(f"{done} {data['id']}; it's {data['oper_status']}.")
     dump(results, args.output)
     if failed:
         sys.exit(1)
 
 
 def cmd_connections_stop(args: argparse.Namespace) -> None:
-    """Stop VPN connections until they're started again, or vpnc restarts."""
+    """Disable connections: enabled is set to false in the configuration."""
     _control(args, "stop", "Stopped")
 
 
 def cmd_connections_start(args: argparse.Namespace) -> None:
-    """Start stopped VPN connections."""
+    """Enable connections: enabled is set to true in the configuration."""
     _control(args, "start", "Started")
 
 
@@ -505,31 +545,43 @@ def cmd_logs(args: argparse.Namespace) -> None:
     show_log(args, path, params, source=bool(args.ni))
 
 
+def _afi_safis(neighbor: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return a row per address family of a BGP session, with its prefixes."""
+    return [
+        {**neighbor, **afi_safi, **afi_safi["prefixes"]}
+        for afi_safi in neighbor["afi_safis"]
+    ]
+
+
 def cmd_bgp_neighbor(args: argparse.Namespace) -> None:
     """Show a BGP session in detail."""
     data = request("GET", f"/v1/bgp/neighbors/{quote(args.neighbor)}")
     if dump(data, args.output):
         return
+    established = data["last_established"]
     fields(
         [
-            ("Neighbor", data["neighbor"]),
+            ("Neighbor address", data["neighbor_address"]),
             ("Hostname", data["hostname"]),
-            ("Remote AS", data["remote_as"]),
+            ("Peer AS", data["peer_as"]),
             ("Local AS", data["local_as"]),
-            ("State", data["state"]),
-            ("Uptime", data["uptime"]),
-            ("BFD", data["bfd"]),
-            ("Hold time", duration(data["hold_time_seconds"])),
-            ("Keepalive", duration(data["keepalive_seconds"])),
-            ("Established", data["connections_established"]),
-            ("Dropped", data["connections_dropped"]),
+            ("Session state", data["session_state"]),
+            (
+                "Last established",
+                f"{established} ({age(established)} ago)" if established else None,
+            ),
+            ("Established transitions", data["established_transitions"]),
+            ("Connections dropped", data["connections_dropped"]),
             ("Last reset", data["last_reset"]),
+            ("BFD", data["bfd"]),
+            ("Hold time", duration(data["hold_time"])),
+            ("Keepalive interval", duration(data["keepalive_interval"])),
         ],
     )
     print()
     table(
-        data["address_families"],
-        [("FAMILY", "family"), ("ACCEPTED", "accepted"), ("SENT", "sent")],
+        _afi_safis(data),
+        [("AFI-SAFI", "afi_safi_name"), ("RECEIVED", "received"), ("SENT", "sent")],
     )
 
 
@@ -570,9 +622,9 @@ def cmd_routes(args: argparse.Namespace) -> None:
     )
     if not dump(data, args.output):
         columns = [
-            ("DESTINATION", "destination"),
+            ("PREFIX", "prefix"),
             ("TYPE", "type"),
-            ("GATEWAY", "gateways"),
+            ("NEXT HOP", "next_hops"),
             ("INTERFACE", "interfaces"),
             ("PROTOCOL", "protocol"),
         ]
@@ -686,20 +738,23 @@ def cmd_service(args: argparse.Namespace) -> None:
 
 
 def cmd_bgp_neighbors(args: argparse.Namespace) -> None:
-    """List the BGP sessions."""
+    """List the BGP sessions, per address family."""
     data = request("GET", "/v1/bgp/neighbors")
     if not dump(data, args.output):
+        rows = [row for neighbor in data for row in _afi_safis(neighbor)]
+        for row in rows:
+            row["age"] = age(row["last_established"])
         table(
-            data,
+            rows,
             [
-                ("NEIGHBOR", "neighbor"),
+                ("NEIGHBOR ADDRESS", "neighbor_address"),
                 ("HOSTNAME", "hostname"),
-                ("AS", "remote_as"),
-                ("FAMILY", "address_family"),
-                ("STATE", "state"),
-                ("UPTIME", "uptime"),
-                ("RECEIVED", "prefixes_received"),
-                ("SENT", "prefixes_sent"),
+                ("PEER AS", "peer_as"),
+                ("SESSION STATE", "session_state"),
+                ("LAST ESTABLISHED", "age"),
+                ("AFI-SAFI", "afi_safi_name"),
+                ("RECEIVED", "received"),
+                ("SENT", "sent"),
             ],
         )
 
@@ -839,7 +894,8 @@ def cmd_config_show(args: argparse.Namespace) -> None:
     elif isinstance(data, dict | list):
         dump(data, "yaml")
     else:
-        print(cell(data))
+        # As it's set: true, not yes.
+        print(json.dumps(data) if isinstance(data, bool) else cell(data))
 
 
 def cmd_config_edit(args: argparse.Namespace) -> None:
@@ -1079,11 +1135,13 @@ else
 fi
 """
 
-STATES = ["up", "down", "connecting", "stopped"]
-TYPES = ["ipsec", "wireguard", "ssh", "physical"]
+# Values are upper case, as in the API; lower case is accepted.
+ADMIN_STATUSES = ["UP", "DOWN"]
+OPER_STATUSES = ["UP", "DOWN", "DORMANT"]
+TYPES = ["IPSEC", "WIREGUARD", "SSH", "PHYSICAL"]
 OUTPUTS = ["table", "wide", "json", "yaml"]
 SOURCES = ["vpnc", "vpncmangle", "charon"]
-LEVELS = ["debug", "info", "warning", "error", "critical"]
+LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 # Per command its actions, and per action what its argument completes to.
 COMMANDS: dict[str, dict[str, str | None]] = {
@@ -1138,7 +1196,8 @@ OPTION_IDS = {
 OPTION_VALUES = {
     "-o": OUTPUTS,
     "--output": OUTPUTS,
-    "--state": STATES,
+    "--admin-status": ADMIN_STATUSES,
+    "--oper-status": OPER_STATUSES,
     "--type": TYPES,
     "--confirm": ["1m", "5m", "10m"],
     "--source": SOURCES,
@@ -1236,8 +1295,9 @@ def log_options(p: argparse.ArgumentParser) -> None:
     """Add the options of the log commands."""
     p.add_argument(
         "--level",
+        type=str.upper,
         choices=LEVELS,
-        default="info",
+        default="INFO",
         help="at least (not for charon's lines)",
     )
     p.add_argument("-n", "--lines", type=int, default=50, help="default: 50")
@@ -1296,8 +1356,9 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument(
         "filter", nargs="?", help="a tenant (C0001) or network instance (C0001-00)"
     )
-    p.add_argument("--state", choices=STATES)
-    p.add_argument("--type", choices=TYPES)
+    p.add_argument("--admin-status", type=str.upper, choices=ADMIN_STATUSES)
+    p.add_argument("--oper-status", type=str.upper, choices=OPER_STATUSES)
+    p.add_argument("--type", type=str.upper, choices=TYPES)
     connection = {"help": "e.g. C0001-00-0 or CORE-0"}
     add(connections, "show", cmd_connections_show).add_argument("id", **connection)
     for name, func, aliases in (

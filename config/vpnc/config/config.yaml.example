@@ -11,7 +11,7 @@ metadata:
 network_instances:
   # Two digits; the network instance is named <tenant id>-<key>, e.g. C0001-00.
   00:
-    type: downlink # default | external | core | downlink, IPv4 is ignored for core in hub mode.
+    type: DOWNLINK # DEFAULT | EXTERNAL | CORE | DOWNLINK, IPv4 is ignored for core in hub mode.
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
@@ -58,7 +58,7 @@ network_instances:
           - to: 172.16.30.1
             # via: # Optional, ignored for tunnel interfaces
         config:
-          type: ipsec # ipsec | ssh | physical
+          type: IPSEC # IPSEC | SSH | PHYSICAL
           # Optional: If not set, defaults to the default service local_id value.
           # local_id: 192.0.2.5
           # IPv6 or IPv4 address
@@ -75,8 +75,8 @@ network_instances:
           # ipsec_proposal: aes256gcm16-prfsha384-ecp384
           # Optional: The IPsec lifetime in seconds
           # ipsec_lifetime: 3600
-          # Optional, defaults to start. 'start' means inititate and respond, 'none' means respond only.
-          # initiation: start
+          # Optional, defaults to START: initiate and respond. NONE: respond only.
+          # initiation: START
           psk: secretpasswordendpoint
           # Optional
           # traffic_selectors:
@@ -91,6 +91,10 @@ network_instances:
       1:
         # Optional, arbitrary key-value pairs
         metadata: {}
+        # Optional, defaults to true. false: admin down (interface down, VPN not set up).
+        # enabled: true
+        # Optional, defaults to the interface's own MTU. 1280 or more.
+        # mtu: 1400
         interface:
         routes:
           ipv6:
@@ -98,7 +102,7 @@ network_instances:
           - to: default
             # via: # Optional, ignored for tunnel interfaces
         config:
-          type: ssh # ipsec | physical | wireguard
+          type: SSH # IPSEC | PHYSICAL | WIREGUARD
           remote_addrs: [172.16.30.1]
           # Required. Specifies the remote tunnel identifier to avoid overlap.
           remote_tunnel_id: 0
@@ -111,7 +115,7 @@ network_instances:
           username: root
 
   01:
-    type: downlink
+    type: DOWNLINK
     connections:
       0:
         routes:
@@ -129,12 +133,12 @@ network_instances:
           ipv4:
           - to: default
         config:
-          type: ipsec
+          type: IPSEC
           remote_addrs: [192.0.2.8]
           ike_proposal: aes128gcm16-prfsha384-ecp384
           ike_lifetime: 300
           ipsec_proposal: aes128gcm16-prfsha384-ecp384
           ipsec_lifetime: 90
-          initiation: none
+          initiation: NONE
           psk: secretpasswordendpoint
 ...

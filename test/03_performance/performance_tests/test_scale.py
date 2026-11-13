@@ -509,7 +509,9 @@ class TestScale:
             conftest.run_cmd(HOST, "vpnctl connections list -o json"),
         )
         up = [
-            c for c in connections if c["tenant"] in TENANTS and c["state"] == "up"
+            c
+            for c in connections
+            if c["tenant"] in TENANTS and c["oper_status"] == "UP"
         ]
         assert len(up) == len(INDEXES)
 

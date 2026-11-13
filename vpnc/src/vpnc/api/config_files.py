@@ -64,7 +64,7 @@ class ConfigSummary(BaseModel):
 
     id: str
     name: str | None
-    status: Literal["unchanged", "modified", "added", "deleted"]
+    status: Literal["UNCHANGED", "MODIFIED", "ADDED", "DELETED"]
     # A commit to confirm before then, or it's rolled back.
     confirm_by: str | None = None
 
@@ -212,13 +212,13 @@ def summaries() -> list[ConfigSummary]:
         if active is None and candidate is None:
             continue
         if active is None:
-            status = "added"
+            status = "ADDED"
         elif candidate is None:
-            status = "deleted"
+            status = "DELETED"
         elif not _same(active, candidate):
-            status = "modified"
+            status = "MODIFIED"
         else:
-            status = "unchanged"
+            status = "UNCHANGED"
         output.append(
             ConfigSummary(
                 id=tenant_id,
@@ -505,6 +505,32 @@ def commit(
             confirm_by=confirm_by,
             restart_needed=restart,
         )
+
+
+def set_enabled(tenant_id: str, connection: str, *, enabled: bool) -> None:
+    """Enable or disable a connection (e.g. C0001-00-0) in its configuration.
+
+    In the active configuration, which is loaded right away, and in staged
+    changes: a commit doesn't undo it. It isn't a commit: no history is kept.
+    """
+    ni_id, _, number = connection.rpartition("-")
+    path = _path(tenant_id, "active")
+    with LOCK:
+        staged = _text(tenant_id, "candidate") is not None
+        revisions: list[Revision] = ["active", "candidate"] if staged else ["active"]
+        for revision in revisions:
+            model = _load(tenant_id, revision)
+            found = [
+                ni.connections[int(number)]
+                for ni in (model.network_instances.values() if model else [])
+                if ni.id == ni_id and int(number) in ni.connections
+            ]
+            if not found or found[0].enabled == enabled:
+                continue
+            found[0].enabled = enabled
+            text = _yaml(_dump(model, reveal=True))
+            files.ensure_file(_path(tenant_id, revision), text, secret=True)
+        configuration.manage_tenant(path)
 
 
 def confirm(tenant_id: str) -> CommitResult:

@@ -24,6 +24,7 @@ class ConnectionConfigWireGuard(BaseModel):
     """Defines an IPsec connection data structure."""
 
     type: Literal[enums.ConnectionType.WIREGUARD] = enums.ConnectionType.WIREGUARD
+    _upper = helpers.upper("type")
     # Set a local id for the connection specifically.
     local_port: int = Field(default=51820, ge=1, le=65535)
     remote_addrs: list[IPv4Address | IPv6Address] = Field(min_length=1)
@@ -72,8 +73,8 @@ class ConnectionConfigWireGuard(BaseModel):
             state.netns(config.EXTERNAL_NI) as ext,
         ):
             state.ensure_wireguard(dl.ipr, ext.ipr, dl.state, wg)
-            state.ensure_link_state(dl.ipr, dl.state, wg, up=True)
-            connection.ensure_addresses(network_instance, dl)
+            state.ensure_link_state(dl.ipr, dl.state, wg, up=connection.enabled)
+            connection.ensure_mtu_and_addresses(network_instance, dl)
 
         wireguard.generate_config(network_instance, connection)
         wireguard.sync(network_instance, connection, wg)
