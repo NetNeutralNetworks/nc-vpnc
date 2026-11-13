@@ -271,6 +271,21 @@ class TestVpnctlTroubleshooting:
             conftest.run_cmd("hub00", f"{VPNCTL} tcp C0001-00 172.16.31.1 9")
         assert "Couldn't connect to 172.16.31.1 port 9" in err.value.stdout
 
+    @pytest.mark.parametrize("target", ["C0001-00-1", "C0001-00"])
+    def test_capture(self, target: str) -> None:
+        """A capture on a connection or network instance shows its packets."""
+        tcp = f"{VPNCTL} tcp C0001-00 172.16.31.1 22"
+        # -e is passed on to tcpdump.
+        packets = "host 172.16.31.1 and tcp port 22"
+        capture = f"timeout 20 {VPNCTL} capture {target} -c 2 -e {packets}"
+        output = conftest.run_cmd_shell(
+            "hub00",
+            f"bash -c '(sleep 2; {tcp} > /dev/null) & {capture}'",
+        )
+
+        assert "100.99.0.17" in output
+        assert "> 172.16.31.1.22: Flags [S]" in output
+
     @pytest.mark.parametrize("host", ["hub00", "end00"])
     def test_version(self, host: str) -> None:
         """The versions of vpnc, strongSwan and (in hub mode) FRR."""

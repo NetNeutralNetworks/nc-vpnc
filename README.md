@@ -176,6 +176,8 @@ Troubleshooting inside a network instance (destinations are IP addresses):
 ~$ sudo vpnctl ping C0001-00 10.0.0.1 [-c 5] [-s 56]
 ~$ sudo vpnctl traceroute C0001-00 10.0.0.1
 ~$ sudo vpnctl tcp C0001-00 10.0.0.1 443     # a TCP connection test
+~$ sudo vpnctl capture C0001-00-0 [-c 20] [-w FILE] [-e -X port 443]   # tcpdump on the connection's interface, with its options and filter
+~$ sudo vpnctl capture EXTERNAL esp          # or on all interfaces of a network instance
 ```
 
 VPN connections (IPsec, WireGuard, SSH) can be stopped until they're started again or vpnc restarts, and reset (a new IKE SA, WireGuard or SSH session):
