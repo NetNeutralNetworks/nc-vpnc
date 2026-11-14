@@ -3,8 +3,10 @@
 Standard MIBs only, and only added to what snmpd serves:
 - IF-MIB (ifTable, ifXTable): a row per connection. Each object is registered
   on its own, so snmpd keeps answering for its own interfaces.
-- MPLS-L3VPN-STD-MIB (mplsL3VpnVrfRteTable): the routes of the main table of
-  every network instance, by its name.
+- MPLS-L3VPN-STD-MIB: every network instance as a VRF, by its name
+  (mplsL3VpnVrfTable), its connections (mplsL3VpnIfConfTable), the number of
+  its routes (mplsL3VpnVrfPerfTable) and the routes of its main table
+  (mplsL3VpnVrfRteTable).
 
 Requests are answered from a snapshot, which a second thread refreshes every
 REFRESH seconds while connected to snmpd.
@@ -13,9 +15,11 @@ REFRESH seconds while connected to snmpd.
 from __future__ import annotations
 
 import bisect
+import collections
 import contextlib
 import dataclasses
 import datetime
+import ipaddress
 import itertools
 import logging
 import threading
@@ -40,10 +44,15 @@ SOCKET = "/var/agentx/master"
 
 IF_ENTRY = (1, 3, 6, 1, 2, 1, 2, 2, 1)
 IFX_ENTRY = (1, 3, 6, 1, 2, 1, 31, 1, 1, 1)
-ROUTE_ENTRY = (1, 3, 6, 1, 2, 1, 10, 166, 11, 1, 4, 1, 1)
-# FRR's bgpd registers the columns of the route table too, for L3VPN VRFs
-# (vpnc has none): the lower priority wins.
-ROUTE_PRIORITY = 100
+# MPLS-L3VPN-STD-MIB.
+L3VPN = (1, 3, 6, 1, 2, 1, 10, 166, 11, 1)
+VRF_INTERFACE_ENTRY = (*L3VPN, 2, 1, 1)
+VRF_ENTRY = (*L3VPN, 2, 2, 1)
+VRF_PERF_ENTRY = (*L3VPN, 3, 1, 1)
+ROUTE_ENTRY = (*L3VPN, 4, 1, 1)
+# FRR's bgpd registers the columns of these tables too, for L3VPN VRFs (vpnc
+# has none): the lower priority wins.
+L3VPN_PRIORITY = 100
 
 # The ifIndex of connections starts here, far above what the kernel hands out.
 IF_INDEX_BASE = 1_000_000_000
@@ -84,6 +93,10 @@ PROTOCOLS = {
     192: 16,
 }
 ROW_ACTIVE = 1
+STORAGE_VOLATILE = 2
+# mplsL3VpnIfVpnClassification and mplsL3VpnIfVpnRouteDistProtocol (BITS, none).
+VPN_ENTERPRISE = 2
+ROUTE_DIST_NONE = b"\x80"
 
 
 def if_index(name: str) -> int:
@@ -104,6 +117,16 @@ class Tunnel:
     state: status.ConnectionState
     # When its oper_status last changed (Unix time).
     changed: float
+
+
+@dataclasses.dataclass(frozen=True)
+class Vrf:
+    """A network instance as a row of the VRF tables."""
+
+    description: bytes
+    active: int
+    associated: int
+    routes: int
 
 
 @dataclasses.dataclass(frozen=True)
@@ -245,6 +268,40 @@ class Mib:
                 11: _counter(counter64, "out_pkts"),
             },
         )
+        # The connections of each network instance, by its name and their ifIndex.
+        self.vrf_interfaces = Table(
+            VRF_INTERFACE_ENTRY,
+            {
+                2: _constant(agentx.INTEGER, VPN_ENTERPRISE),
+                3: _constant(agentx.OCTET_STRING, ROUTE_DIST_NONE),
+                4: _constant(agentx.INTEGER, STORAGE_VOLATILE),
+                5: _constant(agentx.INTEGER, ROW_ACTIVE),
+            },
+        )
+        # The network instances, by name. No VPN id or route distinguisher.
+        self.vrfs = Table(
+            VRF_ENTRY,
+            {
+                2: _constant(agentx.OCTET_STRING, b""),
+                3: lambda vrf: (agentx.OCTET_STRING, vrf.description),
+                4: _constant(agentx.OCTET_STRING, b""),
+                5: _constant(agentx.TIMETICKS, 0),
+                6: lambda vrf: (agentx.INTEGER, UP if vrf.active else DOWN),
+                7: lambda vrf: (agentx.GAUGE32, vrf.active),
+                8: lambda vrf: (agentx.GAUGE32, vrf.associated),
+                # No route thresholds or limit.
+                **{number: _constant(agentx.GAUGE32, 0) for number in (9, 10, 11)},
+                12: _constant(agentx.TIMETICKS, 0),
+                13: _constant(agentx.INTEGER, ROW_ACTIVE),
+                14: _constant(agentx.INTEGER, UP),
+                15: _constant(agentx.INTEGER, STORAGE_VOLATILE),
+            },
+        )
+        # mplsL3VpnVrfPerfCurrNumRoutes only: routes aren't counted as they change.
+        self.vrf_perf = Table(
+            VRF_PERF_ENTRY,
+            {3: lambda vrf: (agentx.GAUGE32, vrf.routes)},
+        )
         # From mplsL3VpnVrfRteInetCidrIfIndex on; the columns before are the index.
         self.routes = Table(
             ROUTE_ENTRY,
@@ -263,8 +320,16 @@ class Mib:
                 18: _constant(agentx.INTEGER, ROW_ACTIVE),
             },
         )
-        # In the order of their objects, for next().
-        self._tables = (self.interfaces, self.routes, self.interfaces_x)
+        self._tables = (
+            self.interfaces,
+            self.vrf_interfaces,
+            self.vrfs,
+            self.vrf_perf,
+            self.routes,
+            self.interfaces_x,
+        )
+        # Registered with L3VPN_PRIORITY, per column as bgpd does.
+        self.l3vpn = (self.vrf_interfaces, self.vrfs, self.vrf_perf, self.routes)
 
     def _last_change(self, tunnel: Tunnel) -> Value:
         """Return ifLastChange: snmpd's sysUpTime when the oper_status changed."""
@@ -280,10 +345,12 @@ class Mib:
 
     def next(self, oid: Oid, *, include: bool) -> tuple[Oid, Value] | None:
         """Return the first object after oid; or at it, with include."""
-        for table in self._tables:
-            if found := table.next(oid, include=include):
-                return found
-        return None
+        found = [
+            item
+            for table in self._tables
+            if (item := table.next(oid, include=include)) is not None
+        ]
+        return min(found, default=None)
 
     def load(self) -> None:
         """Fill the tables from the connections and the routes as they are now."""
@@ -299,21 +366,53 @@ class Mib:
             self.version += 1
         self.interfaces.fill(tunnels)
         self.interfaces_x.fill(tunnels)
-        self.routes.fill(_routes())
+        routes = _routes()
+        self.routes.fill(routes)
+        route_counts = collections.Counter(index[: index[0] + 1] for index in routes)
+        by_ni: dict[str, list[Tunnel]] = {}
+        for tunnel in tunnels.values():
+            by_ni.setdefault(tunnel.state.network_instance, []).append(tunnel)
+        vrfs: dict[Oid, Vrf] = {}
+        members: dict[Oid, None] = {}
+        for ni in list(helpers.network_instances().values()):
+            name = _name_index(ni.id)
+            connections = by_ni.get(ni.id, [])
+            vrfs[name] = Vrf(
+                description=_description(ni.tenant_id).encode(),
+                active=sum(_oper_status(t)[1] == UP for t in connections),
+                associated=len(connections),
+                routes=route_counts[name],
+            )
+            members.update(dict.fromkeys((*name, t.index) for t in connections))
+        self.vrfs.fill(vrfs)
+        self.vrf_perf.fill(vrfs)
+        self.vrf_interfaces.fill(members)
+
+
+def _name_index(ni_id: str) -> Oid:
+    """Return the index of a network instance: its name, length first."""
+    name = ni_id.encode()
+    return (len(name), *name)
+
+
+def _description(tenant_id: str) -> str:
+    """Return the name of a network instance's tenant."""
+    tenant = config.VPNC_CONFIG_TENANT.get(tenant_id)
+    return tenant.name if tenant else tenant_id
 
 
 def _route_index(ni_id: str, route: state.KernelRoute, policy: int) -> Oid:
     """Return the index of a route: the VRF name and inetCidrRouteTable's index."""
     family = 1 if route.dst.version == 4 else 2  # noqa: PLR2004
     destination = route.dst.network_address.packed
-    name = ni_id.encode()
-    index = (len(name), *name, family, len(destination), *destination)
+    index = (*_name_index(ni_id), family, len(destination), *destination)
     # The policy tells routes to one destination via one next hop apart.
     index += (route.dst.prefixlen, 2, 0, policy)
-    if route.gateway is None:
-        return (*index, 0, 0)
-    gateway = route.gateway.packed
-    return (*index, 1 if route.gateway.version == 4 else 2, len(gateway), *gateway)  # noqa: PLR2004
+    # Without a gateway the zero address, as snmpd has it in inetCidrRouteTable:
+    # monitoring systems (LibreNMS) skip routes without a next hop.
+    gateway = route.gateway or ipaddress.ip_address(bytes(len(destination)))
+    packed = gateway.packed
+    return (*index, 1 if gateway.version == 4 else 2, len(packed), *packed)  # noqa: PLR2004
 
 
 def _routes() -> dict[Oid, Route]:
@@ -365,8 +464,9 @@ def _session() -> None:
     with contextlib.closing(agentx.Session(SOCKET, "vpnc", MIB)) as session:
         logger.info("Connected to snmpd.")
         MIB.uptime = session.uptime
-        for number in MIB.routes.columns:
-            session.register((*ROUTE_ENTRY, number), ROUTE_PRIORITY)
+        for table in MIB.l3vpn:
+            for number in table.columns:
+                session.register((*table.entry, number), L3VPN_PRIORITY)
         registered: set[Oid] = set()
         version = None
         pinged = time.monotonic()

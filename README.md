@@ -247,7 +247,10 @@ vpnctl uses vpnc's local REST API on the Unix socket `/run/vpnc/api.sock` (root 
 | MIB | Table | |
 |---|---|---|
 | IF-MIB | `ifTable`, `ifXTable` | A row per connection, named like it (`ifName` `C0001-00-0`): admin and oper status, last change, MTU and counters. `ifOperStatus` is the state of the tunnel: `up`, `down` or `dormant` (being set up). |
-| MPLS-L3VPN-STD-MIB | `mplsL3VpnVrfRteTable` | The routes of every network instance, by its name. `mplsL3VpnVrfRteInetCidrIfIndex` is the connection's `ifIndex`, or 0. |
+| MPLS-L3VPN-STD-MIB | `mplsL3VpnVrfTable` | Every network instance as a VRF, by its name, described by its tenant's name. Up when one of its connections is up. No route distinguisher. |
+| | `mplsL3VpnIfConfTable` | The connections of each VRF, by `ifIndex`. |
+| | `mplsL3VpnVrfPerfTable` | The number of routes of each VRF (`mplsL3VpnVrfPerfCurrNumRoutes` only). |
+| | `mplsL3VpnVrfRteTable` | The routes of every network instance. `mplsL3VpnVrfRteInetCidrIfIndex` is the connection's `ifIndex`, or 0. Routes without a gateway have the zero address as next hop, as in snmpd's `inetCidrRouteTable`. |
 
 A connection's `ifIndex` is derived from its name, so it doesn't change: 1000000000 + tenant × 1000 + network instance × 10 + connection, with the tenant's letter as a hex digit (`C0001-00-0` is 1120001000). `EXTERNAL`, `CORE` and `ENDPOINT` count as network instances 0, 1 and 2 of tenant 0 (`CORE-1` is 1000000011).
 

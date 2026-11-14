@@ -15,6 +15,11 @@ IF_SPEED = "1.3.6.1.2.1.2.2.1.5"
 IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"
 IF_HC_IN_OCTETS = "1.3.6.1.2.1.31.1.1.1.6"
 ROUTE_IF_INDEX = "1.3.6.1.2.1.10.166.11.1.4.1.1.7"
+ROUTE_TYPE = "1.3.6.1.2.1.10.166.11.1.4.1.1.8"
+VRF_DESCRIPTION = "1.3.6.1.2.1.10.166.11.1.2.2.1.3"
+VRF_OPER_STATUS = "1.3.6.1.2.1.10.166.11.1.2.2.1.6"
+VRF_INTERFACE = "1.3.6.1.2.1.10.166.11.1.2.1.1.2"
+VRF_ROUTES = "1.3.6.1.2.1.10.166.11.1.3.1.1.3"
 # BGP4V2-MIB, from FRR: bgp4V2PeerState.
 BGP_PEER_STATE = "1.3.6.1.3.5.1.1.2.1.13"
 ESTABLISHED = "6"
@@ -29,6 +34,11 @@ NETWORK_INSTANCES = {
 }
 
 Route = tuple[str, str, str | None]
+
+
+def vrf_name(index: tuple[int, ...]) -> str:
+    """Return the network instance name at the start of an index."""
+    return bytes(index[1 : index[0] + 1]).decode()
 
 
 def kernel_routes(host: str, ni: str) -> dict[Route, str | None]:
@@ -126,3 +136,45 @@ class TestSnmp:
 
         assert len(states) == len(neighbors) > 0
         assert set(states.values()) == {ESTABLISHED}
+
+    @pytest.mark.parametrize("host", list(CONNECTIONS))
+    def test_vrfs(self, host: str) -> None:
+        """Every network instance is a VRF that's up, with its tenant's name."""
+        descriptions = {
+            vrf_name(index): value
+            for index, value in conftest.snmp_walk(host, VRF_DESCRIPTION).items()
+        }
+        status = conftest.snmp_walk(host, VRF_OPER_STATUS)
+
+        assert set(descriptions) == set(NETWORK_INSTANCES[host])
+        assert descriptions["CORE"] == "DEFAULT"
+        assert set(status.values()) == {UP}
+
+    @pytest.mark.parametrize("host", list(CONNECTIONS))
+    def test_vrf_interfaces(self, host: str) -> None:
+        """Every connection is an interface of its network instance's VRF."""
+        names = conftest.snmp_interfaces(host)
+        members = {
+            (vrf_name(index), index[-1])
+            for index in conftest.snmp_walk(host, VRF_INTERFACE)
+        }
+
+        assert members == {
+            (connection.rpartition("-")[0], names[connection][0])
+            for connection in CONNECTIONS[host]
+        }
+
+    @pytest.mark.parametrize("host", list(CONNECTIONS))
+    def test_vrf_route_counts(self, host: str) -> None:
+        """A VRF's route count is the number of its routes in the route table."""
+
+        def same() -> bool:
+            counts = {
+                vrf_name(index): int(value)
+                for index, value in conftest.snmp_walk(host, VRF_ROUTES).items()
+            }
+            # By index: routes to one destination via one next hop count apart.
+            routes = [vrf_name(i) for i in conftest.snmp_walk(host, ROUTE_TYPE)]
+            return counts == {ni: routes.count(ni) for ni in NETWORK_INSTANCES[host]}
+
+        conftest.wait_until(same, 90, message=f"the route counts on {host}")

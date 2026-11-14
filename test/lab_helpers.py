@@ -208,12 +208,9 @@ def snmp_route(index: tuple[int, ...]) -> tuple[str, str, str | None]:
     prefix_length = numbers.pop(0)
     take()
     del numbers[:1]
-    gateway = take()
-    return (
-        name,
-        f"{address}/{prefix_length}",
-        str(ipaddress.ip_address(gateway)) if gateway else None,
-    )
+    # Without a gateway the zero address.
+    gateway = ipaddress.ip_address(take())
+    return (name, f"{address}/{prefix_length}", str(gateway) if int(gateway) else None)
 
 
 def snmp_routes(host: str) -> set[tuple[str, str, str | None]]:
