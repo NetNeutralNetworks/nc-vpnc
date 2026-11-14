@@ -64,6 +64,13 @@ IFLA_INFO_KIND = 1
 IFLA_INFO_DATA = 2
 IFLA_XFRM_IF_ID = 2
 IFA_ADDRESS = 1
+# Attributes of routes (linux/rtnetlink.h).
+RTA_DST = 1
+RTA_OIF = 4
+RTA_GATEWAY = 5
+RTA_PRIORITY = 6
+RTA_MULTIPATH = 9
+RTA_VIA = 18
 NLMSG_ERROR = 2
 NLMSG_DONE = 3
 NLM_F_REQUEST = 0x1
@@ -245,6 +252,75 @@ def _owned_route_messages(sock: socket.socket) -> list[rtmsg]:
             msg.decode()
             messages.append(msg)
     return messages
+
+
+@dataclass(frozen=True)
+class KernelRoute:
+    """A next hop of a route in the main table, whoever installed the route."""
+
+    dst: IPNetwork
+    # RTN_* and RTPROT_* (linux/rtnetlink.h).
+    type: int
+    protocol: int
+    metric: int
+    gateway: IPAddress | None
+    dev: str | None
+
+
+def _next_hops(attributes: dict[int, bytes]) -> list[tuple[IPAddress | None, int]]:
+    """Return the gateway and interface index of each next hop of a route."""
+
+    def gateway(attributes: dict[int, bytes]) -> IPAddress | None:
+        if RTA_GATEWAY in attributes:
+            return ipaddress.ip_address(attributes[RTA_GATEWAY])
+        if RTA_VIA in attributes:
+            # struct rtvia: family, address.
+            return ipaddress.ip_address(attributes[RTA_VIA][2:])
+        return None
+
+    if RTA_MULTIPATH not in attributes:
+        (oif,) = struct.unpack("i", attributes.get(RTA_OIF, bytes(4)))
+        return [(gateway(attributes), oif)]
+    hops = []
+    data = attributes[RTA_MULTIPATH]
+    offset = 0
+    while offset + 8 <= len(data):
+        # struct rtnexthop: length, flags, hops, interface index; then attributes.
+        length, oif = struct.unpack_from("HxxI", data, offset)
+        if length < 8:  # noqa: PLR2004
+            break
+        hop = _attributes(data[offset + 8 : offset + length])
+        hops.append((gateway(hop), oif))
+        offset += (length + 3) & ~3
+    return hops
+
+
+def main_routes(netns: str) -> list[KernelRoute]:
+    """Return all routes of the main table of a namespace, one per next hop."""
+    routes: list[KernelRoute] = []
+    with _dump_socket(netns) as sock:
+        names: dict[int, str] = {}
+        for msg in _dump(sock, RTM_GETLINK, bytes(16)):
+            (index,) = struct.unpack_from("i", msg, 20)
+            names[index] = _string(_attributes(msg[32:])[IFLA_IFNAME])
+        body = struct.pack("4B4BI", 0, 0, 0, 0, RT_TABLE_MAIN, 0, 0, 0, 0)
+        for msg in _dump(sock, RTM_GETROUTE, body):
+            family, dst_len, _, _, _, protocol, _, kind = struct.unpack_from(
+                "8B",
+                msg,
+                16,
+            )
+            if family not in (socket.AF_INET, socket.AF_INET6):
+                continue
+            attributes = _attributes(msg[28:])
+            size = 4 if family == socket.AF_INET else 16
+            dst = ipaddress.ip_network((attributes.get(RTA_DST, bytes(size)), dst_len))
+            (metric,) = struct.unpack("I", attributes.get(RTA_PRIORITY, bytes(4)))
+            routes.extend(
+                KernelRoute(dst, kind, protocol, metric, gateway, names.get(oif))
+                for gateway, oif in _next_hops(attributes)
+            )
+    return routes
 
 
 # Per namespace, bumped by changed(): shared snapshots are read again.

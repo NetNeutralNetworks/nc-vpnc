@@ -13,7 +13,20 @@ from lab_helpers import (  # noqa: E402
     run_cmd,
     run_cmd_shell,
     run_cmd_vtysh,
+    snmp_interfaces,
+    snmp_route,
+    snmp_routes,
+    snmp_walk,
     wait_until,
 )
 
-__all__ = ["run_cmd", "run_cmd_shell", "run_cmd_vtysh", "wait_until"]
+__all__ = [
+    "run_cmd",
+    "run_cmd_shell",
+    "run_cmd_vtysh",
+    "snmp_interfaces",
+    "snmp_route",
+    "snmp_routes",
+    "snmp_walk",
+    "wait_until",
+]

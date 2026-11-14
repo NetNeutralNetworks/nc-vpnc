@@ -28,6 +28,8 @@ NI = "C0002-00"
 NI_KEY = "00"
 CORE_LINK = f"{NI}_C"
 APPLY_TIMEOUT = 60
+# Applied, plus a refresh of what SNMP shows.
+SNMP_TIMEOUT = 120
 # Drift is corrected by the full check, which runs every 30 seconds.
 DRIFT_TIMEOUT = 120
 # Time to confirm a commit: much longer than applying one takes.
@@ -240,6 +242,37 @@ class TestReconfiguration:
             message="connection 1 to be removed",
         )
         assert connection_applied(BASE_CONNECTION)
+
+    def test_snmp_follows_connections(self) -> None:
+        """SNMP gets a connection and its routes when added, and loses them again."""
+        second = ipsec_connection(
+            1,
+            ("10.200.0.5/30", "fdcc:200:0:1::1/64"),
+            ["10.203.0.0/24"],
+            ["fdcc:203::/48"],
+        )
+        routes = {(NI, "10.203.0.0/24", None), (NI, "fdcc:203::/48", None)}
+
+        write_tenant([BASE_CONNECTION, second])
+        conftest.wait_until(
+            lambda: (
+                f"{NI}-1" in conftest.snmp_interfaces(HOST)
+                and routes <= conftest.snmp_routes(HOST)
+            ),
+            timeout=SNMP_TIMEOUT,
+            message="connection 1 and its routes in SNMP",
+        )
+
+        write_tenant([BASE_CONNECTION])
+        conftest.wait_until(
+            lambda: (
+                f"{NI}-1" not in conftest.snmp_interfaces(HOST)
+                and not routes & conftest.snmp_routes(HOST)
+            ),
+            timeout=SNMP_TIMEOUT,
+            message="connection 1 and its routes gone from SNMP",
+        )
+        assert f"{NI}-0" in conftest.snmp_interfaces(HOST)
 
     def test_change_routes(self) -> None:
         """Changed routes replace the old ones."""

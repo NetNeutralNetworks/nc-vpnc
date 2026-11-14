@@ -17,6 +17,7 @@ from vpnc.services import (
     configuration,
     frr,
     reconcile,
+    snmp,
     strongswan,
     vpncmangle,
     watchdog,
@@ -146,6 +147,9 @@ def concentrator() -> None:
     }
     if frr.OBSERVER is not None:
         threads["FRR watcher"] = frr.OBSERVER
+
+    # Monitoring only: vpnc runs without it.
+    snmp.start()
 
     # Keep the program running, but terminate if needed.
     try:
