@@ -39,7 +39,9 @@ their connections.
 
 ```sh
 sudo test/00_setup/deploy-scale.sh 26.04
-sudo python3 -m pytest -s test/03_performance
+sudo python3 -m pytest test/03_performance
 ```
+
+The run ends with its measurements: apply and recovery times, idle CPU.
 
 Without a version, the deploy scripts use the last built image (`latest`), as in CI.

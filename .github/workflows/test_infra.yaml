@@ -66,8 +66,7 @@ jobs:
               --ignore=test/02_reliability/reliability_tests/test_vpn_recovery.py
           - name: performance
             lab: scale
-            # -rP shows the measurements (printed by passing tests).
-            tests: test/03_performance -rP
+            tests: test/03_performance
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:

@@ -431,6 +431,14 @@ def vpnc_cpu_seconds() -> float:
     return (int(fields[11]) + int(fields[12])) / int(ticks)
 
 
+def idle_cpu() -> float:
+    """Return the share of one core vpnc uses when nothing changes."""
+    time.sleep(SETTLE)
+    before = vpnc_cpu_seconds()
+    time.sleep(CPU_SAMPLE)
+    return (vpnc_cpu_seconds() - before) / CPU_SAMPLE
+
+
 @pytest.fixture(scope="module", autouse=True)
 def scale_tenants_applied() -> Iterator[None]:
     """Set up peer00, add the scale tenants and remove them afterwards."""
@@ -450,7 +458,9 @@ def scale_tenants_applied() -> Iterator[None]:
         APPLY_TIMEOUT,
         "the scale tenants to be applied",
     )
-    print(f"Applied {len(NETWORK_INSTANCES)} network instances in {took:.0f}s.")  # noqa: T201
+    conftest.measured(
+        f"Applied {len(NETWORK_INSTANCES)} network instances in {took:.0f}s.",
+    )
     # Like customers, peer00 starts once hub00 has the connections: charon doesn't
     # retry after a failed authentication.
     conftest.write_file(PEER, "/etc/swanctl/conf.d/scale.conf", peer_swanctl())
@@ -460,24 +470,17 @@ def scale_tenants_applied() -> Iterator[None]:
         APPLY_TIMEOUT,
         "the scale tunnels to be up",
     )
-    print(f"Tunnels up {took:.0f}s later.")  # noqa: T201
+    conftest.measured(f"Tunnels up {took:.0f}s later.")
+    conftest.measured(f"Idle, vpnc uses {idle_cpu():.1%} of one core.")
     yield
     for tenant_id in TENANTS:
         conftest.run_cmd(HOST, f"rm -f {CONFIG_DIR}/{tenant_id}.yaml")
     took = wait_for_none(removed, REMOVE_TIMEOUT, "the scale tenants to be removed")
-    print(f"Removed the scale tenants in {took:.0f}s.")  # noqa: T201
+    conftest.measured(f"Removed the scale tenants in {took:.0f}s.")
 
 
 class TestScale:
     """With 200 network instances and 300 tunnels, vpnc stays responsive."""
-
-    def test_idle_cpu(self) -> None:
-        """Report the CPU vpnc uses when nothing changes (no limit)."""
-        time.sleep(SETTLE)
-        before = vpnc_cpu_seconds()
-        time.sleep(CPU_SAMPLE)
-        used = (vpnc_cpu_seconds() - before) / CPU_SAMPLE
-        print(f"vpnc used {used:.1%} of one core.")  # noqa: T201
 
     def test_change_applied_quickly(self) -> None:
         """A route change in the last network instance is applied within seconds."""
@@ -492,7 +495,7 @@ class TestScale:
                 CHANGE_TIMEOUT,
                 "the route change to be applied",
             )
-            print(f"Applied the change in {took:.1f}s.")  # noqa: T201
+            conftest.measured(f"Applied a route change in {took:.1f}s.")
         finally:
             write_tenant(TENANT_CONFIG[TENANTS[-1]])
 
@@ -510,7 +513,7 @@ class TestScale:
             DRIFT_TIMEOUT,
             "the deleted interface to be recreated",
         )
-        print(f"Corrected the drift in {took:.0f}s.")  # noqa: T201
+        conftest.measured(f"Corrected a deleted interface in {took:.0f}s.")
 
     def test_outage_recovery(self) -> None:
         """After an outage longer than dead peer detection, every tunnel comes back."""
@@ -519,14 +522,14 @@ class TestScale:
             down = sum(not is_wireguard(i) for i in INDEXES.values()) - len(
                 established() & set(INDEXES),
             )
-            print(f"{down} IPsec tunnels down at the end of the outage.")  # noqa: T201
+            conftest.measured(f"{down} IPsec tunnels down at the end of the outage.")
         assert down, "The outage didn't bring any tunnel down"
         took = wait_for_none(
             lambda: missing(NETWORK_INSTANCES),
             RECOVER_TIMEOUT,
             "the tunnels to recover",
         )
-        print(f"Recovered in {took:.0f}s.")  # noqa: T201
+        conftest.measured(f"Recovered from the outage in {took:.0f}s.")
 
     def test_post_quantum(self) -> None:
         """Every IKE SA uses its configured key exchanges, classical or ML-KEM."""
@@ -551,7 +554,7 @@ class TestScale:
             started = time.monotonic()
             conftest.run_cmd(HOST, command)
             took = time.monotonic() - started
-            print(f"{command}: {took:.1f}s")  # noqa: T201
+            conftest.measured(f"{command}: {took:.1f}s")
             assert took < VPNCTL_TIMEOUT, f"{command} took {took:.1f}s"
         connections = json.loads(
             conftest.run_cmd(HOST, "vpnctl connections list -o json"),
@@ -562,7 +565,3 @@ class TestScale:
             if c["tenant"] in TENANTS and c["oper_status"] == "UP"
         ]
         assert len(up) == len(INDEXES)
-
-    def test_all_still_applied(self) -> None:
-        """After the changes, every network instance is still complete."""
-        assert not missing(NETWORK_INSTANCES)
