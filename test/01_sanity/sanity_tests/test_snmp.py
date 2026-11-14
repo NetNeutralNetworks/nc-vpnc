@@ -15,6 +15,9 @@ IF_SPEED = "1.3.6.1.2.1.2.2.1.5"
 IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"
 IF_HC_IN_OCTETS = "1.3.6.1.2.1.31.1.1.1.6"
 ROUTE_IF_INDEX = "1.3.6.1.2.1.10.166.11.1.4.1.1.7"
+# BGP4V2-MIB, from FRR: bgp4V2PeerState.
+BGP_PEER_STATE = "1.3.6.1.3.5.1.1.2.1.13"
+ESTABLISHED = "6"
 
 UP = "1"
 HUB_NETWORK_INSTANCES = ["CORE", "EXTERNAL", "C0001-00", "C0001-01"]
@@ -110,3 +113,16 @@ class TestSnmp:
             return all(indexes.get(route) == str(index) for route in through)
 
         conftest.wait_until(refers, 90, message=f"the route interfaces on {host}")
+
+    @pytest.mark.parametrize("host", ["hub00", "hub01"])
+    def test_bgp_neighbors(self, host: str) -> None:
+        """FRR adds its BGP neighbors, which are established."""
+        summary = json.loads(
+            conftest.run_cmd_vtysh(host, "show bgp vrf CORE summary json"),
+        )
+        neighbors = {peer for family in summary.values() for peer in family["peers"]}
+
+        states = conftest.snmp_walk(host, BGP_PEER_STATE)
+
+        assert len(states) == len(neighbors) > 0
+        assert set(states.values()) == {ESTABLISHED}
