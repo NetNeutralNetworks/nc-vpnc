@@ -26,7 +26,8 @@ Run the sanity tests on a fresh lab, before the reliability tests.
 
 hub00/hub01 run vpnc in hub mode, end00/end01 in endpoint mode. mgt00/mgt01 are
 the provider side (strongSwan, FRR); cli00/cli01 are customer networks behind
-end00/end01. The labels show what each tunnel uses.
+end00/end01. The labels show what each tunnel uses. mgt00 sends its traffic
+through hub00 and mgt01 through hub01, so the tests' traffic crosses both hubs.
 
 ## Scale lab
 

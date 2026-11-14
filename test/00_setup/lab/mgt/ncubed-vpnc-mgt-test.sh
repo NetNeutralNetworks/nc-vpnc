@@ -257,6 +257,7 @@ router bgp ${BGP_AS}
     neighbor MGMT-TRANSIT route-map MGMT-TRANSIT-RM-IN in
     neighbor MGMT-TRANSIT route-map MGMT-TRANSIT-RM-OUT out
     neighbor MGMT-TRANSIT soft-reconfiguration inbound
+    neighbor ${BGP_PREFERRED_PEER_IP} weight 100
   exit-address-family
 exit
 !

@@ -1,0 +1,101 @@
+"""The firewall answers pings and tunnel traffic; other traffic gets no answer."""
+
+from __future__ import annotations
+
+import subprocess
+
+import pytest
+
+from . import conftest
+
+# The provider side: on the external network (in its EXTERNAL namespace) and at
+# the other end of the hubs' tunnels.
+PROVIDER = "mgt00"
+EXTERNAL_NETNS = "ip netns exec EXTERNAL "
+# (IPv4, IPv6) of the external interfaces.
+EXTERNAL = {
+    "hub00": ("192.0.2.5", "2001:db8::5"),
+    "hub01": ("192.0.2.6", "2001:db8::6"),
+    "end00": ("192.0.2.7", "2001:db8::7"),
+    "end01": ("192.0.2.8", "2001:db8::8"),
+}
+# The hubs' addresses in CORE on their tunnels to mgt00.
+CORE = {"hub00": "fd00:1:2::", "hub01": "fd00:1:2::2"}
+# The client behind an endpoint, and the endpoint's address in its network.
+ENDPOINT = {"end00": ("cli00", "172.16.30.254"), "end01": ("cli01", "172.17.30.254")}
+
+NETWORK_INSTANCES = [
+    (host, network_instance)
+    for host, network_instances in {
+        "hub00": ("EXTERNAL", "CORE", "C0001-00", "C0001-01"),
+        "hub01": ("EXTERNAL", "CORE", "C0001-00", "C0001-01"),
+        "end00": ("EXTERNAL", "CORE", "ENDPOINT"),
+        "end01": ("EXTERNAL", "CORE", "ENDPOINT"),
+    }.items()
+    for network_instance in network_instances
+]
+
+# What timeout exits with when the command didn't finish.
+TIMED_OUT = 124
+
+
+def pings(host: str, address: str, netns: str = "") -> bool:
+    """Return whether an address answers a ping from a lab node."""
+    try:
+        conftest.run_cmd(host, f"{netns}ping -c 1 -W 2 {address}")
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
+def tcp_unanswered(host: str, address: str, netns: str = "") -> bool:
+    """Return whether a TCP connection from a lab node isn't answered or refused."""
+    try:
+        conftest.run_cmd_shell(
+            host,
+            f"{netns}timeout 3 bash -c '</dev/tcp/{address}/22'",
+        )
+    except subprocess.CalledProcessError as err:
+        return err.returncode == TIMED_OUT
+    return False
+
+
+class TestFirewall:
+    """Unsolicited traffic to a node is dropped."""
+
+    @pytest.mark.parametrize("host", list(EXTERNAL))
+    def test_external(self, host: str) -> None:
+        """An external address answers IPv6 pings only."""
+        ipv4, ipv6 = EXTERNAL[host]
+
+        assert pings(PROVIDER, ipv6, EXTERNAL_NETNS)
+        assert not pings(PROVIDER, ipv4, EXTERNAL_NETNS)
+        assert tcp_unanswered(PROVIDER, ipv4, EXTERNAL_NETNS)
+        assert tcp_unanswered(PROVIDER, ipv6, EXTERNAL_NETNS)
+
+    @pytest.mark.parametrize("host", list(CORE))
+    def test_core(self, host: str) -> None:
+        """Over its tunnel a hub answers pings, next to BGP and BFD."""
+        assert pings(PROVIDER, CORE[host])
+        assert tcp_unanswered(PROVIDER, CORE[host])
+
+    @pytest.mark.parametrize("host", list(ENDPOINT))
+    def test_endpoint(self, host: str) -> None:
+        """In its customer's network an endpoint answers pings only."""
+        client, address = ENDPOINT[host]
+
+        assert pings(client, address)
+        assert tcp_unanswered(client, address)
+
+    @pytest.mark.parametrize(("host", "network_instance"), NETWORK_INSTANCES)
+    def test_no_other_tables(self, host: str, network_instance: str) -> None:
+        """vpnc's table is the only one (e.g. none of its old iptables ones)."""
+        tables = conftest.run_cmd(
+            host,
+            f"ip netns exec {network_instance} nft list tables",
+        ).splitlines()
+
+        expected = ["table inet vpnc"]
+        if host.startswith("hub") and network_instance == "CORE":
+            expected.append("table ip6 vpncmangle")
+        assert sorted(tables) == expected

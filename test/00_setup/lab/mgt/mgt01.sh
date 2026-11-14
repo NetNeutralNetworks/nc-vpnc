@@ -27,6 +27,8 @@ export VPN_PEER_IP6_1="2001:db8::6"
 export VPN_PEER_IP_1="${VPN_PEER_IP6_1}"
 export BGP_PEER_IP_1="fd00:1:2::1:2"
 export BGP_PEER_AS_1="4266666666"
+# mgt00 sends its traffic through hub00, mgt01 through hub01.
+export BGP_PREFERRED_PEER_IP="${BGP_PEER_IP_1}"
 
 # Copy the script to setup the management server and the service file that runs it to the correct
 # locations.
