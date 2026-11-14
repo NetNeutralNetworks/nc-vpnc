@@ -35,6 +35,7 @@ VPNCMANGLE_SRC := $(shell find vpncmangle -type f ! -path '*/build/*' ! -path '*
 MISC_CONF := /etc/strongswan.d/vpnc.conf /etc/iproute2/rt_protos.d/vpnc.conf \
 	$(if $(wildcard /etc/logrotate.d),/etc/logrotate.d/vpnc)
 SNMP_CONF := /etc/snmp/snmpd.conf.d/vpnc.conf
+FRR_SNMP_CONF := /etc/snmp/frr.conf
 VPNCTL    := /usr/local/bin/vpnctl /etc/bash_completion.d/vpnctl \
 	/usr/share/zsh/vendor-completions/_vpnctl /etc/profile.d/profile-nc-vpn.sh
 
@@ -61,7 +62,8 @@ addon: root packages python-packages \
 
 # vpncmangle only where it's installed (hub).
 update: root pip-vpnc $(if $(wildcard $(VENV)/bin/vpncmangle),pip-vpncmangle) \
-	misc-config $(if $(wildcard /etc/snmp/snmpd.conf.d),$(SNMP_CONF)) vpnctl \
+	misc-config $(if $(wildcard /etc/snmp/snmpd.conf.d),$(SNMP_CONF)) \
+	$(if $(wildcard /etc/frr),$(FRR_SNMP_CONF)) vpnctl \
 	$(if $(SYSTEMD),$(STAMP)/started)
 
 root:
@@ -107,6 +109,7 @@ frr: apt-update
 		"https://deb.frrouting.org/frr $$VERSION_CODENAME $(FRRVER)" > /etc/apt/sources.list.d/frr.list
 	apt-get update
 	$(APT) install -y frr frr-pythontools frr-snmp
+	install -D -m 644 config/snmp/frr.conf $(FRR_SNMP_CONF)
 	sed -i 's/^bgpd=no$$/bgpd=yes/; s/^bfdd=no$$/bfdd=yes/' /etc/frr/daemons
 	sed -i 's/^zebra_options="  -A 127.0.0.1 -s 90000000.*"$$/zebra_options="  -A 127.0.0.1 -s 90000000 -n -M snmp"/' /etc/frr/daemons
 	sed -i 's/^bgpd_options="   -A 127.0.0.1.*"$$/bgpd_options="   -A 127.0.0.1 -M snmp"/' /etc/frr/daemons
@@ -158,6 +161,10 @@ misc-config: $(MISC_CONF)
 $(SNMP_CONF): config/snmp/vpnc.conf
 	install -D -m 644 $< $@
 	$(SYSTEMCTL) try-restart snmpd.service
+
+# Read by the FRR daemons when vpnc starts them.
+$(FRR_SNMP_CONF): config/snmp/frr.conf
+	install -D -m 644 $< $@
 
 # Python packages, at the locked versions (make lock). Stamps live in the venv,
 # so a new venv reinstalls them.
