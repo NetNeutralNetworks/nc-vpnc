@@ -333,7 +333,7 @@ def _history_path(tenant_id: str, revision: int) -> pathlib.Path:
 def _save_history(tenant_id: str, text: str | None) -> None:
     """Keep a replaced active configuration as revision 1."""
     first = _history_path(tenant_id, 1)
-    first.parent.mkdir(parents=True, exist_ok=True)
+    first.parent.mkdir(mode=files.SECRET_DIR_MODE, parents=True, exist_ok=True)
     content = text or ""
     if first.exists() and first.read_text(encoding="utf-8") == content:
         return
