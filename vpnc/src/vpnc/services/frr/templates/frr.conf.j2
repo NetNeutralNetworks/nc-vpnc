@@ -3,6 +3,8 @@ frr defaults traditional
 service integrated-vtysh-config
 ip forwarding
 ipv6 forwarding
+{#- SNMP over AgentX (/etc/snmp/frr.conf). BGP is in the CORE VRF, so its
+    neighbours are in BGP4V2-MIB; BGP4-MIB only has the default instance. #}
 agentx
 !
 vrf {{ core_ni }}

@@ -8,6 +8,9 @@ Standard MIBs only, and only added to what snmpd serves:
   its routes (mplsL3VpnVrfPerfTable) and the routes of its main table
   (mplsL3VpnVrfRteTable).
 
+BGP comes from FRR (see frr.conf.j2), in BGP4V2-MIB: BGP runs in the CORE VRF,
+and FRR fills BGP4-MIB only for the default instance (and IPv4 neighbours).
+
 Requests are answered from a snapshot, which a second thread refreshes every
 REFRESH seconds while connected to snmpd.
 """
