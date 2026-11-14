@@ -205,6 +205,62 @@ def nft_drop(host: str, netns: str, *matches: str) -> Iterator[None]:
         run_cmd_shell(host, f"{nft} delete table inet {table} || true")
 
 
+# Sends an IKEv2 IKE_SA_INIT with a proposal vpnc doesn't use (AES-CBC, SHA-256,
+# ECP-256) from an ephemeral port. charon answers it with NO_PROPOSAL_CHOSEN.
+IKE_PROBE = """\
+import os, socket, struct, sys
+
+
+def payload(next_type, body):
+    return struct.pack("!BBH", next_type, 0, 4 + len(body)) + body
+
+
+def transform(last, kind, transform_id, attributes=b""):
+    more, length = (0 if last else 3), 8 + len(attributes)
+    return struct.pack("!BBHBBH", more, 0, length, kind, 0, transform_id) + attributes
+
+
+transforms = (
+    transform(False, 1, 12, struct.pack("!HH", 0x800E, 128))
+    + transform(False, 2, 5)
+    + transform(False, 3, 12)
+    + transform(True, 4, 19)
+)
+proposal = struct.pack("!BBHBBBB", 0, 0, 8 + len(transforms), 1, 1, 0, 4)
+# SA, KE (ECP-256) and nonce.
+body = (
+    payload(34, proposal + transforms)
+    + payload(40, struct.pack("!HH", 19, 0) + os.urandom(64))
+    + payload(0, os.urandom(32))
+)
+# Initiator SPI, responder SPI 0, IKEv2, IKE_SA_INIT request, message id 0.
+header = os.urandom(8) + bytes(8)
+header += struct.pack("!BBBBII", 33, 0x20, 34, 0x08, 0, 28 + len(body))
+address = sys.argv[1]
+family = socket.AF_INET6 if ":" in address else socket.AF_INET
+with socket.socket(family, socket.SOCK_DGRAM) as sock:
+    sock.settimeout(3)
+    sock.sendto(header + body, (address, 500))
+    try:
+        sock.recv(65535)
+    except TimeoutError:
+        print("dropped")
+    else:
+        print("answered")
+"""
+
+
+def ike_answered(host: str, netns: str, address: str) -> bool:
+    """Return whether IKE to address, from a network namespace of host, is answered.
+
+    charon answers any IKE_SA_INIT it receives, so no answer means it was dropped.
+    """
+    path = "/tmp/ike_probe.py"  # noqa: S108
+    write_file(host, path, IKE_PROBE)
+    output = run_cmd(host, f"ip netns exec {netns} python3 {path} {address}")
+    return output.strip() == "answered"
+
+
 def snmp_walk(host: str, oid: str) -> dict[tuple[int, ...], str]:
     """Walk a column of a node with SNMP and return its values by index."""
     output = run_cmd(

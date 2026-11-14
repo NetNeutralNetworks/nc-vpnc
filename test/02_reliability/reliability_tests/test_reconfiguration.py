@@ -52,14 +52,19 @@ DNS_ANSWER_WITHOUT_NPTV6 = "fdff:db8:c57:31::6"
 ROUTES_4 = ["10.201.0.0/24"]
 ROUTES_6 = ["fdcc:201::/48"]
 
+# mgt00's IPv4 address in its EXTERNAL, which isn't a peer of hub00, and hub00's.
+PROBE_ADDRESS = "192.0.2.3"
+HOST_ADDRESS = "192.0.2.5"
+
 
 def ipsec_connection(
     connection_id: int,
     addresses: tuple[str, str],
     routes_4: list[str],
     routes_6: list[str],
+    remote_addrs: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Return an IPsec responder connection to a peer that doesn't exist.
+    """Return an IPsec responder connection, by default to a peer that doesn't exist.
 
     Its id is its key in the configuration.
     """
@@ -72,7 +77,7 @@ def ipsec_connection(
         },
         "config": {
             "type": "ipsec",
-            "remote_addrs": ["192.0.2.99"],
+            "remote_addrs": remote_addrs or ["192.0.2.99"],
             "ike_proposal": "aes128gcm16-prfsha384-ecp384",
             "ipsec_proposal": "aes128gcm16-prfsha384-ecp384",
             "initiation": "none",
@@ -156,6 +161,11 @@ def connections() -> set[str]:
     """Return the connections loaded in charon."""
     output = conftest.run_cmd_shell(HOST, "swanctl --list-conns 2>/dev/null")
     return {line.split(":")[0] for line in output.splitlines() if line[:1].isalnum()}
+
+
+def ike_answered() -> bool:
+    """Return whether hub00 answers IKE from mgt00's IPv4 address."""
+    return conftest.ike_answered("mgt00", "EXTERNAL", HOST_ADDRESS)
 
 
 def tenant_removed() -> bool:
@@ -255,6 +265,29 @@ class TestReconfiguration:
             message="connection 1 and its routes gone from SNMP",
         )
         assert f"{NI}-0" in conftest.snmp_interfaces(HOST)
+
+    def test_peers_follow_connections(self) -> None:
+        """A connection's peer is accepted only while it's configured and enabled."""
+        peer = ipsec_connection(
+            1,
+            ("10.200.0.5/30", "fdcc:200:0:1::1/64"),
+            [],
+            [],
+            remote_addrs=[PROBE_ADDRESS],
+        )
+        assert not ike_answered()
+        for connections_, expected, change in (
+            ([BASE_CONNECTION, peer], "answered", "added"),
+            ([BASE_CONNECTION, {**peer, "enabled": False}], "dropped", "disabled"),
+            ([BASE_CONNECTION, peer], "answered", "enabled"),
+            ([BASE_CONNECTION], "dropped", "removed"),
+        ):
+            write_tenant(connections_)
+            conftest.wait_until(
+                lambda expected=expected: ike_answered() == (expected == "answered"),
+                timeout=APPLY_TIMEOUT,
+                message=f"IKE from {PROBE_ADDRESS} to be {expected} ({change})",
+            )
 
     def test_change_addresses(self) -> None:
         """Changed interface addresses replace the old ones."""
