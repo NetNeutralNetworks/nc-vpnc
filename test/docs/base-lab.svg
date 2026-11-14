@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 600" width="1060" height="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>Base lab: the tunnels of hub00 and hub01</title>
+  <style>
+    .box { fill: #f6f8fa; stroke: #57606a; stroke-width: 1.5; }
+    .hub { fill: #ddf4ff; stroke: #0969da; }
+    .name { fill: #1f2328; font-size: 15px; font-weight: 600; text-anchor: middle; }
+    .role { fill: #57606a; font-size: 11px; text-anchor: middle; }
+    .label { fill: #1f2328; font-size: 12px; text-anchor: middle;
+             stroke: #ffffff; stroke-width: 7px; stroke-linejoin: round; paint-order: stroke; }
+    .label .title { font-weight: 600; }
+    .label .pq { fill: #8250df; font-weight: 600; }
+    .label .muted { fill: #57606a; }
+    .ipsec { stroke: #1f2328; stroke-width: 2.5; fill: none; }
+    .ssh { stroke: #1f2328; stroke-width: 2; stroke-dasharray: 8 5; fill: none; }
+    .wg { stroke: #1f2328; stroke-width: 2.5; stroke-dasharray: 2 5; stroke-linecap: round; fill: none; }
+    .phys { stroke: #8c959f; stroke-width: 1.5; fill: none; }
+    .start { text-anchor: start; }
+    @media (prefers-color-scheme: dark) {
+      .box { fill: #161b22; stroke: #8b949e; }
+      .hub { fill: #0c2d6b; stroke: #4493f8; }
+      .name, .label { fill: #e6edf3; }
+      .label { stroke: #0d1117; }
+      .role, .label .muted { fill: #8b949e; }
+      .label .pq { fill: #bc8cff; }
+      .ipsec, .ssh, .wg { stroke: #e6edf3; }
+      .phys { stroke: #6e7681; }
+    }
+  </style>
+
+  <!-- hub00's tunnels -->
+  <line class="ipsec" x1="110" y1="270" x2="530" y2="60"/>
+  <line class="ipsec" x1="110" y1="270" x2="530" y2="150"/>
+  <line class="ipsec" x1="110" y1="270" x2="530" y2="270"/>
+  <line class="ssh" x1="110" y1="270" x2="530" y2="350"/>
+  <line class="wg" x1="110" y1="270" x2="530" y2="460"/>
+  <!-- hub01's tunnels -->
+  <line class="ipsec" x1="950" y1="270" x2="530" y2="60"/>
+  <line class="ipsec" x1="950" y1="270" x2="530" y2="150"/>
+  <line class="ipsec" x1="950" y1="270" x2="530" y2="270"/>
+  <line class="ssh" x1="950" y1="270" x2="530" y2="350"/>
+  <line class="wg" x1="950" y1="270" x2="530" y2="460"/>
+  <!-- Cables to the customer networks -->
+  <line class="phys" x1="530" y1="295" x2="530" y2="325"/>
+  <line class="phys" x1="530" y1="485" x2="530" y2="515"/>
+
+  <!-- hub00's labels -->
+  <text class="label" x="320" y="168"><tspan class="title">CORE-0</tspan> · <tspan class="pq">ML-KEM-1024 + PPK</tspan></text>
+  <text class="label" x="320" y="214"><tspan class="title">CORE-1</tspan> · <tspan class="muted">classical</tspan></text>
+  <text class="label" x="320" y="259"><tspan class="title">C0001-00-0</tspan> · <tspan class="pq">ML-KEM-768 + PPK</tspan></text>
+  <text class="label" x="320" y="313"><tspan class="title">C0001-00-1</tspan> · <tspan class="pq">ML-KEM-768</tspan></text>
+  <text class="label" x="320" y="366"><tspan class="title">C0001-01-0</tspan> · <tspan class="muted">WireGuard</tspan></text>
+  <!-- hub01's labels -->
+  <text class="label" x="740" y="168"><tspan class="title">CORE-0</tspan> · <tspan class="pq">ML-KEM-1024</tspan></text>
+  <text class="label" x="740" y="214"><tspan class="title">CORE-1</tspan> · <tspan class="muted">classical</tspan></text>
+  <text class="label" x="740" y="259"><tspan class="title">C0001-00-0</tspan> · <tspan class="muted">classical</tspan></text>
+  <text class="label" x="740" y="313"><tspan class="title">C0001-00-1</tspan> · <tspan class="muted">classical</tspan></text>
+  <text class="label" x="740" y="366"><tspan class="title">C0001-01-0</tspan> · <tspan class="muted">WireGuard</tspan></text>
+
+  <!-- Hubs -->
+  <rect class="box hub" x="30" y="240" width="160" height="60" rx="8"/>
+  <text class="name" x="110" y="266">hub00</text>
+  <text class="role" x="110" y="284">vpnc, hub mode</text>
+  <rect class="box hub" x="870" y="240" width="160" height="60" rx="8"/>
+  <text class="name" x="950" y="266">hub01</text>
+  <text class="role" x="950" y="284">vpnc, hub mode</text>
+
+  <!-- Peers -->
+  <rect class="box" x="455" y="35" width="150" height="50" rx="8"/>
+  <text class="name" x="530" y="58">mgt00</text>
+  <text class="role" x="530" y="74">provider, BGP over CORE</text>
+  <rect class="box" x="455" y="125" width="150" height="50" rx="8"/>
+  <text class="name" x="530" y="148">mgt01</text>
+  <text class="role" x="530" y="164">provider, BGP over CORE</text>
+  <rect class="box" x="455" y="245" width="150" height="50" rx="8"/>
+  <text class="name" x="530" y="268">end00</text>
+  <text class="role" x="530" y="284">vpnc, endpoint mode</text>
+  <rect class="box" x="455" y="325" width="150" height="50" rx="8"/>
+  <text class="name" x="530" y="348">cli00</text>
+  <text class="role" x="530" y="364">customer, SSH server</text>
+  <rect class="box" x="455" y="435" width="150" height="50" rx="8"/>
+  <text class="name" x="530" y="458">end01</text>
+  <text class="role" x="530" y="474">vpnc, endpoint mode</text>
+  <rect class="box" x="455" y="515" width="150" height="50" rx="8"/>
+  <text class="name" x="530" y="538">cli01</text>
+  <text class="role" x="530" y="554">customer</text>
+
+  <!-- Legend -->
+  <g transform="translate(30,410)">
+    <line class="ipsec" x1="0" y1="0" x2="30" y2="0"/><text class="role start" x="38" y="4">IPsec</text>
+    <line class="ssh" x1="0" y1="22" x2="30" y2="22"/><text class="role start" x="38" y="26">SSH, through end00</text>
+    <line class="wg" x1="0" y1="44" x2="30" y2="44"/><text class="role start" x="38" y="48">WireGuard</text>
+    <line class="phys" x1="0" y1="66" x2="30" y2="66"/><text class="role start" x="38" y="70">cable</text>
+  </g>
+  <g transform="translate(830,410)">
+    <text class="role start" x="0" y="4">Classical IPsec: ECP-384.</text>
+    <text class="role start" x="0" y="26">ML-KEM: hybrid, after ECP-384.</text>
+    <text class="role start" x="0" y="48">The nodes share br-nc-vpnc;</text>
+    <text class="role start" x="0" y="70">cli00/cli01 hang off end00/end01.</text>
+  </g>
+</svg>
