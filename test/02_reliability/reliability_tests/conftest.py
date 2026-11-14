@@ -10,7 +10,9 @@ if TEST_DIR not in sys.path:
     sys.path.insert(0, TEST_DIR)
 
 from lab_helpers import (  # noqa: E402
+    SSH_SERVER,
     close_ssh_sessions,
+    key_exchanges,
     nft_drop,
     run_cmd,
     run_cmd_shell,
@@ -24,7 +26,9 @@ from lab_helpers import (  # noqa: E402
 )
 
 __all__ = [
+    "SSH_SERVER",
     "close_ssh_sessions",
+    "key_exchanges",
     "nft_drop",
     "run_cmd",
     "run_cmd_shell",

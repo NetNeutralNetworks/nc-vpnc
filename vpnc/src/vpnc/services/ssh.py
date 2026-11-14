@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import functools
 import logging
 import pathlib
 import subprocess
@@ -14,6 +15,7 @@ import vpnc.models.connections
 import vpnc.models.ssh
 from vpnc import helpers
 from vpnc.models import enums
+from vpnc.models.post_quantum import OPENSSH_KEX
 
 if TYPE_CHECKING:
     import vpnc.models.network_instance
@@ -144,6 +146,31 @@ def _remote_script(tun: str, routes: list[str], interface: str | None) -> str:
     return ";\n".join(commands)
 
 
+@functools.cache
+def key_exchanges() -> frozenset[str]:
+    """Return the key exchange methods the local OpenSSH supports."""
+    output = subprocess.run(  # noqa: S603
+        ["/usr/bin/ssh", "-Q", "kex"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return frozenset(output.split())
+
+
+def unsupported_kex(config: vpnc.models.ssh.ConnectionConfigSSH) -> str | None:
+    """Return the post-quantum key exchange if the local OpenSSH lacks it."""
+    if not config.post_quantum.enabled:
+        return None
+    kex = OPENSSH_KEX[config.post_quantum.ml_kem]
+    try:
+        supported = key_exchanges()
+    except (OSError, subprocess.CalledProcessError):
+        logger.exception("Listing the key exchanges of OpenSSH failed.")
+        return kex
+    return None if kex in supported else kex
+
+
 def start(
     network_instance: vpnc.models.network_instance.NetworkInstance,
     connection: vpnc.models.connections.Connection,
@@ -177,6 +204,14 @@ def _start(
         return
 
     stop(network_instance, connection)
+
+    if kex := unsupported_kex(connection.config):
+        logger.error(
+            "Not starting SSH tunnel %s: OpenSSH lacks %s (Ubuntu 26.04 is required).",
+            connection_name,
+            kex,
+        )
+        return
 
     remote_config: str = ""
     if connection.config.remote_config is True:
@@ -215,6 +250,14 @@ def _start(
         "ServerAliveCountMax=5",
         "-o",
         "StrictHostKeyChecking=accept-new",
+        *(
+            [
+                "-o",
+                f"KexAlgorithms={OPENSSH_KEX[connection.config.post_quantum.ml_kem]}",
+            ]
+            if connection.config.post_quantum.enabled
+            else []
+        ),
         "-w",
         f"{connection.id}:{connection.config.remote_tunnel_id}",
         f"{connection.config.username}@{connection.config.remote_addrs[0]}",

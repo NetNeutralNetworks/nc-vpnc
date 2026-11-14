@@ -10,6 +10,7 @@ if TEST_DIR not in sys.path:
     sys.path.insert(0, TEST_DIR)
 
 from lab_helpers import (  # noqa: E402
+    key_exchanges,
     run_cmd,
     run_cmd_shell,
     run_cmd_vtysh,
@@ -17,10 +18,12 @@ from lab_helpers import (  # noqa: E402
     snmp_route,
     snmp_routes,
     snmp_walk,
+    ssh_tunnel_works,
     wait_until,
 )
 
 __all__ = [
+    "key_exchanges",
     "run_cmd",
     "run_cmd_shell",
     "run_cmd_vtysh",
@@ -28,5 +31,6 @@ __all__ = [
     "snmp_route",
     "snmp_routes",
     "snmp_walk",
+    "ssh_tunnel_works",
     "wait_until",
 ]

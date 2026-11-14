@@ -15,6 +15,7 @@ import vici.exception
 from vpnc import config, files, helpers
 from vpnc.models import enums, tenant
 from vpnc.models.ipsec import Initiation
+from vpnc.models.post_quantum import STRONGSWAN_KE, ppk_bytes
 from vpnc.network import namespace
 from vpnc.services import charon
 
@@ -25,8 +26,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("vpnc")
 
-# A connection as vici messages: the connection and its pre-shared key.
-Connection = tuple[dict[str, Any], dict[str, Any]]
+# A connection as vici messages: the connection and its keys (PSK, PPK).
+Connection = tuple[dict[str, Any], list[dict[str, Any]]]
 
 # A failed vici request: no answer in time, a broken session or a refusal.
 VICI_ERRORS = (
@@ -37,11 +38,32 @@ VICI_ERRORS = (
 
 # Per connection, what vpnc last loaded into charon.
 LOADED: dict[str, str] = {}
+# The key exchange methods charon supports; read once it's running.
+KEY_EXCHANGES: frozenset[str] | None = None
+# Connections refused for a missing ML-KEM, logged once.
+REFUSED: set[str] = set()
 
 
 def _key_id(name: str) -> str:
     """Return the id of a connection's pre-shared key in charon."""
     return f"ike-{name}"
+
+
+def _ppk_id(name: str) -> str:
+    """Return the id of a connection's postquantum preshared key in charon."""
+    return f"ppk-{name}"
+
+
+def supported_key_exchanges() -> frozenset[str] | None:
+    """Return the key exchange methods charon supports, None if unknown."""
+    global KEY_EXCHANGES  # noqa: PLW0603
+    if KEY_EXCHANGES is None:
+        try:
+            with charon.session() as vcs:
+                KEY_EXCHANGES = charon.key_exchanges(vcs)
+        except VICI_ERRORS:
+            logger.warning("Reading charon's key exchanges failed.", exc_info=True)
+    return KEY_EXCHANGES
 
 
 def _path(ni_id: str) -> pathlib.Path:
@@ -60,6 +82,23 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
         name = connection.name(network_instance)
         if not connection.enabled:
             continue
+        pq = cfg.post_quantum
+        # Never without ML-KEM; a later sync retries when charon was unreachable.
+        if pq.enabled and pq.ml_kem.value not in (
+            supported := supported_key_exchanges() or ()
+        ):
+            if supported and name not in REFUSED:
+                logger.error(
+                    "Not loading IPsec connection %s: charon lacks %s"
+                    " (strongSwan 6, Ubuntu 26.04, is required).",
+                    name,
+                    pq.ml_kem.value,
+                )
+                REFUSED.add(name)
+            continue
+        REFUSED.discard(name)
+        # Hybrid: ML-KEM as additional key exchange after the classical one.
+        ke = f"-ke1_{STRONGSWAN_KE[pq.ml_kem]}" if pq.enabled else ""
         remote_id = cfg.remote_id or str(cfg.remote_addrs[0])
         xfrm_id = hex(cfg.if_id(network_instance, connection))
         initiator = cfg.initiation == Initiation.INITIATOR
@@ -73,7 +112,7 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
             "life_time": f"{int(cfg.ipsec_lifetime * 1.1 + 0.5)}s",
             "rekey_time": f"{cfg.ipsec_lifetime}s",
             "rekey_bytes": "1024000000",
-            "esp_proposals": [cfg.ipsec_proposal.replace("ipsec-", "")],
+            "esp_proposals": [cfg.ipsec_proposal.replace("ipsec-", "") + ke],
             "hw_offload": "auto",
             # A responder waits for the peer to (re)establish the connection.
             "start_action": "start" if initiator else "none",
@@ -93,17 +132,31 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
             "if_id_out": xfrm_id,
             "local": {"id": cfg.local_id or default_tenant.local_id, "auth": "psk"},
             "remote": {"id": remote_id, "auth": "psk"},
-            "proposals": [cfg.ike_proposal.replace("ike-", "")],
+            "proposals": [cfg.ike_proposal.replace("ike-", "") + ke],
             "rekey_time": f"{cfg.ike_lifetime}s",
             "children": {name: child},
         }
-        shared = {
-            "id": _key_id(name),
-            "type": "IKE",
-            "data": cfg.psk.get_secret_value(),
-            "owners": [remote_id],
-        }
-        result[name] = (conn, shared)
+        keys = [
+            {
+                "id": _key_id(name),
+                "type": "IKE",
+                "data": cfg.psk.get_secret_value(),
+                "owners": [remote_id],
+            },
+        ]
+        if pq.enabled and pq.ppk:
+            conn["ppk_id"] = pq.ppk.id
+            # A PPK that's optional could be left out by an attacker.
+            conn["ppk_required"] = "yes"
+            keys.append(
+                {
+                    "id": _ppk_id(name),
+                    "type": "PPK",
+                    "data": pq.ppk.key.get_secret_value(),
+                    "owners": [pq.ppk.id],
+                },
+            )
+        result[name] = (conn, keys)
     return result
 
 
@@ -126,12 +179,13 @@ def render(conns: dict[str, Connection]) -> str:
     for name, (conn, _) in conns.items():
         lines += _section(name, conn, 1)
     lines += ["}", "", "secrets {"]
-    for name, (_, shared) in conns.items():
-        lines += _section(
-            shared["id"],
-            {f"id-{name}": shared["owners"][0], "secret": shared["data"]},
-            1,
-        )
+    for name, (_, keys) in conns.items():
+        for key in keys:
+            lines += _section(
+                key["id"],
+                {f"id-{name}": key["owners"][0], "secret": key["data"]},
+                1,
+            )
     lines.append("}")
     return "\n".join(lines) + "\n"
 
@@ -154,8 +208,8 @@ def _pending(
     Those that changed, or that charon lacks (loaded: its names).
     """
     pending: dict[str, str] = {}
-    for name, (conn, shared) in conns.items():
-        fingerprint = json.dumps([conn, shared], sort_keys=True)
+    for name, (conn, keys) in conns.items():
+        fingerprint = json.dumps([conn, keys], sort_keys=True)
         if LOADED.get(name) != fingerprint or (
             loaded is not None and name not in loaded
         ):
@@ -170,23 +224,36 @@ def _load(
 ) -> None:
     """Load connections that changed, or that charon lacks (loaded: its names)."""
     for name, fingerprint in _pending(conns, loaded).items():
-        conn, shared = conns[name]
+        conn, keys = conns[name]
         vcs.load_conn({name: conn})
-        vcs.load_shared(shared)
+        for key in keys:
+            # A PPK is decoded like swanctl does; its decoded length was validated.
+            vcs.load_shared(
+                {**key, "data": ppk_bytes(key["data"])}
+                if key["type"] == "PPK"
+                else key,
+            )
+        if len(keys) == 1 and _ppk_id(name) in LOADED.get(name, ""):
+            _unload_key(vcs, _ppk_id(name))
         LOADED[name] = fingerprint
         logger.info("Loaded IPsec connection %s.", name)
 
 
+def _unload_key(vcs: vici.Session, key_id: str) -> None:
+    try:
+        vcs.unload_shared({"id": key_id})
+    except vici.exception.CommandException:
+        logger.debug("Key %s wasn't loaded.", key_id)
+
+
 def _unload(vcs: vici.Session, names: set[str]) -> None:
     for name in sorted(names):
-        for unload, arg in (
-            (vcs.unload_conn, {"name": name}),
-            (vcs.unload_shared, {"id": _key_id(name)}),
-        ):
-            try:
-                unload(arg)
-            except vici.exception.CommandException:
-                logger.debug("%s of %s wasn't loaded.", arg, name)
+        try:
+            vcs.unload_conn({"name": name})
+        except vici.exception.CommandException:
+            logger.debug("Connection %s wasn't loaded.", name)
+        _unload_key(vcs, _key_id(name))
+        _unload_key(vcs, _ppk_id(name))
         LOADED.pop(name, None)
         logger.info("Unloaded IPsec connection %s.", name)
 
@@ -239,12 +306,17 @@ def sync(vcs: vici.Session) -> None:
         conns |= connections(network_instance)
     loaded = charon.loaded_connections(vcs)
     keys = {key.decode() for key in vcs.get_shared()["keys"]}
-    # A connection whose key is missing is loaded again.
-    _load(vcs, conns, {name for name in loaded if _key_id(name) in keys})
+    # A connection with a missing key is loaded again.
+    complete = {
+        name
+        for name in loaded
+        if name in conns and all(key["id"] in keys for key in conns[name][1])
+    }
+    _load(vcs, conns, complete)
     if unknown := loaded - conns.keys():
         logger.warning("Unloading unknown IPsec connections: %s.", sorted(unknown))
         _unload(vcs, unknown)
-    for key in keys - {_key_id(name) for name in conns}:
+    for key in keys - {key["id"] for _, own in conns.values() for key in own}:
         logger.warning("Unloading unknown IPsec key %s.", key)
         vcs.unload_shared({"id": key})
 

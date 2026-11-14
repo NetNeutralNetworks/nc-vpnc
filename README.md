@@ -138,12 +138,28 @@ network_instances:
 
 | `type` | Settings (defaults) |
 |---|---|
-| `IPSEC` | `remote_addrs`, `psk`, `local_id`, `remote_id`, `ike_version` (2), `ike_proposal` and `ipsec_proposal` (`aes256gcm16-prfsha384-ecp384`), `ike_lifetime` (86400), `ipsec_lifetime` (3600), `initiation` (`START`: initiate and respond; `NONE`: respond only), `traffic_selectors` (`local`, `remote`; empty means route based) |
+| `IPSEC` | `remote_addrs`, `psk`, `local_id`, `remote_id`, `ike_version` (2), `ike_proposal` and `ipsec_proposal` (`aes256gcm16-prfsha384-ecp384`), `ike_lifetime` (86400), `ipsec_lifetime` (3600), `initiation` (`START`: initiate and respond; `NONE`: respond only), `traffic_selectors` (`local`, `remote`; empty means route based), `post_quantum` (see below) |
 | `WIREGUARD` | `remote_addrs`, `private_key`, `public_key`, `local_port` and `remote_port` (51820) |
-| `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config` (false: also configure the remote end), `remote_config_interface` (masquerade on the remote end) |
+| `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config` (false: also configure the remote end), `remote_config_interface` (masquerade on the remote end), `post_quantum` (see below) |
 | `PHYSICAL` | `interface_name` |
 
-`psk` and `private_key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
+`psk`, `private_key` and the PPK `key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
+
+### Post-quantum cryptography
+
+`post_quantum` adds a hybrid ML-KEM key exchange to the classical one, against traffic recorded now and decrypted later with a quantum computer. It requires Ubuntu 26.04 (strongSwan 6, OpenSSH 10): vpnc refuses it, and doesn't set up the connection, where charon or OpenSSH lacks the ML-KEM.
+
+```yaml
+post_quantum:
+  enabled: true             # default false
+  ml_kem: ML_KEM_768        # or ML_KEM_1024 (IPsec only)
+  ppk:                      # IPsec only, optional
+    id: C0001-00-0-hub00    # sent to the peer: the same on both sides, unique per node
+    key: "0x..."            # at least 32 bytes: text, 0x hex or 0s base64; quote it
+```
+
+- IPsec: ML-KEM is added to `ike_proposal` and `ipsec_proposal` (RFC 9370), which need a classical key exchange (e.g. `ecp384`); ML-KEM in the proposals themselves is refused. The optional PPK (RFC 8784) is mixed into the keys and required by both sides.
+- SSH: only the hybrid `mlkem768x25519-sha256` key exchange is allowed, so a server without it is refused instead of falling back to a classical one.
 
 ## vpnctl
 

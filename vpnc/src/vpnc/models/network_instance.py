@@ -773,3 +773,22 @@ class NetworkInstanceEndpoint(NetworkInstance):
             nptv6_networks=[],
         )
         return False
+
+
+def ppk_id_users(tenants: Iterable[tenant.Tenant]) -> dict[str, list[str]]:
+    """Return per PPK id the IPsec connections using it, sorted.
+
+    charon selects a PPK by the id the peer sends, so an id must be unique.
+    """
+    users: dict[str, list[str]] = {}
+    for tenant_config in tenants:
+        for network_instance in tenant_config.network_instances.values():
+            for connection in network_instance.connections.values():
+                cfg = connection.config
+                if cfg.type == enums.ConnectionType.IPSEC and (
+                    cfg.post_quantum.enabled and cfg.post_quantum.ppk
+                ):
+                    users.setdefault(cfg.post_quantum.ppk.id, []).append(
+                        connection.name(network_instance),
+                    )
+    return {ppk_id: sorted(names) for ppk_id, names in users.items()}

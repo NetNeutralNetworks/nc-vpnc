@@ -32,6 +32,7 @@ WIREGUARD_EVERY = 15
 HUB_ADDRESS = "2001:db8::5"
 PEER_PREFIX = "2001:db8::1:0/112"
 PSK = "scaletest"
+PPK = "0x" + "5c" * 32
 PROPOSAL = "aes128gcm16-prfsha384-ecp384"
 IKE_LIFETIME = 900
 IPSEC_LIFETIME = 300
@@ -88,6 +89,29 @@ def wireguard_port(index: int) -> int:
     return 52000 + index // WIREGUARD_EVERY
 
 
+def post_quantum(index: int) -> dict[str, Any]:
+    """Return IPsec connection index's post_quantum: none, ML-KEM-768, or 1024+PPK."""
+    mode = index % 3
+    if mode == 0:
+        return {"enabled": False}
+    if mode == 1:
+        return {"enabled": True, "ml_kem": "ML_KEM_768"}
+    return {
+        "enabled": True,
+        "ml_kem": "ML_KEM_1024",
+        "ppk": {"id": f"scale-{index}", "key": PPK},
+    }
+
+
+def key_exchange(index: int) -> str:
+    """Return the key exchanges IPsec connection index's IKE SA uses."""
+    pq = post_quantum(index)
+    if not pq["enabled"]:
+        return "ECP_384"
+    ke = f"ECP_384/KE1_{pq['ml_kem']}"
+    return f"{ke}/PPK" if "ppk" in pq else ke
+
+
 def hub_initiates(index: int) -> bool:
     """Return whether hub00 initiates IPsec connection index."""
     return index % 2 == 0
@@ -118,6 +142,7 @@ def connection(index: int) -> dict[str, Any]:
             "ipsec_lifetime": IPSEC_LIFETIME,
             "initiation": "start" if hub_initiates(index) else "none",
             "psk": PSK,
+            "post_quantum": post_quantum(index),
         }
     return {"routes": routes, "config": config}
 
@@ -165,9 +190,19 @@ def write_tenant(tenant: dict[str, Any]) -> None:
 def peer_swanctl() -> str:
     """Return peer00's swanctl configuration for hub00's IPsec connections."""
     conns = []
+    ppks = []
     for index in INDEXES.values():
         if is_wireguard(index):
             continue
+        pq = post_quantum(index)
+        ke = f"-ke1_{pq['ml_kem'].replace('_', '').lower()}" if pq["enabled"] else ""
+        ppk = ""
+        if "ppk" in pq:
+            ppk = f"ppk_id = {pq['ppk']['id']}\n    ppk_required = yes\n    "
+            ppks.append(
+                f"  ppk-{index} {{\n    id = {pq['ppk']['id']}\n"
+                f"    secret = {PPK}\n  }}\n",
+            )
         # The side that doesn't initiate only responds.
         if hub_initiates(index):
             actions = "start_action = none, dpd_action = clear, close_action = none"
@@ -190,13 +225,13 @@ def peer_swanctl() -> str:
       id = {HUB_ADDRESS}
       auth = psk
     }}
-    proposals = {PROPOSAL}
-    rekey_time = {IKE_LIFETIME}s
+    proposals = {PROPOSAL}{ke}
+    {ppk}rekey_time = {IKE_LIFETIME}s
     children {{
       scale-{index} {{
         local_ts = 0.0.0.0/0,::/0
         remote_ts = 0.0.0.0/0,::/0
-        esp_proposals = {PROPOSAL}
+        esp_proposals = {PROPOSAL}{ke}
         rekey_time = {IPSEC_LIFETIME}s
         life_time = {round(IPSEC_LIFETIME * 1.1)}s
         {actions.replace(", ", chr(10) + " " * 8)}
@@ -207,7 +242,9 @@ def peer_swanctl() -> str:
         "connections {"
         + "".join(conns)
         + f"\n}}\n\nsecrets {{\n  ike-hub {{\n    id = {HUB_ADDRESS}\n"
-        + f"    secret = {PSK}\n  }}\n}}\n"
+        + f"    secret = {PSK}\n  }}\n"
+        + "".join(ppks)
+        + "}\n"
     )
 
 
@@ -490,6 +527,17 @@ class TestScale:
             "the tunnels to recover",
         )
         print(f"Recovered in {took:.0f}s.")  # noqa: T201
+
+    def test_post_quantum(self) -> None:
+        """Every IKE SA uses its configured key exchanges, classical or ML-KEM."""
+        sas = conftest.key_exchanges(HOST)
+        wrong = [
+            f"{name}: {sas.get(name, {}).get('ike')} instead of {key_exchange(index)}"
+            for name, index in INDEXES.items()
+            if not is_wireguard(index)
+            and sas.get(name, {}).get("ike") != {key_exchange(index)}
+        ]
+        assert not wrong, f"{len(wrong)} wrong, e.g. {wrong[:5]}"
 
     def test_vpnctl_responsive(self) -> None:
         """vpnctl shows status, every connection and an NI's logs within seconds."""

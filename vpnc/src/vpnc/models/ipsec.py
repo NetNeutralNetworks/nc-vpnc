@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import logging
+import re
 from enum import Enum
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from vpnc import config, helpers
 from vpnc.models import connections, enums
+from vpnc.models.post_quantum import PostQuantumIPsec
 from vpnc.models.secret import Secret
 from vpnc.network import state
 from vpnc.services import charon
@@ -19,6 +21,14 @@ if TYPE_CHECKING:
     import vpnc.models.network_instance
 
 logger = logging.getLogger("vpnc")
+
+# ML-KEM and additional key exchanges are set with post_quantum only.
+PQ_KEYWORD_RE = re.compile(r"mlkem|(^|-)ke\d_", re.IGNORECASE)
+# A classical key exchange: hybrid ML-KEM needs one in each proposal.
+CLASSICAL_KE_RE = re.compile(
+    r"(^|-)(ecp\d+(bp)?|x25519|x448|curve25519|curve448|modp\d+(s\d+)?)(-|$)",
+    re.IGNORECASE,
+)
 
 
 class Initiation(Enum):
@@ -52,6 +62,7 @@ class ConnectionConfigIPsec(BaseModel):
     ipsec_lifetime: int = 3600
     initiation: Initiation = Initiation.INITIATOR
     psk: Secret
+    post_quantum: PostQuantumIPsec = Field(default_factory=PostQuantumIPsec)
     traffic_selectors: TrafficSelectors = Field(default_factory=TrafficSelectors)
 
     @field_validator("ike_version", mode="before")
@@ -62,7 +73,30 @@ class ConnectionConfigIPsec(BaseModel):
             return int(v)
         return v
 
-    _none_as_default = helpers.none_as_default("traffic_selectors")
+    @field_validator("ike_proposal", "ipsec_proposal")
+    @classmethod
+    def no_pq_keywords(cls, v: str) -> str:
+        """Hand-written ML-KEM (also without hybrid) and keN_ aren't allowed."""
+        if PQ_KEYWORD_RE.search(v):
+            msg = "set ML-KEM with post_quantum, not in the proposal"
+            raise ValueError(msg)
+        return v
+
+    @model_validator(mode="after")
+    def check_post_quantum(self) -> ConnectionConfigIPsec:
+        """Hybrid ML-KEM needs IKEv2 and a classical key exchange to add to."""
+        if not self.post_quantum.enabled:
+            return self
+        if self.ike_version != 2:  # noqa: PLR2004
+            msg = "post_quantum needs IKEv2"
+            raise ValueError(msg)
+        for name in ("ike_proposal", "ipsec_proposal"):
+            if not CLASSICAL_KE_RE.search(getattr(self, name)):
+                msg = f"post_quantum needs a classical key exchange in {name}"
+                raise ValueError(msg)
+        return self
+
+    _none_as_default = helpers.none_as_default("traffic_selectors", "post_quantum")
     _upper = helpers.upper("type", "initiation")
 
     def add(

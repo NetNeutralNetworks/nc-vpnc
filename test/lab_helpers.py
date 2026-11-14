@@ -116,6 +116,39 @@ def wait_until(
         time.sleep(interval)
 
 
+def _key_exchange(algorithms: str) -> str:
+    """Return the key exchanges of an SA's algorithms, e.g. ECP_384/KE1_ML_KEM_768.
+
+    Without the encryption, integrity and PRF algorithms; /PPK if one was used.
+    """
+    skip = ("AES_", "CHACHA20", "HMAC_", "PRF_", "ESN", "NO_EXT_SEQ")
+    return "/".join(p for p in algorithms.split("/") if not p.startswith(skip))
+
+
+def key_exchanges(host: str) -> dict[str, dict[str, set[str]]]:
+    """Return per connection the key exchanges of its established SAs.
+
+    {"ike": ..., "child": ...}; a child SA has none ("") until it's rekeyed.
+    """
+    output = run_cmd_shell(host, "swanctl --list-sas 2>/dev/null")
+    result: dict[str, dict[str, set[str]]] = {}
+    name = ""
+    established = False
+    for line in output.splitlines():
+        if line[:1].isalnum():
+            name = line.split(":")[0]
+            established = ", ESTABLISHED, " in line
+            continue
+        if not established:
+            continue
+        sas = result.setdefault(name, {"ike": set(), "child": set()})
+        if "PRF_" in line and "'" not in line:
+            sas["ike"].add(_key_exchange(line.strip()))
+        elif ", INSTALLED, " in line and "ESP:" in line:
+            sas["child"].add(_key_exchange(line.split("ESP:")[1].strip()))
+    return result
+
+
 def ssh_tunnel_works(host: str) -> bool:
     """Return whether a TCP connection through the hub's SSH tunnel succeeds."""
     try:
