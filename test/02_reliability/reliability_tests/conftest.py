@@ -12,6 +12,7 @@ if TEST_DIR not in sys.path:
 from lab_helpers import (  # noqa: E402
     SSH_SERVER,
     close_ssh_sessions,
+    ike_answered,
     key_exchanges,
     nft_drop,
     run_cmd,
@@ -28,6 +29,7 @@ from lab_helpers import (  # noqa: E402
 __all__ = [
     "SSH_SERVER",
     "close_ssh_sessions",
+    "ike_answered",
     "key_exchanges",
     "nft_drop",
     "run_cmd",

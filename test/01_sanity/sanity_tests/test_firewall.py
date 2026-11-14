@@ -1,4 +1,4 @@
-"""The firewall answers pings and tunnel traffic; other traffic gets no answer."""
+"""The firewall answers pings and peers' tunnel traffic; nothing else gets an answer."""
 
 from __future__ import annotations
 
@@ -72,6 +72,14 @@ class TestFirewall:
         assert not pings(PROVIDER, ipv4, EXTERNAL_NETNS)
         assert tcp_unanswered(PROVIDER, ipv4, EXTERNAL_NETNS)
         assert tcp_unanswered(PROVIDER, ipv6, EXTERNAL_NETNS)
+
+    @pytest.mark.parametrize("host", list(EXTERNAL))
+    def test_ike_from_peers_only(self, host: str) -> None:
+        """IKE is answered from IPsec peers only: mgt00 is the hubs' over IPv6."""
+        ipv4, ipv6 = EXTERNAL[host]
+
+        assert conftest.ike_answered(PROVIDER, "EXTERNAL", ipv6) == (host in CORE)
+        assert not conftest.ike_answered(PROVIDER, "EXTERNAL", ipv4)
 
     @pytest.mark.parametrize("host", list(CORE))
     def test_core(self, host: str) -> None:
