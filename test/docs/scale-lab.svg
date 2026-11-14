@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 200" width="1060" height="200" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>Scale lab: hub00 with 300 connections to peer00</title>
+  <style>
+    .box { fill: #f6f8fa; stroke: #57606a; stroke-width: 1.5; }
+    .hub { fill: #ddf4ff; stroke: #0969da; }
+    .name { fill: #1f2328; font-size: 15px; font-weight: 600; text-anchor: middle; }
+    .role { fill: #57606a; font-size: 11px; text-anchor: middle; }
+    .label { fill: #1f2328; font-size: 12px; text-anchor: middle; }
+    .label .title { font-weight: 600; }
+    .label .pq { fill: #8250df; font-weight: 600; }
+    .label .muted { fill: #57606a; }
+    .ipsec { stroke: #1f2328; stroke-width: 2.5; fill: none; }
+    .bundle { stroke: #1f2328; stroke-width: 7; fill: none; }
+    @media (prefers-color-scheme: dark) {
+      .box { fill: #161b22; stroke: #8b949e; }
+      .hub { fill: #0c2d6b; stroke: #4493f8; }
+      .name, .label { fill: #e6edf3; }
+      .role, .label .muted { fill: #8b949e; }
+      .label .pq { fill: #bc8cff; }
+      .ipsec, .bundle { stroke: #e6edf3; }
+    }
+  </style>
+
+  <line class="ipsec" x1="180" y1="110" x2="340" y2="110"/>
+  <line class="bundle" x1="560" y1="110" x2="880" y2="110"/>
+
+  <text class="label" x="260" y="80"><tspan class="title">CORE-0</tspan> · IPsec
+    <tspan x="260" dy="16" class="pq">ML-KEM-1024 + PPK</tspan></text>
+  <text class="label" x="720" y="48"><tspan class="title">300 connections</tspan>, one peer00 address each
+    <tspan x="720" dy="16" class="muted">280 IPsec, in turn:</tspan>
+    <tspan x="720" dy="16" class="muted">classical ·</tspan> <tspan class="pq">ML-KEM-768</tspan> <tspan class="muted">·</tspan> <tspan class="pq">ML-KEM-1024 + PPK</tspan></text>
+  <text class="label" x="720" y="142"><tspan class="muted">IPsec: half initiated by hub00, half by peer00</tspan>
+    <tspan x="720" dy="16" class="muted">every 15th connection (20): WireGuard</tspan></text>
+
+  <rect class="box" x="40" y="85" width="140" height="50" rx="8"/>
+  <text class="name" x="110" y="108">mgt00</text>
+  <text class="role" x="110" y="124">provider, BGP over CORE</text>
+
+  <rect class="box hub" x="340" y="70" width="220" height="80" rx="8"/>
+  <text class="name" x="450" y="100">hub00</text>
+  <text class="role" x="450" y="118">vpnc, hub mode</text>
+  <text class="role" x="450" y="134">25 tenants, 200 network instances</text>
+
+  <rect class="box" x="880" y="85" width="140" height="50" rx="8"/>
+  <text class="name" x="950" y="108">peer00</text>
+  <text class="role" x="950" y="124">strongSwan, WireGuard</text>
+</svg>

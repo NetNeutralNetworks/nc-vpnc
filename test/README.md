@@ -22,9 +22,20 @@ sudo test/00_setup/diagnostics.sh            # when something fails
 
 Run the sanity tests on a fresh lab, before the reliability tests.
 
+![Base lab](docs/base-lab.svg)
+
+hub00/hub01 run vpnc in hub mode, end00/end01 in endpoint mode. mgt00/mgt01 are
+the provider side (strongSwan, FRR); cli00/cli01 are customer networks behind
+end00/end01. The labels show what each tunnel uses.
+
 ## Scale lab
 
 Runs next to the base lab, with its own bridge and container names.
+
+![Scale lab](docs/scale-lab.svg)
+
+The tests add the tenants C0100-C0124 to hub00; peer00 is the other end of all
+their connections.
 
 ```sh
 sudo test/00_setup/deploy-scale.sh 26.04
