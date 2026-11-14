@@ -26,7 +26,7 @@ RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
     --mount=type=bind,source=./config/,target=/tmp/repo/config/            \
     echo "Install APT packages"                                         && \
     apt-get update && apt-get install -y make                           && \
-    make -C /tmp/repo MODE=hub packages hub-packages frr misc-config config && \
+    make -C /tmp/repo MODE=hub packages hub-packages frr snmpd misc-config config && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /opt/ncubed/ /opt/ncubed/
@@ -47,5 +47,6 @@ FROM vpnc AS lab
 
 RUN apt-get update                                                      && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y                      \
-    bind9 bind9-dnsutils iproute2 iptables iputils-ping openssh-server  && \
+    bind9 bind9-dnsutils iproute2 iptables iputils-ping openssh-server     \
+    snmp                                                                && \
     rm -rf /var/lib/apt/lists/*

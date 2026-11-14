@@ -6,6 +6,7 @@ Run commands in the containerlab containers and wait for the lab to reach a stat
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import itertools
 import subprocess
 import time
@@ -26,6 +27,11 @@ SSH_REJECT_NEW = (
     "INPUT -i eth1 -p tcp --dport 22 -m conntrack --ctstate NEW"
     " -j REJECT --reject-with tcp-reset"
 )
+
+# Polls the nodes with SNMP over the management network, like a monitoring system.
+SNMP_POLLER = "mgt00"
+SNMP_IF_NAME = "1.3.6.1.2.1.31.1.1.1.1"
+SNMP_ROUTE_TYPE = "1.3.6.1.2.1.10.166.11.1.4.1.1.8"
 
 
 def run_cmd(host: str, command: str) -> str:
@@ -164,3 +170,52 @@ def nft_drop(host: str, netns: str, *matches: str) -> Iterator[None]:
         yield
     finally:
         run_cmd_shell(host, f"{nft} delete table inet {table} || true")
+
+
+def snmp_walk(host: str, oid: str) -> dict[tuple[int, ...], str]:
+    """Walk a column of a node with SNMP and return its values by index."""
+    output = run_cmd(
+        SNMP_POLLER,
+        f"snmpbulkwalk -v2c -c public -Oqn udp6:{host} {oid}",
+    )
+    values = {}
+    for line in output.splitlines():
+        name, _, value = line.partition(" ")
+        if name.startswith(f".{oid}."):
+            index = name.removeprefix(f".{oid}.").split(".")
+            values[tuple(int(number) for number in index)] = value.strip('"')
+    return values
+
+
+def snmp_interfaces(host: str) -> dict[str, tuple[int, ...]]:
+    """Return the SNMP index of every interface of a node by its name."""
+    return {name: index for index, name in snmp_walk(host, SNMP_IF_NAME).items()}
+
+
+def snmp_route(index: tuple[int, ...]) -> tuple[str, str, str | None]:
+    """Return the network instance, destination and next hop of a route's index."""
+    numbers = list(index)
+
+    def take() -> bytes:
+        length = numbers.pop(0)
+        value = bytes(numbers[:length])
+        del numbers[:length]
+        return value
+
+    name = take().decode()
+    del numbers[:1]
+    address = ipaddress.ip_address(take())
+    prefix_length = numbers.pop(0)
+    take()
+    del numbers[:1]
+    gateway = take()
+    return (
+        name,
+        f"{address}/{prefix_length}",
+        str(ipaddress.ip_address(gateway)) if gateway else None,
+    )
+
+
+def snmp_routes(host: str) -> set[tuple[str, str, str | None]]:
+    """Return the routes of a node's network instances as SNMP has them."""
+    return {snmp_route(index) for index in snmp_walk(host, SNMP_ROUTE_TYPE)}

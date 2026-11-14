@@ -9,6 +9,8 @@ do
     cp -f ${SCRIPTDIR}/DEFAULT.yaml /opt/ncubed/config/vpnc/${i}/DEFAULT.yaml
 done
 
+${SCRIPTDIR}/../snmpd.sh
+
 # If systemd is the init system
 if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
     /usr/bin/systemctl restart ncubed-vpnc.service

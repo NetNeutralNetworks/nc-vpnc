@@ -240,6 +240,19 @@ vpnctl uses vpnc's local REST API on the Unix socket `/run/vpnc/api.sock` (root 
 | `/v1/logs` | Logs; with `follow=true` a stream of new lines (JSON lines) |
 | `/v1/ids` | The ids of tenants, network instances and connections, without state |
 
+## SNMP
+
+`make hub` and `make endpoint` install snmpd; vpnc adds its connections and routes to it (over AgentX), in standard MIBs. It only adds: snmpd keeps answering for everything it already did. Create a user as the installation prints.
+
+| MIB | Table | |
+|---|---|---|
+| IF-MIB | `ifTable`, `ifXTable` | A row per connection, named like it (`ifName` `C0001-00-0`): admin and oper status, last change, MTU and counters. `ifOperStatus` is the state of the tunnel: `up`, `down` or `dormant` (being set up). |
+| MPLS-L3VPN-STD-MIB | `mplsL3VpnVrfRteTable` | The routes of every network instance, by its name. `mplsL3VpnVrfRteInetCidrIfIndex` is the connection's `ifIndex`, or 0. |
+
+A connection's `ifIndex` is derived from its name, so it doesn't change: 1000000000 + tenant × 1000 + network instance × 10 + connection, with the tenant's letter as a hex digit (`C0001-00-0` is 1120001000). `EXTERNAL`, `CORE` and `ENDPOINT` count as network instances 0, 1 and 2 of tenant 0 (`CORE-1` is 1000000011).
+
+The values are refreshed every 30 seconds.
+
 ## Files
 
 | Path | |
