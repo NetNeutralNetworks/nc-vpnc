@@ -156,7 +156,8 @@ post_quantum:
   enabled: true             # default false
   ml_kem: ML_KEM_768        # or ML_KEM_1024 (IPsec only)
   ppk:                      # IPsec only, optional
-    id: C0001-00-0-hub00    # sent to the peer: the same on both sides, unique per node
+    id: C0001-00-0-hub00    # sent to the peer: the same on both sides, unique per node;
+                            # default: the connection's name and this node's hostname
     key: "0x..."            # at least 32 bytes: text, 0x hex or 0s base64; quote it
 ```
 
@@ -283,8 +284,9 @@ LibreNMS reads BGP4V2-MIB only for VyOS; for Linux it reads BGP4-MIB, so it show
 |---|---|
 | `/opt/ncubed/vpnc/` | The installation (virtualenv); `vpnctl` is linked to `/usr/local/bin` |
 | `/opt/ncubed/config/vpnc/` | Configuration: `active`, `candidate` (staged) and `history` |
-| `/var/log/ncubed/vpnc/` | `vpnc.log`, `vpncmangle.log` and `charon.log` (strongSwan) |
 | `/run/vpnc/api.sock` | The API |
+
+vpnc, vpncmangle and charon log to the journal: `vpnctl logs`, or `journalctl -t vpnc -t vpncmangle -t charon`.
 
 ## Development
 

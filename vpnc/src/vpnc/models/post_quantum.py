@@ -57,7 +57,11 @@ class PostQuantumPresharedKey(BaseModel):
     """A postquantum preshared key (RFC 8784)."""
 
     # Sent to the peer to select the key: the same on both sides, unique per node.
-    id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9@._:+-]{0,63}$")
+    # Default: the connection's name and the hostname, e.g. C0001-00-0-hub00.
+    id: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9@._:+-]{0,63}$",
+    )
     key: PpkSecret
 
     @field_validator("key", mode="before")

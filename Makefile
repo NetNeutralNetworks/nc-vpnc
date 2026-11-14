@@ -12,7 +12,6 @@ SHELL := /bin/bash
 BASEDIR := /opt/ncubed
 VENV    := $(BASEDIR)/vpnc
 CONFDIR := $(BASEDIR)/config/vpnc
-LOGDIR  := /var/log/ncubed/vpnc
 STAMP   := $(VENV)/.installed
 UNIT    := ncubed-vpnc.service
 FRRVER  := frr-stable
@@ -32,8 +31,7 @@ CONFIG_MODE = $(if $(filter endpoint,$(MODE)),endpoint,hub)
 VPNC_SRC       := $(shell find vpnc -type f ! -path '*/build/*' ! -path '*.egg-info/*' ! -name '*.pyc' 2>/dev/null)
 VPNCMANGLE_SRC := $(shell find vpncmangle -type f ! -path '*/build/*' ! -path '*.egg-info/*' ! -name '*.pyc' 2>/dev/null)
 
-MISC_CONF := /etc/strongswan.d/vpnc.conf /etc/iproute2/rt_protos.d/vpnc.conf \
-	$(if $(wildcard /etc/logrotate.d),/etc/logrotate.d/vpnc)
+MISC_CONF := /etc/strongswan.d/vpnc.conf /etc/iproute2/rt_protos.d/vpnc.conf
 SNMP_CONF := /etc/snmp/snmpd.conf.d/vpnc.conf
 FRR_SNMP_CONF := /etc/snmp/frr.conf
 # Installed by vpnc before it was renamed vpnc.conf; its TCP sockets override vpnc's.
@@ -87,8 +85,8 @@ packages: apt-update
 	$(APT) install -y nftables iproute2 kmod \
 		strongswan strongswan-swanctl strongswan-starter strongswan-charon \
 		python3-packaging ssh wireguard iputils-ping traceroute tcpdump
-	$(SYSTEMCTL) mask ipsec.service strongswan-starter.service
-	$(SYSTEMCTL) stop ipsec.service strongswan-starter.service || true
+	$(SYSTEMCTL) mask ipsec.service strongswan-starter.service strongswan.service
+	$(SYSTEMCTL) stop ipsec.service strongswan-starter.service strongswan.service || true
 	getent group swan > /dev/null || groupadd swan
 	id swan > /dev/null 2>&1 || useradd -g swan swan
 
@@ -138,7 +136,6 @@ config: $(CONFDIR)/candidate/DEFAULT.yaml $(CONFDIR)/active/DEFAULT.yaml \
 	$(if $(filter endpoint,$(MODE)),,[ -e $(CONFDIR)/candidate/config.yaml.example ] || \
 		install -m 600 config/vpnc/config/config.yaml.example $(CONFDIR)/candidate/)
 	chmod 700 $(CONFDIR)/candidate $(CONFDIR)/active $(CONFDIR)/history
-	install -d -m 750 $(LOGDIR)
 
 # These hold pre-shared and private keys.
 $(CONFDIR)/candidate $(CONFDIR)/active $(CONFDIR)/history:
@@ -150,16 +147,27 @@ $(CONFDIR)/candidate/DEFAULT.yaml $(CONFDIR)/active/DEFAULT.yaml: | $(CONFDIR)/c
 $(CONFDIR)/units/$(UNIT):
 	install -D -m 644 config/vpnc/units/$(UNIT) $@
 
+# vpnc, vpncmangle and charon log to the journal now; this rotated charon's
+# old log file.
+# Installs before 2024-08 replaced strongswan.conf with one that skips
+# strongswan.d, so charon ignored vpnc.conf (and ran as root): Ubuntu's default
+# is put back, and vpnc.conf touched so vpnc and charon restart.
 misc-config: $(MISC_CONF)
+	rm -f /etc/logrotate.d/vpnc
+	@if ! grep -qs '^include strongswan.d/\*.conf' /etc/strongswan.conf; then \
+		echo "Replacing /etc/strongswan.conf, the old one is strongswan.conf.vpnc-old."; \
+		[ ! -e /etc/strongswan.conf ] || \
+			mv /etc/strongswan.conf /etc/strongswan.conf.vpnc-old; \
+		install -m 644 config/strongswan/strongswan.conf /etc/strongswan.conf; \
+		touch /etc/strongswan.d/vpnc.conf; \
+	fi
 
-/etc/strongswan.d/vpnc.conf:
-	install -D -m 644 config/strongswan/vpnc.conf $@
+# vpnc's own drop-ins: replaced when they change.
+/etc/strongswan.d/vpnc.conf: config/strongswan/vpnc.conf
+	install -D -m 644 $< $@
 
-/etc/iproute2/rt_protos.d/vpnc.conf:
-	install -D -m 644 config/iproute2/vpnc.conf $@
-
-/etc/logrotate.d/vpnc:
-	install -D -m 644 config/logrotate/vpnc $@
+/etc/iproute2/rt_protos.d/vpnc.conf: config/iproute2/vpnc.conf
+	install -D -m 644 $< $@
 
 # vpnc's own drop-in: replaced when it changes.
 $(SNMP_CONF): config/snmp/vpnc.conf
@@ -258,7 +266,9 @@ start:
 	$(SYSTEMCTL) restart $(UNIT)
 	$(if $(SYSTEMD),mkdir -p $(STAMP) && touch $(STAMP)/started)
 
-# make update restarts only when vpnc or vpncmangle changed.
-$(STAMP)/started: $(STAMP)/vpnc $(wildcard $(STAMP)/vpncmangle)
+# make update restarts only when vpnc, vpncmangle or charon's settings changed;
+# vpnc starts charon, which reads its settings only then.
+$(STAMP)/started: $(STAMP)/vpnc $(wildcard $(STAMP)/vpncmangle) \
+	/etc/strongswan.d/vpnc.conf
 	$(SYSTEMCTL) restart $(UNIT)
 	touch $@

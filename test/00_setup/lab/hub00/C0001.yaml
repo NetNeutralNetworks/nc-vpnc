@@ -62,7 +62,8 @@ network_instances:
             ml_kem: ML_KEM_768 # ML_KEM_768 | ML_KEM_1024
             ppk:
               # Sent to the peer: the same on both sides, unique per node.
-              id: C0001-00-0-hub00
+              # Default: the connection's name and the hostname (C0001-00-0-hub00).
+              # id: C0001-00-0-hub00
               # At least 32 bytes: text, 0x hex or 0s base64.
               key: "0x66a77b5b1ff9961fcc346c2de0d28f9e985ce3c1b4d39052173116d4d9ba3811"
           # Optional

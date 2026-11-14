@@ -1,7 +1,7 @@
 """Log lines: vpnc's own (incl. SSH), vpncmangle's and charon's, also per connection.
 
-The last lines are read from the end of the files, so a request doesn't read
-whole logs. Following a log only reads what's appended.
+All three log to the journal, read with journalctl: a request reads only the
+last lines, a follower only what's added.
 """
 
 from __future__ import annotations
@@ -9,45 +9,38 @@ from __future__ import annotations
 import asyncio
 import datetime
 import functools
-import os
+import json
 import re
+import subprocess
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from vpnc import config
-
 if TYPE_CHECKING:
-    import pathlib
-    from collections.abc import AsyncIterator, Iterator
+    from collections.abc import AsyncIterator
 
-LOG_DIR = config.LOG_DIR
-VPNC_LOG = LOG_DIR / "vpnc.log"
-# Written by charon, see config/strongswan/vpnc.conf.
-CHARON_LOG = LOG_DIR / "charon.log"
-VPNCMANGLE_LOG = LOG_DIR / "vpncmangle.log"
 LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+# Each source is also its journal's SYSLOG_IDENTIFIER.
 Source = Literal["vpnc", "vpncmangle", "charon"]
 Level = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+# Python's levels as syslog priorities, and back.
+PRIORITIES = {"DEBUG": 7, "INFO": 6, "WARNING": 4, "ERROR": 3, "CRITICAL": 2}
+LEVEL_NAMES = {7: "DEBUG", 6: "INFO", 5: "INFO", 4: "WARNING", 3: "ERROR"}
 
-# 11/11/2026 07:29:01 AM(File:vpnc,Line:1,func) - INFO - message
-VPNC_LINE_RE = re.compile(
-    r"^(\d\d/\d\d/\d{4} \d\d:\d\d:\d\d) [AP]M\(File:[^)]*\) - (\w+) - (.*)$",
-)
-# 2026-11-11 07:29:01 13[IKE] <C0001-00-0|5> message
-CHARON_LINE_RE = re.compile(
-    r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) \d+\[(\w+)\] (?:<([^|>]+)\|\d+> )?(.*)$",
-)
+# Charon's messages: thread, subsystem, IKE SA, e.g. 13[IKE] <C0001-00-0|5> text
+CHARON_LINE_RE = re.compile(r"^\d+\[(\w+)\] (?:<([^|>]+)\|\d+> )?(.*)$", re.DOTALL)
 
-# Bytes read at a time from the end of a file.
-BLOCK = 1 << 16
+# Seconds a journalctl run may take.
+JOURNALCTL_TIMEOUT = 10
 # Seconds between reads of a followed log.
 FOLLOW_INTERVAL = 0.5
 # Seconds without lines before an empty line is sent: a follower that left is
 # only noticed when sending.
 KEEPALIVE = 15
+
+Entry = dict[str, Any]
 
 
 class LogLine(BaseModel):
@@ -59,21 +52,56 @@ class LogLine(BaseModel):
     message: str
 
 
+def journal(*args: str) -> list[Entry]:
+    """Return journal entries, oldest first."""
+    command = ["journalctl", "--no-pager", "--output=json", *args]
+    try:
+        result = subprocess.run(  # noqa: S603
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=JOURNALCTL_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    entries = [json.loads(line) for line in result.stdout.splitlines() if line]
+    # With --grep and --lines, journalctl gives the newest first.
+    return sorted(entries, key=_seqnum)
+
+
+def _seqnum(entry: Entry) -> int:
+    return int(entry.get("__SEQNUM", 0))
+
+
+def _message(entry: Entry) -> str:
+    # journalctl gives a message that isn't UTF-8 as a list of bytes.
+    message = entry.get("MESSAGE", "")
+    if isinstance(message, list):
+        return bytes(cast("list[int]", message)).decode(errors="replace")
+    return str(message)
+
+
+def _time(entry: Entry) -> str:
+    """Return an entry's local time, e.g. 2026-11-11 07:29:01."""
+    seconds = int(entry["__REALTIME_TIMESTAMP"]) / 1e6
+    time = datetime.datetime.fromtimestamp(seconds, datetime.UTC).astimezone()
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
 @dataclass(frozen=True)
 class Query:
-    """The lines to return of a log file.
+    """The lines to return of a source.
 
-    A Python log (vpnc's or vpncmangle's) is selected by level and name_re; lines
-    that don't start a message (tracebacks) are added to it. Charon's log, which
-    has a subsystem instead of a level, is selected by its lines' IKE SA name.
+    vpnc's and vpncmangle's lines are selected by level and name_re. Charon's,
+    which have a subsystem instead of a level, by their IKE SA's name.
     """
 
-    path: pathlib.Path
-    source: str
+    source: Source
     level: str = "INFO"
-    # Python log: the message must match.
+    # vpnc and vpncmangle: the message must match.
     name_re: re.Pattern[str] | None = None
-    # Charon's log: the regex the name of a line's IKE SA must match; also lines
+    # Charon: the regex the name of a line's IKE SA must match; also lines
     # naming it in quotes, e.g. no config found for 'C0001-00-0'. None: all
     # lines, with the name of their IKE SA.
     ike: str | None = None
@@ -87,195 +115,70 @@ class Query:
     def _ike_res(self) -> tuple[re.Pattern[str], re.Pattern[str]]:
         return re.compile(self.ike or ""), re.compile(f"'{self.ike}'")
 
-    def python_line(self, match: re.Match[str], extra: list[str]) -> LogLine | None:
-        """Return a Python log message (extra: its further lines), if selected."""
-        level = match[2]
-        if level in LEVELS and LEVELS.index(level) < LEVELS.index(self.level):
-            return None
-        message = "\n".join([match[3], *extra])
+    def entries(self, *args: str) -> list[Entry]:
+        """Return the source's journal entries, oldest first; line() selects."""
+        filters = [f"--identifier={self.source}"]
+        if self.charon:
+            if self.ike is not None:
+                filters.append(f"--grep=<({self.ike})\\||'({self.ike})'")
+        else:
+            filters.append(f"--priority={PRIORITIES[self.level]}")
+            if self.name_re is not None:
+                filters.append(f"--grep={self.name_re.pattern}")
+        return journal(*filters, *args)
+
+    def line(self, entry: Entry) -> LogLine | None:
+        """Return an entry as a line, if selected."""
+        message = _message(entry)
+        if self.charon:
+            return self._charon_line(entry, message)
         if self.name_re is not None and not self.name_re.search(message):
             return None
-        time = datetime.datetime.strptime(match[1], "%m/%d/%Y %H:%M:%S")
         return LogLine(
-            time=time.isoformat(sep=" "),
+            time=_time(entry),
             source=(
                 # vpnc logs what ssh prints, with the connection's name.
                 "ssh"
                 if self.name_re is not None and message.startswith("SSH tunnel")
                 else self.source
             ),
-            level=level,
+            level=LEVEL_NAMES.get(int(entry.get("PRIORITY", 6)), "CRITICAL"),
             message=message,
         )
 
-    def charon_line(self, line: str) -> LogLine | None:
-        """Return a line of charon's log, if selected."""
-        if not (match := CHARON_LINE_RE.match(line)):
+    def _charon_line(self, entry: Entry, message: str) -> LogLine | None:
+        if not (match := CHARON_LINE_RE.match(message)):
             return None
-        message = match[4]
+        message = match[3]
         if self.ike is None:
-            message = (f"<{match[3]}> " if match[3] else "") + message
+            message = (f"<{match[2]}> " if match[2] else "") + message
         elif not (
-            self._ike_res[0].fullmatch(match[3] or "")
+            self._ike_res[0].fullmatch(match[2] or "")
             or self._ike_res[1].search(message)
         ):
             return None
         return LogLine(
-            time=match[1],
+            time=_time(entry),
             source=self.source,
-            level=match[2],
+            level=match[1],
             message=message,
         )
 
-    def parse(self, lines: list[str], previous: LogLine | None) -> list[LogLine]:
-        """Return the selected lines of lines appended to the log, oldest first.
+    def last(self, count: int) -> list[tuple[int, LogLine]]:
+        """Return the last count selected lines with their seqnum, oldest first."""
+        return self.selected(self.entries(f"--lines={count}"))
 
-        previous is the last one returned before: a message's further lines can
-        arrive later.
-        """
-        if self.charon:
-            return [line for raw in lines if (line := self.charon_line(raw))]
-        output: list[LogLine] = []
-        start: re.Match[str] | None = None
-        extra: list[str] = []
-        for raw in [*lines, None]:
-            match = VPNC_LINE_RE.match(raw) if raw is not None else None
-            if raw is not None and match is None:
-                if raw:
-                    extra.append(raw)
-                continue
-            if start is not None:
-                if line := self.python_line(start, extra):
-                    output.append(line)
-            elif extra and previous is not None:
-                output.append(previous.model_copy(update={"message": "\n".join(extra)}))
-            start, extra = match, []
-        return output
-
-    def last(self, count: int, end: int | None = None) -> list[LogLine]:
-        """Return the last count selected lines, oldest first.
-
-        Of the file up to end (bytes), and of its rotated files.
-        """
-        output: list[LogLine] = []
-        extra: list[str] = []
-        for raw in _reversed_lines(self.path, end):
-            if len(output) >= count:
-                break
-            if self.charon:
-                if line := self.charon_line(raw):
-                    output.append(line)
-            elif match := VPNC_LINE_RE.match(raw):
-                if line := self.python_line(match, extra[::-1]):
-                    output.append(line)
-                extra = []
-            elif raw:
-                extra.append(raw)
-        return output[::-1]
+    def selected(self, entries: list[Entry]) -> list[tuple[int, LogLine]]:
+        """Return the selected lines of entries with their seqnum."""
+        return [(_seqnum(e), line) for e in entries if (line := self.line(e))]
 
 
-def _files(path: pathlib.Path) -> list[pathlib.Path]:
-    """Return a log file and its rotated files, newest first."""
-    # vpnc.log.1 etc.; compressed ones (charon.log.2.gz) are skipped.
-    rotated = [
-        p for p in path.parent.glob(f"{path.name}.*") if p.suffix[1:].isdigit()
-    ]
-    return [path, *sorted(rotated, key=lambda p: int(p.suffix[1:]))]
-
-
-def _reversed_lines(path: pathlib.Path, end: int | None = None) -> Iterator[str]:
-    """Yield the lines of a log and its rotated files, last first.
-
-    Of the log itself only up to end (bytes), if given.
-    """
-    for file in _files(path):
-        try:
-            handle = file.open("rb")
-        except (FileNotFoundError, IsADirectoryError):
-            continue
-        with handle:
-            position = handle.seek(0, os.SEEK_END)
-            if file == path and end is not None:
-                position = min(position, end)
-            rest = b""
-            while position > 0:
-                size = min(BLOCK, position)
-                position -= size
-                handle.seek(position)
-                # The first line may start in the block before.
-                rest, *lines = (handle.read(size) + rest).split(b"\n")
-                for line in reversed(lines):
-                    yield line.decode(errors="replace")
-            yield rest.decode(errors="replace")
-
-
-class Follower:
-    """Read what's appended to a log, also when it's rotated or emptied."""
-
-    def __init__(self, query: Query) -> None:
-        """Start at the end of the log."""
-        self.query = query
-        self.inode: int | None = None
-        self.offset = 0
-        self.rest = b""
-        self.previous: LogLine | None = None
-        try:
-            stat = query.path.stat()
-        except FileNotFoundError:
-            return
-        self.inode, self.offset = stat.st_ino, stat.st_size
-
-    def _read(self, path: pathlib.Path) -> bytes:
-        try:
-            with path.open("rb") as handle:
-                handle.seek(self.offset)
-                data = handle.read()
-        except FileNotFoundError:
-            return b""
-        self.offset += len(data)
-        return data
-
-    def read(self) -> list[LogLine]:
-        """Return the selected lines appended since the last read."""
-        path = self.query.path
-        try:
-            stat = path.stat()
-        except FileNotFoundError:
-            return []
-        data = b""
-        if stat.st_ino != self.inode:
-            # Rotated: first the rest of the file it was.
-            rotated = path.with_name(f"{path.name}.1")
-            if self.inode is not None and _inode(rotated) == self.inode:
-                data = self._read(rotated)
-            self.inode, self.offset = stat.st_ino, 0
-        elif stat.st_size < self.offset:
-            # Emptied (logrotate's copytruncate).
-            self.offset, self.rest = 0, b""
-        if stat.st_size > self.offset:
-            data += self._read(path)
-        if not data:
-            return []
-        *lines, self.rest = (self.rest + data).split(b"\n")
-        output = self.query.parse(
-            [line.decode(errors="replace") for line in lines],
-            self.previous,
-        )
-        if output:
-            self.previous = output[-1]
-        return output
-
-
-def _inode(path: pathlib.Path) -> int | None:
-    try:
-        return path.stat().st_ino
-    except FileNotFoundError:
-        return None
-
-
-def _merge(lines: list[LogLine], count: int | None = None) -> list[LogLine]:
-    # Stable: lines with the same time stay in order per source.
-    merged = sorted(lines, key=lambda line: line.time)
+def _merge(
+    lines: list[tuple[int, LogLine]],
+    count: int | None = None,
+) -> list[LogLine]:
+    """Return the lines of several queries in journal order, the last count."""
+    merged = [line for _, line in sorted(lines, key=lambda pair: pair[0])]
     return merged if count is None else merged[-count:]
 
 
@@ -284,29 +187,49 @@ def last(queries: list[Query], count: int) -> list[LogLine]:
     return _merge([line for query in queries for line in query.last(count)], count)
 
 
+class Follower:
+    """Read what's added to the journal for a query."""
+
+    def __init__(self, query: Query, cursor: str | None) -> None:
+        """Start after cursor; None: at the journal's start."""
+        self.query = query
+        self.cursor = cursor
+
+    def read(self) -> list[tuple[int, LogLine]]:
+        """Return the selected lines added since the last read."""
+        after = [f"--after-cursor={self.cursor}"] if self.cursor else []
+        entries = self.query.entries(*after)
+        if entries:
+            self.cursor = str(entries[-1]["__CURSOR"])
+        return self.query.selected(entries)
+
+
+def _start(queries: list[Query], count: int) -> tuple[list[Follower], list[LogLine]]:
+    """Return followers from the journal's end, and the last count lines up to it."""
+    tail = journal("--lines=1")
+    cursor = str(tail[-1]["__CURSOR"]) if tail else None
+    end = _seqnum(tail[-1]) if tail else -1
+    lines = [
+        pair for query in queries for pair in query.last(count) if pair[0] <= end
+    ]
+    return [Follower(query, cursor) for query in queries], _merge(lines, count)
+
+
 async def follow(queries: list[Query], count: int) -> AsyncIterator[LogLine | None]:
-    """Yield the last count lines of the logs, then the lines appended to them.
+    """Yield the last count lines of the logs, then the lines added to them.
 
     None when there were none for KEEPALIVE seconds.
     """
-    followers = [Follower(query) for query in queries]
     # Up to where the followers start, so no line is skipped or doubled.
-    initial = await run_in_threadpool(
-        lambda: _merge(
-            [
-                line
-                for follower in followers
-                for line in follower.query.last(count, follower.offset)
-            ],
-            count,
-        ),
-    )
+    followers, initial = await run_in_threadpool(lambda: _start(queries, count))
     for line in initial:
         yield line
     idle = 0.0
     while True:
         await asyncio.sleep(FOLLOW_INTERVAL)
-        lines = _merge([line for follower in followers for line in follower.read()])
+        lines = await run_in_threadpool(
+            lambda: _merge([line for f in followers for line in f.read()]),
+        )
         for line in lines:
             yield line
         idle = 0.0 if lines else idle + FOLLOW_INTERVAL
@@ -319,9 +242,9 @@ def connection_queries(name: str, *, ipsec: bool, level: Level) -> list[Query]:
     """Return the queries for the log lines of a connection (e.g. C0001-00-0)."""
     # C0001-00-1 but not C0001-00-10; also in names like wg-C0001-00-1.
     name_re = re.compile(rf"(?<![\w]){re.escape(name)}(?![\w])")
-    queries = [Query(VPNC_LOG, "vpnc", level, name_re)]
+    queries = [Query("vpnc", level, name_re)]
     if ipsec:
-        queries.append(Query(CHARON_LOG, "charon", ike=re.escape(name)))
+        queries.append(Query("charon", ike=re.escape(name)))
     return queries
 
 
@@ -330,13 +253,12 @@ def network_instance_queries(ni_id: str, *, level: Level) -> list[Query]:
     # C0001-00, C0001-00-1, C0001-00_C, wg-C0001-00-1; not C0001-001.
     name_re = re.compile(rf"(?<![\w]){re.escape(ni_id)}(?!\d)")
     return [
-        Query(VPNC_LOG, "vpnc", level, name_re),
+        Query("vpnc", level, name_re),
         # Its IKE SAs are named after it, e.g. C0001-00-0.
-        Query(CHARON_LOG, "charon", ike=rf"{re.escape(ni_id)}-\d+"),
+        Query("charon", ike=rf"{re.escape(ni_id)}-\d+"),
     ]
 
 
 def daemon_queries(source: Source, level: Level) -> list[Query]:
     """Return the query for vpnc's, vpncmangle's or charon's log."""
-    path = {"vpnc": VPNC_LOG, "vpncmangle": VPNCMANGLE_LOG, "charon": CHARON_LOG}
-    return [Query(path[source], source, level)]
+    return [Query(source, level)]

@@ -42,3 +42,12 @@ class TestConnections:
         # Rekeyed child SAs add the same key exchanges (PFS); new ones have none.
         for name, key_exchange in expected.items():
             assert sas[name]["child"] <= {"", key_exchange.removesuffix("/PPK")}
+
+
+class TestCharon:
+    """Charon runs with vpnc's settings."""
+
+    @pytest.mark.parametrize("host", ["hub00", "hub01", "end00", "end01"])
+    def test_runs_as_swan(self, host: str) -> None:
+        """Charon has dropped root for the swan user."""
+        assert conftest.run_cmd(host, "ps -C charon -o user=").split() == ["swan"]

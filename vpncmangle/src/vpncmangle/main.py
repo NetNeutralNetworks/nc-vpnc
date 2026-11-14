@@ -4,7 +4,7 @@ import contextlib
 import logging
 import sys
 from ipaddress import IPv4Address, IPv6Address
-from logging.handlers import RotatingFileHandler
+from logging.handlers import SysLogHandler
 from time import sleep
 
 import scapy.all as sc
@@ -20,6 +20,18 @@ QUERY_AAAA = 28
 
 
 TABLE = "ip6 vpncmangle"
+
+
+def _journal_handler() -> logging.Handler:
+    """Return a handler to the journal (syslog), or stderr where it isn't running."""
+    try:
+        handler = SysLogHandler(address="/dev/log", facility=SysLogHandler.LOG_DAEMON)
+    except OSError:
+        return logging.StreamHandler()
+    # The journal's SYSLOG_IDENTIFIER, which vpnctl reads.
+    handler.ident = "vpncmangle: "
+    handler.append_nul = False
+    return handler
 
 
 def setup_nftables(queue_number: int) -> None:
@@ -189,21 +201,8 @@ def _mangle_dns(pkt: Packet) -> None:
 
 def main() -> None:
     """Set up netfilter and try to keep the mangle_dns function alive."""
-    # LOGGER
-    # Configure logging
     logger.setLevel(level=logging.INFO)
-    formatter = logging.Formatter(
-        fmt="%(asctime)s(File:%(name)s,Line:%(lineno)d, %(funcName)s) - %(levelname)s - %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S %p",
-    )
-    rothandler = RotatingFileHandler(
-        "/var/log/ncubed/vpnc/vpncmangle.log",
-        maxBytes=100000,
-        backupCount=5,
-    )
-    rothandler.setFormatter(formatter)
-    logger.addHandler(rothandler)
-    logger.addHandler(logging.StreamHandler(sys.stdout))
+    logger.addHandler(_journal_handler())
 
     nfqueue = NetfilterQueue()
     retries = 10

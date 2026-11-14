@@ -14,7 +14,7 @@ for c in $(docker ps -a --format '{{.Names}}' | grep '^clab-vpnc-' | sort); do
   section "${c} logs"
   docker inspect --format 'restarts={{.RestartCount}} state={{.State.Status}} exit={{.State.ExitCode}}' "${c}"
   docker logs --tail 300 "${c}" 2>&1
-  docker exec "${c}" tail -n 300 /var/log/ncubed/vpnc/vpnc.log 2>/dev/null || true
+  docker exec "${c}" journalctl --no-pager -n 300 -t vpnc 2>/dev/null || true
   endsection
 done
 
@@ -32,8 +32,8 @@ for h in hub00 hub01; do
   in_node "${h}" 'ip netns exec CORE nft list ruleset'
   echo "--- vpncmangle translations.json"
   in_node "${h}" 'cat /opt/ncubed/config/vpncmangle/translations.json; echo'
-  echo "--- vpncmangle.log"
-  in_node "${h}" 'tail -n 200 /var/log/ncubed/vpnc/vpncmangle.log'
+  echo "--- vpncmangle's log"
+  in_node "${h}" 'journalctl --no-pager -n 200 -t vpncmangle'
   echo "--- BGP"
   in_node "${h}" 'vtysh -c "show bgp vrf CORE summary"'
   endsection

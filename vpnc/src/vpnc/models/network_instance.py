@@ -834,9 +834,9 @@ def ppk_id_users(tenants: Iterable[tenant.Tenant]) -> dict[str, list[str]]:
             for connection in network_instance.connections.values():
                 cfg = connection.config
                 if cfg.type == enums.ConnectionType.IPSEC and (
-                    cfg.post_quantum.enabled and cfg.post_quantum.ppk
+                    ppk_id := cfg.ppk_id(network_instance, connection)
                 ):
-                    users.setdefault(cfg.post_quantum.ppk.id, []).append(
+                    users.setdefault(ppk_id, []).append(
                         connection.name(network_instance),
                     )
     return {ppk_id: sorted(names) for ppk_id, names in users.items()}

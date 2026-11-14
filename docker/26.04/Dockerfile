@@ -17,7 +17,7 @@ RUN echo "Compile required modules"                                     && \
 FROM ubuntu:resolute-20261024.1 AS vpnc
 
 LABEL maintainer="beheer@ncubed.nl"
-LABEL version="0.2.1"
+LABEL version="0.2.2"
 LABEL description="vpnc VPN concentrator"
 
 SHELL ["/bin/bash", "-c"]
@@ -35,8 +35,8 @@ RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
     --mount=type=bind,source=./setup/,target=/tmp/repo/setup/              \
     make -C /tmp/repo vpnctl
 
-# Configuration and logging directories.
-VOLUME /opt/ncubed/config/vpnc /var/log/ncubed/vpnc
+# Configuration directory.
+VOLUME /opt/ncubed/config/vpnc
 
 CMD ["/opt/ncubed/vpnc/bin/vpnc"]
 

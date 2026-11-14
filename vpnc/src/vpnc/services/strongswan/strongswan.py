@@ -144,8 +144,8 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
                 "owners": [remote_id],
             },
         ]
-        if pq.enabled and pq.ppk:
-            conn["ppk_id"] = pq.ppk.id
+        if ppk_id := cfg.ppk_id(network_instance, connection):
+            conn["ppk_id"] = ppk_id
             # A PPK that's optional could be left out by an attacker.
             conn["ppk_required"] = "yes"
             keys.append(
@@ -153,7 +153,7 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
                     "id": _ppk_id(name),
                     "type": "PPK",
                     "data": pq.ppk.key.get_secret_value(),
-                    "owners": [pq.ppk.id],
+                    "owners": [ppk_id],
                 },
             )
         result[name] = (conn, keys)

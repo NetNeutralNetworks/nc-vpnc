@@ -10,6 +10,7 @@ do
 done
 
 ${SCRIPTDIR}/../snmpd.sh
+${SCRIPTDIR}/../journald.sh
 
 # If systemd is the init system
 if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then

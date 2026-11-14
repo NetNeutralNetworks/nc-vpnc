@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import socket
 from enum import Enum
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING, Literal
@@ -153,3 +154,18 @@ class ConnectionConfigIPsec(BaseModel):
         if network_instance.type == enums.NetworkInstanceType.DOWNLINK:
             base = int(network_instance.id.replace("-", ""), 16) << 4
         return base + connection.id
+
+    def ppk_id(
+        self,
+        network_instance: vpnc.models.network_instance.NetworkInstance,
+        connection: connections.Connection,
+    ) -> str | None:
+        """Return the PPK id: as configured, or the name and hostname by default.
+
+        E.g. C0001-00-0-hub00. None without a PPK.
+        """
+        if not (self.post_quantum.enabled and self.post_quantum.ppk):
+            return None
+        return self.post_quantum.ppk.id or (
+            f"{connection.name(network_instance)}-{socket.gethostname()}"
+        )

@@ -6,6 +6,8 @@ for i in candidate active; do
     cp -f "${BASE}/DEFAULT.yaml" "/opt/ncubed/config/vpnc/${i}/DEFAULT.yaml"
 done
 
+"${BASE}/../journald.sh"
+
 if [ "$(ps -p 1 -o comm=)" != "systemd" ]; then
     /opt/ncubed/vpnc/bin/vpnc
 fi

@@ -7,7 +7,7 @@ import resource
 import signal
 import subprocess
 import sys
-from logging.handlers import RotatingFileHandler
+from logging.handlers import SysLogHandler
 
 from vpnc import config, core, files, migration, shared
 from vpnc.models import enums, tenant
@@ -21,6 +21,18 @@ def _signal_handler(*_: object) -> None:
     """Shut down the program gracefully."""
     logger.info("SIGTERM received. Stopping all threads.")
     shared.STOP_EVENT.set()
+
+
+def _journal_handler() -> logging.Handler:
+    """Return a handler to the journal (syslog), or stderr where it isn't running."""
+    try:
+        handler = SysLogHandler(address="/dev/log", facility=SysLogHandler.LOG_DAEMON)
+    except OSError:
+        return logging.StreamHandler()
+    # The journal's SYSLOG_IDENTIFIER, which vpnctl reads.
+    handler.ident = "vpnc: "
+    handler.append_nul = False
+    return handler
 
 
 def _check_modules(modules: list[str]) -> None:
@@ -63,28 +75,8 @@ def _check_system_requirements() -> None:
 
 def main() -> None:
     """Run the VPNC service."""
-    # The logs name tenants and peers: not readable for all.
-    config.LOG_DIR.mkdir(parents=True, exist_ok=True)
-    os.chown(config.LOG_DIR, 0, config.IPSEC_GROUP)
-    config.LOG_DIR.chmod(0o750)
-
-    # Configure logging
     logger.setLevel(level=logging.INFO)
-    formatter = logging.Formatter(
-        fmt=(
-            "%(asctime)s(File:%(name)s,Line:%(lineno)d,"
-            "%(funcName)s) - %(levelname)s - %(message)s"
-        ),
-        datefmt="%m/%d/%Y %H:%M:%S %p",
-    )
-    rothandler = RotatingFileHandler(
-        config.LOG_DIR / "vpnc.log",
-        maxBytes=100000,
-        backupCount=5,
-    )
-    rothandler.setFormatter(formatter)
-    logger.addHandler(rothandler)
-    logger.addHandler(logging.StreamHandler(sys.stdout))
+    logger.addHandler(_journal_handler())
 
     # Load the configuration
     logger.info("Loading configuration from '%s'.", config.VPNC_A_CONFIG_PATH_SERVICE)

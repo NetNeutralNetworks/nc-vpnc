@@ -40,7 +40,7 @@ SECRET_DIRS = (
 
 @pytest.mark.parametrize("host", VPNC_NODES)
 def test_secrets_only_for_root(host: str) -> None:
-    """Pre-shared and private keys, their directories and the logs are root's."""
+    """Pre-shared and private keys and their directories are root's."""
     entries = conftest.run_cmd_shell(
         host,
         f"find {SECRET_DIRS} -printf '%u %m %y %p\\n'",
@@ -54,8 +54,5 @@ def test_secrets_only_for_root(host: str) -> None:
     assert not wrong
 
     # charon's user (swan) can't replace the directory vpnc writes in.
-    owners = conftest.run_cmd_shell(
-        host,
-        "stat -c '%U %a' /etc/swanctl /var/log/ncubed/vpnc",
-    ).splitlines()
-    assert owners == ["root 755", "root 750"]
+    owners = conftest.run_cmd_shell(host, "stat -c '%U %a' /etc/swanctl")
+    assert owners.split() == ["root", "755"]

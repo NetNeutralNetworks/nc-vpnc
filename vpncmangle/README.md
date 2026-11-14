@@ -17,6 +17,6 @@ vpnc writes the translations to `/opt/ncubed/config/vpncmangle/translations.json
               "dns66": [["fd6c:1::/52", "fdff:db8:c57::/52"]]}}
 ```
 
-Logs go to `/var/log/ncubed/vpnc/vpncmangle.log`, or `vpnctl logs --source vpncmangle`. `vpnctl status` shows whether it runs.
+Logs go to the journal (`journalctl -t vpncmangle`), or `vpnctl logs --source vpncmangle`. `vpnctl status` shows whether it runs.
 
 Not supported yet: DNS over TCP.
