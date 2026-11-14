@@ -37,12 +37,9 @@ class ConnectionConfigWireGuard(BaseModel):
         network_instance: vpnc.models.network_instance.NetworkInstance,
         connection: connections.Connection,
     ) -> str:
-        """Create a WireGuard interface and accept its port in EXTERNAL."""
+        """Create a WireGuard interface."""
         # Imported here: network_instance imports this module.
-        from vpnc.models.network_instance import (  # noqa: PLC0415
-            open_wireguard_ports,
-            wireguard_port_users,
-        )
+        from vpnc.models.network_instance import wireguard_port_users  # noqa: PLC0415
 
         name = connection.name(network_instance)
         users = wireguard_port_users().get(self.local_port, [name])
@@ -65,7 +62,6 @@ class ConnectionConfigWireGuard(BaseModel):
                 )
                 raise ValueError(msg)
 
-        open_wireguard_ports()
         wg = self.intf_name(network_instance, connection)
 
         with (
@@ -90,10 +86,6 @@ class ConnectionConfigWireGuard(BaseModel):
         connection.delete_interface(network_instance)
         interface_name = self.intf_name(network_instance, connection)
         wireguard.config_path(interface_name).unlink(missing_ok=True)
-
-        from vpnc.models.network_instance import open_wireguard_ports  # noqa: PLC0415
-
-        open_wireguard_ports()
 
     def intf_name(
         self,

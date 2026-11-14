@@ -106,18 +106,28 @@ def replace(netns: str, table: str) -> None:
     run(netns, "\n".join(commands) + "\n")
 
 
-def set_elements(netns: str, name: str) -> list[Any]:
-    """Return the elements of a set in vpnc's table."""
-    listing = json.loads(run(netns, f"list set {TABLE} {name}", json_output=True))
-    for item in listing["nftables"]:
-        if "set" in item:
-            return list(item["set"].get("elem", []))
-    return []
+def _element(value: Any) -> str:  # noqa: ANN401
+    """Return a JSON listing's set element as nft text, e.g. "192.0.2.8 . 51820"."""
+    if isinstance(value, dict) and "concat" in value:
+        return " . ".join(_element(part) for part in value["concat"])
+    return str(value)
 
 
-def replace_elements(netns: str, name: str, elements: list[str]) -> None:
-    """Make a set in vpnc's table hold exactly elements, in one transaction."""
-    commands = [f"flush set {TABLE} {name}"]
-    if elements:
-        commands.append(f"add element {TABLE} {name} {{ {', '.join(elements)} }}")
+def set_elements(netns: str) -> dict[str, list[str]]:
+    """Return the elements of the sets in vpnc's table, as nft text."""
+    listing = json.loads(run(netns, f"list table {TABLE}", json_output=True))
+    return {
+        item["set"]["name"]: [_element(e) for e in item["set"].get("elem", [])]
+        for item in listing["nftables"]
+        if "set" in item
+    }
+
+
+def replace_elements(netns: str, sets: dict[str, list[str]]) -> None:
+    """Make sets in vpnc's table hold exactly their elements, in one transaction."""
+    commands: list[str] = []
+    for name, elements in sets.items():
+        commands.append(f"flush set {TABLE} {name}")
+        if elements:
+            commands.append(f"add element {TABLE} {name} {{ {', '.join(elements)} }}")
     run(netns, "\n".join(commands) + "\n")

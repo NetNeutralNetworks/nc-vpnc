@@ -133,39 +133,87 @@ def wireguard_port_users(
     return {port: sorted(names) for port, names in users.items()}
 
 
-def wireguard_ports() -> list[int]:
-    """Return the local ports of all configured WireGuard connections."""
-    return sorted(wireguard_port_users())
+def external_sets() -> dict[str, list[str]]:
+    """Return the elements of EXTERNAL's sets, as nft text.
+
+    The peers are the remote_addrs of enabled IPsec and WireGuard connections; a
+    WireGuard peer only with its connection's local port.
+    """
+    # At startup EXTERNAL and CORE are set up before the configuration is loaded.
+    default_tenant = tenant.get_default_tenant()
+    tenants = [default_tenant] + [
+        t for t in list(config.VPNC_CONFIG_TENANT.values()) if t.id != default_tenant.id
+    ]
+    sets: dict[str, set[str]] = {
+        f"{kind}_peers_ipv{version}": set()
+        for kind in ("ipsec", "wireguard")
+        for version in (4, 6)
+    }
+    enabled = (
+        c
+        for t in tenants
+        for ni in t.network_instances.values()
+        for c in ni.connections.values()
+        if c.enabled
+    )
+    for connection in enabled:
+        cfg = connection.config
+        if cfg.type == enums.ConnectionType.IPSEC:
+            for address in cfg.remote_addrs:
+                sets[f"ipsec_peers_ipv{address.version}"].add(str(address))
+        elif cfg.type == enums.ConnectionType.WIREGUARD:
+            for address in cfg.remote_addrs:
+                sets[f"wireguard_peers_ipv{address.version}"].add(
+                    f"{address} . {cfg.local_port}",
+                )
+    ports = sorted(wireguard_port_users(tenants))
+    return {
+        "wireguard_ports": [str(port) for port in ports],
+        **{name: sorted(elements) for name, elements in sets.items()},
+    }
 
 
-# The ports last opened, with the identity of EXTERNAL's namespace.
-_WIREGUARD_PORTS_OPENED: tuple[tuple[int, int], list[int]] | None = None
+# The sets last made, with the identity of EXTERNAL's namespace.
+_EXTERNAL_OPENED: tuple[tuple[int, int], dict[str, list[str]]] | None = None
 
 
-def open_wireguard_ports() -> None:
-    """Make EXTERNAL accept exactly the configured WireGuard ports, right away.
+def open_external() -> None:
+    """Make EXTERNAL's sets (peers, WireGuard ports) as configured, right away.
 
     Only when they changed: the full check does the same through EXTERNAL's
-    table, and corrects changes made by hand.
+    table, and corrects changes made by hand. Never raises: it runs before a
+    check's network instances.
     """
-    global _WIREGUARD_PORTS_OPENED  # noqa: PLW0603
-    ports = wireguard_ports()
-    opened = (state.netns_identity(config.EXTERNAL_NI), ports)
-    if opened == _WIREGUARD_PORTS_OPENED:
-        return
+    global _EXTERNAL_OPENED  # noqa: PLW0603
     try:
-        current = nftables.set_elements(config.EXTERNAL_NI, "wireguard_ports")
-        if sorted(current) != ports:
-            logger.info("Accepting WireGuard on ports %s.", ports)
-            nftables.replace_elements(
-                config.EXTERNAL_NI,
-                "wireguard_ports",
-                [str(port) for port in ports],
+        wanted = external_sets()
+        identity = state.netns_identity(config.EXTERNAL_NI)
+        applied = FIREWALL_APPLIED.get(config.EXTERNAL_NI)
+        # Without its table, EXTERNAL's reconcile adds the sets with it.
+        if applied is None or applied.namespace != identity:
+            return
+        if (identity, wanted) == _EXTERNAL_OPENED:
+            return
+        current = nftables.set_elements(config.EXTERNAL_NI)
+        changed = {
+            name: elements
+            for name, elements in wanted.items()
+            if set(current.get(name, [])) != set(elements)
+        }
+        for name, elements in changed.items():
+            old = set(current.get(name, []))
+            logger.info(
+                "EXTERNAL %s: adding %s, removing %s.",
+                name,
+                sorted(set(elements) - old),
+                sorted(old - set(elements)),
             )
-    except nftables.NftablesError:
-        logger.exception("Updating the WireGuard ports failed.")
+        if changed:
+            nftables.replace_elements(config.EXTERNAL_NI, changed)
+    except Exception:
+        logger.exception("Updating EXTERNAL's peers and WireGuard ports failed.")
         return
-    _WIREGUARD_PORTS_OPENED = opened
+    _EXTERNAL_OPENED = (identity, wanted)
 
 
 class NetworkInstance(BaseModel):
@@ -577,8 +625,8 @@ class NetworkInstanceExternal(NetworkInstance):
     _no_ipsec = field_validator("connections")(_refuse_ipsec)
 
     def set_firewall(self) -> bool:
-        """Accept only IKE, ESP and the configured WireGuard ports."""
-        self._apply_firewall("nft-external.conf.j2", wireguard_ports=wireguard_ports())
+        """Accept only IKE and ESP from IPsec peers, WireGuard from its peers."""
+        self._apply_firewall("nft-external.conf.j2", **external_sets())
         return False
 
 

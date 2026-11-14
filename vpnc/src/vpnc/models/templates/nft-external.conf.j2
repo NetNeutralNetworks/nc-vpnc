@@ -1,20 +1,34 @@
-{#- EXTERNAL: only IKE, ESP and WireGuard (on the configured ports). #}
-    set wireguard_ports {
-        type inet_service
-{%- if wireguard_ports %}
-        elements = { {{ wireguard_ports | join(", ") }} }
+{#- EXTERNAL: only IKE and ESP from IPsec peers, WireGuard from its peers. #}
+{%- macro set(name, type, elements) %}
+    set {{ name }} {
+        type {{ type }}
+{%- if elements %}
+        elements = { {{ elements | join(", ") }} }
 {%- endif %}
     }
+{%- endmacro %}
+{{ set("wireguard_ports", "inet_service", wireguard_ports) }}
+{#- The remote_addrs of enabled connections; WireGuard's with the local port. #}
+{{ set("ipsec_peers_ipv4", "ipv4_addr", ipsec_peers_ipv4) }}
+{{ set("ipsec_peers_ipv6", "ipv6_addr", ipsec_peers_ipv6) }}
+{{ set("wireguard_peers_ipv4", "ipv4_addr . inet_service", wireguard_peers_ipv4) }}
+{{ set("wireguard_peers_ipv6", "ipv6_addr . inet_service", wireguard_peers_ipv6) }}
 
     chain input {
         type filter hook input priority filter; policy drop;
         meta l4proto ipv6-icmp jump icmpv6-in-out
-        meta l4proto esp accept
         {#- Path MTU discovery of the tunnels: only for packets vpnc sent. #}
         icmp type destination-unreachable icmp code frag-needed ct state related accept
+        ip saddr @ipsec_peers_ipv4 jump ipsec-peers
+        ip6 saddr @ipsec_peers_ipv6 jump ipsec-peers
+        ip saddr . udp dport @wireguard_peers_ipv4 accept
+        ip6 saddr . udp dport @wireguard_peers_ipv6 accept
+    }
+
+    chain ipsec-peers {
+        meta l4proto esp accept
         {#- No source port, so peers behind a NAT can connect. #}
         udp dport { 500, 4500 } accept
-        udp dport @wireguard_ports accept
     }
 
     chain forward {
