@@ -36,11 +36,14 @@ MISC_CONF := /etc/strongswan.d/vpnc.conf /etc/iproute2/rt_protos.d/vpnc.conf \
 	$(if $(wildcard /etc/logrotate.d),/etc/logrotate.d/vpnc)
 SNMP_CONF := /etc/snmp/snmpd.conf.d/vpnc.conf
 FRR_SNMP_CONF := /etc/snmp/frr.conf
+# Installed by vpnc before it was renamed vpnc.conf; its TCP sockets override vpnc's.
+OLD_SNMP_CONF := /etc/snmp/snmpd.conf.d/frr-snmp.conf
 VPNCTL    := /usr/local/bin/vpnctl /etc/bash_completion.d/vpnctl \
 	/usr/share/zsh/vendor-completions/_vpnctl /etc/profile.d/profile-nc-vpn.sh
 
 .PHONY: help hub endpoint addon update root apt-update packages python-packages \
-	build-packages hub-packages frr snmpd config misc-config venv pip-vpnc \
+	build-packages hub-packages frr snmpd old-snmp-config config misc-config venv \
+	pip-vpnc \
 	pip-vpncmangle lock vpnctl service start
 
 help:
@@ -62,7 +65,7 @@ addon: root packages python-packages \
 
 # vpncmangle only where it's installed (hub).
 update: root pip-vpnc $(if $(wildcard $(VENV)/bin/vpncmangle),pip-vpncmangle) \
-	misc-config $(if $(wildcard /etc/snmp/snmpd.conf.d),$(SNMP_CONF)) \
+	misc-config $(if $(wildcard /etc/snmp/snmpd.conf.d),$(SNMP_CONF) old-snmp-config) \
 	$(if $(wildcard /etc/frr),$(FRR_SNMP_CONF)) vpnctl \
 	$(if $(SYSTEMD),$(STAMP)/started)
 
@@ -121,6 +124,7 @@ snmpd: apt-update
 	sed -i -E 's/^(rocommunity6? .*)/#\1/; s/^(agentaddress.*)/#\1/' /etc/snmp/snmpd.conf
 	sed -i 's/^rouser authPrivUser authpriv -V systemonly$$/#&/' /etc/snmp/snmpd.conf
 	install -D -m 644 config/snmp/vpnc.conf $(SNMP_CONF)
+	rm -f $(OLD_SNMP_CONF)
 	$(SYSTEMCTL) enable snmpd.service
 	$(SYSTEMCTL) restart snmpd.service
 	@echo "Configure SNMP with the following command (if not already configured) after stopping the snmpd service."
@@ -161,6 +165,12 @@ misc-config: $(MISC_CONF)
 $(SNMP_CONF): config/snmp/vpnc.conf
 	install -D -m 644 $< $@
 	$(SYSTEMCTL) try-restart snmpd.service
+
+old-snmp-config:
+	@if [ -e $(OLD_SNMP_CONF) ]; then \
+		echo "Removing $(OLD_SNMP_CONF)"; rm -f $(OLD_SNMP_CONF); \
+		$(SYSTEMCTL) try-restart snmpd.service; \
+	fi
 
 # Read by the FRR daemons when vpnc starts them.
 $(FRR_SNMP_CONF): config/snmp/frr.conf
