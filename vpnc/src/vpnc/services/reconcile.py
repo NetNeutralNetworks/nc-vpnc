@@ -21,7 +21,7 @@ from pyroute2 import netns
 
 from vpnc import config, helpers, shared
 from vpnc.models import enums, tenant
-from vpnc.models.network_instance import jool_instances
+from vpnc.models.network_instance import jool_instances, open_external
 from vpnc.network import events, namespace, state
 from vpnc.services import configuration, frr, strongswan
 
@@ -209,6 +209,8 @@ def check_network_instances(keys: set[str] | None) -> None:
 
 
 def _check_network_instances(keys: set[str] | None) -> None:
+    # First: new peers are accepted before their connections are loaded.
+    open_external()
     updated_tenants: set[str] = set()
     for ni_id, configured in list(helpers.network_instances().items()):
         if keys is not None and ni_id not in keys:

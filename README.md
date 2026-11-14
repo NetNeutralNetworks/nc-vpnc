@@ -145,6 +145,8 @@ network_instances:
 
 `psk`, `private_key` and the PPK `key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
 
+`EXTERNAL` only accepts IKE and ESP from the `remote_addrs` of IPsec connections, and WireGuard from the `remote_addrs` of WireGuard connections, on their `local_port`. Peers of disabled connections aren't accepted, nor is a WireGuard peer that moves to another address.
+
 ### Post-quantum cryptography
 
 `post_quantum` adds a hybrid ML-KEM key exchange to the classical one, against traffic recorded now and decrypted later with a quantum computer. It requires Ubuntu 26.04 (strongSwan 6, OpenSSH 10): vpnc refuses it, and doesn't set up the connection, where charon or OpenSSH lacks the ML-KEM.
