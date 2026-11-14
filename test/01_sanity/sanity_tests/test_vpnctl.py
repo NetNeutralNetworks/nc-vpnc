@@ -229,7 +229,7 @@ class TestVpnctlBgp:
 
         assert "fd00::/16" in {r["prefix"] for r in received}
         # C0001-00's NPTv6 prefixes.
-        assert {t["local"] for t in TRANSLATIONS_C0001_00 if t["type"] == "nptv6"} <= {
+        assert {t["local"] for t in TRANSLATIONS_C0001_00 if t["type"] == "NPTV6"} <= {
             r["prefix"] for r in advertised
         }
 
@@ -269,13 +269,14 @@ class TestVpnctlTroubleshooting:
 
         assert result["hops"][0]["address"] == address
 
-    def test_tcp(self) -> None:
+    @pytest.mark.parametrize("host", ["hub00", "hub01"])
+    def test_tcp(self, host: str) -> None:
         """A TCP connection through the SSH tunnel succeeds; a closed port fails."""
-        result = vpnctl("hub00", "tcp C0001-00 172.16.31.1 22")
+        result = vpnctl(host, "tcp C0001-00 172.16.31.1 22")
         assert result["connected"] is True
 
         with pytest.raises(subprocess.CalledProcessError) as err:
-            conftest.run_cmd("hub00", f"{VPNCTL} tcp C0001-00 172.16.31.1 9")
+            conftest.run_cmd(host, f"{VPNCTL} tcp C0001-00 172.16.31.1 9")
         assert "Couldn't connect to 172.16.31.1 port 9" in err.value.stdout
 
     @pytest.mark.parametrize("target", ["C0001-00-1", "C0001-00"])

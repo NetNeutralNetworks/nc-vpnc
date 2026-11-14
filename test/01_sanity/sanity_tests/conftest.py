@@ -18,7 +18,6 @@ from lab_helpers import (  # noqa: E402
     snmp_route,
     snmp_routes,
     snmp_walk,
-    ssh_tunnel_works,
     wait_until,
 )
 
@@ -31,6 +30,5 @@ __all__ = [
     "snmp_route",
     "snmp_routes",
     "snmp_walk",
-    "ssh_tunnel_works",
     "wait_until",
 ]

@@ -9,19 +9,18 @@ from . import conftest
 class TestVpncmangle:
     """Test the vpncmangle setup/status."""
 
-    # @pytest.mark.parametrize("tables", [tables6_mangle_hub])
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_vpncmangle_is_running_hub(self, host: str) -> None:
-        """Test if vpncmangle correctly adds the ip6table rule."""
+        """vpncmangle runs in hub mode."""
         running = conftest.run_cmd(host, "pgrep --list-name vpncmangle")
 
         assert re.match(r"^\d+ vpncmangle$", running)
 
     @pytest.mark.parametrize("host", ["end00", "end01"])
     def test_vpncmangle_is_not_running_endpoint(self, host: str) -> None:
-        """Test if vpncmangle correctly adds the ip6table rule."""
+        """vpncmangle doesn't run in endpoint mode."""
         with pytest.raises(subprocess.CalledProcessError):
-            x = conftest.run_cmd(host, "pgrep --list-name vpncmangle")
+            conftest.run_cmd(host, "pgrep --list-name vpncmangle")
 
 
 class TestNftablesMangle:

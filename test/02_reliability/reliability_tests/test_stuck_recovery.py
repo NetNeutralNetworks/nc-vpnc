@@ -17,8 +17,6 @@ VPNCTL = "/opt/ncubed/vpnc/bin/vpnctl"
 IPSEC = ("end00", "CORE-0")
 IPSEC_RESPONDER = ("hub00", "C0001-00-0")
 SSH = ("hub00", "C0001-00-1")
-# Behind the SSH server, routed via the SSH tunnel.
-SSH_TARGET = "172.16.31.1/22"
 SSH_SERVER = "cli00"
 # New SSH connections to the server hang instead of failing.
 SSH_DROP_NEW = "INPUT -i eth1 -p tcp --dport 22 -m conntrack --ctstate NEW -j DROP"
@@ -54,23 +52,11 @@ def ssh_pid() -> str:
         return ""
 
 
-def ssh_tunnel_works() -> bool:
-    """Return whether a TCP connection through the SSH tunnel succeeds."""
-    try:
-        conftest.run_cmd_shell(
-            SSH[0],
-            f"ip netns exec C0001-00 timeout 2 bash -c '</dev/tcp/{SSH_TARGET}'",
-        )
-    except subprocess.CalledProcessError:
-        return False
-    return True
-
-
 def all_up() -> bool:
     """Return whether the connections are up (and SSH passes traffic)."""
     return (
         all(connection(*c)["oper_status"] == "UP" for c in (IPSEC, SSH))
-        and ssh_tunnel_works()
+        and conftest.ssh_tunnel_works(SSH[0])
     )
 
 
@@ -143,7 +129,9 @@ class TestStuckRecovery:
             assert connection(*SSH)["oper_status"] == "DOWN"
 
             conftest.wait_until(
-                lambda: ssh_pid() not in ("", hung) and ssh_tunnel_works(),
+                lambda: (
+                    ssh_pid() not in ("", hung) and conftest.ssh_tunnel_works(SSH[0])
+                ),
                 timeout=RESET_TIMEOUT,
                 message="a new ssh",
             )

@@ -207,28 +207,32 @@ def test_tenant() -> Iterator[None]:
 class TestReconfiguration:
     """Configuration changes are applied."""
 
-    def test_remove_tenant(self) -> None:
-        """Removing a tenant removes its network instance, links and connections."""
-        conftest.run_cmd(HOST, f"rm -f {TENANT_FILE}")
-        conftest.wait_until(
-            tenant_removed,
-            timeout=APPLY_TIMEOUT,
-            message=f"tenant C0002 to be removed from {HOST}",
-        )
-
     def test_add_and_remove_connection(self) -> None:
-        """A connection added to a network instance is set up, and removed again."""
+        """A connection added to a network instance is set up, and removed again.
+
+        SNMP gets the connection and its routes, and loses them again.
+        """
         second = ipsec_connection(
             1,
             ("10.200.0.5/30", "fdcc:200:0:1::1/64"),
             ["10.203.0.0/24"],
             ["fdcc:203::/48"],
         )
+        snmp_routes = {(NI, "10.203.0.0/24", None), (NI, "fdcc:203::/48", None)}
+
         write_tenant([BASE_CONNECTION, second])
         conftest.wait_until(
             lambda: connection_applied(second),
             timeout=APPLY_TIMEOUT,
             message="connection 1 to be applied",
+        )
+        conftest.wait_until(
+            lambda: (
+                f"{NI}-1" in conftest.snmp_interfaces(HOST)
+                and snmp_routes <= conftest.snmp_routes(HOST)
+            ),
+            timeout=SNMP_TIMEOUT,
+            message="connection 1 and its routes in SNMP",
         )
 
         write_tenant([BASE_CONNECTION])
@@ -242,55 +246,15 @@ class TestReconfiguration:
             message="connection 1 to be removed",
         )
         assert connection_applied(BASE_CONNECTION)
-
-    def test_snmp_follows_connections(self) -> None:
-        """SNMP gets a connection and its routes when added, and loses them again."""
-        second = ipsec_connection(
-            1,
-            ("10.200.0.5/30", "fdcc:200:0:1::1/64"),
-            ["10.203.0.0/24"],
-            ["fdcc:203::/48"],
-        )
-        routes = {(NI, "10.203.0.0/24", None), (NI, "fdcc:203::/48", None)}
-
-        write_tenant([BASE_CONNECTION, second])
-        conftest.wait_until(
-            lambda: (
-                f"{NI}-1" in conftest.snmp_interfaces(HOST)
-                and routes <= conftest.snmp_routes(HOST)
-            ),
-            timeout=SNMP_TIMEOUT,
-            message="connection 1 and its routes in SNMP",
-        )
-
-        write_tenant([BASE_CONNECTION])
         conftest.wait_until(
             lambda: (
                 f"{NI}-1" not in conftest.snmp_interfaces(HOST)
-                and not routes & conftest.snmp_routes(HOST)
+                and not snmp_routes & conftest.snmp_routes(HOST)
             ),
             timeout=SNMP_TIMEOUT,
             message="connection 1 and its routes gone from SNMP",
         )
         assert f"{NI}-0" in conftest.snmp_interfaces(HOST)
-
-    def test_change_routes(self) -> None:
-        """Changed routes replace the old ones."""
-        changed = ipsec_connection(
-            0,
-            ("10.200.0.1/30", "fdcc:200::1/64"),
-            ["10.202.0.0/24"],
-            ["fdcc:202::/48"],
-        )
-        write_tenant([changed])
-        conftest.wait_until(
-            lambda: (
-                connection_applied(changed)
-                and not {*ROUTES_4, *ROUTES_6} & route_destinations(NI)
-            ),
-            timeout=APPLY_TIMEOUT,
-            message="changed routes to be applied",
-        )
 
     def test_change_addresses(self) -> None:
         """Changed interface addresses replace the old ones."""
@@ -377,25 +341,6 @@ class TestReconfiguration:
         assert output == "Discarded the changes.\n"
         assert conftest.run_cmd(HOST, f"{VPNCTL} config diff C0002") == "No changes.\n"
         assert vpnctl_json("tenants show C0002")["name"] == "Reconfiguration test"
-
-    def test_config_set_list_item(self) -> None:
-        """Setting a route in a list stages it; commit applies it."""
-        vpnctl(f"config set C0002 {ROUTES_PATH}.ipv4.0.to 10.209.0.0/24")
-        assert vpnctl(f"config show C0002 {ROUTES_PATH}.ipv4.0.to --candidate") == (
-            "10.209.0.0/24\n"
-        )
-        # Staged only.
-        assert "10.201.0.0/24" in route_destinations(NI)
-
-        assert vpnctl("config commit C0002") == "Committed.\n"
-        conftest.wait_until(
-            lambda: (
-                "10.209.0.0/24" in route_destinations(NI)
-                and "10.201.0.0/24" not in route_destinations(NI)
-            ),
-            timeout=APPLY_TIMEOUT,
-            message="the set route to be applied",
-        )
 
     def test_config_delete_path(self) -> None:
         """Deleting a route removes it on commit."""

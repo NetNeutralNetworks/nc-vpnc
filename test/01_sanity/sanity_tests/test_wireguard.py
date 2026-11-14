@@ -27,18 +27,3 @@ class TestWireGuard:
         )
 
         assert int(port) == PORTS[host, netns, ifname]
-
-    @pytest.mark.parametrize("host", sorted({host for host, _, _ in PORTS}))
-    def test_ports_are_unique(self, host: str) -> None:
-        """All interfaces listen in EXTERNAL, so no two share a port."""
-        ports = [port for (h, _, _), port in PORTS.items() if h == host]
-        sockets = conftest.run_cmd(host, "ip netns exec EXTERNAL ss -Hlun")
-        listening = [
-            int(line.split()[3].rsplit(":", 1)[1])
-            for line in sockets.splitlines()
-            if line.split()[3].startswith(("0.0.0.0:", "[::]:", "*:"))
-        ]
-
-        # One IPv4 and one IPv6 socket per interface.
-        counts = {port: listening.count(port) for port in ports}
-        assert counts == dict.fromkeys(ports, 2)

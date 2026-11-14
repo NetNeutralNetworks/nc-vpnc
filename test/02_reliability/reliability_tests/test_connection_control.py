@@ -21,8 +21,6 @@ SSH = ("hub00", "C0001-00-1")
 # The tenant side of end01.
 PHYSICAL = ("end01", "ENDPOINT-0")
 CONNECTIONS = [IPSEC, WIREGUARD, SSH]
-# Behind the SSH server, routed via the SSH tunnel.
-SSH_TARGET = "172.16.31.1/22"
 # Reconnect delays are up to 30s (SSH); peers set up IPsec and WireGuard.
 UP_TIMEOUT = 90
 # The full check, which would set connections up again, runs every 30 seconds.
@@ -68,18 +66,6 @@ def ssh_pid() -> str:
         return ""
 
 
-def ssh_tunnel_works() -> bool:
-    """Return whether a TCP connection through the SSH tunnel succeeds."""
-    try:
-        conftest.run_cmd_shell(
-            SSH[0],
-            f"ip netns exec C0001-00 timeout 2 bash -c '</dev/tcp/{SSH_TARGET}'",
-        )
-    except subprocess.CalledProcessError:
-        return False
-    return True
-
-
 def is_down(host: str, name: str) -> bool:
     """Return whether the connection is really down (no SA, peer or ssh)."""
     details = connection(host, name)["details"]
@@ -87,7 +73,7 @@ def is_down(host: str, name: str) -> bool:
         return "ike_state" not in details
     if (host, name) == WIREGUARD:
         return details["last_handshake"] is None
-    return not ssh_pid() and not ssh_tunnel_works()
+    return not ssh_pid() and not conftest.ssh_tunnel_works(SSH[0])
 
 
 def all_up() -> bool:
@@ -97,7 +83,7 @@ def all_up() -> bool:
             connection(host, name)["oper_status"] == "UP"
             for host, name in CONNECTIONS
         )
-        and ssh_tunnel_works()
+        and conftest.ssh_tunnel_works(SSH[0])
     )
 
 

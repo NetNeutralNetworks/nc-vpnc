@@ -124,20 +124,6 @@ def force_terminate(host: str, name: str) -> None:
 class TestVpnRecovery:
     """VPN connections are re-established by the right side."""
 
-    def test_charon_restart(self) -> None:
-        """After a charon restart, connections are reloaded and re-established."""
-        connections = get_connections(HOST)
-        assert connections, f"No connections loaded on {HOST}"
-
-        conftest.run_cmd_shell(HOST, "pkill -KILL -x charon")
-
-        conftest.wait_until(
-            lambda: get_connections(HOST) == connections,
-            timeout=FULL_CHECK_INTERVAL * 3,
-            message=f"connections to be loaded on {HOST} after a charon restart",
-        )
-        wait_for_healthy(HOST, connections, PEER_RETRY_TIMEOUT)
-
     def test_unreachable_peer_does_not_block_others(self) -> None:
         """An unreachable peer doesn't delay re-establishing other connections."""
         connections = get_connections(HOST)
@@ -175,11 +161,20 @@ class TestVpnRecovery:
         )
         wait_for_healthy(HOST, connections, PEER_RETRY_TIMEOUT)
 
-    def test_stale_policies_removed(self) -> None:
-        """Policies left by a killed charon go when their SA doesn't come back."""
+    def test_charon_restart(self) -> None:
+        """After a charon restart, connections are reloaded and re-established.
+
+        Policies the killed charon left go when their SA doesn't come back.
+        """
         connections = get_connections(HOST)
+        assert connections, f"No connections loaded on {HOST}"
         with ike_blocked_from(HOST, END00_ADDRESSES):
             conftest.run_cmd_shell(HOST, "pkill -KILL -x charon")
+            conftest.wait_until(
+                lambda: get_connections(HOST) == connections,
+                timeout=FULL_CHECK_INTERVAL * 3,
+                message=f"connections to be loaded on {HOST} after a charon restart",
+            )
             conftest.wait_until(
                 lambda: is_established(HOST, UPLINK_UNREACHABLE, UPLINK_REACHABLE),
                 timeout=PEER_RETRY_TIMEOUT,

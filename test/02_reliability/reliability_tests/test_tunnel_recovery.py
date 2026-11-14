@@ -28,6 +28,9 @@ XFRM_ADDRESSES = {
     ("hub01", "C0001-00", "xfrm0"): frozenset({"100.100.0.1/28", "fdcc:cbf::/64"}),
 }
 
+# One per network instance: its interfaces behave the same.
+DOWN_UP_INTERFACES = [key for key in XFRM_ADDRESSES if key[2] == "xfrm0"]
+
 # IKE SA to terminate, and the XFRM interface it is bound to.
 IKE_SAS = [
     ("hub00", "CORE", "CORE-0", "xfrm0"),
@@ -133,7 +136,7 @@ class TestXfrmInterfaceDownUp:
     comes back.
     """
 
-    @pytest.mark.parametrize(("host", "netns", "ifname"), list(XFRM_ADDRESSES))
+    @pytest.mark.parametrize(("host", "netns", "ifname"), DOWN_UP_INTERFACES)
     def test_down_up_keeps_addresses(self, host: str, netns: str, ifname: str) -> None:
         """Addresses and connected routes survive an administrative down/up."""
         expected = XFRM_ADDRESSES[(host, netns, ifname)]
