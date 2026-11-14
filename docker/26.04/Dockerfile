@@ -17,7 +17,7 @@ RUN echo "Compile required modules"                                     && \
 FROM ubuntu:resolute-20261024.1 AS vpnc
 
 LABEL maintainer="beheer@ncubed.nl"
-LABEL version="0.2.0"
+LABEL version="0.2.1"
 LABEL description="vpnc VPN concentrator"
 
 SHELL ["/bin/bash", "-c"]
