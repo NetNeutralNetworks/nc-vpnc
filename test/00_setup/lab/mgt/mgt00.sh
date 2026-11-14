@@ -19,6 +19,10 @@ export VPN_TUNNEL_IF_IP_0="fd00:1:2::1/127"
 export VPN_PEER_IP4_0="192.0.2.5"
 export VPN_PEER_IP6_0="2001:db8::5"
 export VPN_PEER_IP_0="${VPN_PEER_IP6_0}"
+# hub00's CORE-0: ML-KEM-1024 with a PPK.
+export VPN_KE_0="-ke1_mlkem1024"
+export VPN_PPK_ID_0="CORE-0-hub00"
+export VPN_PPK_0="0xc5c0fac99d4bfd1c885964c24df066c61832bdb9e7596fc4c7f1bddc8be9daff"
 export BGP_PEER_IP_0="fd00:1:2::"
 export BGP_PEER_AS_0="4255555555"
 
@@ -26,6 +30,8 @@ export VPN_TUNNEL_IF_IP_1="fd00:1:2::3/127"
 export VPN_PEER_IP4_1="192.0.2.6"
 export VPN_PEER_IP6_1="2001:db8::6"
 export VPN_PEER_IP_1="${VPN_PEER_IP6_1}"
+# hub01's CORE-0: ML-KEM-1024 without a PPK.
+export VPN_KE_1="-ke1_mlkem1024"
 export BGP_PEER_IP_1="fd00:1:2::2"
 export BGP_PEER_AS_1="4266666666"
 

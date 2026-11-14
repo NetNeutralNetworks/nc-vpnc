@@ -90,6 +90,23 @@ if [ -n "${EXTRA_LOOPBACK_IF_IP}" ]; then
     ip address add ${EXTRA_LOOPBACK_IF_IP} dev lo
 fi
 
+# Optional post-quantum settings per uplink: VPN_KE_<n> (e.g. -ke1_mlkem1024),
+# VPN_PPK_ID_<n> and VPN_PPK_<n>.
+ppk_conn() {
+    if [ -n "$1" ]; then
+        printf '        ppk_id = %s\n        ppk_required = yes' "$1"
+    fi
+}
+ppk_secret() {
+    if [ -n "$2" ]; then
+        printf '    ppk-uplink00%s {\n        id = %s\n        secret = %s\n    }' "$1" "$2" "$3"
+    fi
+}
+VPN_PPK_CONN_0="$(ppk_conn "${VPN_PPK_ID_0}")"
+VPN_PPK_CONN_1="$(ppk_conn "${VPN_PPK_ID_1}")"
+VPN_PPK_SECRETS="$(ppk_secret 0 "${VPN_PPK_ID_0}" "${VPN_PPK_0}")
+$(ppk_secret 1 "${VPN_PPK_ID_1}" "${VPN_PPK_1}")"
+
 # Generate Swanctl configuration file
 echo "connections {
     # Section for an IKE connection named <conn>.
@@ -118,7 +135,8 @@ echo "connections {
             id = ${VPN_PEER_IP_0}
 
         }
-        proposals = aes256gcm16-prfsha384-ecp384
+        proposals = aes256gcm16-prfsha384-ecp384${VPN_KE_0}
+${VPN_PPK_CONN_0}
         rekey_time = 24h
         children {
             # CHILD_SA configuration sub-section.
@@ -129,7 +147,7 @@ echo "connections {
                 remote_ts = ::/0
                 life_time = 3600s
                 rekey_bytes = 1024000000
-                esp_proposals = aes256gcm16-prfsha384-ecp384
+                esp_proposals = aes256gcm16-prfsha384-ecp384${VPN_KE_0}
                 start_action = start
             }
         }
@@ -159,7 +177,8 @@ echo "connections {
             id = ${VPN_PEER_IP_1}
 
         }
-        proposals = aes256gcm16-prfsha384-ecp384
+        proposals = aes256gcm16-prfsha384-ecp384${VPN_KE_1}
+${VPN_PPK_CONN_1}
         rekey_time = 24h
         children {
             # CHILD_SA configuration sub-section.
@@ -170,7 +189,7 @@ echo "connections {
                 remote_ts = ::/0
                 life_time = 3600s
                 rekey_bytes = 1024000000
-                esp_proposals = aes256gcm16-prfsha384-ecp384
+                esp_proposals = aes256gcm16-prfsha384-ecp384${VPN_KE_1}
                 start_action = start
             }
         }
@@ -185,6 +204,7 @@ secrets {
         id-1 = \"${VPN_PEER_IP_1}\"
         secret = \"${VPN_PEER_PSK}\"
     }
+${VPN_PPK_SECRETS}
 }
 " > /etc/swanctl/conf.d/uplink.conf
 

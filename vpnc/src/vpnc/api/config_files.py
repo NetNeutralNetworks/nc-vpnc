@@ -23,10 +23,11 @@ import yaml
 from pydantic import BaseModel
 
 from vpnc import config, files, migration
-from vpnc.models import tenant
-from vpnc.models.network_instance import wireguard_port_users
+from vpnc.models import enums, tenant
+from vpnc.models.network_instance import ppk_id_users, wireguard_port_users
 from vpnc.models.secret import REVEAL
-from vpnc.services import configuration
+from vpnc.services import configuration, ssh
+from vpnc.services.strongswan import strongswan
 
 if TYPE_CHECKING:
     import pathlib
@@ -419,8 +420,8 @@ def resume_pending() -> None:
             _schedule(tenant_id, pending["confirm_by"])
 
 
-def _check_wireguard_ports(candidates: dict[str, Model | None]) -> None:
-    """Refuse candidates with a WireGuard port another connection uses."""
+def _node_tenants(candidates: dict[str, Model | None]) -> dict[str, Model]:
+    """Return the configurations on this node, with the candidates."""
     tenants: dict[str, Model] = {}
     for path in DIRS["active"].glob("*.yaml"):
         other_id = path.stem
@@ -432,10 +433,19 @@ def _check_wireguard_ports(candidates: dict[str, Model | None]) -> None:
             try:
                 other = _load(other_id, "active") or other
             except (ConfigError, ValueError, yaml.YAMLError):
-                logger.warning("Can't read the WireGuard ports of %s.", path)
+                logger.warning("Can't read the configuration %s.", path)
         if other is not None:
             tenants[other_id] = other
-    tenants |= {k: v for k, v in candidates.items() if v is not None}
+    return tenants | {k: v for k, v in candidates.items() if v is not None}
+
+
+def _check_node(candidates: dict[str, Model | None]) -> None:
+    """Refuse candidates that conflict with another tenant or this node.
+
+    A WireGuard port or PPK id another connection uses, or post-quantum
+    cryptography this node doesn't support.
+    """
+    tenants = _node_tenants(candidates)
     own = {
         connection.name(ni)
         for tenant_id in candidates
@@ -443,25 +453,63 @@ def _check_wireguard_ports(candidates: dict[str, Model | None]) -> None:
         for ni in tenants[tenant_id].network_instances.values()
         for connection in ni.connections.values()
     }
-    for port, names in wireguard_port_users(tenants.values()).items():
-        if len(names) > 1 and own & set(names):
-            raise ConfigError(
-                422,
-                "Invalid configuration",
-                f"WireGuard port {port} is used by {', '.join(names)}.",
-            )
+    for what, users in (
+        ("WireGuard port", wireguard_port_users(tenants.values())),
+        ("PPK id", ppk_id_users(tenants.values())),
+    ):
+        for value, names in users.items():
+            if len(names) > 1 and own & set(names):
+                raise ConfigError(
+                    422,
+                    "Invalid configuration",
+                    f"{what} {value} is used by {', '.join(names)}.",
+                )
+    for model in candidates.values():
+        if model is not None:
+            _check_post_quantum(model)
+
+
+def _check_post_quantum(model: Model) -> None:
+    """Refuse post-quantum cryptography that charon or OpenSSH lacks."""
+    for ni in model.network_instances.values():
+        for connection in ni.connections.values():
+            cfg = connection.config
+            if not getattr(cfg, "post_quantum", None) or not cfg.post_quantum.enabled:
+                continue
+            name = connection.name(ni)
+            missing = None
+            if cfg.type == enums.ConnectionType.IPSEC:
+                supported = strongswan.supported_key_exchanges()
+                if supported is None:
+                    raise ConfigError(
+                        503,
+                        "charon unavailable",
+                        f"Can't check the ML-KEM support of charon for {name}.",
+                    )
+                if cfg.post_quantum.ml_kem.value not in supported:
+                    missing = f"charon lacks {cfg.post_quantum.ml_kem.value}"
+            elif cfg.type == enums.ConnectionType.SSH and (
+                kex := ssh.unsupported_kex(cfg)
+            ):
+                missing = f"OpenSSH lacks {kex}"
+            if missing:
+                raise ConfigError(
+                    422,
+                    "Invalid configuration",
+                    f"{name}: {missing}; Ubuntu 26.04 is required.",
+                )
 
 
 def commit(
     tenant_id: str,
     confirm: int | None = None,
     *,
-    check_ports: bool = True,
+    check_node: bool = True,
 ) -> CommitResult:
     """Make the staged changes active.
 
     With confirm (seconds), roll back unless confirmed in time; a commit
-    without it confirms. commit_all checks the ports of all at once.
+    without it confirms. commit_all checks all at once.
     """
     check_id(tenant_id)
     with LOCK:
@@ -471,8 +519,8 @@ def commit(
             candidate = _load(tenant_id, "candidate")
             if candidate is None:
                 _keep_service(tenant_id)
-            if check_ports:
-                _check_wireguard_ports({tenant_id: candidate})
+            if check_node:
+                _check_node({tenant_id: candidate})
             # Only changed configurations: the files may differ in formatting.
             if not _same(candidate, _load(tenant_id, "active")):
                 text = _yaml(_dump(candidate, reveal=True))
@@ -623,12 +671,10 @@ def commit_all(confirm: int | None = None) -> list[CommitResult]:
     """
     with LOCK:
         staged = _staged_ids()
-        _check_wireguard_ports(
+        _check_node(
             {tenant_id: _load(tenant_id, "candidate") for tenant_id in staged},
         )
-        results = [
-            commit(tenant_id, confirm, check_ports=False) for tenant_id in staged
-        ]
+        results = [commit(tenant_id, confirm, check_node=False) for tenant_id in staged]
     return [r for r in results if r.changed or r.confirm_by or r.restart_needed]
 
 

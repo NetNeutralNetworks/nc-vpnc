@@ -140,3 +140,10 @@ def terminate(  # noqa: PLR0913
         # Also when there's no SA, or the peer doesn't confirm in time.
         if warn:
             logger.warning("Terminating SA %s failed.", described, exc_info=True)
+
+
+def key_exchanges(vcs: vici.Session) -> frozenset[str]:
+    """Return the key exchange methods charon supports, e.g. ML_KEM_768."""
+    algorithms = vcs.get_algorithms()
+    # strongSwan 5 calls them dh.
+    return frozenset(algorithms.get("ke") or algorithms.get("dh") or {})

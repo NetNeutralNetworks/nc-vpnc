@@ -55,6 +55,16 @@ network_instances:
           # Optional, defaults to START: initiate and respond. NONE: respond only.
           initiation: NONE
           psk: secretpasswordendpoint
+          # Optional: hybrid ML-KEM key exchange, optionally with a postquantum
+          # preshared key (RFC 8784). Requires Ubuntu 26.04 (strongSwan 6).
+          post_quantum:
+            enabled: true
+            ml_kem: ML_KEM_768 # ML_KEM_768 | ML_KEM_1024
+            ppk:
+              # Sent to the peer: the same on both sides, unique per node.
+              id: C0001-00-0-hub00
+              # At least 32 bytes: text, 0x hex or 0s base64.
+              key: "0x66a77b5b1ff9961fcc346c2de0d28f9e985ce3c1b4d39052173116d4d9ba3811"
           # Optional
           # traffic_selectors:
           #   local:
@@ -106,6 +116,9 @@ network_instances:
           # configured. Requires that remote_config is set to True.
           remote_config_interface: eth0
           username: root
+          # Optional: only the hybrid ML-KEM key exchange. Requires OpenSSH 9.9+.
+          post_quantum:
+            enabled: true
 
   01:
     type: DOWNLINK

@@ -82,6 +82,16 @@ network_instances:
           # Optional, defaults to START: initiate and respond. NONE: respond only.
           # initiation: START
           psk: "secret&pass<word>core"
+          # Optional: hybrid ML-KEM key exchange, optionally with a postquantum
+          # preshared key (RFC 8784). Requires Ubuntu 26.04 (strongSwan 6).
+          post_quantum:
+            enabled: true
+            ml_kem: ML_KEM_1024 # ML_KEM_768 | ML_KEM_1024
+            ppk:
+              # Sent to the peer: the same on both sides, unique per node.
+              id: CORE-0-hub00
+              # At least 32 bytes: text, 0x hex or 0s base64.
+              key: "0xc5c0fac99d4bfd1c885964c24df066c61832bdb9e7596fc4c7f1bddc8be9daff"
           # Optional
           # traffic_selectors:
           #   local:

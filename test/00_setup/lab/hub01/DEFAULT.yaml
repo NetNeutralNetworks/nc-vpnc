@@ -82,6 +82,10 @@ network_instances:
           # Optional, defaults to START: initiate and respond. NONE: respond only.
           # initiation: START
           psk: "secret&pass<word>core"
+          # Optional: hybrid ML-KEM key exchange. Requires Ubuntu 26.04 (strongSwan 6).
+          post_quantum:
+            enabled: true
+            ml_kem: ML_KEM_1024
           # Optional
           # traffic_selectors:
           #   local:

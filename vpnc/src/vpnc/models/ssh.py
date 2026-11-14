@@ -12,6 +12,7 @@ import vpnc.models.network_instance
 import vpnc.services.ssh
 from vpnc import helpers
 from vpnc.models import connections, enums
+from vpnc.models.post_quantum import PostQuantumSSH
 from vpnc.network import state
 
 logger = logging.getLogger("vpnc")
@@ -35,6 +36,9 @@ class ConnectionConfigSSH(BaseModel):
     )
     # Used as an ssh argument: a user name only, not an option.
     username: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
+    post_quantum: PostQuantumSSH = Field(default_factory=PostQuantumSSH)
+
+    _none_as_default = helpers.none_as_default("post_quantum")
 
     def add(
         self,
