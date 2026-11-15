@@ -20,11 +20,12 @@ import threading
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from vpnc import config, files, migration
 from vpnc.models import enums, tenant
 from vpnc.models.network_instance import ppk_id_users, wireguard_port_users
+from vpnc.models.post_quantum import PostQuantumPresharedKey
 from vpnc.models.secret import REVEAL
 from vpnc.services import configuration, ssh
 from vpnc.services.strongswan import strongswan
@@ -500,6 +501,35 @@ def _check_post_quantum(model: Model) -> None:
                 )
 
 
+def _fill_ppk_ids(model: Model) -> bool:
+    """Write the default PPK ids into a configuration; return whether any.
+
+    Written, they no longer follow a changed hostname.
+    """
+    filled = False
+    for ni in model.network_instances.values():
+        for connection in ni.connections.values():
+            cfg = connection.config
+            if cfg.type != enums.ConnectionType.IPSEC:
+                continue
+            ppk = cfg.post_quantum.ppk
+            if not (cfg.post_quantum.enabled and ppk) or ppk.id is not None:
+                continue
+            ppk_id = cfg.ppk_id(ni, connection)
+            try:
+                PostQuantumPresharedKey(id=ppk_id, key=ppk.key)
+            except ValidationError as exc:
+                raise ConfigError(
+                    422,
+                    "Invalid configuration",
+                    f"{connection.name(ni)}: the default PPK id {ppk_id} isn't "
+                    "valid; set post_quantum.ppk.id.",
+                ) from exc
+            ppk.id = ppk_id
+            filled = True
+    return filled
+
+
 def commit(
     tenant_id: str,
     confirm: int | None = None,
@@ -521,10 +551,14 @@ def commit(
                 _keep_service(tenant_id)
             if check_node:
                 _check_node({tenant_id: candidate})
+            filled = candidate is not None and _fill_ppk_ids(candidate)
             # Only changed configurations: the files may differ in formatting.
             if not _same(candidate, _load(tenant_id, "active")):
                 text = _yaml(_dump(candidate, reveal=True))
                 changed = _set_active(tenant_id, text or None)
+                if filled:
+                    # So the filled-in ids don't show as staged changes.
+                    files.ensure_file(_path(tenant_id, "candidate"), text, secret=True)
             if candidate is None:
                 _path(tenant_id, "candidate").unlink()
         if changed:

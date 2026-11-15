@@ -522,6 +522,21 @@ class TestReconfiguration:
         assert vpnctl("config discard --all") == "Discarded the changes of C0002.\n"
         assert vpnctl("config commit --all") == "No changes.\n"
 
+    def test_commit_writes_default_ppk_id(self) -> None:
+        """A commit writes the default PPK id, the name and hostname, in the config."""
+        pq = f"network_instances.{NI_KEY}.connections.0.config.post_quantum"
+        vpnctl(f"config set C0002 {pq}.enabled true")
+        conftest.run_cmd_shell(
+            HOST,
+            f"bash -c 'echo {'ab' * 16} | {VPNCTL} config set C0002 {pq}.ppk.key'",
+        )
+        assert vpnctl_json(f"config show C0002 {pq}.ppk.id --candidate") is None
+
+        vpnctl("config commit C0002")
+
+        assert vpnctl_json(f"config show C0002 {pq}.ppk.id") == f"{NI}-0-{HOST}"
+        assert vpnctl("config diff C0002") == "No changes.\n"
+
     @pytest.mark.parametrize("secret", ["new secret", "12345"])
     def test_config_set_prompted_secret(self, secret: str) -> None:
         """A prompted value (here on stdin) is taken as text, e.g. a secret."""

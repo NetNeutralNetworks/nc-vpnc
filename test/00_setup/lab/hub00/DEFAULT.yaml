@@ -89,8 +89,8 @@ network_instances:
             ml_kem: ML_KEM_1024 # ML_KEM_768 | ML_KEM_1024
             ppk:
               # Sent to the peer: the same on both sides, unique per node.
-              # Default: the connection's name and the hostname (CORE-0-hub00).
-              # id: CORE-0-hub00
+              # Default: the connection's name and the hostname, written on commit.
+              id: CORE-0-hub00
               # At least 32 bytes: text, 0x hex or 0s base64.
               key: "0xc5c0fac99d4bfd1c885964c24df066c61832bdb9e7596fc4c7f1bddc8be9daff"
           # Optional

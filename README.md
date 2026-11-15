@@ -157,7 +157,8 @@ post_quantum:
   ml_kem: ML_KEM_768        # or ML_KEM_1024 (IPsec only)
   ppk:                      # IPsec only, optional
     id: C0001-00-0-hub00    # sent to the peer: the same on both sides, unique per node;
-                            # default: the connection's name and this node's hostname
+                            # default: the connection's name and this node's hostname,
+                            # written into the configuration on commit
     key: "0x..."            # at least 32 bytes: text, 0x hex or 0s base64; quote it
 ```
 
