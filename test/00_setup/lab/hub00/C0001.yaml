@@ -38,7 +38,8 @@ network_instances:
         # the interface's address. The connection is reset when none of them
         # answers for 3 minutes. hub01 has none.
         probes:
-        - address: 172.16.30.1
+        - description: cli00 # Optional
+          address: 172.16.30.1
           test_type: ICMP # ICMP | TCP
         - address: 172.16.30.1
           test_type: TCP

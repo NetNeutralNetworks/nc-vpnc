@@ -156,7 +156,8 @@ A VPN can be up without passing traffic. With `probes`, vpnc tests every 30 seco
 
 ```yaml
 probes:                       # 8 at most
-- address: 10.0.0.10          # in the connection's routes
+- description: file server    # optional
+  address: 10.0.0.10          # in the connection's routes
   test_type: ICMP             # an echo request
 - address: 2001:db8:c57::10
   test_type: TCP              # a connection that's opened and closed; refused counts as answered
@@ -262,7 +263,7 @@ State is named as in OpenConfig where it has a term, with upper case values (low
 | `last_change`, `interface_transitions` | when `oper_status` last changed, and how often since vpnc started; seen at least every full check (30 seconds) |
 | `counters` | `in_octets`, `in_pkts`, `in_errors`, `in_discards` and the same for `out` |
 | `rates` | `in_bits_rate` and `out_bits_rate` in bits per second, the average over `load_interval` seconds |
-| `probes` | per probe `address`, `test_type`, `port`, and of its last test `failed` (empty while the connection isn't up) and `last_test_timestamp`; in its `history` per test `timestamp`, `failed` and `avg_delay` in microseconds |
+| `probes` | per probe `description`, `address`, `test_type`, `port`, and of its last test `failed` (empty while the connection isn't up) and `last_test_timestamp`; in its `history` per test `timestamp`, `failed` and `avg_delay` in microseconds |
 | BGP | `neighbor_address`, `peer_as`, `session_state`, `last_established`, `established_transitions`, and per `afi_safi_name` the `prefixes` `received` and `sent` (after policy) |
 | Routes | `prefix`, `next_hops` |
 

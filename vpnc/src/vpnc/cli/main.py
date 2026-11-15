@@ -403,8 +403,9 @@ def probe_name(probe: dict[str, Any]) -> str:
 
 
 def probe_text(probe: dict[str, Any]) -> str:
-    """Return a probe and its last test, e.g. 10.0.0.1 TCP 443: OK."""
-    return f"{probe_name(probe)}: {PROBE_RESULTS[probe['failed']]}"
+    """Return a probe and its last test, e.g. 10.0.0.1 TCP 443 (web server): OK."""
+    description = f" ({probe['description']})" if probe.get("description") else ""
+    return f"{probe_name(probe)}{description}: {PROBE_RESULTS[probe['failed']]}"
 
 
 def probes_text(probes: list[dict[str, Any]]) -> str | None:
@@ -438,6 +439,7 @@ def cmd_connections_probes(args: argparse.Namespace) -> None:
                 "last": age(probe["last_test_timestamp"]),
                 "answered": f"{sum(not t['failed'] for t in tests)}/{len(tests)}",
                 "delay": delay(tests[-1]["avg_delay"]) if tests else None,
+                "description": probe.get("description"),
             },
         )
     table(
@@ -448,12 +450,14 @@ def cmd_connections_probes(args: argparse.Namespace) -> None:
             ("LAST TEST", "last"),
             ("ANSWERED", "answered"),
             ("DELAY", "delay"),
+            ("DESCRIPTION", "description"),
         ],
     )
     for probe in data:
         if not probe["history"]:
             continue
-        print(f"\n{probe_name(probe)}")
+        description = f" ({probe['description']})" if probe.get("description") else ""
+        print(f"\n{probe_name(probe)}{clean(description)}")
         table(
             [
                 {

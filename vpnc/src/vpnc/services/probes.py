@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from vpnc.network import probe
 
 if TYPE_CHECKING:
-    from vpnc.models.connections import Connection, Probe
+    from vpnc.models.connections import Connection, Probe, ProbeTarget
     from vpnc.models.network_instance import NetworkInstance
 
 logger = logging.getLogger("vpnc")
@@ -36,8 +36,8 @@ class Result:
     delay: float | None = None
 
 
-# The last tests of each probe, oldest first, by connection name.
-RESULTS: dict[str, dict[Probe, deque[Result]]] = {}
+# The last tests of each probe, oldest first, by connection name and target.
+RESULTS: dict[str, dict[ProbeTarget, deque[Result]]] = {}
 # The connections tested in the last full check: the others weren't up.
 TESTED: set[str] = set()
 _LOCK = threading.Lock()
@@ -67,15 +67,15 @@ def run(
 
     configured: all connections by name, to forget the tests of what's gone.
     """
-    tests: dict[probe.Test, tuple[str, Probe]] = {}
+    tests: dict[probe.Test, tuple[str, ProbeTarget]] = {}
     # Without a test, e.g. without an address to send from, a probe fails.
-    delays: dict[tuple[str, Probe], float | None] = {}
+    delays: dict[tuple[str, ProbeTarget], float | None] = {}
     for ni, connection in up:
         name = connection.name(ni)
         for item in connection.probes:
-            delays[name, item] = None
+            delays[name, item.target] = None
             try:
-                tests[_test(ni, connection, item)] = (name, item)
+                tests[_test(ni, connection, item)] = (name, item.target)
             except ValueError as err:
                 logger.debug("Probe of %s through %s failed: %s.", item, name, err)
     now = time.time()
@@ -84,10 +84,12 @@ def run(
 
     with _LOCK:
         before = {name for name in TESTED if failing(name)}
-        for (name, item), delay in delays.items():
-            RESULTS.setdefault(name, {}).setdefault(item, deque(maxlen=HISTORY)).append(
-                Result(timestamp=now, failed=delay is None, delay=delay),
+        for (name, target), delay in delays.items():
+            history = RESULTS.setdefault(name, {}).setdefault(
+                target,
+                deque(maxlen=HISTORY),
             )
+            history.append(Result(timestamp=now, failed=delay is None, delay=delay))
         TESTED.clear()
         TESTED.update(name for name, _ in delays)
         _forget(configured)
@@ -101,9 +103,13 @@ def run(
 def _forget(configured: dict[str, Connection]) -> None:
     """Forget the tests of probes that aren't configured anymore."""
     for name in list(RESULTS):
-        kept = configured[name].probes if name in configured else []
+        kept = (
+            {item.target for item in configured[name].probes}
+            if name in configured
+            else set()
+        )
         RESULTS[name] = {
-            item: tests for item, tests in RESULTS[name].items() if item in kept
+            target: tests for target, tests in RESULTS[name].items() if target in kept
         }
         if not RESULTS[name]:
             del RESULTS[name]
@@ -120,7 +126,7 @@ def results(name: str, connection: Connection) -> list[tuple[Probe, list[Result]
     """Return a connection's probes with their last tests, oldest first."""
     with _LOCK:
         tests = RESULTS.get(name, {})
-        return [(item, list(tests.get(item, ()))) for item in connection.probes]
+        return [(item, list(tests.get(item.target, ()))) for item in connection.probes]
 
 
 def tested(name: str) -> bool:

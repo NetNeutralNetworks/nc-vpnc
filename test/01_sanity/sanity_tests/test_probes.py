@@ -28,6 +28,9 @@ HISTORY = 6
 TIMED_OUT = 124
 
 CONNECTIONS = ["C0001-00-0", "C0001-00-1", "C0001-01-0"]
+# Its first probe has a description, its second none.
+DESCRIBED = "C0001-00-0"
+DESCRIPTION = "cli00"
 
 
 def probes(host: str, name: str) -> list[dict[str, Any]]:
@@ -86,6 +89,14 @@ class TestProbes:
                 test["failed"] == (test["avg_delay"] is None)
                 for test in probe["history"]
             )
+
+    def test_description(self) -> None:
+        """A probe is shown with its description, if it has one."""
+        output = conftest.run_cmd(PROBED, f"{VPNCTL} connections probes {DESCRIBED}")
+
+        assert DESCRIPTION in output
+        descriptions = [p["description"] for p in probes(PROBED, DESCRIBED)]
+        assert descriptions == [DESCRIPTION, None]
 
     @pytest.mark.parametrize("name", CONNECTIONS)
     def test_not_configured(self, name: str) -> None:

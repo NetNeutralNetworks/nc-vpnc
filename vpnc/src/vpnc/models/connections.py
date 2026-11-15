@@ -91,6 +91,8 @@ class Routes(BaseModel):
 
 # The most probes a connection can have.
 MAX_PROBES = 8
+# A probe's address, test type and port.
+ProbeTarget = tuple[IPv4Address | IPv6Address, enums.TestType, int | None]
 
 
 class Probe(BaseModel):
@@ -98,12 +100,19 @@ class Probe(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    # What the probe is for.
+    description: str | None = Field(default=None, max_length=255)
     address: IPv4Address | IPv6Address
     test_type: enums.TestType
     # TCP only.
     port: int | None = Field(default=None, ge=1, le=65535)
 
     _upper = helpers.upper("test_type")
+
+    @property
+    def target(self) -> ProbeTarget:
+        """Return what's tested: the same for probes that only differ in description."""
+        return (self.address, self.test_type, self.port)
 
     @model_validator(mode="after")
     def _check_port(self) -> Probe:
@@ -162,7 +171,7 @@ class Connection(BaseModel):
         if self.config.type == enums.ConnectionType.PHYSICAL:
             msg = "probes: a physical connection can't be reset"
             raise ValueError(msg)
-        if len(set(self.probes)) != len(self.probes):
+        if len({probe.target for probe in self.probes}) != len(self.probes):
             msg = "probes: each probe should be unique"
             raise ValueError(msg)
         # Probes leave through the connection's interface.

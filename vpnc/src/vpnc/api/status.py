@@ -68,6 +68,7 @@ class Rates(BaseModel):
 class ProbeState(BaseModel):
     """A probe of a connection and its last test, named as in OpenConfig."""
 
+    description: str | None
     address: str
     test_type: enums.TestType
     port: int | None
@@ -319,6 +320,7 @@ def probe_details(ni: NetworkInstance, connection: Connection) -> list[ProbeDeta
     current = probes.tested(name)
     return [
         ProbeDetail(
+            description=probe.description,
             address=str(probe.address),
             test_type=probe.test_type,
             port=probe.port,
