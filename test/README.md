@@ -6,7 +6,7 @@ The tests run against containerlab labs and check end results in the lab.
 |---|---|---|
 | `00_setup/` | Images, the base and scale lab topologies, node configuration and lab scripts | |
 | `01_sanity/` | The freshly deployed lab is configured and working. Read-only. | seconds |
-| `02_reliability/` | Configuration changes, drift and failures (outages, restarts, lost sessions) are handled. Disrupts the lab and restores it. | ~15 min |
+| `02_reliability/` | Configuration changes, drift and failures (outages, restarts, lost sessions) are handled. Disrupts the lab and restores it. | ~20 min |
 | `03_performance/` | 200 network instances and 300 connections, in the scale lab. | ~10 min |
 
 ## Base lab
