@@ -34,6 +34,15 @@ network_instances:
           ipv4:
           - to: 172.16.30.1
             # via: # Optional, ignored for tunnel interfaces
+        # Optional, DOWNLINK only: hosts in the routes, tested every 30 seconds from
+        # the interface's address. The connection is reset when none of them
+        # answers for 3 minutes. hub01 has none.
+        probes:
+        - address: 172.16.30.1
+          test_type: ICMP # ICMP | TCP
+        - address: 172.16.30.1
+          test_type: TCP
+          port: 22
         config:
           type: IPSEC # IPSEC | SSH | PHYSICAL
           # Optional: If not set, defaults to the default service local_id value.
@@ -105,6 +114,15 @@ network_instances:
           ipv4:
           - to: default
             # via: # Optional, ignored for tunnel interfaces
+        probes:
+        - address: 2001:db8:c57::1
+          test_type: ICMP
+        - address: 172.16.31.1
+          test_type: ICMP
+        # Nothing listens: refused, which is an answer too.
+        - address: 2001:db8:c57:31::4
+          test_type: TCP
+          port: 81
         config:
           type: SSH # IPSEC | SSH | PHYSICAL
           remote_addrs: [172.16.30.1]
@@ -139,6 +157,15 @@ network_instances:
             nptv6: true
           ipv4:
           - to: default
+        probes:
+        - address: 2001:db8:c58::1
+          test_type: ICMP
+        - address: 172.17.31.1
+          test_type: TCP
+          port: 22
+        # Not in use: one probe without an answer doesn't reset the connection.
+        - address: 172.17.30.9
+          test_type: ICMP
         config:
           type: WIREGUARD # IPSEC | PHYSICAL | WIREGUARD
           # local_port: 51820
