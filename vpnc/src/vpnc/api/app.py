@@ -186,6 +186,12 @@ def get_connection(connection_id: str) -> status.ConnectionState:
     return _connection_state(connection_id)
 
 
+@app.get("/v1/connections/{connection_id}/probes")
+def get_connection_probes(connection_id: str) -> list[status.ProbeDetail]:
+    """Return a connection's probes with their last tests (3 minutes)."""
+    return status.probe_details(*_connection(connection_id))
+
+
 def _set_enabled(connection_id: str, *, enabled: bool) -> status.ConnectionState:
     ni, _ = _connection(connection_id)
     config_files.set_enabled(ni.tenant_id, connection_id, enabled=enabled)

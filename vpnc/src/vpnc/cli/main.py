@@ -380,15 +380,98 @@ def cmd_connections_list(args: argparse.Namespace) -> None:
                 ("OUT", "out"),
                 ("IN RATE", "in_rate"),
                 ("OUT RATE", "out_rate"),
+                ("PROBES", "probes_ok"),
                 ("ADDRESSES", "addresses"),
             ]
         for row in data:
             counters, rates = row.get("counters") or {}, row.get("rates") or {}
             row["age"] = age(row["last_change"])
+            row["probes_ok"] = probes_text(row.get("probes") or [])
             for direction in ("in", "out"):
                 row[direction] = size(counters.get(f"{direction}_octets"))
                 row[f"{direction}_rate"] = rate(rates.get(f"{direction}_bits_rate"))
         table(data, columns)
+
+
+PROBE_RESULTS = {None: "not tested", False: "OK", True: "FAILED"}
+
+
+def probe_name(probe: dict[str, Any]) -> str:
+    """Return what a probe tests, e.g. 10.0.0.1 TCP 443."""
+    name = f"{probe['address']} {probe['test_type']}"
+    return name if probe["port"] is None else f"{name} {probe['port']}"
+
+
+def probe_text(probe: dict[str, Any]) -> str:
+    """Return a probe and its last test, e.g. 10.0.0.1 TCP 443: OK."""
+    return f"{probe_name(probe)}: {PROBE_RESULTS[probe['failed']]}"
+
+
+def probes_text(probes: list[dict[str, Any]]) -> str | None:
+    """Return how many of the tested probes are answered, e.g. 1/2."""
+    tested = [probe for probe in probes if probe["failed"] is not None]
+    if not tested:
+        return None
+    return f"{sum(not probe['failed'] for probe in tested)}/{len(tested)}"
+
+
+def delay(microseconds: int | None) -> str:
+    """Return a response time, e.g. 1.2 ms."""
+    return "-" if microseconds is None else f"{microseconds / 1000:.1f} ms"
+
+
+def cmd_connections_probes(args: argparse.Namespace) -> None:
+    """Show a connection's probes and their last tests (3 minutes)."""
+    data = request("GET", f"/v1/connections/{quote(args.id)}/probes")
+    if dump(data, args.output):
+        return
+    if not data:
+        print("No probes.")
+        return
+    rows = []
+    for probe in data:
+        tests = probe["history"]
+        rows.append(
+            {
+                "probe": probe_name(probe),
+                "result": PROBE_RESULTS[probe["failed"]],
+                "last": age(probe["last_test_timestamp"]),
+                "answered": f"{sum(not t['failed'] for t in tests)}/{len(tests)}",
+                "delay": delay(tests[-1]["avg_delay"]) if tests else None,
+            },
+        )
+    table(
+        rows,
+        [
+            ("PROBE", "probe"),
+            ("RESULT", "result"),
+            ("LAST TEST", "last"),
+            ("ANSWERED", "answered"),
+            ("DELAY", "delay"),
+        ],
+    )
+    for probe in data:
+        if not probe["history"]:
+            continue
+        print(f"\n{probe_name(probe)}")
+        table(
+            [
+                {
+                    "time": test["timestamp"],
+                    "age": age(test["timestamp"]),
+                    "result": PROBE_RESULTS[test["failed"]],
+                    "delay": delay(test["avg_delay"]),
+                }
+                # Newest first.
+                for test in reversed(probe["history"])
+            ],
+            [
+                ("TIME", "time"),
+                ("AGE", "age"),
+                ("RESULT", "result"),
+                ("DELAY", "delay"),
+            ],
+        )
 
 
 def cmd_connections_show(args: argparse.Namespace) -> None:
@@ -424,6 +507,8 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
         items.append(
             ("Last handshake", f"{age(handshake)} ago" if handshake else "never"),
         )
+    if data.get("probes"):
+        items.append(("Probes", [probe_text(probe) for probe in data["probes"]]))
     if "auto_resets_24h" in details:
         items.append(("Auto resets (24h)", details["auto_resets_24h"]))
     if counters := data.get("counters"):
@@ -1157,6 +1242,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
         "reset": "control",
         "restart": "control",
         "logs": "connection",
+        "probes": "connection",
     },
     "bgp": {"neighbors": None, "neighbor": "neighbor", "routes": None},
     # Commands with an argument instead of actions.
@@ -1372,6 +1458,7 @@ def parser() -> argparse.ArgumentParser:
             metavar="ID",
             help="connections, or network instances/tenants: their VPN connections",
         )
+    add(connections, "probes", cmd_connections_probes).add_argument("id", **connection)
     p = add(connections, "logs", cmd_connections_logs)
     p.add_argument("id", **connection)
     log_options(p)

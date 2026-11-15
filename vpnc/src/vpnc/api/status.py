@@ -22,7 +22,7 @@ from vpnc import config, helpers
 from vpnc.models import enums, tenant
 from vpnc.network import state, traffic
 from vpnc.api import config_files
-from vpnc.services import charon, configuration, vpncmangle, wireguard
+from vpnc.services import charon, configuration, probes, vpncmangle, wireguard
 
 if TYPE_CHECKING:
     from vpnc.models.connections import Connection
@@ -65,6 +65,32 @@ class Rates(BaseModel):
     out_bits_rate: int
 
 
+class ProbeState(BaseModel):
+    """A probe of a connection and its last test, named as in OpenConfig."""
+
+    address: str
+    test_type: enums.TestType
+    port: int | None
+    # None: not tested in the last full check, as the connection wasn't up.
+    failed: bool | None
+    last_test_timestamp: str | None
+
+
+class ProbeTest(BaseModel):
+    """A test of a probe."""
+
+    timestamp: str
+    failed: bool
+    # Microseconds until the answer.
+    avg_delay: int | None
+
+
+class ProbeDetail(ProbeState):
+    """A probe of a connection with its last tests, oldest first."""
+
+    history: list[ProbeTest]
+
+
 class ConnectionState(BaseModel):
     """The live state of a connection."""
 
@@ -85,6 +111,8 @@ class ConnectionState(BaseModel):
     remote: str | None
     # Type specific, e.g. IKE state or the last WireGuard handshake.
     details: dict[str, Any]
+    # Tested every full check while the connection is up.
+    probes: list[ProbeState]
     # None without interface.
     counters: Counters | None
     # None until measured.
@@ -285,6 +313,34 @@ def _wireguard(
     return ("UP" if recent else "DOWN"), peer["endpoint"], details
 
 
+def probe_details(ni: NetworkInstance, connection: Connection) -> list[ProbeDetail]:
+    """Return a connection's probes with their last tests."""
+    name = connection.name(ni)
+    current = probes.tested(name)
+    return [
+        ProbeDetail(
+            address=str(probe.address),
+            test_type=probe.test_type,
+            port=probe.port,
+            failed=tests[-1].failed if current and tests else None,
+            last_test_timestamp=_timestamp(tests[-1].timestamp) if tests else None,
+            history=[
+                ProbeTest(
+                    timestamp=_timestamp(test.timestamp),
+                    failed=test.failed,
+                    avg_delay=(
+                        round(test.delay * 1_000_000)
+                        if test.delay is not None
+                        else None
+                    ),
+                )
+                for test in tests
+            ],
+        )
+        for probe, tests in probes.results(name, connection)
+    ]
+
+
 def _snapshot(ni_id: str) -> state.NetnsState:
     """Read the links and addresses of a network instance (not its routes)."""
     try:
@@ -365,6 +421,10 @@ def connection_states(
                     addresses=addresses,
                     remote=remote,
                     details=details,
+                    probes=[
+                        ProbeState(**detail.model_dump(exclude={"history"}))
+                        for detail in probe_details(ni, connection)
+                    ],
                     counters=(
                         Counters(**dataclasses.asdict(counters)) if counters else None
                     ),

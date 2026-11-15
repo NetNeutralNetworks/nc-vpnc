@@ -194,6 +194,8 @@ def _start(
         stop(network_instance, connection)
         return
 
+    # Probes don't concern ssh: changing them doesn't restart it.
+    connection = connection.model_copy(update={"probes": []})
     tunnel = SSH_TUNNELS.get(connection_name)
     if (
         connection == SSH_CONNECTIONS.get(connection_name)

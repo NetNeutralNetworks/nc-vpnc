@@ -26,3 +26,12 @@ class NetworkInstanceType(str, Enum):
     EXTERNAL = "EXTERNAL"
     CORE = "CORE"
     DOWNLINK = "DOWNLINK"
+
+
+class TestType(str, Enum):
+    """Define how a probe tests its target, named as in OpenConfig."""
+
+    # An echo request; ICMPv6 to an IPv6 address.
+    ICMP = "ICMP"
+    # A connection that's opened and closed.
+    TCP = "TCP"

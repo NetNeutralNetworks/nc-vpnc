@@ -133,6 +133,9 @@ network_instances:
     ipv6:
     - to: fdff:db8:c57::/52
       nptv6: true             # translate (default); vpnc adds nptv6_prefix
+  probes:                     # optional, downlinks only; see Probes
+  - address: 10.0.0.10
+    test_type: ICMP           # or TCP, with a port
   config: {...}               # one of the types below
 ```
 
@@ -146,6 +149,26 @@ network_instances:
 `psk`, `private_key` and the PPK `key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
 
 `EXTERNAL` only accepts IKE and ESP from the `remote_addrs` of IPsec connections, and WireGuard from the `remote_addrs` of WireGuard connections, on their `local_port`. Peers of disabled connections aren't accepted, nor is a WireGuard peer that moves to another address.
+
+### Probes
+
+A VPN can be up without passing traffic. With `probes`, vpnc tests every 30 seconds whether hosts behind a connection answer, while the connection is up:
+
+```yaml
+probes:                       # 8 at most
+- address: 10.0.0.10          # in the connection's routes
+  test_type: ICMP             # an echo request
+- address: 2001:db8:c57::10
+  test_type: TCP              # a connection that's opened and closed; refused counts as answered
+  port: 443
+```
+
+A connection is reset, like `vpnctl connections reset`, when none of its probes is answered for 3 minutes. Each reset that doesn't help doubles the wait, up to 30 minutes. With probes on hosts in different networks, one host that's down doesn't reset the connection.
+
+- Probes are only for the VPN connections of `DOWNLINK` network instances. A connection without probes isn't tested.
+- A probe is sent out of the connection's interface, from that interface's IPv4 or IPv6 address, so the other side needs a route back to it. Only the host's own answer through that interface counts.
+- The network instance's firewall only lets out what its probes send.
+- `vpnctl connections probes` shows each probe's last six tests (3 minutes) with their response time, `vpnctl connections show` the last test, and `vpnctl connections list -o wide` the number answered. `oper_status` isn't affected.
 
 ### Post-quantum cryptography
 
@@ -181,8 +204,9 @@ State, read live:
 ~$ sudo vpnctl tenants list
 ~$ sudo vpnctl ni list [C0001]               # network instances
 ~$ sudo vpnctl ni show C0001-00              # with NAT64 and NPTv6 translations
-~$ sudo vpnctl connections list [C0001 | C0001-00] [--oper-status DOWN] [--admin-status DOWN] [--type IPSEC]   # -o wide: MTU, traffic and its rate
-~$ sudo vpnctl connections show C0001-00-0   # e.g. last change, IKE and child SAs, traffic counters and rates
+~$ sudo vpnctl connections list [C0001 | C0001-00] [--oper-status DOWN] [--admin-status DOWN] [--type IPSEC]   # -o wide: MTU, traffic and its rate, probes answered
+~$ sudo vpnctl connections show C0001-00-0   # e.g. last change, IKE and child SAs, probes, traffic counters and rates
+~$ sudo vpnctl connections probes C0001-00-0 # per probe its tests of the last 3 minutes: result and response time
 ~$ sudo vpnctl connections logs C0001-00-0 [-n 100] [-f]   # vpnc's, ssh's and charon's lines
 ~$ sudo vpnctl bgp neighbors                 # hub mode; per address family
 ~$ sudo vpnctl bgp neighbor fd00:1:2::1      # in detail
@@ -238,6 +262,7 @@ State is named as in OpenConfig where it has a term, with upper case values (low
 | `last_change`, `interface_transitions` | when `oper_status` last changed, and how often since vpnc started; seen at least every full check (30 seconds) |
 | `counters` | `in_octets`, `in_pkts`, `in_errors`, `in_discards` and the same for `out` |
 | `rates` | `in_bits_rate` and `out_bits_rate` in bits per second, the average over `load_interval` seconds |
+| `probes` | per probe `address`, `test_type`, `port`, and of its last test `failed` (empty while the connection isn't up) and `last_test_timestamp`; in its `history` per test `timestamp`, `failed` and `avg_delay` in microseconds |
 | BGP | `neighbor_address`, `peer_as`, `session_state`, `last_established`, `established_transitions`, and per `afi_safi_name` the `prefixes` `received` and `sent` (after policy) |
 | Routes | `prefix`, `next_hops` |
 
@@ -253,7 +278,7 @@ vpnctl uses vpnc's local REST API on the Unix socket `/run/vpnc/api.sock` (root 
 | Path | |
 |---|---|
 | `/v1/status`, `/v1/version` | State and versions |
-| `/v1/tenants`, `/v1/network-instances`, `/v1/connections` | Live state; connections also `stop`, `start`, `reset` and `logs` |
+| `/v1/tenants`, `/v1/network-instances`, `/v1/connections` | Live state; connections also `stop`, `start`, `reset`, `probes` and `logs` |
 | `/v1/config/tenants/{id}`, `/v1/config/service` | Configuration: `GET`, `PUT`, `PATCH` (merge patch), `DELETE`, `diff`, `commit`, `confirm`, `discard`, `history` |
 | `/v1/bgp/...` | Neighbors and routes |
 | `/v1/network-instances/{id}/routes`, `ping`, `traceroute`, `tcp` | Troubleshooting |

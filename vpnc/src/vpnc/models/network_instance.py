@@ -615,6 +615,17 @@ def _refuse_ipsec(
     return v
 
 
+def _refuse_probes(
+    v: dict[int, connections.Connection],
+) -> dict[int, connections.Connection]:
+    """Refuse probes: only DOWNLINK network instances have them."""
+    for key, connection in v.items():
+        if connection.probes:
+            msg = f"connection {key}: probes aren't supported here"
+            raise ValueError(msg)
+    return v
+
+
 class NetworkInstanceExternal(NetworkInstance):
     """Define an EXTERNAL network instance data structure."""
 
@@ -623,6 +634,7 @@ class NetworkInstanceExternal(NetworkInstance):
     )
 
     _no_ipsec = field_validator("connections")(_refuse_ipsec)
+    _no_probes = field_validator("connections")(_refuse_probes)
 
     def set_firewall(self) -> bool:
         """Accept only IKE and ESP from IPsec peers, WireGuard from its peers."""
@@ -634,6 +646,8 @@ class NetworkInstanceCore(NetworkInstance):
     """Define a CORE network instance data structure."""
 
     type: Literal[enums.NetworkInstanceType.CORE] = enums.NetworkInstanceType.CORE
+
+    _no_probes = field_validator("connections")(_refuse_probes)
 
     def _reconcile_services(self) -> None:
         strongswan.apply(self)
@@ -686,8 +700,27 @@ class NetworkInstanceDownlink(NetworkInstance):
             core_interfaces=[self.veth_downlink],
             downlink_interfaces=sorted(self._get_network_instance_connections()),
             nptv6_networks=nptv6_networks,
+            probes=self._probe_rules(),
         )
         return updated
+
+    def _probe_rules(self) -> list[str]:
+        """Return what the probes send, as nft matches. ICMPv6 is accepted anyway."""
+        rules: set[str] = set()
+        for connection in self.connections.values():
+            for probe in connection.probes:
+                version = probe.address.version
+                if probe.test_type == enums.TestType.TCP:
+                    match = f"tcp dport {probe.port}"
+                elif version == 4:  # noqa: PLR2004
+                    match = "icmp type echo-request"
+                else:
+                    continue
+                rules.add(
+                    f'oifname "{connection.intf_name(self)}" '
+                    f"{'ip' if version == 4 else 'ip6'} daddr {probe.address} {match}",  # noqa: PLR2004
+                )
+        return sorted(rules)
 
     def _calculate_nptv6_mappings(
         self,
@@ -810,6 +843,7 @@ class NetworkInstanceEndpoint(NetworkInstance):
     )
 
     _no_ipsec = field_validator("connections")(_refuse_ipsec)
+    _no_probes = field_validator("connections")(_refuse_probes)
 
     def set_firewall(self) -> bool:
         """Accept traffic from CORE and ICMPv6 only; NAT."""

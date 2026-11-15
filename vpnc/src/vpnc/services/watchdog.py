@@ -1,10 +1,11 @@
 """Reset connections that stay down, e.g. stuck halfway through setting up.
 
 Runs in the full check. A connection that isn't up for RESET_AFTER seconds is
-reset, like `vpnctl connections reset`. Each reset that doesn't help doubles the
-wait, up to RESET_AFTER_MAX. An IPsec responder is only reset when it has an SA
-that isn't up (a half-state): only its peer can set it up. An SSH connection
-isn't reset while the connection its server is routed via is down.
+reset, like `vpnctl connections reset`. So is one that's up while none of its
+probes is answered. Each reset that doesn't help doubles the wait, up to
+RESET_AFTER_MAX. An IPsec responder that isn't up is only reset when it has an
+SA (a half-state): only its peer can set it up. An SSH connection isn't reset
+while the connection its server is routed via is down.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from vpnc import helpers, shared
 from vpnc.api import status
 from vpnc.models import enums
 from vpnc.models.ipsec import Initiation
-from vpnc.services import control
+from vpnc.services import control, probes
 
 if TYPE_CHECKING:
     from vpnc.models.connections import Connection
@@ -59,17 +60,22 @@ def resettable(current: status.ConnectionState, connection: Connection) -> bool:
     return False
 
 
+def works(current: status.ConnectionState) -> bool:
+    """Return whether a connection is up and, if it has any, a probe is answered."""
+    return current.oper_status == "UP" and not probes.failing(current.id)
+
+
 def path_down(
     connection: Connection,
     ni: NetworkInstance,
     states: dict[str, status.ConnectionState],
 ) -> bool:
-    """Return whether an SSH server is routed via a connection that isn't up."""
+    """Return whether an SSH server is routed via a connection that doesn't work."""
     if connection.config.type != enums.ConnectionType.SSH:
         return False
     server = connection.config.remote_addrs[0]
     return any(
-        states[other.name(ni)].oper_status != "UP"
+        not works(states[other.name(ni)])
         for other in ni.connections.values()
         if other is not connection
         and other.name(ni) in states
@@ -97,8 +103,6 @@ def check(
         for ni in network_instances
         for c in ni.connections.values()
     }
-    now = time.monotonic()
-    down: set[str] = set()
     states = {
         s.id: s
         for s in status.connection_states(
@@ -107,38 +111,67 @@ def check(
             sas_listing=sas_listing,
         )
     }
+    probes.run(
+        [
+            connections[s.id]
+            for s in states.values()
+            if s.id in connections and s.oper_status == "UP" and s.admin_status == "UP"
+        ],
+        {name: connection for name, (_, connection) in connections.items()},
+    )
+    now = time.monotonic()
+    down: set[str] = set()
     for current in states.values():
         if current.id not in connections:
             continue
         ni, connection = connections[current.id]
-        if not resettable(current, connection) or path_down(connection, ni, states):
+        if works(current) or current.admin_status == "DOWN":
+            continue
+        entry = DOWN.get(current.id)
+        failing = probes.failing(current.id)
+        if not (failing or resettable(current, connection)) or path_down(
+            connection,
+            ni,
+            states,
+        ):
+            # A reset can't help now. Earlier resets still count once it can.
+            if entry is not None and entry.resets:
+                down.add(current.id)
+                entry.since = now
             continue
         down.add(current.id)
-        entry = DOWN.setdefault(current.id, Down(since=now))
+        if entry is None:
+            entry = DOWN[current.id] = Down(since=now)
         wait = min(RESET_AFTER * 2**entry.resets, RESET_AFTER_MAX)
         if now - entry.since < wait:
             continue
         logger.warning(
             "Connection %s has been %s for %ds. Resetting it.",
             current.id,
-            current.oper_status,
+            "without an answered probe" if failing else current.oper_status,
             now - entry.since,
         )
-        try:
-            control.reset(ni, connection, force=True)
-        except Exception:
-            logger.exception("Resetting connection %s failed.", current.id)
+        _reset(ni, connection)
         entry.since = now
         entry.resets += 1
-        reset_at = time.time()
-        shared.AUTO_RESETS[current.id] = [
-            *(
-                t
-                for t in shared.AUTO_RESETS.get(current.id, [])
-                if t >= reset_at - shared.AUTO_RESET_HISTORY
-            ),
-            reset_at,
-        ]
 
     for name in DOWN.keys() - down:
         del DOWN[name]
+
+
+def _reset(ni: NetworkInstance, connection: Connection) -> None:
+    """Reset a connection and count it."""
+    name = connection.name(ni)
+    try:
+        control.reset(ni, connection, force=True)
+    except Exception:
+        logger.exception("Resetting connection %s failed.", name)
+    reset_at = time.time()
+    shared.AUTO_RESETS[name] = [
+        *(
+            t
+            for t in shared.AUTO_RESETS.get(name, [])
+            if t >= reset_at - shared.AUTO_RESET_HISTORY
+        ),
+        reset_at,
+    ]
