@@ -14,7 +14,14 @@ from ipaddress import (
 )
 from typing import TYPE_CHECKING, Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 
 from vpnc import helpers
 from vpnc.models import enums, tenant
@@ -82,6 +89,30 @@ class Routes(BaseModel):
         return [*self.ipv4, *self.ipv6]
 
 
+# The most probes a connection can have.
+MAX_PROBES = 8
+
+
+class Probe(BaseModel):
+    """A host behind a connection that should answer, named as in OpenConfig."""
+
+    model_config = ConfigDict(frozen=True)
+
+    address: IPv4Address | IPv6Address
+    test_type: enums.TestType
+    # TCP only.
+    port: int | None = Field(default=None, ge=1, le=65535)
+
+    _upper = helpers.upper("test_type")
+
+    @model_validator(mode="after")
+    def _check_port(self) -> Probe:
+        if (self.test_type == enums.TestType.TCP) != (self.port is not None):
+            msg = "TCP needs a port; ICMP has none"
+            raise ValueError(msg)
+        return self
+
+
 class Connection(BaseModel):
     """Define a connection data structure used in a network instance."""
 
@@ -94,6 +125,9 @@ class Connection(BaseModel):
     mtu: int | None = Field(default=None, ge=1280, le=65535)
     interface: Interface = Field(default_factory=Interface)
     routes: Routes = Field(default_factory=Routes)
+    # Hosts probed through the connection (DOWNLINK only). It's reset when none
+    # of them answers for a while.
+    probes: list[Probe] = Field(default_factory=list, max_length=MAX_PROBES)
     config: (
         ConnectionConfigIPsec
         | ConnectionConfigPhysical
@@ -113,7 +147,34 @@ class Connection(BaseModel):
         """Return the number of the connection in its network instance."""
         return self._id
 
-    _none_as_default = helpers.none_as_default("metadata", "interface", "routes")
+    _none_as_default = helpers.none_as_default(
+        "metadata",
+        "interface",
+        "routes",
+        "probes",
+    )
+
+    @model_validator(mode="after")
+    def _check_probes(self) -> Connection:
+        """Refuse probes that can't work: a reset wouldn't help."""
+        if not self.probes:
+            return self
+        if self.config.type == enums.ConnectionType.PHYSICAL:
+            msg = "probes: a physical connection can't be reset"
+            raise ValueError(msg)
+        if len(set(self.probes)) != len(self.probes):
+            msg = "probes: each probe should be unique"
+            raise ValueError(msg)
+        # Probes leave through the connection's interface.
+        for probe in self.probes:
+            if not any(
+                probe.address in route.to
+                for route in self.routes.all  # pylint: disable=no-member
+                if route.to.version == probe.address.version
+            ):
+                msg = f"probes: {probe.address} isn't in the connection's routes"
+                raise ValueError(msg)
+        return self
 
     def calc_interface_ip_addresses(
         self,

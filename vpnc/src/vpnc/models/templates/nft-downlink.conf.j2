@@ -1,4 +1,4 @@
-{#- DOWNLINK: IPv6 from CORE and return traffic; SSH for the tunnels; NPTv6 and NAT66. #}
+{#- DOWNLINK: IPv6 from CORE and return traffic; SSH for the tunnels and probes; NPTv6 and NAT66. #}
     chain input {
         type filter hook input priority filter; policy drop;
         meta l4proto ipv6-icmp jump icmpv6-in-out
@@ -22,6 +22,9 @@
 {%- for interface in downlink_interfaces %}
         {#- SSH tunnels. #}
         oifname "{{ interface }}" tcp dport 22 accept
+{%- endfor %}
+{%- for probe in probes %}
+        {{ probe }} accept
 {%- endfor %}
     }
 
