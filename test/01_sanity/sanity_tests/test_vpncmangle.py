@@ -1,3 +1,5 @@
+"""vpncmangle translates DNS answers from tenants."""
+
 import re
 import subprocess
 
@@ -11,14 +13,14 @@ class TestVpncmangle:
 
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_vpncmangle_is_running_hub(self, host: str) -> None:
-        """vpncmangle runs in hub mode."""
+        """Vpncmangle runs in hub mode."""
         running = conftest.run_cmd(host, "pgrep --list-name vpncmangle")
 
         assert re.match(r"^\d+ vpncmangle$", running)
 
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_vpncmangle_is_unprivileged(self, host: str) -> None:
-        """vpncmangle isn't root, and can only configure the network."""
+        """Vpncmangle isn't root, and can only configure the network."""
         user = conftest.run_cmd(host, "ps -C vpncmangle -o user:32=").split()
 
         assert user == ["vpnc-mangle"]
@@ -26,7 +28,7 @@ class TestVpncmangle:
 
     @pytest.mark.parametrize("host", ["end00", "end01"])
     def test_vpncmangle_is_not_running_endpoint(self, host: str) -> None:
-        """vpncmangle doesn't run in endpoint mode."""
+        """Vpncmangle doesn't run in endpoint mode."""
         with pytest.raises(subprocess.CalledProcessError):
             conftest.run_cmd(host, "pgrep --list-name vpncmangle")
 
@@ -57,14 +59,14 @@ class TestNftablesMangle:
 class TestDNSMangle:
     """Tests DNS queries are doctored correctly."""
 
-    v4lonly_a_requested = [
+    v4lonly_a_requested = (
         ("fdcc:0:c:1::172.16.31.1", "fdcc:0:c:1::ac10:1f04"),
         ("fdcc:0:c:1:1::172.17.31.1", "fdcc:0:c:1:1:0:ac11:1f04"),
         ("2001:db8:c57:31::1", "fdcc:0:c:1::ac10:1f04"),
         ("2001:db8:c58:31::1", "fdcc:0:c:1:1:0:ac11:1f04"),
         ("fd6c:1:0:31::1", "fdcc:0:c:1::ac10:1f04"),
         ("fd6c:1:1:31::1", "fdcc:0:c:1:1:0:ac11:1f04"),
-    ]
+    )
 
     @pytest.mark.parametrize(("server", "answer"), v4lonly_a_requested)
     @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
@@ -85,14 +87,14 @@ class TestDNSMangle:
 
         assert response.strip() == answer
 
-    v4lonly_aaaa_requested = [
+    v4lonly_aaaa_requested = (
         ("fdcc:0:c:1::172.16.31.1", ""),
         ("fdcc:0:c:1:1::172.17.31.1", ""),
         ("2001:db8:c57:31::1", ""),
         ("2001:db8:c58:31::1", ""),
         ("fd6c:1:0:31::1", ""),
         ("fd6c:1:1:31::1", ""),
-    ]
+    )
 
     @pytest.mark.parametrize(("server", "answer"), v4lonly_aaaa_requested)
     @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
@@ -114,14 +116,14 @@ class TestDNSMangle:
 
         assert response.strip() == answer
 
-    v64l_a_requested = [
+    v64l_a_requested = (
         ("fdcc:0:c:1::172.16.31.1", "fdcc:0:c:1::ac10:1f40"),
         ("fdcc:0:c:1:1::172.17.31.1", "fdcc:0:c:1:1:0:ac11:1f40"),
         ("2001:db8:c57:31::1", "fdcc:0:c:1::ac10:1f40"),
         ("2001:db8:c58:31::1", "fdcc:0:c:1:1:0:ac11:1f40"),
         ("fd6c:1:0:31::1", "fdcc:0:c:1::ac10:1f40"),
         ("fd6c:1:1:31::1", "fdcc:0:c:1:1:0:ac11:1f40"),
-    ]
+    )
 
     @pytest.mark.parametrize(("server", "answer"), v64l_a_requested)
     @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
@@ -142,14 +144,14 @@ class TestDNSMangle:
 
         assert response.strip() == answer
 
-    v64l_aaaa_requested = [
+    v64l_aaaa_requested = (
         ("fdcc:0:c:1::172.16.31.1", "fd6c:1:0:31::64"),
         ("fdcc:0:c:1:1::172.17.31.1", "fd6c:1:1:31::64"),
         ("2001:db8:c57:31::1", "fd6c:1:0:31::64"),
         ("2001:db8:c58:31::1", "fd6c:1:1:31::64"),
         ("fd6c:1:0:31::1", "fd6c:1:0:31::64"),
         ("fd6c:1:1:31::1", "fd6c:1:1:31::64"),
-    ]
+    )
 
     @pytest.mark.parametrize(("server", "answer"), v64l_aaaa_requested)
     @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
@@ -170,14 +172,14 @@ class TestDNSMangle:
 
         assert response.strip() == answer
 
-    v6lonly_aaaa_requested = [
+    v6lonly_aaaa_requested = (
         ("fdcc:0:c:1::172.16.31.1", "fd6c:1:0:31::6"),
         ("fdcc:0:c:1:1::172.17.31.1", "fd6c:1:1:31::6"),
         ("2001:db8:c57:31::1", "fd6c:1:0:31::6"),
         ("2001:db8:c58:31::1", "fd6c:1:1:31::6"),
         ("fd6c:1:0:31::1", "fd6c:1:0:31::6"),
         ("fd6c:1:1:31::1", "fd6c:1:1:31::6"),
-    ]
+    )
 
     @pytest.mark.parametrize(("server", "answer"), v6lonly_aaaa_requested)
     @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
@@ -198,14 +200,14 @@ class TestDNSMangle:
 
         assert response.strip() == answer
 
-    v6lonly_a_requested = [
+    v6lonly_a_requested = (
         ("fdcc:0:c:1::172.16.31.1", ""),
         ("fdcc:0:c:1:1::172.17.31.1", ""),
         ("2001:db8:c57:31::1", ""),
         ("2001:db8:c58:31::1", ""),
         ("fd6c:1:0:31::1", ""),
         ("fd6c:1:1:31::1", ""),
-    ]
+    )
 
     @pytest.mark.parametrize(("server", "answer"), v6lonly_a_requested)
     @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
@@ -227,14 +229,14 @@ class TestDNSMangle:
 
         assert record.strip() == answer
 
-    v6gonly_aaaa_requested = [
+    v6gonly_aaaa_requested = (
         ("fdcc:0:c:1::172.16.31.1", "2001:db8:c57:31::6"),
         ("fdcc:0:c:1:1::172.17.31.1", "2001:db8:c58:31::6"),
         ("2001:db8:c57:31::1", "2001:db8:c57:31::6"),
         ("2001:db8:c58:31::1", "2001:db8:c58:31::6"),
         ("fd6c:1:0:31::1", "2001:db8:c57:31::6"),
         ("fd6c:1:1:31::1", "2001:db8:c58:31::6"),
-    ]
+    )
 
     @pytest.mark.parametrize(("server", "answer"), v6gonly_aaaa_requested)
     @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
@@ -287,7 +289,7 @@ class TestDNSMangle:
 
         assert response.split() == ["v6lonly.example.com.", answer]
 
-    servers = [server for server, _ in v4lonly_a_requested]
+    servers = tuple(server for server, _ in v4lonly_a_requested)
 
     @pytest.mark.parametrize("server", servers)
     @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
@@ -313,24 +315,28 @@ class TestDNSMangle:
         assert response.strip() == '"hello"'
 
     # The addresses of the zone's name server, as the client must see them.
-    name_server_c0001_00 = {
-        "fdcc:0:c:1::ac10:1f01",
-        "fd6c:1:0:31::1",
-        "2001:db8:c57:31::1",
-    }
-    name_server_c0001_01 = {
-        "fdcc:0:c:1:1:0:ac11:1f01",
-        "fd6c:1:1:31::1",
-        "2001:db8:c58:31::1",
-    }
-    additional = [
+    name_server_c0001_00 = frozenset(
+        {
+            "fdcc:0:c:1::ac10:1f01",
+            "fd6c:1:0:31::1",
+            "2001:db8:c57:31::1",
+        }
+    )
+    name_server_c0001_01 = frozenset(
+        {
+            "fdcc:0:c:1:1:0:ac11:1f01",
+            "fd6c:1:1:31::1",
+            "2001:db8:c58:31::1",
+        }
+    )
+    additional = (
         ("fdcc:0:c:1::172.16.31.1", name_server_c0001_00),
         ("fdcc:0:c:1:1::172.17.31.1", name_server_c0001_01),
         ("2001:db8:c57:31::1", name_server_c0001_00),
         ("2001:db8:c58:31::1", name_server_c0001_01),
         ("fd6c:1:0:31::1", name_server_c0001_00),
         ("fd6c:1:1:31::1", name_server_c0001_01),
-    ]
+    )
 
     @pytest.mark.parametrize(("server", "addresses"), additional)
     @pytest.mark.parametrize("host", ["mgt00", "mgt01"])

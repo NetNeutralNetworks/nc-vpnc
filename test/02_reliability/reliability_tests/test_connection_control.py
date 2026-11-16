@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import json
 import subprocess
 import tempfile
@@ -47,7 +47,7 @@ def enabled(host: str, name: str) -> bool:
 
 def timestamp(text: str) -> float:
     """Return the Unix time of an ISO 8601 time."""
-    return datetime.datetime.fromisoformat(text).timestamp()
+    return dt.datetime.fromisoformat(text).timestamp()
 
 
 def physical_link() -> str:
@@ -78,13 +78,9 @@ def is_down(host: str, name: str) -> bool:
 
 def all_up() -> bool:
     """Return whether the connections are up (and SSH passes traffic)."""
-    return (
-        all(
-            connection(host, name)["oper_status"] == "UP"
-            for host, name in CONNECTIONS
-        )
-        and conftest.ssh_tunnel_works(SSH[0])
-    )
+    return all(
+        connection(host, name)["oper_status"] == "UP" for host, name in CONNECTIONS
+    ) and conftest.ssh_tunnel_works(SSH[0])
 
 
 @pytest.fixture(autouse=True)
@@ -221,8 +217,7 @@ class TestConnectionLogs:
 
         ipsec = vpnctl(IPSEC[0], f"connections logs {IPSEC[1]} -n 200")
         assert any(
-            line["source"] == "charon" and "IKE_SA" in line["message"]
-            for line in ipsec
+            line["source"] == "charon" and "IKE_SA" in line["message"] for line in ipsec
         )
         assert any(
             line["source"] == "vpnc"
@@ -234,9 +229,7 @@ class TestConnectionLogs:
         )
 
         ssh = vpnctl(SSH[0], f"connections logs {SSH[1]} -n 200")
-        assert any(
-            line["message"] == f"Resetting connection {SSH[1]}." for line in ssh
-        )
+        assert any(line["message"] == f"Resetting connection {SSH[1]}." for line in ssh)
         assert all(SSH[1] in line["message"] for line in ssh)
 
     def test_follow(self) -> None:

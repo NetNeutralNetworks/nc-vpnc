@@ -13,8 +13,7 @@ HUBS = ["hub00", "hub01"]
 KNOWN_HOSTS = "/var/lib/vpnc-ssh/.ssh/known_hosts"
 SERVER_ADDRESS = "172.16.30.1"
 OTHER_KEY = (
-    "ssh-ed25519 "
-    "AAAAC3NzaC1lZDI1NTE5AAAAIPKGIBf6c9wEY6CKQO+ZRByrpFZYm+osZwE+ENrqggJJ"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPKGIBf6c9wEY6CKQO+ZRByrpFZYm+osZwE+ENrqggJJ"
 )
 
 # Reconnect delay is capped at 30s, plus connect time.

@@ -225,7 +225,7 @@ def remote_setup(
 @functools.cache
 def key_exchanges() -> frozenset[str]:
     """Return the key exchange methods the local OpenSSH supports."""
-    output = subprocess.run(  # noqa: S603
+    output = subprocess.run(
         ["/usr/bin/ssh", "-Q", "kex"],
         capture_output=True,
         text=True,

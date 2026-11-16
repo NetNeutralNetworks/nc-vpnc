@@ -5,7 +5,7 @@ from __future__ import annotations
 import collections
 import contextlib
 import dataclasses
-import datetime
+import datetime as dt
 import json
 import logging
 import os
@@ -21,10 +21,10 @@ from pyroute2.netlink.exceptions import NetlinkError
 
 import vpnc
 from vpnc import config, helpers
-from vpnc.models import enums, tenant
-from vpnc.network import nftables, state, traffic
 from vpnc.api import config_files, diagnostics
+from vpnc.models import enums, tenant
 from vpnc.models.post_quantum import OPENSSH_KEX
+from vpnc.network import nftables, state, traffic
 from vpnc.services import charon, configuration, probes, ssh, vpncmangle, wireguard
 
 if TYPE_CHECKING:
@@ -323,7 +323,7 @@ def _ipsec_sas(
 
 def _timestamp(seconds: float | None = None) -> str:
     """Return a time (Unix; default now) as in the rest of the API: ISO 8601."""
-    time_ = datetime.datetime.fromtimestamp(seconds or time.time()).astimezone()
+    time_ = dt.datetime.fromtimestamp(seconds or time.time()).astimezone()
     return time_.isoformat(timespec="seconds")
 
 
@@ -964,7 +964,7 @@ def version() -> Version:
     frr = None
     if tenant.is_hub():
         with contextlib.suppress(OSError, subprocess.SubprocessError):
-            result = subprocess.run(  # noqa: S603
+            result = subprocess.run(
                 ["/usr/bin/vtysh", "-c", "show version"],
                 capture_output=True,
                 text=True,

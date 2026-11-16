@@ -129,7 +129,7 @@ class NetnsState:
     routes: dict[IPNetwork, Route] = field(default_factory=dict)
 
     @classmethod
-    def read(cls, name: str, *, routes: bool = True) -> NetnsState:
+    def read(cls, name: str, *, routes: bool = True) -> NetnsState:  # noqa: C901
         """Read the state of a namespace; without routes, if not needed.
 
         Only the attributes vpnc uses are parsed: pyroute2 decodes all of them

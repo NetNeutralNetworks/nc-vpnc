@@ -66,7 +66,7 @@ class TestPostQuantum:
     def test_ppk_mismatch(self) -> None:
         """With another PPK the tunnel doesn't come up; with the right one it does."""
         # Quoted: vpnctl reads values as YAML, which reads 0x... as a number.
-        vpnctl(END, f"config set DEFAULT {PPK_PATH} \"0x{'ab' * 32}\"")
+        vpnctl(END, f'config set DEFAULT {PPK_PATH} "0x{"ab" * 32}"')
         vpnctl(END, "config commit DEFAULT")
         try:
             conftest.run_cmd(END, "swanctl --terminate --ike CORE-0")
@@ -139,7 +139,7 @@ class TestPostQuantum:
         """A PPK shorter than 32 bytes is refused."""
         path = "network_instances.00.connections.0.config.post_quantum.ppk.key"
         with pytest.raises(subprocess.CalledProcessError) as err:
-            vpnctl("hub00", f"config set C0001 {path} \"0x{'ab' * 31}\"")
+            vpnctl("hub00", f'config set C0001 {path} "0x{"ab" * 31}"')
         assert "at least 32 bytes" in err.value.stderr
 
     def test_ssh_requires_ml_kem(self) -> None:

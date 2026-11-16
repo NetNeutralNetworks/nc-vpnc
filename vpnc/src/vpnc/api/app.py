@@ -533,7 +533,11 @@ def service_id() -> str:
     return SERVICE
 
 
-def config_routes(prefix: str, target: Callable[..., str], what: str) -> APIRouter:
+def config_routes(  # noqa: C901 (a nested function per route)
+    prefix: str,
+    target: Callable[..., str],
+    what: str,
+) -> APIRouter:
     """Return the routes of a configuration file (a tenant's or the service's)."""
     router = APIRouter(prefix=prefix)
     Target = Annotated[str, Depends(target)]  # noqa: N806
@@ -545,22 +549,22 @@ def config_routes(prefix: str, target: Callable[..., str], what: str) -> APIRout
         revision: Revision = "active",
         reveal: Reveal = False,  # noqa: FBT002
     ) -> dict[str, Any]:
-        """The candidate revision includes the staged changes."""
+        """Return it; the candidate revision includes the staged changes."""
         return config_files.read(target_id, revision, reveal=reveal)
 
     @router.put("", summary=f"Stage the {what} configuration")
     def put_config(target_id: Target, body: ConfigBody) -> dict[str, Any]:
-        """A new tenant is created on commit."""
+        """Replace the candidate; a new tenant is created on commit."""
         return config_files.write_candidate(target_id, body)
 
     @router.patch("", summary=f"Stage changes to the {what} configuration")
     def patch_config(target_id: Target, body: ConfigBody) -> dict[str, Any]:
-        """An RFC 7386 merge patch: null removes."""
+        """Merge an RFC 7386 patch into the candidate: null removes."""
         return config_files.patch_candidate(target_id, body)
 
     @router.get("/diff", response_class=PlainTextResponse, summary="Staged changes")
     def diff(target_id: Target) -> str:
-        """A unified diff; secrets are hidden."""
+        """Return a unified diff; secrets are hidden."""
         return config_files.diff(target_id)
 
     @router.post("/commit", summary="Apply the staged changes")
@@ -576,12 +580,12 @@ def config_routes(prefix: str, target: Callable[..., str], what: str) -> APIRout
 
     @router.post("/confirm", summary="Confirm a commit")
     def confirm(target_id: Target) -> CommitResult:
-        """The commit isn't rolled back."""
+        """Keep the commit: it isn't rolled back."""
         return config_files.confirm(target_id)
 
     @router.post("/discard", summary="Drop the staged changes")
     def discard(target_id: Target) -> CommitResult:
-        """The candidate is the active configuration again."""
+        """Make the candidate the active configuration again."""
         return config_files.discard(target_id)
 
     @router.get("/history", summary="Earlier active configurations")
@@ -609,14 +613,16 @@ def config_routes(prefix: str, target: Callable[..., str], what: str) -> APIRout
     return router
 
 
-tenant_routes = config_routes("/v1/config/tenants/{tenant_id}", tenant_id_path, "tenant")
+tenant_routes = config_routes(
+    "/v1/config/tenants/{tenant_id}", tenant_id_path, "tenant"
+)
 
 
 @tenant_routes.delete("", summary="Stage removing the tenant")
 def delete_tenant_config(
     tenant_id: Annotated[str, Depends(tenant_id_path)],
 ) -> CommitResult:
-    """The tenant is removed on commit."""
+    """Stage it; the tenant is removed on commit."""
     return config_files.delete_candidate(tenant_id)
 
 

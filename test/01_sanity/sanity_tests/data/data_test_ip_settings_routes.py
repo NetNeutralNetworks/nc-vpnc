@@ -1,3 +1,5 @@
+"""The routes expected in the lab's network instances."""
+
 TESTDATA_ROUTES = [
     (
         "hub00",
@@ -17,7 +19,6 @@ TESTDATA_ROUTES = [
             ("fd01:3::/64", None, "xfrm0", "bgp"),
             # routes for C0001-00
             ("2001:db8:c57::/48", "fe80::1", "C0001-00_C", "vpnc"),
-            # ("fd6c:1::/48", "fe80::1", "C0001-00_C", None),
             ("fd6c:1::/52", "fe80::1", "C0001-00_C", "vpnc"),
             ("fd6c:1:0:1000::/52", "fe80::1", "C0001-00_C", "vpnc"),
             ("fd6c:1:0:2000::/56", "fe80::1", "C0001-00_C", "vpnc"),
@@ -25,7 +26,6 @@ TESTDATA_ROUTES = [
             ("fdcc:0:c:1::/96", "fe80::1", "C0001-00_C", "vpnc"),
             # routes for C0001-01
             ("2001:db8:c58::/48", "fe80::1", "C0001-01_C", "vpnc"),
-            # ("fd6c:1:1::/48", "fe80::1", "C0001-01_C", None),
             ("fd6c:1:1::/52", "fe80::1", "C0001-01_C", "vpnc"),
             ("fd6c:1:1:1000::/52", "fe80::1", "C0001-01_C", "vpnc"),
             ("fd6c:1:1:2000::/56", "fe80::1", "C0001-01_C", "vpnc"),

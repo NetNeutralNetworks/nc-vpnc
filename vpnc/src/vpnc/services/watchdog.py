@@ -99,9 +99,7 @@ def check(
         return
     network_instances = list(helpers.network_instances().values())
     connections: dict[str, tuple[NetworkInstance, Connection]] = {
-        c.name(ni): (ni, c)
-        for ni in network_instances
-        for c in ni.connections.values()
+        c.name(ni): (ni, c) for ni in network_instances for c in ni.connections.values()
     }
     states = {
         s.id: s

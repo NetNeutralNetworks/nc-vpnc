@@ -7,15 +7,18 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
-import vici
 from pyroute2.netlink.exceptions import NetlinkError
 
 from vpnc import config, helpers, shared
 from vpnc.network import namespace, state
 from vpnc.services import charon
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Iterator
+
+    import vici
 
 logger = logging.getLogger("vpnc")
 
@@ -120,8 +123,6 @@ class Monitor(threading.Thread):
             sas: set[str] = {name for sa in listing for name in sa}
             logger.debug("Configured connections: %s", list(conns))
             logger.debug("Active connections: %s", sas)
-
-            # TODO@draggeta: Implement IKE SA without IPsec SAs check?
 
             for con, details in conns.items():
                 if con in sas:

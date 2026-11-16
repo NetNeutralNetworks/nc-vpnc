@@ -1,3 +1,5 @@
+"""Interfaces, addresses and routes are as configured."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -133,4 +135,3 @@ class TestRoutes:
         routes = get_routes(host, network_instance)
 
         assert routes == expected
-

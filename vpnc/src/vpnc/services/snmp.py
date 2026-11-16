@@ -21,7 +21,7 @@ import bisect
 import collections
 import contextlib
 import dataclasses
-import datetime
+import datetime as dt
 import ipaddress
 import itertools
 import logging
@@ -361,7 +361,7 @@ class Mib:
             (if_index(current.id),): Tunnel(
                 if_index(current.id),
                 current,
-                datetime.datetime.fromisoformat(current.last_change).timestamp(),
+                dt.datetime.fromisoformat(current.last_change).timestamp(),
             )
             for current in status.connection_states()
         }

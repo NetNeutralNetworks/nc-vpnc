@@ -25,16 +25,17 @@ from pydantic import (
 
 from vpnc import helpers
 from vpnc.models import enums, tenant
-from vpnc.models.ipsec import ConnectionConfigIPsec  # noqa: TCH001
-from vpnc.models.physical import ConnectionConfigPhysical  # noqa: TCH001
+from vpnc.models.ipsec import ConnectionConfigIPsec
+from vpnc.models.physical import ConnectionConfigPhysical
 from vpnc.models.ssh import ConnectionConfigSSH
-from vpnc.models.wireguard import ConnectionConfigWireGuard  # noqa: TCH001
+from vpnc.models.wireguard import ConnectionConfigWireGuard
 from vpnc.network import state
 
 if TYPE_CHECKING:
     from vpnc.models import network_instance
 
 logger = logging.getLogger("vpnc")
+
 
 class Interface(BaseModel):
     """Define interface configuration such as IP addresses."""

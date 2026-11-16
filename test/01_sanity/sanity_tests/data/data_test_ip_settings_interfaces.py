@@ -1,3 +1,5 @@
+"""The interfaces and addresses expected in the lab's network instances."""
+
 TESTDATA_INTERFACES = [
     (
         "hub00",

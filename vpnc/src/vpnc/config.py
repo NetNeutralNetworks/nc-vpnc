@@ -62,7 +62,6 @@ SECRET_DIRS = (
 )
 
 # Variables used for shared configuration
-# VPNC_CONFIG_SERVICE: tenant.ServiceEndpoint | tenant.ServiceHub
 VPNC_CONFIG_TENANT: dict[
     str,
     tenant.Tenant | tenant.ServiceHub | tenant.ServiceEndpoint,

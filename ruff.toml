@@ -1,2 +1,20 @@
 [lint]
 select = ["ALL"]
+ignore = [
+    "COM812",  # Conflicts with the formatter.
+    "CPY001",  # No copyright notice per file.
+    "D203",    # Incompatible with D211.
+    "D213",    # Incompatible with D212.
+    "FIX002",  # TODOs are allowed,
+    "TD003",   # without an issue link.
+]
+
+[lint.per-file-ignores]
+# pytest's asserts and output; the test directories aren't packages.
+"test/**" = ["INP001", "S101", "T201"]
+# vpnctl prints its output.
+"vpnc/src/vpnc/cli/main.py" = ["T201"]
+
+[lint.flake8-type-checking]
+# pydantic reads the annotations of models at runtime.
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import datetime
+import datetime as dt
 import http.client
 import json
 import os
@@ -152,8 +152,8 @@ def age(timestamp: str | None) -> str:
     """Return how long ago a time (ISO 8601) was, e.g. 2h13m."""
     if not timestamp:
         return "-"
-    then = datetime.datetime.fromisoformat(timestamp)
-    return duration((datetime.datetime.now(then.tzinfo) - then).total_seconds())
+    then = dt.datetime.fromisoformat(timestamp)
+    return duration((dt.datetime.now(then.tzinfo) - then).total_seconds())
 
 
 def size(count: int | None) -> str:
@@ -263,8 +263,10 @@ def cmd_status(args: argparse.Namespace) -> None:
                 [
                     (
                         "Restart needed",
-                        f"{', '.join(data['restart_needed'])} changed "
-                        "(vpnctl service restart)",
+                        (
+                            f"{', '.join(data['restart_needed'])} changed "
+                            "(vpnctl service restart)"
+                        ),
                     ),
                 ]
                 if data.get("restart_needed")
@@ -352,8 +354,10 @@ def cmd_ni_show(args: argparse.Namespace) -> None:
                 [
                     (
                         "DNS answers",
-                        f"{data['dns_answers_translated']} translated,"
-                        f" {data['dns_answers_dropped']} dropped",
+                        (
+                            f"{data['dns_answers_translated']} translated,"
+                            f" {data['dns_answers_dropped']} dropped"
+                        ),
                     ),
                 ]
                 if data.get("dns_answers_translated") is not None
@@ -543,10 +547,12 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
         items += [
             (
                 label,
-                f"{size(counters[f'{direction}_octets'])} "
-                f"({counters[f'{direction}_pkts']} packets, "
-                f"{counters[f'{direction}_errors']} errors, "
-                f"{counters[f'{direction}_discards']} discards)",
+                (
+                    f"{size(counters[f'{direction}_octets'])} "
+                    f"({counters[f'{direction}_pkts']} packets, "
+                    f"{counters[f'{direction}_errors']} errors, "
+                    f"{counters[f'{direction}_discards']} discards)"
+                ),
             )
             for label, direction in (("In", "in"), ("Out", "out"))
         ]
@@ -566,8 +572,8 @@ def until(timestamp: str | None) -> str:
     """Return how long until a time (ISO 8601), e.g. 2h13m."""
     if not timestamp:
         return "-"
-    then = datetime.datetime.fromisoformat(timestamp)
-    return duration(max((then - datetime.datetime.now(then.tzinfo)).total_seconds(), 0))
+    then = dt.datetime.fromisoformat(timestamp)
+    return duration(max((then - dt.datetime.now(then.tzinfo)).total_seconds(), 0))
 
 
 def when(timestamp: str | None, *, future: bool = False) -> str | None:
@@ -1054,7 +1060,6 @@ def new_tenant(target: str) -> dict[str, Any]:
     return {"version": CURRENT, "id": target, "name": "", "network_instances": {}}
 
 
-
 def config_path(target: str) -> str:
     """Return the API path of a tenant's or the service's configuration."""
     if target in ("service", "DEFAULT"):
@@ -1302,7 +1307,8 @@ def seconds(text: str) -> int:
             return int(text[:-1]) * units[text[-1]]
         return int(text)
     except ValueError:
-        raise argparse.ArgumentTypeError(f"invalid duration: {text}") from None
+        msg = f"invalid duration: {text}"
+        raise argparse.ArgumentTypeError(msg) from None
 
 
 def _all_or_target(args: argparse.Namespace, action: str) -> str | None:
@@ -1350,7 +1356,11 @@ def cmd_config_confirm(args: argparse.Namespace) -> None:
     """Confirm a commit, so it isn't rolled back."""
     if (path := _all_or_target(args, "confirm")) is None:
         results = request("POST", "/v1/config/confirm")
-        print(f"Confirmed {', '.join(r['id'] for r in results)}." if results else "No commits to confirm.")
+        print(
+            f"Confirmed {', '.join(r['id'] for r in results)}."
+            if results
+            else "No commits to confirm."
+        )
         return
     request("POST", path)
     print("Confirmed.")
@@ -1542,7 +1552,7 @@ def _ids(kind: str) -> list[str]:
     return [*ids, "service"] if kind == "target" else ids
 
 
-def complete(words: list[str]) -> list[str]:
+def complete(words: list[str]) -> list[str]:  # noqa: PLR0911 (a return per kind of word)
     """Return the completions for the word after words (the typed ones)."""
     if words and words[-1] in OPTION_IDS:
         return _ids(OPTION_IDS[words[-1]])
@@ -1609,7 +1619,7 @@ def log_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("-f", "--follow", action="store_true", help="print new lines")
 
 
-def parser() -> argparse.ArgumentParser:
+def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per option)
     """Return the argument parser."""
     # Before or after the command; a subcommand's default mustn't override it.
     output = argparse.ArgumentParser(add_help=False)

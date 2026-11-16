@@ -111,7 +111,7 @@ def routes(ni_id: str, family: Literal[4, 6] | None = None) -> list[Route]:
     output: list[Route] = []
     for fam in (family,) if family else (4, 6):
         result = namespace.run(ni_id, ["/usr/sbin/ip", "-j", f"-{fam}", "route"])
-        default = "0.0.0.0/0" if fam == 4 else "::/0"  # noqa: PLR2004, S104
+        default = "0.0.0.0/0" if fam == 4 else "::/0"  # noqa: PLR2004
         for route in json.loads(result.stdout or "[]"):
             hops = route.get("nexthops") or [route]
             protocol = route.get("protocol")
