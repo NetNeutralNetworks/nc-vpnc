@@ -272,6 +272,51 @@ def ike_answered(host: str, netns: str, address: str) -> bool:
     return output.strip() == "answered"
 
 
+# Sends an ICMP echo request for every ICMP id Jool (NAT64) maps to, from a
+# source address to an address, and counts the echo replies from it.
+ECHO_SWEEP = """\
+import socket, struct, sys, time
+
+
+def checksum(data):
+    total = sum(struct.unpack(f"!{len(data) // 2}H", data))
+    total = (total >> 16) + (total & 0xFFFF)
+    return ~(total + (total >> 16)) & 0xFFFF
+
+
+source, address = sys.argv[1:3]
+sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+sock.bind((source, 0))
+for ident in range(61001, 65536):
+    header = struct.pack("!BBHHH", 8, 0, 0, ident, 1)
+    sock.sendto(struct.pack("!BBHHH", 8, 0, checksum(header), ident, 1), (address, 0))
+    if not ident % 100:
+        time.sleep(0.01)
+sock.settimeout(0.2)
+replies = 0
+deadline = time.monotonic() + 2
+while time.monotonic() < deadline:
+    try:
+        data, peer = sock.recvfrom(1500)
+    except TimeoutError:
+        continue
+    if peer[0] == address:
+        replies += data[(data[0] & 0x0F) * 4] == 0
+print(replies)
+"""
+
+
+def echo_sweep(host: str, source: str, address: str) -> int:
+    """Ping every NAT64 ICMP mapping of address from a lab node's source address.
+
+    Returns the number of echo replies: a mapping exists while a host behind
+    the NAT64 pings through it.
+    """
+    path = "/tmp/echo_sweep.py"  # noqa: S108
+    write_file(host, path, ECHO_SWEEP)
+    return int(run_cmd(host, f"python3 {path} {source} {address}"))
+
+
 def snmp_walk(host: str, oid: str) -> dict[tuple[int, ...], str]:
     """Walk a column of a node with SNMP and return its values by index."""
     output = run_cmd(
