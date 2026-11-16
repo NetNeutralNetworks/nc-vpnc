@@ -61,10 +61,9 @@ class Tenant(BaseModel):
     id: str = Field(pattern=config.TENANT_ID_PATTERN)
     name: str
     metadata: dict[str, Any] = Field(default_factory=dict)
-    network_instances: dict[
-        str,
-        NetworkInstanceDownlink | NetworkInstanceCore | NetworkInstanceExternal,
-    ] = Field(default_factory=dict)
+    # DOWNLINK only: another type would be set up as the service's, e.g. with
+    # CORE's XFRM interface ids.
+    network_instances: dict[str, NetworkInstanceDownlink] = Field(default_factory=dict)
 
     @field_validator("version", mode="before")
     @classmethod
@@ -156,6 +155,9 @@ class ServiceTenant(Tenant):
         if key not in SERVICE_NETWORK_INSTANCES[self.mode]:
             msg = f"network instance '{key}' can't be part of {self.id}"
             raise ValueError(msg)
+        if self.network_instances[key].type.value != key:
+            msg = f"network instance '{key}' should be of type {key}"
+            raise ValueError(msg)
 
     @field_validator("id", "name")
     @classmethod
@@ -185,7 +187,7 @@ class ServiceHub(ServiceTenant):
     mode: Literal[ServiceMode.HUB] = ServiceMode.HUB
     network_instances: dict[
         str,
-        NetworkInstanceDownlink | NetworkInstanceCore | NetworkInstanceExternal,
+        NetworkInstanceCore | NetworkInstanceExternal,
     ] = Field(default_factory=dict)
 
     # OVERLAY CONFIG

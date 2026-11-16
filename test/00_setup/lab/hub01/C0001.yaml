@@ -10,7 +10,7 @@ metadata:
 # Network configuration
 network_instances:
   00:
-    type: DOWNLINK # DEFAULT | EXTERNAL | CORE | DOWNLINK, IPv4 is ignored for core in hub mode.
+    type: DOWNLINK # The only type of a tenant's network instances.
     # Optional, arbitrary key-value pairs
     metadata: {}
     connections:
