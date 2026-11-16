@@ -6,29 +6,85 @@
 # On {{ hub }} the connection needs username {{ username }}.
 set -eu
 
+step() {
+    echo
+    echo "== $*"
+}
+
+# Copy a file before it's changed, replacing the last copy: file.bak, with its
+# owner and mode, not executable. The configuration directories don't read it.
+backup() {
+    copy="$1.bak"
+    cp -p "$1" "$copy"
+    chmod a-x "$copy"
+    echo "Backup: $copy"
+}
+
+# Write stdin to a file with a mode; say whether that changed it.
+put() {
+    file=$1 mode=$2
+    new=$(mktemp)
+    cat > "$new"
+    if [ -f "$file" ] && cmp -s "$new" "$file"; then
+        rm -f "$new"
+        echo "Unchanged: $file"
+    else
+        if [ -f "$file" ]; then backup "$file"; fi
+        install -m "$mode" "$new" "$file"
+        rm -f "$new"
+        echo "Written: $file"
+    fi
+}
+
+echo "Setting up the SSH tunnel {{ tun }} of {{ connection }} on {{ hub }} for {{ username }}."
+[ "$(id -u)" = 0 ] || { echo "Run it as root." >&2; exit 1; }
 for program in netplan networkctl iptables ip6tables sshd; do
     command -v $program > /dev/null || { echo "$program is missing." >&2; exit 1; }
 done
 
-# The account, with the key of the connection on {{ hub }}.
-id {{ username }} > /dev/null 2>&1 ||
+step "The account {{ username }}, with the key of the connection on {{ hub }}"
+if id {{ username }} > /dev/null 2>&1; then
+    echo "The account exists."
+else
     useradd --system --create-home --shell /usr/sbin/nologin {{ username }}
+    echo "The account is created."
+fi
 home=$(getent passwd {{ username }} | cut -d: -f6)
 group=$(id -gn {{ username }})
 install -d -m 700 -o {{ username }} -g "$group" "$home/.ssh"
 {%- if key %}
 key='{{ key }}'
-grep -qxF "$key" "$home/.ssh/authorized_keys" 2> /dev/null ||
-    echo "$key" >> "$home/.ssh/authorized_keys"
+entry="$key vpnc {{ connection }} on {{ hub }}"
+keys="$home/.ssh/authorized_keys"
+# The key is found by its type and value, whatever its comment.
+has_key() {
+    awk -v key="$key" '$1 " " $2 == key { found = 1 } END { exit !found }' "$keys"
+}
+if grep -qxF "$entry" "$keys" 2> /dev/null; then
+    echo "The key is in $keys already."
+elif [ -f "$keys" ] && has_key; then
+    backup "$keys"
+    new=$(mktemp)
+    awk -v key="$key" -v entry="$entry" \
+        '$1 " " $2 == key { print entry; next } { print }' "$keys" > "$new"
+    cat "$new" > "$keys"
+    rm -f "$new"
+    echo "The key's comment is set in $keys."
+else
+    if [ -f "$keys" ]; then backup "$keys"; fi
+    echo "$entry" >> "$keys"
+    echo "The key is added to $keys."
+fi
 {%- else %}
 # The connection's key couldn't be read on {{ hub }}: add its public key yourself.
 touch "$home/.ssh/authorized_keys"
+echo "The key of the connection couldn't be read on {{ hub }}: add it to $home/.ssh/authorized_keys yourself." >&2
 {%- endif %}
 chown {{ username }}:"$group" "$home/.ssh/authorized_keys"
 chmod 600 "$home/.ssh/authorized_keys"
 
-# The tunnel's interface, which the account may use.
-cat > /etc/systemd/network/50-vpnc-{{ tun }}.netdev << 'END'
+step "The interface {{ tun }}, which {{ username }} may use"
+put /etc/systemd/network/50-vpnc-{{ tun }}.netdev 644 << 'END'
 [NetDev]
 Name={{ tun }}
 Kind=tun
@@ -37,8 +93,8 @@ Kind=tun
 User={{ username }}
 END
 
-# Its routes: the addresses of {{ hub }} on the tunnel.
-cat > /etc/netplan/60-vpnc-{{ tun }}.yaml << 'END'
+step "Routes over {{ tun }} to the addresses of {{ hub }}"
+put /etc/netplan/60-vpnc-{{ tun }}.yaml 600 << 'END'
 network:
   version: 2
   ethernets:
@@ -51,22 +107,23 @@ network:
         scope: link
 {%- endfor %}
 END
-chmod 600 /etc/netplan/60-vpnc-{{ tun }}.yaml
+echo "Applying them (netplan generate reads every file in /etc/netplan, and may warn about others)."
 netplan generate
 networkctl reload
 {%- if interface %}
 
-# Routing between the tunnel and {{ interface }}.
-cat > /etc/sysctl.d/60-vpnc-{{ tun }}.conf << 'END'
+step "Routing between {{ tun }} and {{ interface }}"
+put /etc/sysctl.d/60-vpnc-{{ tun }}.conf 644 << 'END'
 net.ipv4.conf.all.forwarding = 1
 net.ipv6.conf.all.forwarding = 1
 END
 sysctl -q -p /etc/sysctl.d/60-vpnc-{{ tun }}.conf
+echo "Forwarding is on."
 {%- endif %}
 
-# The firewall rules, added at every start: what comes through the tunnel is
-# accepted{% if interface %}, and masqueraded out of {{ interface }}{% endif %}.
-cat > /usr/local/sbin/vpnc-{{ tun }}-firewall << 'END'
+step "Firewall rules for {{ tun }}, added at every start"
+# What comes through the tunnel is accepted{% if interface %}, and masqueraded out of {{ interface }}{% endif %}.
+put /usr/local/sbin/vpnc-{{ tun }}-firewall 755 << 'END'
 #!/bin/sh
 set -eu
 rule() {
@@ -89,8 +146,7 @@ rule {{ "ip6tables" if ":" in route else "iptables" }} nat POSTROUTING -s {{ rou
 {%- endfor %}
 {%- endif %}
 END
-chmod 755 /usr/local/sbin/vpnc-{{ tun }}-firewall
-cat > /etc/systemd/system/vpnc-{{ tun }}-firewall.service << 'END'
+put /etc/systemd/system/vpnc-{{ tun }}-firewall.service 644 << 'END'
 [Unit]
 Description=Firewall rules of the vpnc SSH tunnel {{ tun }}
 After=ufw.service netfilter-persistent.service
@@ -106,9 +162,10 @@ END
 systemctl daemon-reload
 systemctl enable --quiet vpnc-{{ tun }}-firewall.service
 systemctl restart vpnc-{{ tun }}-firewall.service
+echo "The rules are in place (vpnc-{{ tun }}-firewall.service)."
 
-# The account can only open the tunnel.
-cat > /etc/ssh/sshd_config.d/60-vpnc-{{ username }}.conf << 'END'
+step "SSH: {{ username }} can only open the tunnel"
+put /etc/ssh/sshd_config.d/60-vpnc-{{ username }}.conf 644 << 'END'
 Match User {{ username }}
     PermitTunnel point-to-point
     AllowTcpForwarding no
@@ -120,5 +177,11 @@ Match User {{ username }}
 END
 sshd -t
 systemctl reload ssh 2> /dev/null || systemctl reload sshd
+echo "sshd has the settings."
 
-echo "{{ tun }} is ready for {{ username }}."
+step "Done: {{ tun }} is ready for {{ username }}"
+echo "On {{ hub }}, vpnctl connections show {{ connection }} shows the host key this"
+echo "server presented as Remote identity. It should be one of these:"
+for public in /etc/ssh/ssh_host_*_key.pub; do
+    if [ -f "$public" ]; then ssh-keygen -lf "$public"; fi
+done
