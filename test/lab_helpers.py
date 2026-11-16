@@ -182,6 +182,17 @@ def ssh_server_down() -> Iterator[None]:
         run_cmd_shell(SSH_SERVER, f"iptables -D {SSH_REJECT_NEW}")
 
 
+@contextlib.contextmanager
+def route(host: str, route: str, netns: str = "") -> Iterator[None]:
+    """Give a lab node an IPv6 route (as for "ip route") until the context exits."""
+    ip = f"{netns}ip -6 route"
+    run_cmd(host, f"{ip} add {route}")
+    try:
+        yield
+    finally:
+        run_cmd(host, f"{ip} del {route}")
+
+
 _nft_tables = itertools.count()
 
 
