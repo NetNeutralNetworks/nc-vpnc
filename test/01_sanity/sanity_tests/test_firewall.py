@@ -30,6 +30,12 @@ TUNNEL = {"hub00": "tun0", "hub01": "tun1"}
 # The NAT64 prefix of its network instance (C0001-00), and a host in its network.
 NAT64 = "fdcc:0:c:1::"
 CUSTOMER_HOST = "172.16.30.1"
+# Per hub the management node that goes through it, and the hub's address in
+# the customer's network that its NAT64 uses for the SSH tunnel's routes.
+MANAGEMENT = {"hub00": ("mgt00", "100.99.0.17"), "hub01": ("mgt01", "100.100.0.17")}
+# Customer hosts behind the SSH tunnel: one that management pings, and another.
+PINGED = "172.16.31.1"
+NOT_CONTACTED = "172.16.31.4"
 
 NETWORK_INSTANCES = [
     (host, network_instance)
@@ -107,6 +113,15 @@ class TestFirewall:
         """A customer can't use a hub's NAT64 to get back into its own network."""
         with conftest.route(CUSTOMER, f"{NAT64}/96 dev {TUNNEL[host]}"):
             assert not pings(CUSTOMER, f"{NAT64}{CUSTOMER_HOST}")
+
+    @pytest.mark.parametrize("host", list(MANAGEMENT))
+    def test_customer_cant_ping_management(self, host: str) -> None:
+        """A customer host can't ping a management host, even one that pings it."""
+        management, address = MANAGEMENT[host]
+
+        assert pings(management, f"{NAT64}{PINGED}")
+        for source in (PINGED, NOT_CONTACTED):
+            assert not conftest.echo_sweep(CUSTOMER, source, address)
 
     @pytest.mark.parametrize(("host", "network_instance"), NETWORK_INSTANCES)
     def test_no_other_tables(self, host: str, network_instance: str) -> None:

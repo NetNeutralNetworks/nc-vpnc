@@ -10,6 +10,7 @@ if TEST_DIR not in sys.path:
     sys.path.insert(0, TEST_DIR)
 
 from lab_helpers import (  # noqa: E402
+    echo_sweep,
     ike_answered,
     key_exchanges,
     route,
@@ -24,6 +25,7 @@ from lab_helpers import (  # noqa: E402
 )
 
 __all__ = [
+    "echo_sweep",
     "ike_answered",
     "key_exchanges",
     "route",
