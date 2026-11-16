@@ -154,6 +154,12 @@ An SSH connection logs in as `username` and only opens the tunnel: vpnc doesn't 
 
 It adds the account with the hub's key, the tunnel's interface and routes, the firewall rules (masquerading out of `--interface`, by default `remote_config_interface`) and an sshd configuration in which the account can only open the tunnel. The script isn't for root: give another account with `--username` and make it the connection's `username`.
 
+ssh runs as the `vpnc-ssh` account, without privileges, and logs in with that account's keys (`/var/lib/vpnc-ssh/.ssh/id_*`). `make` copies root's keys there once: ssh ran as root before. To make a key:
+
+```bash
+~$ sudo -u vpnc-ssh ssh-keygen -t ed25519 -N '' -f /var/lib/vpnc-ssh/.ssh/id_ed25519
+```
+
 `psk`, `private_key` and the PPK `key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
 
 `EXTERNAL` only accepts IKE and ESP from the `remote_addrs` of IPsec connections, and WireGuard from the `remote_addrs` of WireGuard connections, on their `local_port`. Peers of disabled connections aren't accepted, nor is a WireGuard peer that moves to another address.
@@ -321,6 +327,7 @@ LibreNMS reads BGP4V2-MIB only for VyOS; for Linux it reads BGP4-MIB, so it show
 | `/opt/ncubed/vpnc/` | The installation (virtualenv); `vpnctl` is linked to `/usr/local/bin` |
 | `/opt/ncubed/config/vpnc/` | Configuration: `active`, `candidate` (staged) and `history` |
 | `/opt/ncubed/config/vpnc/known_hosts/` | The host key of each SSH connection's server, accepted when first connecting. Delete a connection's file to accept a new key. |
+| `/var/lib/vpnc-ssh/.ssh/` | The keys SSH connections log in with |
 | `/run/vpnc/api.sock` | The API |
 
 vpnc, vpncmangle and charon log to the journal: `vpnctl logs`, or `journalctl -t vpnc -t vpncmangle -t charon`.

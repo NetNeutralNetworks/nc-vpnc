@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 import vpnc.models.network_instance
 import vpnc.services.ssh
-from vpnc import helpers
+from vpnc import accounts, helpers
 from vpnc.models import connections, enums
 from vpnc.models.post_quantum import PostQuantumSSH
 from vpnc.network import state
@@ -57,7 +57,9 @@ class ConnectionConfigSSH(BaseModel):
         tun = self.intf_name(network_instance, connection)
 
         with state.netns(network_instance.id) as dl:
-            state.ensure_tun(dl.ipr, dl.state, tun)
+            # ssh opens it as its account.
+            owner = accounts.user(accounts.SSH).pw_uid
+            state.ensure_tun(dl.ipr, dl.state, tun, owner)
             state.ensure_link_state(dl.ipr, dl.state, tun, up=connection.enabled)
             connection.ensure_mtu_and_addresses(network_instance, dl)
 

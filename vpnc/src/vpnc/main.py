@@ -82,7 +82,7 @@ def _check_system_requirements() -> None:
     if tenant_config.mode == enums.ServiceMode.HUB:
         # vpncmangle queues DNS responses with nftables.
         _check_modules(["nft_queue"])
-        _check_accounts([accounts.VPNCMANGLE])
+        _check_accounts([accounts.VPNCMANGLE, accounts.SSH])
 
 
 def main() -> None:

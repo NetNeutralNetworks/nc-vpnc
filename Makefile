@@ -51,7 +51,8 @@ help:
 
 hub: MODE := hub
 hub: root packages python-packages build-packages frr hub-packages snmpd \
-	account-vpnc-mangle config misc-config pip-vpnc pip-vpncmangle vpnctl service start
+	account-vpnc-mangle account-vpnc-ssh config misc-config pip-vpnc pip-vpncmangle \
+	vpnctl service start
 
 endpoint: MODE := endpoint
 endpoint: root packages python-packages snmpd \
@@ -61,9 +62,9 @@ addon: MODE := addon
 addon: root packages python-packages \
 	config misc-config pip-vpnc vpnctl service start
 
-# vpncmangle only where it's installed (hub).
-update: root pip-vpnc \
-	$(if $(wildcard $(VENV)/bin/vpncmangle),account-vpnc-mangle pip-vpncmangle) \
+# vpncmangle and the accounts only where it's installed (hub).
+update: root pip-vpnc $(if $(wildcard $(VENV)/bin/vpncmangle),\
+	account-vpnc-mangle account-vpnc-ssh pip-vpncmangle) \
 	misc-config $(if $(wildcard /etc/snmp/snmpd.conf.d),$(SNMP_CONF) old-snmp-config) \
 	$(if $(wildcard /etc/frr),$(FRR_SNMP_CONF)) vpnctl \
 	$(if $(SYSTEMD),$(STAMP)/started)
@@ -95,6 +96,21 @@ packages: apt-update
 account-%:
 	id $* > /dev/null 2>&1 || useradd --system --no-create-home \
 		--home-dir /nonexistent --shell /usr/sbin/nologin $*
+
+# The account of ssh, with the keys it logs in with. Root's are copied once:
+# ssh ran as root before.
+SSH_HOME  := /var/lib/vpnc-ssh
+SSH_OWNER := -o vpnc-ssh -g "$$(id -gn vpnc-ssh)"
+
+account-vpnc-ssh:
+	id vpnc-ssh > /dev/null 2>&1 || useradd --system --no-create-home \
+		--home-dir $(SSH_HOME) --shell /usr/sbin/nologin vpnc-ssh
+	if [ ! -d $(SSH_HOME)/.ssh ]; then \
+		install -d -m 700 $(SSH_OWNER) $(SSH_HOME) $(SSH_HOME)/.ssh; \
+		for key in /root/.ssh/id_*; do \
+			[ ! -f "$$key" ] || install -m 600 $(SSH_OWNER) "$$key" $(SSH_HOME)/.ssh/; \
+		done; \
+	fi
 
 python-packages: apt-update
 	$(APT) install -y python3 python3-pip python3-venv

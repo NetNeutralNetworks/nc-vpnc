@@ -63,6 +63,7 @@ IFLA_STATS64 = 23
 IFLA_INFO_KIND = 1
 IFLA_INFO_DATA = 2
 IFLA_XFRM_IF_ID = 2
+IFLA_TUN_OWNER = 1
 IFA_ADDRESS = 1
 # Attributes of routes (linux/rtnetlink.h).
 RTA_DST = 1
@@ -86,6 +87,8 @@ class Link:
     flags: int
     xfrm_if_id: int | None = None
     mtu: int | None = None
+    # The user that may open a tun interface without being root.
+    tun_owner: int | None = None
 
     @property
     def up(self) -> bool:
@@ -142,16 +145,20 @@ class NetnsState:
                 ifname = _string(attributes[IFLA_IFNAME])
                 info = _attributes(attributes.get(IFLA_LINKINFO, b""))
                 kind = _string(info[IFLA_INFO_KIND]) if IFLA_INFO_KIND in info else None
-                if_id = None
+                if_id = tun_owner = None
                 if kind == "xfrm":
                     data = _attributes(info.get(IFLA_INFO_DATA, b""))
                     if IFLA_XFRM_IF_ID in data:
                         (if_id,) = struct.unpack("I", data[IFLA_XFRM_IF_ID])
+                elif kind == "tun":
+                    data = _attributes(info.get(IFLA_INFO_DATA, b""))
+                    if IFLA_TUN_OWNER in data:
+                        (tun_owner,) = struct.unpack("I", data[IFLA_TUN_OWNER])
                 names[index] = ifname
                 mtu = None
                 if IFLA_MTU in attributes:
                     (mtu,) = struct.unpack("I", attributes[IFLA_MTU])
-                state.links[ifname] = Link(index, kind, flags, if_id, mtu)
+                state.links[ifname] = Link(index, kind, flags, if_id, mtu, tun_owner)
                 if IFLA_STATS64 in attributes:
                     state.counters[ifname] = traffic.Counters.unpack(
                         attributes[IFLA_STATS64],
@@ -513,6 +520,7 @@ def refresh_link(ipr: namespace.IPRoute, state: NetnsState, name: str) -> Link |
         msg["flags"],
         msg.get(("IFLA_LINKINFO", "IFLA_INFO_DATA", "IFLA_XFRM_IF_ID")),
         msg.get("IFLA_MTU"),
+        msg.get(("IFLA_LINKINFO", "IFLA_INFO_DATA", "IFLA_TUN_OWNER")),
     )
     state.links[name] = link
     state.addresses.setdefault(name, set())
@@ -596,10 +604,15 @@ def ensure_wireguard(
     return True
 
 
-def ensure_tun(ipr: namespace.IPRoute, state: NetnsState, name: str) -> bool:
-    """Ensure a tun interface."""
+def ensure_tun(
+    ipr: namespace.IPRoute,
+    state: NetnsState,
+    name: str,
+    owner: int,
+) -> bool:
+    """Ensure a tun interface that a user (owner) may open."""
     link = state.links.get(name)
-    if link and link.kind == "tun":
+    if link and link.kind == "tun" and link.tun_owner == owner:
         return False
     delete_link(ipr, state, name)
     logger.info("Creating tun interface %s in %s.", name, state.name)
@@ -608,7 +621,7 @@ def ensure_tun(ipr: namespace.IPRoute, state: NetnsState, name: str) -> bool:
     # namespace, not via netlink.
     def create() -> None:
         with pyroute2.IPRoute() as ipr_ns:
-            ipr_ns.link("add", ifname=name, kind="tuntap", mode="tun")
+            ipr_ns.link("add", ifname=name, kind="tuntap", mode="tun", uid=owner)
 
     namespace.call(state.name, create)
     refresh_link(ipr, state, name)

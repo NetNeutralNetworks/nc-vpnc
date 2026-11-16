@@ -8,9 +8,9 @@ from . import conftest
 
 HUBS = ["hub00", "hub01"]
 
-# root's known hosts on a hub, the address the hubs connect to and a host key
-# that isn't the server's.
-KNOWN_HOSTS = "/root/.ssh/known_hosts"
+# The known hosts of ssh's account on a hub, the address the hubs connect to and
+# a host key that isn't the server's.
+KNOWN_HOSTS = "/var/lib/vpnc-ssh/.ssh/known_hosts"
 SERVER_ADDRESS = "172.16.30.1"
 OTHER_KEY = (
     "ssh-ed25519 "
@@ -48,7 +48,7 @@ class TestSshRecovery:
         wait_for_tunnels()
 
     def test_other_host_key_for_the_address(self) -> None:
-        """Tunnels reconnect when root knows another host key for the address.
+        """Tunnels reconnect when ssh's account knows another key for the address.
 
         E.g. of another tenant's server: tenants use the same addresses.
         """
