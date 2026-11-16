@@ -303,3 +303,49 @@ class TestDNSMangle:
         )
 
         assert response.strip() == '"hello"'
+
+    # The addresses of the zone's name server, as the client must see them.
+    name_server_c0001_00 = {
+        "fdcc:0:c:1::ac10:1f01",
+        "fd6c:1:0:31::1",
+        "2001:db8:c57:31::1",
+    }
+    name_server_c0001_01 = {
+        "fdcc:0:c:1:1:0:ac11:1f01",
+        "fd6c:1:1:31::1",
+        "2001:db8:c58:31::1",
+    }
+    additional = [
+        ("fdcc:0:c:1::172.16.31.1", name_server_c0001_00),
+        ("fdcc:0:c:1:1::172.17.31.1", name_server_c0001_01),
+        ("2001:db8:c57:31::1", name_server_c0001_00),
+        ("2001:db8:c58:31::1", name_server_c0001_01),
+        ("fd6c:1:0:31::1", name_server_c0001_00),
+        ("fd6c:1:1:31::1", name_server_c0001_01),
+    ]
+
+    @pytest.mark.parametrize(("server", "addresses"), additional)
+    @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
+    def test_dns_query_additional_records_translated(
+        self,
+        host: str,
+        server: str,
+        addresses: set[str],
+    ) -> None:
+        """Addresses next to the answer (the name server's) are translated too."""
+        response = conftest.run_cmd(
+            host,
+            f"dig +noall +additional +time=1 +tries=3 example.com NS @{server}",
+        )
+
+        assert {line.split()[-1] for line in response.splitlines()} == addresses
+
+    @pytest.mark.parametrize("server", servers)
+    @pytest.mark.parametrize("host", ["mgt00", "mgt01"])
+    def test_dns_query_over_tcp_is_refused(self, host: str, server: str) -> None:
+        """DNS over TCP isn't translated, so it gets no answer."""
+        with pytest.raises(subprocess.CalledProcessError):
+            conftest.run_cmd(
+                host,
+                f"dig +tcp +short +time=1 +tries=1 v4lonly.example.com @{server}",
+            )

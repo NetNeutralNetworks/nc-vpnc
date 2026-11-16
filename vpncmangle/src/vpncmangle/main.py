@@ -17,6 +17,8 @@ logger = logging.getLogger("vpncmangle")
 
 QUERY_A = 1
 QUERY_AAAA = 28
+# A response's sections (answer, authority, additional) and their record counts.
+SECTIONS = (("an", "ancount"), ("ns", "nscount"), ("ar", "arcount"))
 
 
 TABLE = "ip6 vpncmangle"
@@ -63,7 +65,7 @@ def translate(
     record: sc.DNSRR,
     ni_config: config.VpncMangleConfig,
 ) -> sc.DNSRR | None:
-    """Return an answer record as the client must see it, or None to leave it out.
+    """Return a record as the client must see it, or None to leave it out.
 
     An A record becomes the AAAA record of its NAT64 address (also in answer to an
     A query, which is how clients reach IPv4-only hosts). An AAAA record is
@@ -137,14 +139,14 @@ def _mangle_dns(pkt: Packet) -> None:
         logger.debug("Packet is not of type response.")
         pkt.accept()
         return
-    # If return code is not ok.
-    if pkt_sc[sc.DNS].rcode != 0:
-        logger.debug("Packet response indicates error.\n%s", pkt_sc[sc.DNS])
-        pkt.accept()
-        return
-    # If no answers in DNS.
-    if not pkt_sc[sc.DNS].an:
-        logger.debug("Packet response contains no answers.")
+    # Addresses in any section, whatever the return code: a client may use them.
+    dns = pkt_sc[sc.DNS]
+    if not any(
+        record.type in (QUERY_A, QUERY_AAAA)
+        for section, _ in SECTIONS
+        for record in getattr(dns, section) or []
+    ):
+        logger.debug("Packet response contains no addresses.")
         pkt.accept()
         return
 
@@ -175,15 +177,15 @@ def _mangle_dns(pkt: Packet) -> None:
         pkt.drop()
         return
 
-    answers = [
-        translated
-        for record in pkt_sc[sc.DNS].an
-        if (translated := translate(record, ni_config)) is not None
-    ]
-
     # Without answers left the name still exists: NODATA (NOERROR, no answers).
-    pkt_sc[sc.DNS].an = answers
-    pkt_sc[sc.DNS].ancount = len(answers)
+    for section, count in SECTIONS:
+        records = [
+            translated
+            for record in getattr(dns, section) or []
+            if (translated := translate(record, ni_config)) is not None
+        ]
+        setattr(dns, section, records)
+        setattr(dns, count, len(records))
 
     # Reset/calculate the correct values for lower layers.
     del pkt_sc[sc.IPv6].plen

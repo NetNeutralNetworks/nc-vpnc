@@ -2,7 +2,7 @@
 
 Rewrites DNS answers from tenants so admins get addresses that reach the tenant through vpnc. Part of [nc-vpnc](../README.md); hub mode only.
 
-vpnc starts vpncmangle in the `CORE` network instance and restarts it if it stops. vpncmangle queues DNS responses (UDP source port 53) leaving `CORE` with nftables (table `ip6 vpncmangle`) and changes them:
+vpnc starts vpncmangle in the `CORE` network instance and restarts it if it stops. vpncmangle queues DNS responses (UDP source port 53) leaving `CORE` with nftables (table `ip6 vpncmangle`) and changes the records in all their sections:
 
 * **A records** become AAAA records in the network instance's NAT64 prefix, e.g. `10.0.0.1` from `C0001-00` becomes `fdcc:0:c:1::a00:1`. Also in answer to an A query.
 * **AAAA records** get the NPTv6 prefix of the route they're in. Addresses that aren't routed through the network instance are left out.
@@ -19,4 +19,4 @@ vpnc writes the translations to `/opt/ncubed/config/vpncmangle/translations.json
 
 Logs go to the journal (`journalctl -t vpncmangle`), or `vpnctl logs --source vpncmangle`. `vpnctl status` shows whether it runs.
 
-Not supported yet: DNS over TCP.
+DNS over TCP isn't translated: `CORE` refuses it, so a tenant can't answer with other addresses.
