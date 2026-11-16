@@ -317,6 +317,25 @@ def echo_sweep(host: str, source: str, address: str) -> int:
     return int(run_cmd(host, f"python3 {path} {source} {address}"))
 
 
+# Sends a router advertisement that makes the sender the default router for 5
+# seconds: type, code, checksum (the kernel's), hop limit, flags, lifetime, timers.
+ROUTER_ADVERTISEMENT = """\
+import socket, struct, sys
+
+sock = socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
+sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 255)
+advertisement = struct.pack("!BBHBBHII", 134, 0, 0, 64, 0, 5, 0, 0)
+sock.sendto(advertisement, ("ff02::1", 0, 0, socket.if_nametoindex(sys.argv[1])))
+"""
+
+
+def advertise_router(host: str, netns: str, ifname: str) -> None:
+    """Send a router advertisement from a network namespace of host."""
+    path = "/tmp/router_advertisement.py"  # noqa: S108
+    write_file(host, path, ROUTER_ADVERTISEMENT)
+    run_cmd(host, f"ip netns exec {netns} python3 {path} {ifname}")
+
+
 def snmp_walk(host: str, oid: str) -> dict[tuple[int, ...], str]:
     """Walk a column of a node with SNMP and return its values by index."""
     output = run_cmd(
