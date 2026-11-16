@@ -1038,3 +1038,19 @@ class TestRefusedConfiguration:
             vpnctl("config set C0003 network_instances.00.type CORE")
 
         assert "DOWNLINK" in err.value.stderr
+
+    def test_route_that_overlaps_management_is_refused(self) -> None:
+        """A commit with a route without NPTv6 inside an uplink's route is refused."""
+        stage("C0003", 51900)
+        routes = "network_instances.00.connections.0.routes.ipv6"
+        # C0001's routes without NPTv6 don't overlap, so they aren't in the way.
+        vpnctl(f'config set C0003 {routes} [{{"to":"fd00:5::/64","nptv6":false}}]')
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            vpnctl("config commit C0003")
+
+        assert "Route fd00:5::/64 of C0003-00-0 overlaps fd00::/16" in err.value.stderr
+        assert "C0003" not in tenant_ids()
+
+        vpnctl(f'config set C0003 {routes} [{{"to":"fd00:5::/64"}}]')
+        vpnctl("config commit C0003")
+        wait_for_ports({"C0003": 51900})
