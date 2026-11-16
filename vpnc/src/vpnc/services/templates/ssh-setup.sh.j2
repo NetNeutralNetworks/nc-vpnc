@@ -3,7 +3,7 @@
 # Sets up this server for the SSH tunnel {{ tun }} of vpnc connection {{ connection }} on
 # {{ hub }}: the account {{ username }} can open the tunnel and nothing else.
 # Run it as root; it can be run again. For Ubuntu (netplan, systemd-networkd).
-# On {{ hub }} the connection needs username {{ username }} and remote_config false.
+# On {{ hub }} the connection needs username {{ username }}.
 set -eu
 
 for program in netplan networkctl iptables ip6tables sshd; do

@@ -201,9 +201,8 @@ def get_connection_ssh_setup(
 ) -> PlainTextResponse:
     """Return a script that sets up an SSH connection's remote side for an account.
 
-    Root runs it there once: the account can then only open the tunnel, and the
-    connection needs no remote_config. By default for the connection's
-    username and remote_config_interface.
+    Root runs it there once: the account can then only open the tunnel. By
+    default for the connection's username and remote_config_interface.
     """
     try:
         script = ssh.remote_setup(*_connection(connection_id), username, interface)

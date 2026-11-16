@@ -166,7 +166,7 @@ def close_ssh_sessions() -> None:
     # OpenSSH 10 names session processes "sshd-session", older ones "sshd".
     closed = run_cmd_shell(
         SSH_SERVER,
-        "pkill -c -f '^sshd(-session)?: .*@notty' || true",
+        "pkill -c -f '^sshd(-session)?: vpnc' || true",
     ).strip()
     assert closed not in ("", "0"), "No SSH sessions to close"
 

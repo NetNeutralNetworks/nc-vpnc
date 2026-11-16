@@ -34,7 +34,20 @@ ip -6 address add fdff:db8:c57:31::6/64 dev lo
 ip -6 address add 2001:db8:c57:31::64/64 dev lo
 ip -6 address add fdff:db8:c57:31::64/64 dev lo
 
-cp -f ${SCRIPTDIR}/authorized_keys /root/.ssh/
+# The account of the hubs' SSH tunnels, which owns their interfaces (tun0 of
+# hub00, tun1 of hub01): what the script of "vpnctl connections ssh-setup" sets up.
+id vpnc > /dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin vpnc
+install -d -m 700 -o vpnc -g "$(id -gn vpnc)" /home/vpnc/.ssh
+install -m 600 -o vpnc -g "$(id -gn vpnc)" ${SCRIPTDIR}/authorized_keys /home/vpnc/.ssh/
+for tun in tun0 tun1; do
+    ip tuntap add dev $tun mode tun user vpnc
+    ip link set dev $tun up
+done
+ip -4 route add 100.99.0.16/28 dev tun0
+ip -6 route add fdcc:cbe:0:1::/64 dev tun0
+ip -4 route add 100.100.0.16/28 dev tun1
+ip -6 route add fdcc:cbf:0:1::/64 dev tun1
+
 cp -f ${SCRIPTDIR}/sshd_lab.conf /etc/ssh/sshd_config.d/
 cp -f ${SCRIPTDIR}/db.example.com_cli00 /etc/bind/db.example.com
 cp -f ${SCRIPTDIR}/named.conf.local /etc/bind/

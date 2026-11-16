@@ -401,7 +401,7 @@ class TestVpnctlSshSetup:
     def test_script(self, host: str) -> None:
         """The script is for the connection's tunnel, routes, key and the account."""
         tun, ipv4, ipv6 = SSH_SETUP[host]
-        command = f"{VPNCTL} connections ssh-setup {SSH_CONNECTION} --username vpnc"
+        command = f"{VPNCTL} connections ssh-setup {SSH_CONNECTION}"
         script = conftest.run_cmd(host, command)
 
         assert f"Name={tun}\n" in script
@@ -419,22 +419,31 @@ class TestVpnctlSshSetup:
         """Another interface to masquerade out of can be given."""
         script = conftest.run_cmd(
             "hub00",
-            f"{VPNCTL} connections ssh-setup {SSH_CONNECTION}"
-            " --username vpnc --interface ens3",
+            f"{VPNCTL} connections ssh-setup {SSH_CONNECTION} --interface ens3",
         )
 
         assert "-o ens3 -j MASQUERADE\n" in script
         assert "eth0" not in script
 
-    def test_root_needs_no_setup(self) -> None:
-        """The connection's own account is root, which needs no setup."""
+    def test_username(self) -> None:
+        """Another account can be given."""
+        script = conftest.run_cmd(
+            "hub00",
+            f"{VPNCTL} connections ssh-setup {SSH_CONNECTION} --username tunnel",
+        )
+
+        assert "Match User tunnel\n" in script
+        assert "vpnc\n" not in script
+
+    def test_not_for_root(self) -> None:
+        """Root isn't an account to limit to the tunnel."""
         with pytest.raises(subprocess.CalledProcessError) as err:
             conftest.run_cmd(
                 "hub00",
-                f"{VPNCTL} connections ssh-setup {SSH_CONNECTION}",
+                f"{VPNCTL} connections ssh-setup {SSH_CONNECTION} --username root",
             )
 
-        assert "logs in as root" in err.value.stderr
+        assert "other than root" in err.value.stderr
 
     def test_ssh_connections_only(self) -> None:
         """Other connections have no SSH server to set up."""
