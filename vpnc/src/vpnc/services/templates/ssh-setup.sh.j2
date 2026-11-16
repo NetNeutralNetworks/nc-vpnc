@@ -10,21 +10,18 @@ for program in netplan networkctl iptables ip6tables sshd; do
     command -v $program > /dev/null || { echo "$program is missing." >&2; exit 1; }
 done
 
-# The account, with the keys of {{ account }} on {{ hub }}.
+# The account, with the key of the connection on {{ hub }}.
 id {{ username }} > /dev/null 2>&1 ||
     useradd --system --create-home --shell /usr/sbin/nologin {{ username }}
 home=$(getent passwd {{ username }} | cut -d: -f6)
 group=$(id -gn {{ username }})
 install -d -m 700 -o {{ username }} -g "$group" "$home/.ssh"
-{%- if keys %}
-while read -r key; do
-    grep -qxF "$key" "$home/.ssh/authorized_keys" 2> /dev/null ||
-        echo "$key" >> "$home/.ssh/authorized_keys"
-done << 'END'
-{{ keys | join("\n") }}
-END
+{%- if key %}
+key='{{ key }}'
+grep -qxF "$key" "$home/.ssh/authorized_keys" 2> /dev/null ||
+    echo "$key" >> "$home/.ssh/authorized_keys"
 {%- else %}
-# No key of {{ account }} was found on {{ hub }}: add its public key yourself.
+# The connection's key couldn't be read on {{ hub }}: add its public key yourself.
 touch "$home/.ssh/authorized_keys"
 {%- endif %}
 chown {{ username }}:"$group" "$home/.ssh/authorized_keys"

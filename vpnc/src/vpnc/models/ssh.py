@@ -71,11 +71,12 @@ class ConnectionConfigSSH(BaseModel):
         network_instance: vpnc.models.network_instance.NetworkInstance,
         connection: connections.Connection,
     ) -> None:
-        """Delete a connection, and forget its server's host key."""
+        """Delete a connection, with its key and its server's host key."""
         vpnc.services.ssh.stop(network_instance, connection)
         connection.delete_interface(network_instance)
         name = connection.name(network_instance)
         vpnc.services.ssh.known_hosts(name).unlink(missing_ok=True)
+        vpnc.services.ssh.delete_key(name)
 
     def intf_name(
         self,

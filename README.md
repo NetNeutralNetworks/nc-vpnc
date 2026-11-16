@@ -152,13 +152,9 @@ An SSH connection logs in as `username` and only opens the tunnel: vpnc doesn't 
 ~$ sudo vpnctl connections ssh-setup C0001-00-1 [--username vpnc] [--interface eth0] | ssh root@server sh
 ```
 
-It adds the account with the hub's key, the tunnel's interface and routes, the firewall rules (masquerading out of `--interface`, by default `remote_config_interface`) and an sshd configuration in which the account can only open the tunnel. The script isn't for root: give another account with `--username` and make it the connection's `username`.
+It adds the account with the connection's key, the tunnel's interface and routes, the firewall rules (masquerading out of `--interface`, by default `remote_config_interface`) and an sshd configuration in which the account can only open the tunnel. The script isn't for root: give another account with `--username` and make it the connection's `username`.
 
-ssh runs as the `vpnc-ssh` account, without privileges, and logs in with that account's keys (`/var/lib/vpnc-ssh/.ssh/id_*`). `make` copies root's keys there once: ssh ran as root before. To make a key:
-
-```bash
-~$ sudo -u vpnc-ssh ssh-keygen -t ed25519 -N '' -f /var/lib/vpnc-ssh/.ssh/id_ed25519
-```
+ssh runs as the `vpnc-ssh` account, without privileges. Every connection logs in with its own key, which vpnc makes (`/var/lib/vpnc-ssh/.ssh/C0001-00-1`) and the script adds to the account on the server. Run the script again on a server that was set up before connections had their own key: ssh no longer offers the shared keys (`id_*` in that directory, copied from root by `make`), which can be deleted.
 
 `psk`, `private_key` and the PPK `key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
 
@@ -327,7 +323,7 @@ LibreNMS reads BGP4V2-MIB only for VyOS; for Linux it reads BGP4-MIB, so it show
 | `/opt/ncubed/vpnc/` | The installation (virtualenv); `vpnctl` is linked to `/usr/local/bin` |
 | `/opt/ncubed/config/vpnc/` | Configuration: `active`, `candidate` (staged) and `history` |
 | `/opt/ncubed/config/vpnc/known_hosts/` | The host key of each SSH connection's server, accepted when first connecting. Delete a connection's file to accept a new key. |
-| `/var/lib/vpnc-ssh/.ssh/` | The keys SSH connections log in with |
+| `/var/lib/vpnc-ssh/.ssh/` | The key of each SSH connection, named like it |
 | `/run/vpnc/api.sock` | The API |
 
 vpnc, vpncmangle and charon log to the journal: `vpnctl logs`, or `journalctl -t vpnc -t vpncmangle -t charon`.

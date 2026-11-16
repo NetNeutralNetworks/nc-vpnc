@@ -125,41 +125,59 @@ class SetupError(Exception):
     """A connection has no remote side to set up for an account."""
 
 
-def public_keys() -> list[str]:
-    """Return the public keys ssh logs in with: of the default keys of its account."""
-    directory = pathlib.Path(accounts.user(accounts.SSH).pw_dir, ".ssh")
-    keys: list[str] = []
-    for path in sorted(directory.glob("id_*")):
-        if path.suffix == ".pub":
-            continue
-        public = path.with_name(f"{path.name}.pub")
+def key(connection_name: str) -> pathlib.Path:
+    """Return the file with a connection's private key."""
+    return pathlib.Path(accounts.user(accounts.SSH).pw_dir, ".ssh", connection_name)
+
+
+def _keygen(*args: str) -> str:
+    """Run ssh-keygen as ssh's account and return its output."""
+    return subprocess.run(  # noqa: S603
+        [*accounts.command(accounts.SSH), "/usr/bin/ssh-keygen", *args],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    ).stdout
+
+
+def ensure_key(connection_name: str) -> bool:
+    """Make a connection's key if it has none; return whether it has one."""
+    path = key(connection_name)
+    # The reconciler and the API (remote_setup) both ask for it.
+    with LOCK:
+        if path.exists():
+            return True
+        arguments = ("-q", "-t", "ed25519", "-N", "", "-C", connection_name)
         try:
-            # Derived from the private key where its public key isn't kept.
-            text = (
-                public.read_text(encoding="utf-8")
-                if public.exists()
-                else subprocess.run(  # noqa: S603
-                    [
-                        *accounts.command(accounts.SSH),
-                        "/usr/bin/ssh-keygen",
-                        "-y",
-                        "-f",
-                        str(path),
-                    ],
-                    stdin=subprocess.DEVNULL,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    timeout=10,
-                ).stdout
-            )
+            _keygen(*arguments, "-f", str(path))
         except (OSError, subprocess.SubprocessError):
-            logger.warning("Reading the public key of %s failed.", path)
-            continue
-        key = " ".join(text.split()[:2])
-        if PUBLIC_KEY_RE.fullmatch(key) and key not in keys:
-            keys.append(key)
-    return keys
+            logger.exception("Making the SSH key of %s failed.", connection_name)
+            return False
+    logger.info("Made the SSH key of %s.", connection_name)
+    return True
+
+
+def delete_key(connection_name: str) -> None:
+    """Delete a connection's key."""
+    path = key(connection_name)
+    path.unlink(missing_ok=True)
+    path.with_name(f"{path.name}.pub").unlink(missing_ok=True)
+
+
+def public_key(connection_name: str) -> str | None:
+    """Return a connection's public key, made if needed; None if that failed."""
+    if not ensure_key(connection_name):
+        return None
+    try:
+        # As the account, from the private key: the files are the account's.
+        text = _keygen("-y", "-f", str(key(connection_name)))
+    except (OSError, subprocess.SubprocessError):
+        logger.warning("Reading the public key of %s failed.", connection_name)
+        return None
+    public = " ".join(text.split()[:2])
+    return public if PUBLIC_KEY_RE.fullmatch(public) else None
 
 
 def remote_setup(
@@ -191,8 +209,7 @@ def remote_setup(
         tun=f"tun{cfg.remote_tunnel_id}",
         routes=[str(address.network) for address in (*if_ipv4, *if_ipv6)],
         interface=interface or cfg.remote_config_interface,
-        keys=public_keys(),
-        account=accounts.SSH,
+        key=public_key(name),
     )
 
 
@@ -286,6 +303,8 @@ def _start(
         return
 
     _prepare_directories()
+    if not ensure_key(connection_name):
+        return
     # A stale socket (e.g. after a kill) would stop ssh from becoming master.
     ssh_master_socket.unlink(missing_ok=True)
 
@@ -313,6 +332,11 @@ def _start(
         "ServerAliveInterval=5",
         "-o",
         "ServerAliveCountMax=5",
+        # Only the connection's own key.
+        "-o",
+        "IdentitiesOnly=yes",
+        "-i",
+        str(key(connection_name)),
         "-o",
         "StrictHostKeyChecking=accept-new",
         "-o",
