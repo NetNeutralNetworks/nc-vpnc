@@ -311,6 +311,7 @@ LibreNMS reads BGP4V2-MIB only for VyOS; for Linux it reads BGP4-MIB, so it show
 |---|---|
 | `/opt/ncubed/vpnc/` | The installation (virtualenv); `vpnctl` is linked to `/usr/local/bin` |
 | `/opt/ncubed/config/vpnc/` | Configuration: `active`, `candidate` (staged) and `history` |
+| `/opt/ncubed/config/vpnc/known_hosts/` | The host key of each SSH connection's server, accepted when first connecting. Delete a connection's file to accept a new key. |
 | `/run/vpnc/api.sock` | The API |
 
 vpnc, vpncmangle and charon log to the journal: `vpnctl logs`, or `journalctl -t vpnc -t vpncmangle -t charon`.
