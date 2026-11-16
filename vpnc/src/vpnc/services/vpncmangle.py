@@ -8,7 +8,7 @@ import subprocess
 from ipaddress import IPv4Network
 from typing import Any
 
-from vpnc import config, files, helpers, shared
+from vpnc import accounts, config, files, helpers, shared
 from vpnc.network import namespace
 from vpnc.services import configuration
 
@@ -64,9 +64,14 @@ def start() -> None:
     # Start the VPNC mangle process in the CORE network instance.
     # This process mangles DNS responses to translate A responses to AAAA responses.
     logger.info("Starting vpncmangle process in network instance %s.", config.CORE_NI)
+    # It reads the tenants' DNS responses: not as root, and with only the
+    # capability for the netfilter queue and its nftables table.
     proc = namespace.popen(
         config.CORE_NI,
-        [f"{config.VPNC_INSTALL_DIR}/bin/vpncmangle"],
+        [
+            *accounts.command(accounts.VPNCMANGLE, ("net_admin",)),
+            f"{config.VPNC_INSTALL_DIR}/bin/vpncmangle",
+        ],
     )
 
     global PROCESS  # noqa: PLW0603

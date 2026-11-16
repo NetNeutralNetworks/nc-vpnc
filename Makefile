@@ -51,7 +51,7 @@ help:
 
 hub: MODE := hub
 hub: root packages python-packages build-packages frr hub-packages snmpd \
-	config misc-config pip-vpnc pip-vpncmangle vpnctl service start
+	account-vpnc-mangle config misc-config pip-vpnc pip-vpncmangle vpnctl service start
 
 endpoint: MODE := endpoint
 endpoint: root packages python-packages snmpd \
@@ -62,7 +62,8 @@ addon: root packages python-packages \
 	config misc-config pip-vpnc vpnctl service start
 
 # vpncmangle only where it's installed (hub).
-update: root pip-vpnc $(if $(wildcard $(VENV)/bin/vpncmangle),pip-vpncmangle) \
+update: root pip-vpnc \
+	$(if $(wildcard $(VENV)/bin/vpncmangle),account-vpnc-mangle pip-vpncmangle) \
 	misc-config $(if $(wildcard /etc/snmp/snmpd.conf.d),$(SNMP_CONF) old-snmp-config) \
 	$(if $(wildcard /etc/frr),$(FRR_SNMP_CONF)) vpnctl \
 	$(if $(SYSTEMD),$(STAMP)/started)
@@ -89,6 +90,11 @@ packages: apt-update
 	$(SYSTEMCTL) stop ipsec.service strongswan-starter.service strongswan.service || true
 	getent group swan > /dev/null || groupadd swan
 	id swan > /dev/null 2>&1 || useradd -g swan swan
+
+# An account vpnc runs a program as, instead of as root.
+account-%:
+	id $* > /dev/null 2>&1 || useradd --system --no-create-home \
+		--home-dir /nonexistent --shell /usr/sbin/nologin $*
 
 python-packages: apt-update
 	$(APT) install -y python3 python3-pip python3-venv

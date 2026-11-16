@@ -16,6 +16,14 @@ class TestVpncmangle:
 
         assert re.match(r"^\d+ vpncmangle$", running)
 
+    @pytest.mark.parametrize("host", ["hub00", "hub01"])
+    def test_vpncmangle_is_unprivileged(self, host: str) -> None:
+        """vpncmangle isn't root, and can only configure the network."""
+        user = conftest.run_cmd(host, "ps -C vpncmangle -o user:32=").split()
+
+        assert user == ["vpnc-mangle"]
+        assert conftest.capabilities(host, "vpncmangle") == {"cap_net_admin"}
+
     @pytest.mark.parametrize("host", ["end00", "end01"])
     def test_vpncmangle_is_not_running_endpoint(self, host: str) -> None:
         """vpncmangle doesn't run in endpoint mode."""
