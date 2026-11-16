@@ -98,14 +98,12 @@ network_instances:
           type: SSH # IPSEC | SSH | PHYSICAL
           remote_addrs: [172.16.30.1]
           # Required. Specifies the remote tunnel identifier to avoid overlap.
-          remote_config: true
-          # Required. Specifies the remote
-          # tunnel identifier to avoid overlap.
           remote_tunnel_id: 1
-          # Optional: if specified, iptables rules for forwarding are also
-          # configured. Requires that remote_config is set to True.
+          # Optional: the interface on the server to masquerade out of, in the
+          # script of "vpnctl connections ssh-setup" that sets up the server.
           remote_config_interface: eth0
-          username: root
+          # An account on the server that may only open the tunnel.
+          username: vpnc
 
   01:
     type: DOWNLINK

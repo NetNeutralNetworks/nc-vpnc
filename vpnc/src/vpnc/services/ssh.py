@@ -117,39 +117,6 @@ SSH_TUNNELS: dict[str, SshTunnel] = {}
 LOCK = threading.RLock()
 
 
-def _remote_script(tun: str, routes: list[str], interface: str | None) -> str:
-    """Return the commands that set up the remote side of a tunnel.
-
-    With an interface, traffic from the tunnel is forwarded and masqueraded
-    out of it. Rules are only added when missing; it runs in any POSIX shell.
-    """
-    established = "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
-    rules = [
-        ("", f"INPUT -i {tun} -j ACCEPT"),
-        ("", f"OUTPUT -o {tun} {established}"),
-    ]
-    if interface is not None:
-        rules += [
-            ("", f"FORWARD -i {tun} -j ACCEPT"),
-            ("", f"FORWARD -o {tun} {established}"),
-            ("-t nat ", f"POSTROUTING -o {interface} -j MASQUERADE"),
-        ]
-    commands = [
-        "set -e",
-        "sysctl -w net.ipv4.conf.all.forwarding=1",
-        "sysctl -w net.ipv6.conf.all.forwarding=1",
-        "sleep 2",
-        f"ip link set dev {tun} up",
-        *(f"{route} dev {tun}" for route in routes),
-        *(
-            f"{program} {table}-C {rule} >/dev/null 2>&1 || {program} {table}-A {rule}"
-            for table, rule in rules
-            for program in ("iptables", "ip6tables")
-        ),
-    ]
-    return ";\n".join(commands)
-
-
 TEMPLATES_ENV = files.templates(__file__)
 # A public key without its comment, e.g. "ssh-ed25519 AAAA...".
 PUBLIC_KEY_RE = re.compile(r"[a-z0-9@.-]+ [A-Za-z0-9+/=]+")
@@ -198,9 +165,9 @@ def remote_setup(
 ) -> str:
     """Return a script that sets up the remote side for an unprivileged account.
 
-    Root runs it there once; after it the connection needs no remote_config.
-    By default for the connection's username, with what comes through the
-    tunnel masqueraded out of its remote_config_interface.
+    Root runs it there once; vpnc itself only opens the tunnel. By default for
+    the connection's username, with what comes through the tunnel masqueraded
+    out of its remote_config_interface.
     """
     cfg = connection.config
     name = connection.name(network_instance)
@@ -209,7 +176,7 @@ def remote_setup(
         raise SetupError(msg)
     username = username or cfg.username
     if username == "root":
-        msg = f"{name} logs in as root, which needs no setup: give another username."
+        msg = f"The setup of {name} is for an account other than root."
         raise SetupError(msg)
     if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(network_instance)
     return TEMPLATES_ENV.get_template("ssh-setup.sh.j2").render(
@@ -297,18 +264,6 @@ def _start(
         )
         return
 
-    remote_config: str = ""
-    if connection.config.remote_config is True:
-        if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(
-            network_instance,
-        )
-        remote_config = _remote_script(
-            f"tun{connection.config.remote_tunnel_id}",
-            [f"ip -4 route replace {i.network}" for i in if_ipv4]
-            + [f"ip -6 route replace {j.network}" for j in if_ipv6],
-            connection.config.remote_config_interface,
-        )
-
     # A stale socket (e.g. after a kill) would stop ssh from becoming master.
     ssh_master_socket.unlink(missing_ok=True)
     config.VPNC_KNOWN_HOSTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -319,6 +274,8 @@ def _start(
         "exec",
         network_instance.id,
         "/usr/bin/ssh",
+        # The server is set up beforehand (remote_setup): no command to run.
+        "-N",
         "-o",
         "ControlMaster=yes",
         "-o",
@@ -349,11 +306,6 @@ def _start(
         f"{connection.id}:{connection.config.remote_tunnel_id}",
         f"{connection.config.username}@{connection.config.remote_addrs[0]}",
     ]
-    if remote_config:
-        command.append(remote_config)
-    else:
-        command.insert(5, "-N")
-
     tunnel = SshTunnel(connection_name, command)
     tunnel.start()
     SSH_TUNNELS[connection_name] = tunnel

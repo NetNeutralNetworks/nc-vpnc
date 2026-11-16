@@ -143,16 +143,16 @@ network_instances:
 |---|---|
 | `IPSEC` | `remote_addrs`, `psk`, `local_id`, `remote_id`, `ike_version` (2), `ike_proposal` and `ipsec_proposal` (`aes256gcm16-prfsha384-ecp384`), `ike_lifetime` (86400), `ipsec_lifetime` (3600), `initiation` (`START`: initiate and respond; `NONE`: respond only), `traffic_selectors` (`local`, `remote`; empty means route based), `post_quantum` (see below) |
 | `WIREGUARD` | `remote_addrs`, `private_key`, `public_key`, `local_port` and `remote_port` (51820) |
-| `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config` (false: also configure the remote end), `remote_config_interface` (masquerade on the remote end), `post_quantum` (see below) |
+| `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config_interface` (masquerade out of it on the server, in its setup script), `post_quantum` (see below) |
 | `PHYSICAL` | `interface_name` |
 
-An SSH connection logs in as `username`. As root, `remote_config: true` sets up the server at every connect. For any other account, set up the server (Ubuntu) once, as root, with the script `vpnctl` makes for the connection:
+An SSH connection logs in as `username` and only opens the tunnel: vpnc doesn't configure the server. Set up the server (Ubuntu) once, as root, with the script `vpnctl` makes for the connection:
 
 ```bash
 ~$ sudo vpnctl connections ssh-setup C0001-00-1 [--username vpnc] [--interface eth0] | ssh root@server sh
 ```
 
-It adds the account with the hub's key, the tunnel's interface and routes, the firewall rules (masquerading out of `--interface`, by default `remote_config_interface`) and an sshd configuration in which the account can only open the tunnel. After it the connection needs that `username` and no `remote_config`.
+It adds the account with the hub's key, the tunnel's interface and routes, the firewall rules (masquerading out of `--interface`, by default `remote_config_interface`) and an sshd configuration in which the account can only open the tunnel. The script isn't for root: give another account with `--username` and make it the connection's `username`.
 
 `psk`, `private_key` and the PPK `key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
 

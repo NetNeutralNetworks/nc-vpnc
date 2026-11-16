@@ -28,11 +28,11 @@ class ConnectionConfigSSH(BaseModel):
     type: Literal[enums.ConnectionType.SSH] = enums.ConnectionType.SSH
     _upper = helpers.upper("type")
     remote_addrs: list[IPv4Address | IPv6Address] = Field(min_length=1)
-    remote_config: bool = False
     # Required. Specifies the remote
     # tunnel identifier to avoid overlap.
     remote_tunnel_id: int
-    # Optional interface on the remote side to configure for masquerade.
+    # Optional interface on the remote side to masquerade out of. The remote
+    # side isn't configured by vpnc: only in the script of remote_setup.
     remote_config_interface: str | None = Field(
         default=None,
         pattern=INTERFACE_PATTERN,
