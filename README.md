@@ -141,7 +141,7 @@ network_instances:
 
 | `type` | Settings (defaults) |
 |---|---|
-| `IPSEC` | `remote_addrs`, `psk`, `local_id`, `remote_id`, `ike_version` (2), `ike_proposal` and `ipsec_proposal` (`aes256gcm16-prfsha384-ecp384`), `ike_lifetime` (86400), `ipsec_lifetime` (3600), `initiation` (`START`: initiate and respond; `NONE`: respond only), `traffic_selectors` (`local`, `remote`; empty means route based), `post_quantum` (see below) |
+| `IPSEC` | `remote_addrs`, `psk`, `local_id`, `remote_id`, `ike_version` (2), `ike_proposal` (`aes256gcm16-prfsha384-ecp384`), `ipsec_proposal` (`aes256gcm16-ecp384`), `ike_lifetime` (86400), `ipsec_lifetime` (3600), `initiation` (`START`: initiate and respond; `NONE`: respond only), `traffic_selectors` (`local`, `remote`; empty means route based), `post_quantum` (see below) |
 | `WIREGUARD` | `remote_addrs`, `private_key`, `public_key`, `local_port` and `remote_port` (51820) |
 | `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config_interface` (masquerade out of it on the server, in its setup script), `post_quantum` (see below) |
 | `PHYSICAL` | `interface_name` |

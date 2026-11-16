@@ -59,7 +59,7 @@ class ConnectionConfigIPsec(BaseModel):
     ike_version: Literal[1, 2] = 2
     ike_proposal: str = "aes256gcm16-prfsha384-ecp384"
     ike_lifetime: int = 86400
-    ipsec_proposal: str = "aes256gcm16-prfsha384-ecp384"
+    ipsec_proposal: str = "aes256gcm16-ecp384"
     ipsec_lifetime: int = 3600
     initiation: Initiation = Initiation.INITIATOR
     psk: Secret

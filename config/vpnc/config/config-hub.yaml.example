@@ -77,8 +77,8 @@ network_instances:
           # ike_proposal: aes256gcm16-prfsha384-ecp384
           # Optional: The IKE lifetime in seconds
           ike_lifetime: 300
-          # Optional: defaults to aes256gcm16-prfsha384-ecp384
-          # ipsec_proposal: aes256gcm16-prfsha384-ecp384
+          # Optional: defaults to aes256gcm16-ecp384
+          # ipsec_proposal: aes256gcm16-ecp384
           # Optional: The IPsec lifetime in seconds
           ipsec_lifetime: 90
           # Optional, defaults to START: initiate and respond. NONE: respond only.
