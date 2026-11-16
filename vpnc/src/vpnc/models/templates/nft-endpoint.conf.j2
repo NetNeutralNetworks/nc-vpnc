@@ -1,6 +1,7 @@
 {#- ENDPOINT: traffic from CORE and return traffic; ICMP to the namespace; NAT. #}
     chain input {
         type filter hook input priority filter; policy drop;
+        iifname "lo" counter accept
         meta l4proto ipv6-icmp counter jump icmpv6-in-out
         meta l4proto icmp counter accept
         counter drop
@@ -17,6 +18,7 @@
 
     chain output {
         type filter hook output priority filter; policy drop;
+        oifname "lo" counter accept
         meta l4proto ipv6-icmp counter jump icmpv6-in-out
         ct state established,related counter accept
         counter drop

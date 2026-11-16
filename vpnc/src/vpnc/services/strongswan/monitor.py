@@ -249,14 +249,15 @@ class Monitor(threading.Thread):
     def xfrm_interface(self, ike_name: str) -> tuple[str, str] | None:
         """Return the network instance and XFRM interface of a connection.
 
-        None if its tenant has no configuration (anymore).
+        None if its tenant has no configuration (anymore), or it isn't vpnc's: an
+        IKE SA that failed before a connection was selected is "(unnamed)".
         """
         if ike_name.startswith(config.CORE_NI):
             number = helpers.split_connection_name(ike_name)[1]
             return config.CORE_NI, helpers.xfrm_interface_name(number)
         if not (match := config.DOWNLINK_CON_RE.match(ike_name)):
-            msg = f"Invalid connection name '{ike_name}'"
-            raise ValueError(msg)
+            logger.debug("Ignoring IKE SA '%s': not a vpnc connection.", ike_name)
+            return None
         network_instance, tenant_id, connection_id = match.groups()
         # A deleted connection's SA is terminated by the reconciler. Until then
         # it can still rekey or change state.
