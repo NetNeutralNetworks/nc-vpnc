@@ -21,6 +21,11 @@ EXTERNAL = {
 }
 # The hubs' addresses in CORE on their tunnels to mgt00.
 CORE = {"hub00": "fd00:1:2::", "hub01": "fd00:1:2::2"}
+# Per hub the management nodes' tunnel to it, and their addresses on it.
+UPLINKS = {
+    "hub00": ("xfrm0", "fd00:1:2::1", "fd00:1:2::1:1"),
+    "hub01": ("xfrm1", "fd00:1:2::3", "fd00:1:2::1:3"),
+}
 # The client behind an endpoint, and the endpoint's address in its network.
 ENDPOINT = {"end00": ("cli00", "172.16.30.254"), "end01": ("cli01", "172.17.30.254")}
 
@@ -110,6 +115,17 @@ class TestFirewall:
         """Over its tunnel a hub answers pings, next to BGP and BFD."""
         assert pings(PROVIDER, CORE[host])
         assert tcp_unanswered(PROVIDER, CORE[host])
+
+    @pytest.mark.parametrize("host", list(UPLINKS))
+    def test_no_transit_between_uplinks(self, host: str) -> None:
+        """A hub doesn't route from one management node to the other."""
+        tunnel, mgt00, mgt01 = UPLINKS[host]
+
+        with (
+            conftest.route("mgt00", f"{mgt01}/128 dev {tunnel}"),
+            conftest.route("mgt01", f"{mgt00}/128 dev {tunnel}"),
+        ):
+            assert not pings("mgt00", mgt01)
 
     @pytest.mark.parametrize("host", list(ENDPOINT))
     def test_endpoint(self, host: str) -> None:

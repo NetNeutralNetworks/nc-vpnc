@@ -20,20 +20,22 @@
         {#- vpncmangle only translates DNS over UDP. #}
         meta nfproto ipv6 tcp dport 53 reject with tcp reset
 {%- endif %}
-{%- for interface in interfaces %}
-        {#- From downlinks only ICMPv6 that belongs to a connection, below. #}
-        meta nfproto ipv6 iifname "{{ interface }}" jump icmpv6-forward
-{%- endfor %}
+        meta nfproto ipv6 ct state established,related accept
 {%- if mode.name == "ENDPOINT" %}
-  {%- for interface in interfaces %}
-        meta nfproto ipv4 iifname "{{ interface }}" accept
-  {%- endfor %}
         meta nfproto ipv4 ct state established,related accept
 {%- endif %}
 {%- for interface in interfaces %}
-        meta nfproto ipv6 iifname "{{ interface }}" accept
+        {#- Nothing is opened to an uplink, or routed between uplinks. #}
+        oifname "{{ interface }}" drop
 {%- endfor %}
-        meta nfproto ipv6 ct state established,related accept
+{%- for interface in interfaces %}
+        {#- From downlinks only ICMPv6 that belongs to a connection, above. #}
+        meta nfproto ipv6 iifname "{{ interface }}" jump icmpv6-forward
+        meta nfproto ipv6 iifname "{{ interface }}" accept
+  {%- if mode.name == "ENDPOINT" %}
+        meta nfproto ipv4 iifname "{{ interface }}" accept
+  {%- endif %}
+{%- endfor %}
     }
 
     chain output {
