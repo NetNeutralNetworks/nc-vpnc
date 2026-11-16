@@ -815,25 +815,26 @@ class NetworkInstanceDownlink(NetworkInstance):
         ):
             return
         # Configure NAT64 (Jool) only if the instance differs.
-        if (current := jool.pool6(self.id)) is not None:
-            if current == str(nat64_scope):
-                NAT64_APPLIED[self.id] = nat64_scope
-                return
+        current = jool.settings(self.id)
+        if current is not None and current.get("pool6") != str(nat64_scope):
             jool.remove(self.id)
-        logger.info(
-            "Configuring network instance %s NAT64 scope %s",
-            self.id,
-            nat64_scope,
-        )
-        result = jool.add(self.id, str(nat64_scope))
-        if result.returncode:
-            logger.error(
-                "Configuring NAT64 in %s failed: %s",
+            current = None
+        if current is None:
+            logger.info(
+                "Configuring network instance %s NAT64 scope %s",
                 self.id,
-                result.stderr.strip(),
+                nat64_scope,
             )
-            return
-        NAT64_APPLIED[self.id] = nat64_scope
+            result = jool.add(self.id, str(nat64_scope))
+            if result.returncode:
+                logger.error(
+                    "Configuring NAT64 in %s failed: %s",
+                    self.id,
+                    result.stderr.strip(),
+                )
+                return
+        if jool.ensure_filtering(self.id, current or {}):
+            NAT64_APPLIED[self.id] = nat64_scope
 
 
 class NetworkInstanceEndpoint(NetworkInstance):
