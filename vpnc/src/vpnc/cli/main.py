@@ -535,6 +535,16 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
     fields(items)
 
 
+def cmd_connections_ssh_setup(args: argparse.Namespace) -> None:
+    """Print a script that sets up an SSH connection's server for an account."""
+    script = request(
+        "GET",
+        f"/v1/connections/{quote(args.id)}/ssh-setup",
+        params={"username": args.username, "interface": args.interface},
+    )
+    print(script, end="")
+
+
 def _expand(target: str) -> list[str]:
     """Return a network instance's or tenant's VPN connections (not PHYSICAL)."""
     ids = [
@@ -1247,6 +1257,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
         "restart": "control",
         "logs": "connection",
         "probes": "connection",
+        "ssh-setup": "connection",
     },
     "bgp": {"neighbors": None, "neighbor": "neighbor", "routes": None},
     # Commands with an argument instead of actions.
@@ -1292,6 +1303,8 @@ OPTION_VALUES = {
     "--confirm": ["1m", "5m", "10m"],
     "--source": SOURCES,
     "--level": LEVELS,
+    "--username": [],
+    "--interface": [],
     "-c": [],
     "--count": [],
     "-s": [],
@@ -1463,6 +1476,13 @@ def parser() -> argparse.ArgumentParser:
             help="connections, or network instances/tenants: their VPN connections",
         )
     add(connections, "probes", cmd_connections_probes).add_argument("id", **connection)
+    p = add(connections, "ssh-setup", cmd_connections_ssh_setup)
+    p.add_argument("id", **connection)
+    p.add_argument("--username", help="the account (default: the connection's)")
+    p.add_argument(
+        "--interface",
+        help="masquerade out of it (default: remote_config_interface)",
+    )
     p = add(connections, "logs", cmd_connections_logs)
     p.add_argument("id", **connection)
     log_options(p)

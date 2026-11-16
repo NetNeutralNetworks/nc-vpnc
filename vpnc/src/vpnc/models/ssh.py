@@ -17,6 +17,10 @@ from vpnc.network import state
 
 logger = logging.getLogger("vpnc")
 
+# Used in a script on the remote side and as an ssh argument: names only.
+INTERFACE_PATTERN = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}$"
+USERNAME_PATTERN = r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$"
+
 
 class ConnectionConfigSSH(BaseModel):
     """Defines an SSH connection data structure."""
@@ -29,13 +33,11 @@ class ConnectionConfigSSH(BaseModel):
     # tunnel identifier to avoid overlap.
     remote_tunnel_id: int
     # Optional interface on the remote side to configure for masquerade.
-    # Used in a script on the remote side: an interface name only.
     remote_config_interface: str | None = Field(
         default=None,
-        pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}$",
+        pattern=INTERFACE_PATTERN,
     )
-    # Used as an ssh argument: a user name only, not an option.
-    username: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
+    username: str = Field(pattern=USERNAME_PATTERN)
     post_quantum: PostQuantumSSH = Field(default_factory=PostQuantumSSH)
 
     _none_as_default = helpers.none_as_default("post_quantum")

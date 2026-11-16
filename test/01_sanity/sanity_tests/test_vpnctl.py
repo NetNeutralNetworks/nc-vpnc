@@ -384,3 +384,61 @@ class TestVpnctlLogsAndCounters:
         header = conftest.run_cmd("hub00", f"{VPNCTL} connections list -o wide")
         columns = re.split(r"\s{2,}", header.splitlines()[0])
         assert columns[7:12] == ["MTU", "IN", "OUT", "IN RATE", "OUT RATE"]
+
+
+# Per hub the SSH server's end of its tunnel, and the hub's networks on it.
+SSH_SETUP = {
+    "hub00": ("tun0", "100.99.0.16/28", "fdcc:cbe:0:1::/64"),
+    "hub01": ("tun1", "100.100.0.16/28", "fdcc:cbf:0:1::/64"),
+}
+SSH_CONNECTION = "C0001-00-1"
+
+
+class TestVpnctlSshSetup:
+    """vpnctl makes the script that sets up an SSH connection's server."""
+
+    @pytest.mark.parametrize("host", list(SSH_SETUP))
+    def test_script(self, host: str) -> None:
+        """The script is for the connection's tunnel, routes, key and the account."""
+        tun, ipv4, ipv6 = SSH_SETUP[host]
+        command = f"{VPNCTL} connections ssh-setup {SSH_CONNECTION} --username vpnc"
+        script = conftest.run_cmd(host, command)
+
+        assert f"Name={tun}\n" in script
+        assert f"- to: {ipv4}\n" in script
+        assert f"- to: {ipv6}\n" in script
+        assert "Match User vpnc\n" in script
+        assert "\nssh-ed25519 " in script
+        # Out of the connection's remote_config_interface.
+        assert f"-s {ipv4} -o eth0 -j MASQUERADE\n" in script
+        assert f"-s {ipv6} -o eth0 -j MASQUERADE\n" in script
+        # A shell accepts it.
+        conftest.run_cmd_shell(host, f"bash -c '{command} | sh -n'")
+
+    def test_interface(self) -> None:
+        """Another interface to masquerade out of can be given."""
+        script = conftest.run_cmd(
+            "hub00",
+            f"{VPNCTL} connections ssh-setup {SSH_CONNECTION}"
+            " --username vpnc --interface ens3",
+        )
+
+        assert "-o ens3 -j MASQUERADE\n" in script
+        assert "eth0" not in script
+
+    def test_root_needs_no_setup(self) -> None:
+        """The connection's own account is root, which needs no setup."""
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            conftest.run_cmd(
+                "hub00",
+                f"{VPNCTL} connections ssh-setup {SSH_CONNECTION}",
+            )
+
+        assert "logs in as root" in err.value.stderr
+
+    def test_ssh_connections_only(self) -> None:
+        """Other connections have no SSH server to set up."""
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            conftest.run_cmd("hub00", f"{VPNCTL} connections ssh-setup C0001-00-0")
+
+        assert "isn't an SSH connection" in err.value.stderr

@@ -25,7 +25,8 @@ from vpnc.api.config_files import (
 from vpnc.models import enums, tenant
 from vpnc.models.connections import Connection
 from vpnc.models.network_instance import NetworkInstance
-from vpnc.services import control
+from vpnc.models.ssh import INTERFACE_PATTERN, USERNAME_PATTERN
+from vpnc.services import control, ssh
 
 app = FastAPI(
     title="vpnc",
@@ -190,6 +191,25 @@ def get_connection(connection_id: str) -> status.ConnectionState:
 def get_connection_probes(connection_id: str) -> list[status.ProbeDetail]:
     """Return a connection's probes with their last tests (3 minutes)."""
     return status.probe_details(*_connection(connection_id))
+
+
+@app.get("/v1/connections/{connection_id}/ssh-setup")
+def get_connection_ssh_setup(
+    connection_id: str,
+    username: Annotated[str | None, Query(pattern=USERNAME_PATTERN)] = None,
+    interface: Annotated[str | None, Query(pattern=INTERFACE_PATTERN)] = None,
+) -> PlainTextResponse:
+    """Return a script that sets up an SSH connection's remote side for an account.
+
+    Root runs it there once: the account can then only open the tunnel, and the
+    connection needs no remote_config. By default for the connection's
+    username and remote_config_interface.
+    """
+    try:
+        script = ssh.remote_setup(*_connection(connection_id), username, interface)
+    except ssh.SetupError as err:
+        raise ConfigError(409, "Conflict", str(err)) from err
+    return PlainTextResponse(script)
 
 
 def _set_enabled(connection_id: str, *, enabled: bool) -> status.ConnectionState:
