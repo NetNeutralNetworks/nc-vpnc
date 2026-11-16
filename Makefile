@@ -97,20 +97,14 @@ account-%:
 	id $* > /dev/null 2>&1 || useradd --system --no-create-home \
 		--home-dir /nonexistent --shell /usr/sbin/nologin $*
 
-# The account of ssh, with the keys it logs in with. Root's are copied once:
-# ssh ran as root before.
+# The account of ssh, with the keys vpnc makes per connection.
 SSH_HOME  := /var/lib/vpnc-ssh
 SSH_OWNER := -o vpnc-ssh -g "$$(id -gn vpnc-ssh)"
 
 account-vpnc-ssh:
 	id vpnc-ssh > /dev/null 2>&1 || useradd --system --no-create-home \
 		--home-dir $(SSH_HOME) --shell /usr/sbin/nologin vpnc-ssh
-	if [ ! -d $(SSH_HOME)/.ssh ]; then \
-		install -d -m 700 $(SSH_OWNER) $(SSH_HOME) $(SSH_HOME)/.ssh; \
-		for key in /root/.ssh/id_*; do \
-			[ ! -f "$$key" ] || install -m 600 $(SSH_OWNER) "$$key" $(SSH_HOME)/.ssh/; \
-		done; \
-	fi
+	install -d -m 700 $(SSH_OWNER) $(SSH_HOME) $(SSH_HOME)/.ssh
 
 python-packages: apt-update
 	$(APT) install -y python3 python3-pip python3-venv

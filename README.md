@@ -154,7 +154,7 @@ An SSH connection logs in as `username` and only opens the tunnel: vpnc doesn't 
 
 It adds the account with the connection's key, the tunnel's interface and routes, the firewall rules (masquerading out of `--interface`, by default `remote_config_interface`) and an sshd configuration in which the account can only open the tunnel. The script isn't for root: give another account with `--username` and make it the connection's `username`.
 
-ssh runs as the `vpnc-ssh` account, without privileges. Every connection logs in with its own key, which vpnc makes (`/var/lib/vpnc-ssh/.ssh/C0001-00-1`) and the script adds to the account on the server. Run the script again on a server that was set up before connections had their own key: ssh no longer offers the shared keys (`id_*` in that directory, copied from root by `make`), which can be deleted.
+ssh runs as the `vpnc-ssh` account, without privileges. Every connection logs in with its own key, which vpnc makes (`/var/lib/vpnc-ssh/.ssh/C0001-00-1`) and the script adds to the account on the server. Run the script again on a server that was set up before connections had their own key: ssh no longer offers the shared keys (`id_*` in that directory, copied from root by earlier versions of `make`), which can be deleted.
 
 `psk`, `private_key` and the PPK `key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
 
