@@ -43,7 +43,7 @@ Addressing in hub mode, from the service settings:
 | `prefix_downlink_interface_v4` | /24, a /28 per connection | Tunnel interface addresses; the same for every tenant. |
 | `prefix_downlink_interface_v6` | /48, a /64 per connection | Tunnel interface addresses; the same for every tenant. |
 
-vpncmangle (started by vpnc) rewrites DNS answers from tenants: A records become AAAA records in the NAT64 prefix, and AAAA records get the NPTv6 prefix. See [vpncmangle/README.md](vpncmangle/README.md).
+vpncmangle (started by vpnc) rewrites DNS answers from tenants: A records become AAAA records in the NAT64 prefix, and AAAA records get the NPTv6 prefix. Only over UDP: DNS over TCP to tenants is refused. See [vpncmangle/README.md](vpncmangle/README.md).
 
 ## Installation
 

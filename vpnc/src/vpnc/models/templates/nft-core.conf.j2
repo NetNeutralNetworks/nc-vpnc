@@ -16,6 +16,10 @@
 
     chain forward {
         type filter hook forward priority filter; policy drop;
+{%- if mode.name == "HUB" %}
+        {#- vpncmangle only translates DNS over UDP. #}
+        meta nfproto ipv6 tcp dport 53 reject with tcp reset
+{%- endif %}
         meta nfproto ipv6 jump icmpv6-forward
 {%- if mode.name == "ENDPOINT" %}
   {%- for interface in interfaces %}
