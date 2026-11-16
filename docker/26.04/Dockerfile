@@ -26,7 +26,7 @@ RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
     --mount=type=bind,source=./config/,target=/tmp/repo/config/            \
     echo "Install APT packages"                                         && \
     apt-get update && apt-get install -y make                           && \
-    make -C /tmp/repo MODE=hub packages hub-packages frr snmpd misc-config config && \
+    make -C /tmp/repo MODE=hub packages account-vpnc-mangle hub-packages frr snmpd misc-config config && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /opt/ncubed/ /opt/ncubed/

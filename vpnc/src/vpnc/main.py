@@ -9,7 +9,7 @@ import subprocess
 import sys
 from logging.handlers import SysLogHandler
 
-from vpnc import config, core, files, migration, shared
+from vpnc import accounts, config, core, files, migration, shared
 from vpnc.models import enums, tenant
 
 # LOGGER
@@ -50,8 +50,19 @@ def _check_modules(modules: list[str]) -> None:
             sys.exit(1)
 
 
+def _check_accounts(names: list[str]) -> None:
+    """Exit unless the accounts exist."""
+    for name in names:
+        if not accounts.exists(name):
+            logger.critical(
+                "The '%s' account is missing; 'make update' adds it. Exiting.",
+                name,
+            )
+            sys.exit(1)
+
+
 def _check_system_requirements() -> None:
-    """Check if required kernel modules are installed."""
+    """Check if the required kernel modules and accounts are there."""
     _check_modules(
         [
             "xfrm_interface",
@@ -71,6 +82,7 @@ def _check_system_requirements() -> None:
     if tenant_config.mode == enums.ServiceMode.HUB:
         # vpncmangle queues DNS responses with nftables.
         _check_modules(["nft_queue"])
+        _check_accounts([accounts.VPNCMANGLE])
 
 
 def main() -> None:
