@@ -24,7 +24,11 @@ from pydantic import BaseModel, ValidationError
 
 from vpnc import config, files, migration
 from vpnc.models import enums, tenant
-from vpnc.models.network_instance import ppk_id_users, wireguard_port_users
+from vpnc.models.network_instance import (
+    core_route_overlaps,
+    ppk_id_users,
+    wireguard_port_users,
+)
 from vpnc.models.post_quantum import PostQuantumPresharedKey
 from vpnc.models.secret import REVEAL
 from vpnc.services import configuration, ssh
@@ -443,8 +447,9 @@ def _node_tenants(candidates: dict[str, Model | None]) -> dict[str, Model]:
 def _check_node(candidates: dict[str, Model | None]) -> None:
     """Refuse candidates that conflict with another tenant or this node.
 
-    A WireGuard port or PPK id another connection uses, or post-quantum
-    cryptography this node doesn't support.
+    A WireGuard port or PPK id another connection uses, a route without NPTv6
+    that overlaps another route in CORE, or post-quantum cryptography this node
+    doesn't support.
     """
     tenants = _node_tenants(candidates)
     own = {
@@ -465,6 +470,19 @@ def _check_node(candidates: dict[str, Model | None]) -> None:
                     "Invalid configuration",
                     f"{what} {value} is used by {', '.join(names)}.",
                 )
+    if config.DEFAULT_TENANT in candidates:
+        # The service's prefixes.
+        own |= set(tenant.MAX_PREFIX_LENGTHS)
+    for route, of, other, other_of in core_route_overlaps(tenants.values()):
+        if of not in own:
+            # The candidate's route first.
+            route, of, other, other_of = other, other_of, route, of  # noqa: PLW2901
+        if of in own:
+            raise ConfigError(
+                422,
+                "Invalid configuration",
+                f"Route {route} of {of} overlaps {other} of {other_of}.",
+            )
     for model in candidates.values():
         if model is not None:
             _check_post_quantum(model)

@@ -869,6 +869,45 @@ class NetworkInstanceEndpoint(NetworkInstance):
         return False
 
 
+def core_route_overlaps(
+    tenants: Iterable[tenant.Tenant],
+) -> list[tuple[str, str, str, str]]:
+    """Return a hub's IPv6 routes in CORE that overlap: (route, of, route, of).
+
+    A tenant's route without NPTv6 is a route in CORE as it is, so it mustn't
+    take traffic of the uplinks' routes, the NAT64 and NPTv6 prefixes or another
+    network instance's routes. "Of" is a connection, or the prefix's setting.
+    """
+    # Route, of what, and its network instance (the service's count as one).
+    routes: list[tuple[IPv6Network, str, str]] = []
+    for tenant_config in tenants:
+        if isinstance(tenant_config, tenant.ServiceEndpoint):
+            return []
+        if isinstance(tenant_config, tenant.ServiceHub):
+            routes += [
+                (getattr(tenant_config, name), name, config.DEFAULT_TENANT)
+                for name in ("prefix_downlink_nat64", "prefix_downlink_nptv6")
+            ]
+        for ni in tenant_config.network_instances.values():
+            for connection in ni.connections.values():
+                for route in connection.routes.ipv6:
+                    name = connection.name(ni)
+                    # A default route to the uplinks is less specific than any.
+                    if ni.type == enums.NetworkInstanceType.CORE and route.to.prefixlen:
+                        routes.append((route.to, name, config.DEFAULT_TENANT))
+                    elif (
+                        ni.type == enums.NetworkInstanceType.DOWNLINK
+                        and not route.nptv6
+                    ):
+                        routes.append((route.to, name, ni.id))
+    return [
+        (str(route), of, str(other), other_of)
+        for index, (route, of, ni_id) in enumerate(routes)
+        for other, other_of, other_ni_id in routes[index + 1 :]
+        if ni_id != other_ni_id and route.overlaps(other)
+    ]
+
+
 def ppk_id_users(tenants: Iterable[tenant.Tenant]) -> dict[str, list[str]]:
     """Return per PPK id the IPsec connections using it, sorted.
 
