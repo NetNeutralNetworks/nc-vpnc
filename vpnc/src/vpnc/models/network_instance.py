@@ -55,6 +55,14 @@ ROUTED_NETWORK_INSTANCE_SYSCTLS = {
 }
 
 
+# EXTERNAL only ends tunnels. A new namespace has the host's IPv4 forwarding,
+# which FRR turns on.
+UNROUTED_NETWORK_INSTANCE_SYSCTLS = {
+    "net.ipv6.conf.all.forwarding": "0",
+    "net.ipv4.conf.all.forwarding": "0",
+}
+
+
 # Per network instance the NAT64 scope vpnc configured in Jool.
 NAT64_APPLIED: dict[str, IPv6Network] = {}
 # The Jool instances during a full check, see jool_instances().
@@ -450,6 +458,8 @@ class NetworkInstance(BaseModel):
         # DOWNLINK and ENDPOINT.
         if self.linked_to_core or self.type == enums.NetworkInstanceType.CORE:
             namespace.ensure_sysctls(self.id, ROUTED_NETWORK_INSTANCE_SYSCTLS)
+        else:
+            namespace.ensure_sysctls(self.id, UNROUTED_NETWORK_INSTANCE_SYSCTLS)
 
         if self.linked_to_core:
             self._set_network_instance_link()
