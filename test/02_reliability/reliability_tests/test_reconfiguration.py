@@ -1025,3 +1025,16 @@ class TestWireGuardPorts:
             message="the route of C0004 to be applied",
         )
         assert [listen_port("C0004"), listen_port("B0001")] == [51900, None]
+
+
+@pytest.mark.usefixtures("port_tenants")
+class TestRefusedConfiguration:
+    """Configuration that would let a tenant's traffic go elsewhere is refused."""
+
+    def test_tenant_network_instance_is_a_downlink(self) -> None:
+        """A tenant's network instance of another type than DOWNLINK is refused."""
+        stage("C0003", 51900)
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            vpnctl("config set C0003 network_instances.00.type CORE")
+
+        assert "DOWNLINK" in err.value.stderr
