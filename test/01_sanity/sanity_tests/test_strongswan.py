@@ -51,3 +51,8 @@ class TestCharon:
     def test_runs_as_swan(self, host: str) -> None:
         """Charon has dropped root for the swan user."""
         assert conftest.run_cmd(host, "ps -C charon -o user=").split() == ["swan"]
+
+    @pytest.mark.parametrize("host", ["hub00", "hub01", "end00", "end01"])
+    def test_capabilities(self, host: str) -> None:
+        """Charon only keeps the capability to configure the network."""
+        assert conftest.capabilities(host, "charon") == {"cap_net_admin"}
