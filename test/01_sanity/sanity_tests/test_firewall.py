@@ -94,6 +94,17 @@ class TestFirewall:
         assert conftest.ike_answered(PROVIDER, "EXTERNAL", ipv6) == (host in CORE)
         assert not conftest.ike_answered(PROVIDER, "EXTERNAL", ipv4)
 
+    @pytest.mark.parametrize("host", list(EXTERNAL))
+    def test_router_advertisement_ignored(self, host: str) -> None:
+        """A router advertisement on the external network adds no route."""
+        conftest.advertise_router(PROVIDER, "EXTERNAL", "eth1")
+
+        routes = conftest.run_cmd(
+            host,
+            "ip netns exec EXTERNAL ip -6 route show proto ra",
+        )
+        assert not routes.strip()
+
     @pytest.mark.parametrize("host", list(CORE))
     def test_core(self, host: str) -> None:
         """Over its tunnel a hub answers pings, next to BGP and BFD."""

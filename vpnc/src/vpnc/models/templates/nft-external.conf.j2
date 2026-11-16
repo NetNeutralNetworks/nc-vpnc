@@ -16,6 +16,8 @@
 
     chain input {
         type filter hook input priority filter; policy drop;
+        {#- Routes are configured: anyone on the external network could add one. #}
+        icmpv6 type nd-router-advert drop
         meta l4proto ipv6-icmp jump icmpv6-in-out
         {#- Path MTU discovery of the tunnels: only for packets vpnc sent. #}
         icmp type destination-unreachable icmp code frag-needed ct state related accept
