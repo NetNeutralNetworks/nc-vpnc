@@ -32,6 +32,15 @@ def test_vpnc_running_without_restarts(host: str) -> None:
     assert int(processes) >= 1
 
 
+@pytest.mark.parametrize("host", ["hub00", "hub01"])
+def test_ssh_is_unprivileged(host: str) -> None:
+    """The ssh of an SSH connection isn't root and has no capabilities."""
+    users = conftest.run_cmd(host, "ps -C ssh -o user:32=").split()
+
+    assert set(users) == {"vpnc-ssh"}
+    assert conftest.capabilities(host, "ssh") == set()
+
+
 SECRET_DIRS = (
     "/opt/ncubed/config/vpnc/active /opt/ncubed/config/vpnc/history"
     " /etc/swanctl/conf.d /etc/wireguard"

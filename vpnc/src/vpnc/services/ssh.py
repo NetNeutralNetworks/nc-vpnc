@@ -7,7 +7,6 @@ import functools
 import logging
 import os
 import pathlib
-import pwd
 import re
 import socket
 import subprocess
@@ -17,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import vpnc.models.connections
 import vpnc.models.ssh
-from vpnc import config, files, helpers
+from vpnc import accounts, config, files, helpers
 from vpnc.models import enums
 from vpnc.models.post_quantum import OPENSSH_KEX
 
@@ -27,8 +26,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("vpnc")
 
-SSH_SOCKET_DIR = pathlib.Path("/run/vpnc/ssh/")
-SSH_SOCKET_DIR.mkdir(mode=0o770, parents=True, exist_ok=True)
+# Of ssh's account; not in /run/vpnc, which is root's.
+SSH_SOCKET_DIR = pathlib.Path("/run/vpnc-ssh/")
 
 # Seconds before reconnecting, doubled after each failed attempt.
 RESTART_DELAY_MIN = 1
@@ -127,8 +126,8 @@ class SetupError(Exception):
 
 
 def public_keys() -> list[str]:
-    """Return the public keys ssh logs in with: of the default keys of vpnc's user."""
-    directory = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir, ".ssh")
+    """Return the public keys ssh logs in with: of the default keys of its account."""
+    directory = pathlib.Path(accounts.user(accounts.SSH).pw_dir, ".ssh")
     keys: list[str] = []
     for path in sorted(directory.glob("id_*")):
         if path.suffix == ".pub":
@@ -140,7 +139,13 @@ def public_keys() -> list[str]:
                 public.read_text(encoding="utf-8")
                 if public.exists()
                 else subprocess.run(  # noqa: S603
-                    ["/usr/bin/ssh-keygen", "-y", "-f", str(path)],
+                    [
+                        *accounts.command(accounts.SSH),
+                        "/usr/bin/ssh-keygen",
+                        "-y",
+                        "-f",
+                        str(path),
+                    ],
                     stdin=subprocess.DEVNULL,
                     capture_output=True,
                     text=True,
@@ -187,6 +192,7 @@ def remote_setup(
         routes=[str(address.network) for address in (*if_ipv4, *if_ipv6)],
         interface=interface or cfg.remote_config_interface,
         keys=public_keys(),
+        account=accounts.SSH,
     )
 
 
@@ -218,6 +224,21 @@ def unsupported_kex(config: vpnc.models.ssh.ConnectionConfigSSH) -> str | None:
 def known_hosts(connection_name: str) -> pathlib.Path:
     """Return the file with the host key of a connection's server."""
     return config.VPNC_KNOWN_HOSTS_DIR.joinpath(connection_name)
+
+
+def _prepare_directories() -> None:
+    """Give the directories ssh writes in to its account."""
+    user = accounts.user(accounts.SSH)
+    SSH_SOCKET_DIR.mkdir(mode=0o700, exist_ok=True)
+    os.chown(SSH_SOCKET_DIR, user.pw_uid, user.pw_gid)
+    directory = config.VPNC_KNOWN_HOSTS_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    # Root's before, with the files ssh made as root.
+    if directory.stat().st_uid != user.pw_uid:
+        for path in directory.iterdir():
+            os.chown(path, user.pw_uid, user.pw_gid, follow_symlinks=False)
+        os.chown(directory, user.pw_uid, user.pw_gid)
+        directory.chmod(0o700)
 
 
 def start(
@@ -264,15 +285,17 @@ def _start(
         )
         return
 
+    _prepare_directories()
     # A stale socket (e.g. after a kill) would stop ssh from becoming master.
     ssh_master_socket.unlink(missing_ok=True)
-    config.VPNC_KNOWN_HOSTS_DIR.mkdir(parents=True, exist_ok=True)
 
     command = [
         "/usr/sbin/ip",
         "netns",
         "exec",
         network_instance.id,
+        # It talks to the tenant's server: not as root, without capabilities.
+        *accounts.command(accounts.SSH),
         "/usr/bin/ssh",
         # The server is set up beforehand (remote_setup): no command to run.
         "-N",

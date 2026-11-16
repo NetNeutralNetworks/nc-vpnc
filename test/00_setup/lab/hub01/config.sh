@@ -9,8 +9,7 @@ do
     cp -f ${SCRIPTDIR}/C0001.yaml /opt/ncubed/config/vpnc/${i}/C0001.yaml
 done
 
-cp -f ${SCRIPTDIR}/id_ed25519 /root/.ssh/
-chmod 600 /root/.ssh/id_ed25519
+install -m 600 -o vpnc-ssh -g vpnc-ssh ${SCRIPTDIR}/id_ed25519 /var/lib/vpnc-ssh/.ssh/
 
 ${SCRIPTDIR}/../snmpd.sh
 ${SCRIPTDIR}/../journald.sh

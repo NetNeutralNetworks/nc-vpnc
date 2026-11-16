@@ -6,14 +6,21 @@ import pwd
 
 # Created by make.
 VPNCMANGLE = "vpnc-mangle"
+# Its home holds the keys ssh logs in with (.ssh).
+SSH = "vpnc-ssh"
 
 SETPRIV = "/usr/bin/setpriv"
+
+
+def user(account: str) -> pwd.struct_passwd:
+    """Return an account's user (KeyError if missing)."""
+    return pwd.getpwnam(account)
 
 
 def exists(account: str) -> bool:
     """Return whether an account exists."""
     try:
-        pwd.getpwnam(account)
+        user(account)
     except KeyError:
         return False
     return True
@@ -24,14 +31,14 @@ def command(account: str, capabilities: tuple[str, ...] = ()) -> list[str]:
 
     With only these capabilities (e.g. net_admin), and no way to gain others.
     """
-    user = pwd.getpwnam(account)
+    entry = user(account)
     kept = ",".join(f"+{capability}" for capability in capabilities)
     return [
         SETPRIV,
         "--reuid",
-        str(user.pw_uid),
+        str(entry.pw_uid),
         "--regid",
-        str(user.pw_gid),
+        str(entry.pw_gid),
         "--clear-groups",
         "--bounding-set",
         ",".join(filter(None, ("-all", kept))),

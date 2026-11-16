@@ -10,7 +10,7 @@ for program in netplan networkctl iptables ip6tables sshd; do
     command -v $program > /dev/null || { echo "$program is missing." >&2; exit 1; }
 done
 
-# The account, with the keys of root on {{ hub }}.
+# The account, with the keys of {{ account }} on {{ hub }}.
 id {{ username }} > /dev/null 2>&1 ||
     useradd --system --create-home --shell /usr/sbin/nologin {{ username }}
 home=$(getent passwd {{ username }} | cut -d: -f6)
@@ -24,7 +24,7 @@ done << 'END'
 {{ keys | join("\n") }}
 END
 {%- else %}
-# No key of root was found on {{ hub }}: add its public key yourself.
+# No key of {{ account }} was found on {{ hub }}: add its public key yourself.
 touch "$home/.ssh/authorized_keys"
 {%- endif %}
 chown {{ username }}:"$group" "$home/.ssh/authorized_keys"
