@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import vpnc.models.connections
 import vpnc.models.ssh
-from vpnc import helpers
+from vpnc import config, helpers
 from vpnc.models import enums
 from vpnc.models.post_quantum import OPENSSH_KEX
 
@@ -171,6 +171,11 @@ def unsupported_kex(config: vpnc.models.ssh.ConnectionConfigSSH) -> str | None:
     return None if kex in supported else kex
 
 
+def known_hosts(connection_name: str) -> pathlib.Path:
+    """Return the file with the host key of a connection's server."""
+    return config.VPNC_KNOWN_HOSTS_DIR.joinpath(connection_name)
+
+
 def start(
     network_instance: vpnc.models.network_instance.NetworkInstance,
     connection: vpnc.models.connections.Connection,
@@ -229,6 +234,7 @@ def _start(
 
     # A stale socket (e.g. after a kill) would stop ssh from becoming master.
     ssh_master_socket.unlink(missing_ok=True)
+    config.VPNC_KNOWN_HOSTS_DIR.mkdir(parents=True, exist_ok=True)
 
     command = [
         "/usr/sbin/ip",
@@ -252,6 +258,8 @@ def _start(
         "ServerAliveCountMax=5",
         "-o",
         "StrictHostKeyChecking=accept-new",
+        "-o",
+        f"UserKnownHostsFile={known_hosts(connection_name)}",
         *(
             [
                 "-o",

@@ -48,6 +48,9 @@ VPNC_C_CONFIG_PATH_SERVICE = VPNC_C_CONFIG_DIR.joinpath(f"{DEFAULT_TENANT}.yaml"
 VPNC_HISTORY_DIR = Path("/opt/ncubed/config/vpnc/history/")
 # Files of earlier configuration versions, from before they were converted
 VPNC_BACKUP_DIR = Path("/opt/ncubed/config/vpnc/backup/")
+# The host keys of the servers of SSH connections, a file per connection:
+# tenants use the same addresses.
+VPNC_KNOWN_HOSTS_DIR = Path("/opt/ncubed/config/vpnc/known_hosts/")
 # Directories holding secrets (pre-shared and private keys)
 SECRET_DIRS = (
     VPNC_A_CONFIG_DIR,
