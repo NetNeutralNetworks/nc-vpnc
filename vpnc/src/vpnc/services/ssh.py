@@ -5,7 +5,11 @@ from __future__ import annotations
 import atexit
 import functools
 import logging
+import os
 import pathlib
+import pwd
+import re
+import socket
 import subprocess
 import threading
 import time
@@ -13,7 +17,7 @@ from typing import TYPE_CHECKING
 
 import vpnc.models.connections
 import vpnc.models.ssh
-from vpnc import config, helpers
+from vpnc import config, files, helpers
 from vpnc.models import enums
 from vpnc.models.post_quantum import OPENSSH_KEX
 
@@ -144,6 +148,79 @@ def _remote_script(tun: str, routes: list[str], interface: str | None) -> str:
         ),
     ]
     return ";\n".join(commands)
+
+
+TEMPLATES_ENV = files.templates(__file__)
+# A public key without its comment, e.g. "ssh-ed25519 AAAA...".
+PUBLIC_KEY_RE = re.compile(r"[a-z0-9@.-]+ [A-Za-z0-9+/=]+")
+
+
+class SetupError(Exception):
+    """A connection has no remote side to set up for an account."""
+
+
+def public_keys() -> list[str]:
+    """Return the public keys ssh logs in with: of the default keys of vpnc's user."""
+    directory = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir, ".ssh")
+    keys: list[str] = []
+    for path in sorted(directory.glob("id_*")):
+        if path.suffix == ".pub":
+            continue
+        public = path.with_name(f"{path.name}.pub")
+        try:
+            # Derived from the private key where its public key isn't kept.
+            text = (
+                public.read_text(encoding="utf-8")
+                if public.exists()
+                else subprocess.run(  # noqa: S603
+                    ["/usr/bin/ssh-keygen", "-y", "-f", str(path)],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=10,
+                ).stdout
+            )
+        except (OSError, subprocess.SubprocessError):
+            logger.warning("Reading the public key of %s failed.", path)
+            continue
+        key = " ".join(text.split()[:2])
+        if PUBLIC_KEY_RE.fullmatch(key) and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def remote_setup(
+    network_instance: vpnc.models.network_instance.NetworkInstance,
+    connection: vpnc.models.connections.Connection,
+    username: str | None = None,
+    interface: str | None = None,
+) -> str:
+    """Return a script that sets up the remote side for an unprivileged account.
+
+    Root runs it there once; after it the connection needs no remote_config.
+    By default for the connection's username, with what comes through the
+    tunnel masqueraded out of its remote_config_interface.
+    """
+    cfg = connection.config
+    name = connection.name(network_instance)
+    if cfg.type != enums.ConnectionType.SSH:
+        msg = f"{name} isn't an SSH connection."
+        raise SetupError(msg)
+    username = username or cfg.username
+    if username == "root":
+        msg = f"{name} logs in as root, which needs no setup: give another username."
+        raise SetupError(msg)
+    if_ipv4, if_ipv6 = connection.calc_interface_ip_addresses(network_instance)
+    return TEMPLATES_ENV.get_template("ssh-setup.sh.j2").render(
+        connection=name,
+        hub=re.sub(r"[^A-Za-z0-9._-]", "", socket.gethostname()),
+        username=username,
+        tun=f"tun{cfg.remote_tunnel_id}",
+        routes=[str(address.network) for address in (*if_ipv4, *if_ipv6)],
+        interface=interface or cfg.remote_config_interface,
+        keys=public_keys(),
+    )
 
 
 @functools.cache

@@ -1,0 +1,127 @@
+#!/bin/sh
+{#- The remote side of an SSH connection, set up once by root for an unprivileged account. #}
+# Sets up this server for the SSH tunnel {{ tun }} of vpnc connection {{ connection }} on
+# {{ hub }}: the account {{ username }} can open the tunnel and nothing else.
+# Run it as root; it can be run again. For Ubuntu (netplan, systemd-networkd).
+# On {{ hub }} the connection needs username {{ username }} and remote_config false.
+set -eu
+
+for program in netplan networkctl iptables ip6tables sshd; do
+    command -v $program > /dev/null || { echo "$program is missing." >&2; exit 1; }
+done
+
+# The account, with the keys of root on {{ hub }}.
+id {{ username }} > /dev/null 2>&1 ||
+    useradd --system --create-home --shell /usr/sbin/nologin {{ username }}
+home=$(getent passwd {{ username }} | cut -d: -f6)
+group=$(id -gn {{ username }})
+install -d -m 700 -o {{ username }} -g "$group" "$home/.ssh"
+{%- if keys %}
+while read -r key; do
+    grep -qxF "$key" "$home/.ssh/authorized_keys" 2> /dev/null ||
+        echo "$key" >> "$home/.ssh/authorized_keys"
+done << 'END'
+{{ keys | join("\n") }}
+END
+{%- else %}
+# No key of root was found on {{ hub }}: add its public key yourself.
+touch "$home/.ssh/authorized_keys"
+{%- endif %}
+chown {{ username }}:"$group" "$home/.ssh/authorized_keys"
+chmod 600 "$home/.ssh/authorized_keys"
+
+# The tunnel's interface, which the account may use.
+cat > /etc/systemd/network/50-vpnc-{{ tun }}.netdev << 'END'
+[NetDev]
+Name={{ tun }}
+Kind=tun
+
+[Tun]
+User={{ username }}
+END
+
+# Its routes: the addresses of {{ hub }} on the tunnel.
+cat > /etc/netplan/60-vpnc-{{ tun }}.yaml << 'END'
+network:
+  version: 2
+  ethernets:
+    {{ tun }}:
+      renderer: networkd
+      ignore-carrier: true
+      routes:
+{%- for route in routes %}
+      - to: {{ route }}
+        scope: link
+{%- endfor %}
+END
+chmod 600 /etc/netplan/60-vpnc-{{ tun }}.yaml
+netplan generate
+networkctl reload
+{%- if interface %}
+
+# Routing between the tunnel and {{ interface }}.
+cat > /etc/sysctl.d/60-vpnc-{{ tun }}.conf << 'END'
+net.ipv4.conf.all.forwarding = 1
+net.ipv6.conf.all.forwarding = 1
+END
+sysctl -q -p /etc/sysctl.d/60-vpnc-{{ tun }}.conf
+{%- endif %}
+
+# The firewall rules, added at every start: what comes through the tunnel is
+# accepted{% if interface %}, and masqueraded out of {{ interface }}{% endif %}.
+cat > /usr/local/sbin/vpnc-{{ tun }}-firewall << 'END'
+#!/bin/sh
+set -eu
+rule() {
+    program=$1 table=$2
+    shift 2
+    $program -w -t $table -C "$@" 2> /dev/null || $program -w -t $table -I "$@"
+}
+established="-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
+for program in iptables ip6tables; do
+    rule $program filter INPUT -i {{ tun }} -j ACCEPT
+    rule $program filter OUTPUT -o {{ tun }} $established
+{%- if interface %}
+    rule $program filter FORWARD -i {{ tun }} -o {{ interface }} -j ACCEPT
+    rule $program filter FORWARD -i {{ interface }} -o {{ tun }} $established
+{%- endif %}
+done
+{%- if interface %}
+{%- for route in routes %}
+rule {{ "ip6tables" if ":" in route else "iptables" }} nat POSTROUTING -s {{ route }} -o {{ interface }} -j MASQUERADE
+{%- endfor %}
+{%- endif %}
+END
+chmod 755 /usr/local/sbin/vpnc-{{ tun }}-firewall
+cat > /etc/systemd/system/vpnc-{{ tun }}-firewall.service << 'END'
+[Unit]
+Description=Firewall rules of the vpnc SSH tunnel {{ tun }}
+After=ufw.service netfilter-persistent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/vpnc-{{ tun }}-firewall
+
+[Install]
+WantedBy=multi-user.target
+END
+systemctl daemon-reload
+systemctl enable --quiet vpnc-{{ tun }}-firewall.service
+systemctl restart vpnc-{{ tun }}-firewall.service
+
+# The account can only open the tunnel.
+cat > /etc/ssh/sshd_config.d/60-vpnc-{{ username }}.conf << 'END'
+Match User {{ username }}
+    PermitTunnel point-to-point
+    AllowTcpForwarding no
+    AllowStreamLocalForwarding no
+    AllowAgentForwarding no
+    X11Forwarding no
+    PermitTTY no
+    ForceCommand /bin/false
+END
+sshd -t
+systemctl reload ssh 2> /dev/null || systemctl reload sshd
+
+echo "{{ tun }} is ready for {{ username }}."

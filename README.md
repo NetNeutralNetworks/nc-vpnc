@@ -146,6 +146,14 @@ network_instances:
 | `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config` (false: also configure the remote end), `remote_config_interface` (masquerade on the remote end), `post_quantum` (see below) |
 | `PHYSICAL` | `interface_name` |
 
+An SSH connection logs in as `username`. As root, `remote_config: true` sets up the server at every connect. For any other account, set up the server (Ubuntu) once, as root, with the script `vpnctl` makes for the connection:
+
+```bash
+~$ sudo vpnctl connections ssh-setup C0001-00-1 [--username vpnc] [--interface eth0] | ssh root@server sh
+```
+
+It adds the account with the hub's key, the tunnel's interface and routes, the firewall rules (masquerading out of `--interface`, by default `remote_config_interface`) and an sshd configuration in which the account can only open the tunnel. After it the connection needs that `username` and no `remote_config`.
+
 `psk`, `private_key` and the PPK `key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
 
 `EXTERNAL` only accepts IKE and ESP from the `remote_addrs` of IPsec connections, and WireGuard from the `remote_addrs` of WireGuard connections, on their `local_port`. Peers of disabled connections aren't accepted, nor is a WireGuard peer that moves to another address.
@@ -209,6 +217,7 @@ State, read live:
 ~$ sudo vpnctl connections show C0001-00-0   # e.g. last change, IKE and child SAs, probes, traffic counters and rates
 ~$ sudo vpnctl connections probes C0001-00-0 # per probe its tests of the last 3 minutes: result and response time
 ~$ sudo vpnctl connections logs C0001-00-0 [-n 100] [-f]   # vpnc's, ssh's and charon's lines
+~$ sudo vpnctl connections ssh-setup C0001-00-1 [--username vpnc] [--interface eth0]   # a script that sets up the SSH server for an account
 ~$ sudo vpnctl bgp neighbors                 # hub mode; per address family
 ~$ sudo vpnctl bgp neighbor fd00:1:2::1      # in detail
 ~$ sudo vpnctl bgp routes [--received-from|--advertised-to NEIGHBOR]
@@ -279,7 +288,7 @@ vpnctl uses vpnc's local REST API on the Unix socket `/run/vpnc/api.sock` (root 
 | Path | |
 |---|---|
 | `/v1/status`, `/v1/version` | State and versions |
-| `/v1/tenants`, `/v1/network-instances`, `/v1/connections` | Live state; connections also `stop`, `start`, `reset`, `probes` and `logs` |
+| `/v1/tenants`, `/v1/network-instances`, `/v1/connections` | Live state; connections also `stop`, `start`, `reset`, `probes`, `logs` and `ssh-setup` |
 | `/v1/config/tenants/{id}`, `/v1/config/service` | Configuration: `GET`, `PUT`, `PATCH` (merge patch), `DELETE`, `diff`, `commit`, `confirm`, `discard`, `history` |
 | `/v1/bgp/...` | Neighbors and routes |
 | `/v1/network-instances/{id}/routes`, `ping`, `traceroute`, `tcp` | Troubleshooting |
