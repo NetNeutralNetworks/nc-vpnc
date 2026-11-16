@@ -700,6 +700,7 @@ class NetworkInstanceDownlink(NetworkInstance):
             core_interfaces=[self.veth_downlink],
             downlink_interfaces=sorted(self._get_network_instance_connections()),
             nptv6_networks=nptv6_networks,
+            nat64_scope=configuration.get_network_instance_nat64_scope(self),
             probes=self._probe_rules(),
         )
         return updated

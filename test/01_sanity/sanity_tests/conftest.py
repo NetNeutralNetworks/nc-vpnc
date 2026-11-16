@@ -12,6 +12,7 @@ if TEST_DIR not in sys.path:
 from lab_helpers import (  # noqa: E402
     ike_answered,
     key_exchanges,
+    route,
     run_cmd,
     run_cmd_shell,
     run_cmd_vtysh,
@@ -25,6 +26,7 @@ from lab_helpers import (  # noqa: E402
 __all__ = [
     "ike_answered",
     "key_exchanges",
+    "route",
     "run_cmd",
     "run_cmd_shell",
     "run_cmd_vtysh",

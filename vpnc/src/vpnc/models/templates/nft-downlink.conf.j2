@@ -1,4 +1,12 @@
 {#- DOWNLINK: IPv6 from CORE and return traffic; SSH for the tunnels and probes; NPTv6 and NAT66. #}
+{%- if nat64_scope %}
+    {#- Before Jool, which translates what arrives on any interface, past the forward chain. #}
+    chain nat64 {
+        type filter hook prerouting priority mangle; policy accept;
+        iifname != { "{{ core_interfaces | join('", "') }}" } ip6 daddr {{ nat64_scope }} drop
+    }
+
+{% endif %}
     chain input {
         type filter hook input priority filter; policy drop;
         meta l4proto ipv6-icmp jump icmpv6-in-out

@@ -24,6 +24,13 @@ CORE = {"hub00": "fd00:1:2::", "hub01": "fd00:1:2::2"}
 # The client behind an endpoint, and the endpoint's address in its network.
 ENDPOINT = {"end00": ("cli00", "172.16.30.254"), "end01": ("cli01", "172.17.30.254")}
 
+# A customer's router (the SSH server): its ends of the hubs' SSH tunnels.
+CUSTOMER = "cli00"
+TUNNEL = {"hub00": "tun0", "hub01": "tun1"}
+# The NAT64 prefix of its network instance (C0001-00), and a host in its network.
+NAT64 = "fdcc:0:c:1::"
+CUSTOMER_HOST = "172.16.30.1"
+
 NETWORK_INSTANCES = [
     (host, network_instance)
     for host, network_instances in {
@@ -94,6 +101,12 @@ class TestFirewall:
 
         assert pings(client, address)
         assert tcp_unanswered(client, address)
+
+    @pytest.mark.parametrize("host", list(TUNNEL))
+    def test_nat64_from_management_only(self, host: str) -> None:
+        """A customer can't use a hub's NAT64 to get back into its own network."""
+        with conftest.route(CUSTOMER, f"{NAT64}/96 dev {TUNNEL[host]}"):
+            assert not pings(CUSTOMER, f"{NAT64}{CUSTOMER_HOST}")
 
     @pytest.mark.parametrize(("host", "network_instance"), NETWORK_INSTANCES)
     def test_no_other_tables(self, host: str, network_instance: str) -> None:
