@@ -705,7 +705,9 @@ def vpnctl_edit(sed_expression: str) -> str:
     )
 
 
-NPTV6_RULE_RE = re.compile(r"ip6 daddr (\S+) dnat (?:ip6 )?prefix to (\S+)")
+NPTV6_RULE_RE = re.compile(
+    r"ip6 daddr (\S+) (?:counter packets \d+ bytes \d+ )?dnat (?:ip6 )?prefix to (\S+)",
+)
 
 
 def nptv6_mappings(netns: str) -> set[tuple[str, str]]:

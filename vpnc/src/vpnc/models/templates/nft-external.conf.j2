@@ -17,35 +17,38 @@
     chain input {
         type filter hook input priority filter; policy drop;
         {#- Routes are configured: anyone on the external network could add one. #}
-        icmpv6 type nd-router-advert drop
-        meta l4proto ipv6-icmp jump icmpv6-in-out
+        icmpv6 type nd-router-advert counter drop
+        meta l4proto ipv6-icmp counter jump icmpv6-in-out
         {#- Path MTU discovery of the tunnels: only for packets vpnc sent. #}
-        icmp type destination-unreachable icmp code frag-needed ct state related accept
-        ip saddr @ipsec_peers_ipv4 jump ipsec-peers
-        ip6 saddr @ipsec_peers_ipv6 jump ipsec-peers
-        ip saddr . udp dport @wireguard_peers_ipv4 accept
-        ip6 saddr . udp dport @wireguard_peers_ipv6 accept
+        icmp type destination-unreachable icmp code frag-needed ct state related counter accept
+        ip saddr @ipsec_peers_ipv4 counter jump ipsec-peers
+        ip6 saddr @ipsec_peers_ipv6 counter jump ipsec-peers
+        ip saddr . udp dport @wireguard_peers_ipv4 counter accept
+        ip6 saddr . udp dport @wireguard_peers_ipv6 counter accept
+        counter drop
     }
 
     chain ipsec-peers {
-        meta l4proto esp accept
+        meta l4proto esp counter accept
         {#- No source port, so peers behind a NAT can connect. #}
-        udp dport { 500, 4500 } accept
+        udp dport { 500, 4500 } counter accept
     }
 
     chain forward {
         type filter hook forward priority filter; policy drop;
+        counter drop
     }
 
     chain output {
         type filter hook output priority filter; policy drop;
-        meta l4proto ipv6-icmp jump icmpv6-in-out
-        meta l4proto esp accept
-        udp sport 500 udp dport 500 accept
-        udp sport 4500 udp dport 4500 accept
-        udp sport @wireguard_ports accept
+        meta l4proto ipv6-icmp counter jump icmpv6-in-out
+        meta l4proto esp counter accept
+        udp sport 500 udp dport 500 counter accept
+        udp sport 4500 udp dport 4500 counter accept
+        udp sport @wireguard_ports counter accept
         {#- Return traffic to peers behind a NAT. #}
-        meta l4proto udp ct state established,related accept
+        meta l4proto udp ct state established,related counter accept
+        counter drop
     }
 
 {% include 'nft-icmpv6-in-out.conf.j2' %}

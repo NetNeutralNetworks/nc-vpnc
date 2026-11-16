@@ -33,7 +33,7 @@ def vpnctl(host: str, args: str) -> Any:  # noqa: ANN401
 
 
 def connection(host: str, name: str) -> dict[str, Any]:
-    """Return a connection's state and details."""
+    """Return a connection's state."""
     return vpnctl(host, f"connections show {name}")
 
 
@@ -68,11 +68,11 @@ def ssh_pid() -> str:
 
 def is_down(host: str, name: str) -> bool:
     """Return whether the connection is really down (no SA, peer or ssh)."""
-    details = connection(host, name)["details"]
+    tunnel = connection(host, name)["tunnel"] or {}
     if (host, name) == IPSEC:
-        return "ike_state" not in details
+        return not tunnel
     if (host, name) == WIREGUARD:
-        return details["last_handshake"] is None
+        return tunnel.get("last_handshake") is None
     return not ssh_pid() and not conftest.ssh_tunnel_works(SSH[0])
 
 
@@ -131,7 +131,7 @@ class TestConnectionControl:
 
     def test_reset(self) -> None:
         """A reset sets up a new IKE SA, WireGuard session and ssh process."""
-        ike_id = connection(*IPSEC)["details"]["ike_id"]
+        ike_id = connection(*IPSEC)["tunnel"]["session_id"]
         pid = ssh_pid()
         started = int(time.time())
 
@@ -139,11 +139,11 @@ class TestConnectionControl:
             conftest.run_cmd(host, f"{VPNCTL} connections reset {name}")
 
         def reset_done() -> bool:
-            handshake = connection(*WIREGUARD)["details"]["last_handshake"]
+            handshake = (connection(*WIREGUARD)["tunnel"] or {}).get("last_handshake")
             ipsec = connection(*IPSEC)
             return (
                 ipsec["oper_status"] == "UP"
-                and ipsec["details"]["ike_id"] != ike_id
+                and ipsec["tunnel"]["session_id"] != ike_id
                 and handshake is not None
                 and timestamp(handshake) >= started
                 and ssh_pid() not in ("", pid)
@@ -159,7 +159,7 @@ class TestConnectionControl:
         assert output.startswith("Reset C0001-01-0;")
 
         def new_handshake() -> bool:
-            handshake = connection(*WIREGUARD)["details"]["last_handshake"]
+            handshake = (connection(*WIREGUARD)["tunnel"] or {}).get("last_handshake")
             return handshake is not None and timestamp(handshake) >= handshake_before
 
         conftest.wait_until(new_handshake, timeout=UP_TIMEOUT, message="a handshake")

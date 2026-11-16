@@ -10,7 +10,7 @@ from time import sleep
 import scapy.all as sc
 from netfilterqueue import NetfilterQueue, Packet
 
-from . import config, helpers, nftables, observers
+from . import config, helpers, nftables, observers, stats
 
 logger = logging.getLogger("vpncmangle")
 
@@ -119,6 +119,7 @@ def mangle_dns(pkt: Packet) -> None:
         _mangle_dns(pkt)
     except Exception:
         logger.warning("Dropping a DNS response that can't be translated.", exc_info=True)
+        stats.dropped(stats.ERROR)
         # Fails if it already got a verdict.
         with contextlib.suppress(Exception):
             pkt.drop()
@@ -131,6 +132,7 @@ def _mangle_dns(pkt: Packet) -> None:
     # Unparsable: a client may still read addresses from it.
     if not pkt_sc.haslayer(sc.DNS):
         logger.warning("Dropping a packet from port 53 that isn't DNS: %s", pkt_sc)
+        stats.dropped(stats.NOT_DNS)
         pkt.drop()
         return
     # If not a response (QR field, query is 0, response 1).
@@ -160,12 +162,14 @@ def _mangle_dns(pkt: Packet) -> None:
     acl_match = config.ACL_MATCH
     if not acl_match:
         logger.error("No configuration loaded.")
+        stats.dropped(stats.NO_TRANSLATIONS)
         pkt.drop()
         return
     ni_config: config.VpncMangleConfig | None = None
-    for local_network, _, translations in acl_match:
+    ni_id = ""
+    for local_network, name, translations in acl_match:
         if ipv6_src_addr in local_network:
-            ni_config = translations
+            ni_config, ni_id = translations, name
             break
 
     if ni_config is None:
@@ -173,6 +177,7 @@ def _mangle_dns(pkt: Packet) -> None:
             "IPv6 source address '%s' doesn't seem to match any configured address/network instance",
             ipv6_src_addr,
         )
+        stats.dropped(stats.UNKNOWN_SOURCE)
         pkt.drop()
         return
 
@@ -194,9 +199,11 @@ def _mangle_dns(pkt: Packet) -> None:
     try:
         pkt.set_payload(bytes(pkt_sc))
         pkt.accept()
+        stats.translated(ni_id)
         logger.debug("Packet sent.")
     except Exception:
         logger.warning("Error occurred mangling DNS.", exc_info=True)
+        stats.dropped(stats.ERROR, ni_id)
         pkt.drop()
 
 
@@ -212,6 +219,7 @@ def main() -> None:
 
     mangle_obs = observers.observe()
     mangle_obs.start()
+    stats.start()
 
     while True:
         for queue_number in range(retries):

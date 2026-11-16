@@ -1,47 +1,49 @@
 {#- CORE: BGP and BFD from the uplinks, IPv6 forwarded from them; no IPv4 except forwarding in ENDPOINT mode. #}
     chain input {
         type filter hook input priority filter; policy drop;
-        meta l4proto ipv6-icmp jump icmpv6-in-out
-        meta nfproto ipv6 ct state established,related accept
+        meta l4proto ipv6-icmp counter jump icmpv6-in-out
+        meta nfproto ipv6 ct state established,related counter accept
 {%- if mode.name == "HUB" %}
   {%- for interface in interfaces %}
     {%- if bgp_neighbors %}
-        iifname "{{ interface }}" ip6 saddr { {{ bgp_neighbors | join(", ") }} } tcp dport 179 accept
+        iifname "{{ interface }}" ip6 saddr { {{ bgp_neighbors | join(", ") }} } tcp dport 179 counter accept
     {%- endif %}
         {#- BFD: single hop, echo, multihop and micro. #}
-        meta nfproto ipv6 iifname "{{ interface }}" udp dport { 3784, 3785, 4784, 6784 } accept
+        meta nfproto ipv6 iifname "{{ interface }}" udp dport { 3784, 3785, 4784, 6784 } counter accept
   {%- endfor %}
 {%- endif %}
+        counter drop
     }
 
     chain forward {
         type filter hook forward priority filter; policy drop;
 {%- if mode.name == "HUB" %}
         {#- vpncmangle only translates DNS over UDP. #}
-        meta nfproto ipv6 tcp dport 53 reject with tcp reset
+        meta nfproto ipv6 tcp dport 53 counter reject with tcp reset
 {%- endif %}
-        meta nfproto ipv6 ct state established,related accept
+        meta nfproto ipv6 ct state established,related counter accept
 {%- if mode.name == "ENDPOINT" %}
-        meta nfproto ipv4 ct state established,related accept
+        meta nfproto ipv4 ct state established,related counter accept
 {%- endif %}
 {%- for interface in interfaces %}
         {#- Nothing is opened to an uplink, or routed between uplinks. #}
-        oifname "{{ interface }}" drop
+        oifname "{{ interface }}" counter drop
 {%- endfor %}
 {%- for interface in interfaces %}
         {#- From downlinks only ICMPv6 that belongs to a connection, above. #}
-        meta nfproto ipv6 iifname "{{ interface }}" jump icmpv6-forward
-        meta nfproto ipv6 iifname "{{ interface }}" accept
+        meta nfproto ipv6 iifname "{{ interface }}" counter jump icmpv6-forward
+        meta nfproto ipv6 iifname "{{ interface }}" counter accept
   {%- if mode.name == "ENDPOINT" %}
-        meta nfproto ipv4 iifname "{{ interface }}" accept
+        meta nfproto ipv4 iifname "{{ interface }}" counter accept
   {%- endif %}
 {%- endfor %}
+        counter drop
     }
 
     chain output {
         type filter hook output priority filter; policy accept;
-        meta l4proto ipv6-icmp jump icmpv6-in-out
-        meta nfproto ipv4 drop
+        meta l4proto ipv6-icmp counter jump icmpv6-in-out
+        meta nfproto ipv4 counter drop
     }
 
 {% include 'nft-icmpv6-in-out.conf.j2' %}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import dataclasses
 import datetime
@@ -16,13 +17,15 @@ from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
+from pyroute2.netlink.exceptions import NetlinkError
 
 import vpnc
 from vpnc import config, helpers
 from vpnc.models import enums, tenant
-from vpnc.network import state, traffic
-from vpnc.api import config_files
-from vpnc.services import charon, configuration, probes, vpncmangle, wireguard
+from vpnc.network import nftables, state, traffic
+from vpnc.api import config_files, diagnostics
+from vpnc.models.post_quantum import OPENSSH_KEX
+from vpnc.services import charon, configuration, probes, ssh, vpncmangle, wireguard
 
 if TYPE_CHECKING:
     from vpnc.models.connections import Connection
@@ -92,6 +95,63 @@ class ProbeDetail(ProbeState):
     history: list[ProbeTest]
 
 
+class SecurityAssociation(BaseModel):
+    """An IPsec child SA as negotiated."""
+
+    name: str
+    # Changes when it's set up again (rekeyed).
+    id: int | None
+    # E.g. INSTALLED, REKEYED, DELETED.
+    state: str | None
+    encryption: str | None
+    # None with AEAD encryption (e.g. AES_GCM).
+    integrity: str | None
+    # Of PFS: the classical one and the additional (ML-KEM) ones; empty without.
+    key_exchange: list[str]
+    spi_in: str | None
+    spi_out: str | None
+    local_ts: list[str]
+    remote_ts: list[str]
+    in_octets: int | None
+    in_pkts: int | None
+    out_octets: int | None
+    out_pkts: int | None
+    installed: str | None
+    rekey: str | None
+    expires: str | None
+
+
+class Tunnel(BaseModel):
+    """A VPN connection's session as set up. None/empty where the type lacks it."""
+
+    # IPsec: the IKE SA's, e.g. ESTABLISHED or CONNECTING.
+    state: str | None = None
+    # Changes when the session is set up again: IKE SA id, ssh's process id.
+    session_id: int | None = None
+    # Address:port.
+    local: str | None = None
+    remote: str | None = None
+    # IKE ids; WireGuard public keys; SSH username and the server's host key.
+    local_identity: str | None = None
+    remote_identity: str | None = None
+    encryption: str | None = None
+    integrity: str | None = None
+    prf: str | None = None
+    # The classical one, then the additional (ML-KEM) ones.
+    key_exchange: list[str] = []
+    # IPsec: a post-quantum preshared key was used.
+    ppk: bool | None = None
+    # IPsec: who is behind NAT: NONE, LOCAL, REMOTE or BOTH.
+    nat: str | None = None
+    established: str | None = None
+    rekey: str | None = None
+    # WireGuard.
+    last_handshake: str | None = None
+    allowed_ips: list[str] = []
+    # IPsec: the child SAs.
+    sas: list[SecurityAssociation] = []
+
+
 class ConnectionState(BaseModel):
     """The live state of a connection."""
 
@@ -110,8 +170,10 @@ class ConnectionState(BaseModel):
     mtu: int | None
     addresses: list[str]
     remote: str | None
-    # Type specific, e.g. IKE state or the last WireGuard handshake.
-    details: dict[str, Any]
+    # VPN connections; None while there's no session.
+    tunnel: Tunnel | None
+    # VPN connections: resets by vpnc (stuck or probes failing).
+    auto_resets_24h: int | None
     # Tested every full check while the connection is up.
     probes: list[ProbeState]
     # None without interface.
@@ -138,7 +200,15 @@ class NetworkInstanceState(BaseModel):
     connections: int
     nat64_scope: str | None = None
     nptv6_scope: str | None = None
+    # The rest only for one network instance.
     translations: list[Translation] | None = None
+    # By type: NAT64, NPTV6, ROUTED.
+    sessions: dict[str, int] | None = None
+    # Packets the firewall dropped or rejected since it was last replaced.
+    firewall_dropped: int | None = None
+    # DNS answers vpncmangle translated and dropped (hub downlinks), since it started.
+    dns_answers_translated: int | None = None
+    dns_answers_dropped: int | None = None
 
 
 class TenantState(BaseModel):
@@ -157,6 +227,11 @@ class VpncmangleState(BaseModel):
     running: bool
     # DNS64 and DNS66 translations over all network instances.
     translations: int
+    # DNS answers since vpncmangle started; None if it hasn't counted (yet).
+    answers_translated: int | None
+    answers_dropped: int | None
+    # By reason: NOT_DNS, NO_TRANSLATIONS, UNKNOWN_SOURCE, ERROR.
+    drop_reasons: dict[str, int]
 
 
 class Status(BaseModel):
@@ -277,41 +352,149 @@ def _track(name: str, current: OperStatus) -> tuple[str, int]:
         return seen.last_change, seen.transitions
 
 
+def _endpoint(address: Any, port: Any) -> str | None:  # noqa: ANN401
+    """Return address:port, with an IPv6 address in brackets."""
+    if address is None:
+        return None
+    address = str(address)
+    if port is None:
+        return address
+    return f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
+
+
+def _in(seconds: Any) -> str | None:  # noqa: ANN401
+    """Return the time in seconds (as vici gives it, a string) from now."""
+    return _timestamp(time.time() + int(seconds)) if seconds is not None else None
+
+
+def _algorithm(sa: dict[str, Any], kind: str) -> str | None:
+    """Return an algorithm with its key size, e.g. AES_GCM_16_256."""
+    if (name := sa.get(f"{kind}-alg")) is None:
+        return None
+    keysize = sa.get(f"{kind}-keysize")
+    return f"{name}_{keysize}" if keysize else name
+
+
+def _key_exchanges(sa: dict[str, Any]) -> list[str]:
+    """Return the classical key exchange, then the additional ones (ake1-7)."""
+    keys = ["dh-group", *(f"ake{n}" for n in range(1, 8))]
+    return [sa[key] for key in keys if sa.get(key)]
+
+
+def _nat(sa: dict[str, Any]) -> str:
+    local, remote = sa.get("nat-local") == "yes", sa.get("nat-remote") == "yes"
+    return {
+        (False, False): "NONE",
+        (True, False): "LOCAL",
+        (False, True): "REMOTE",
+        (True, True): "BOTH",
+    }[local, remote]
+
+
+def _child_sa(child: dict[str, Any]) -> SecurityAssociation:
+    def count(key: str) -> int | None:
+        return int(child[key]) if key in child else None
+
+    installed = child.get("install-time")
+    return SecurityAssociation(
+        name=child.get("name", ""),
+        id=int(child["uniqueid"]) if "uniqueid" in child else None,
+        state=child.get("state"),
+        encryption=_algorithm(child, "encr"),
+        integrity=_algorithm(child, "integ"),
+        key_exchange=_key_exchanges(child),
+        spi_in=child.get("spi-in"),
+        spi_out=child.get("spi-out"),
+        local_ts=child.get("local-ts", []),
+        remote_ts=child.get("remote-ts", []),
+        in_octets=count("bytes-in"),
+        in_pkts=count("packets-in"),
+        out_octets=count("bytes-out"),
+        out_pkts=count("packets-out"),
+        installed=_in(-int(installed)) if installed is not None else None,
+        rekey=_in(child.get("rekey-time")),
+        expires=_in(child.get("life-time")),
+    )
+
+
 def _ipsec(
-    name: str,
+    ni: NetworkInstance,
     connection: Connection,
     sas: dict[str, dict[str, Any]],
-) -> tuple[OperStatus, str | None, dict[str, Any]]:
-    sa = sas.get(name)
+) -> tuple[OperStatus, str | None, Tunnel | None]:
+    sa = sas.get(connection.name(ni))
     if sa is None:
-        return "DOWN", str(connection.config.remote_addrs[0]), {}
+        return "DOWN", str(connection.config.remote_addrs[0]), None
     sa = charon.decode(sa)
-    children = [
-        {"name": child.get("name"), "state": child.get("state")}
-        for child in sa.get("child-sas", {}).values()
-    ]
-    details: dict[str, Any] = {
-        "ike_state": sa.get("state"),
-        # Changes when the IKE SA is set up again.
-        "ike_id": int(sa.get("uniqueid", 0)) or None,
-        "child_sas": children,
-    }
+    established = sa.get("established")
+    tunnel = Tunnel(
+        state=sa.get("state"),
+        session_id=int(sa.get("uniqueid", 0)) or None,
+        local=_endpoint(sa.get("local-host"), sa.get("local-port")),
+        remote=_endpoint(sa.get("remote-host"), sa.get("remote-port")),
+        local_identity=sa.get("local-id"),
+        remote_identity=sa.get("remote-id"),
+        encryption=_algorithm(sa, "encr"),
+        integrity=_algorithm(sa, "integ"),
+        prf=sa.get("prf-alg"),
+        key_exchange=_key_exchanges(sa),
+        ppk=sa.get("ppk") == "yes",
+        nat=_nat(sa),
+        established=_in(-int(established)) if established is not None else None,
+        rekey=_in(sa.get("rekey-time") or sa.get("reauth-time")),
+        sas=[_child_sa(child) for child in sa.get("child-sas", {}).values()],
+    )
     current: OperStatus = "UP" if charon.sa_up(sa) else "DORMANT"
-    return current, sa.get("remote-host"), details
+    return current, sa.get("remote-host"), tunnel
+
+
+# Fixed by the protocol, named as strongSwan names them.
+WIREGUARD_ENCRYPTION = "CHACHA20_POLY1305"
+WIREGUARD_KEY_EXCHANGE = "CURVE_25519"
 
 
 def _wireguard(
     ni: NetworkInstance,
     ifname: str,
-) -> tuple[OperStatus, str | None, dict[str, Any]]:
+) -> tuple[OperStatus, str | None, Tunnel | None]:
     try:
         peer = wireguard.peer_status(ni.id, ifname)
     except Exception:  # noqa: BLE001
-        return "DOWN", None, {}
+        return "DOWN", None, None
     handshake = peer["last_handshake"]
-    details = {"last_handshake": _timestamp(handshake) if handshake else None}
+    tunnel = Tunnel(
+        local=f"*:{peer['listen_port']}" if peer["listen_port"] else None,
+        remote=_endpoint(peer["endpoint"], peer["endpoint_port"]),
+        local_identity=peer["public_key"],
+        remote_identity=peer["peer_public_key"],
+        encryption=WIREGUARD_ENCRYPTION,
+        key_exchange=[WIREGUARD_KEY_EXCHANGE],
+        last_handshake=_timestamp(handshake) if handshake else None,
+        allowed_ips=peer["allowed_ips"],
+    )
     recent = handshake and time.time() - handshake < WIREGUARD_TIMEOUT
-    return ("UP" if recent else "DOWN"), peer["endpoint"], details
+    return ("UP" if recent else "DOWN"), peer["endpoint"], tunnel
+
+
+SSH_PORT = 22
+
+
+def _ssh(name: str, connection: Connection) -> Tunnel | None:
+    session = ssh.session(name)
+    if session is None:
+        return None
+    pid, started = session
+    cfg = connection.config
+    pq = cfg.post_quantum
+    return Tunnel(
+        session_id=pid,
+        remote=_endpoint(cfg.remote_addrs[0], SSH_PORT),
+        local_identity=cfg.username,
+        remote_identity=ssh.host_key(name),
+        # Only known when vpnc allows a single one.
+        key_exchange=[OPENSSH_KEX[pq.ml_kem]] if pq.enabled else [],
+        established=_timestamp(started),
+    )
 
 
 def probe_details(ni: NetworkInstance, connection: Connection) -> list[ProbeDetail]:
@@ -392,19 +575,19 @@ def connection_states(
             )
             remote_addrs = getattr(connection.config, "remote_addrs", None)
             remote = str(remote_addrs[0]) if remote_addrs else None
-            details: dict[str, Any] = {}
+            tunnel: Tunnel | None = None
             ctype = connection.config.type
             current: OperStatus
             if ctype == enums.ConnectionType.IPSEC:
-                current, remote, details = _ipsec(name, connection, sas)
+                current, remote, tunnel = _ipsec(ni, connection, sas)
             elif ctype == enums.ConnectionType.WIREGUARD and link is not None:
-                current, endpoint, details = _wireguard(ni, ifname)
+                current, endpoint, tunnel = _wireguard(ni, ifname)
                 remote = endpoint or remote
             else:
                 # SSH (tun has carrier while ssh runs) and physical interfaces.
                 current = "UP" if link is not None and link.passes_traffic else "DOWN"
-            if ctype != enums.ConnectionType.PHYSICAL:
-                details["auto_resets_24h"] = helpers.auto_resets(name)
+                if ctype == enums.ConnectionType.SSH:
+                    tunnel = _ssh(name, connection)
             last_change, transitions = _track(name, current)
             counters = snapshot.counters.get(ifname or "")
             rates = traffic.rates(ni.id, ifname) if counters else None
@@ -422,7 +605,12 @@ def connection_states(
                     mtu=link.mtu if link is not None else None,
                     addresses=addresses,
                     remote=remote,
-                    details=details,
+                    tunnel=tunnel,
+                    auto_resets_24h=(
+                        helpers.auto_resets(name)
+                        if ctype != enums.ConnectionType.PHYSICAL
+                        else None
+                    ),
                     probes=[
                         ProbeState(**detail.model_dump(exclude={"history"}))
                         for detail in probe_details(ni, connection)
@@ -448,7 +636,7 @@ def _counts(states: list[ConnectionState]) -> tuple[int, int]:
 def network_instance_states(
     selected: list[NetworkInstance],
     *,
-    translations: bool = False,
+    detail: bool = False,
 ) -> list[NetworkInstanceState]:
     """Return the live state of network instances."""
     by_ni: dict[str, list[ConnectionState]] = {}
@@ -470,10 +658,29 @@ def network_instance_states(
             nptv6 = configuration.get_network_instance_nptv6_scope(ni)
             item.nat64_scope = str(nat64) if nat64 else None
             item.nptv6_scope = str(nptv6) if nptv6 else None
-            if translations:
+            if detail:
                 item.translations = _translations(ni.id)
+                counts = vpncmangle.stats().get("network_instances", {}).get(ni.id, {})
+                item.dns_answers_translated = counts.get("translated", 0)
+                item.dns_answers_dropped = counts.get("dropped", 0)
+        if detail:
+            _add_datapath(item, ni)
         output.append(item)
     return output
+
+
+def _add_datapath(item: NetworkInstanceState, ni: NetworkInstance) -> None:
+    """Add the session counts and the firewall's drops, if they can be read."""
+    try:
+        found = diagnostics.session_list(ni)
+    except (OSError, NetlinkError):
+        logger.warning("Reading the sessions of %s failed.", ni.id, exc_info=True)
+    else:
+        item.sessions = dict(collections.Counter(s.type for s in found))
+    try:
+        item.firewall_dropped = diagnostics.dropped(diagnostics.firewall(ni.id))
+    except (OSError, nftables.NftablesError):
+        logger.warning("Reading the firewall of %s failed.", ni.id, exc_info=True)
 
 
 def _translations(ni_id: str) -> list[Translation]:
@@ -543,12 +750,17 @@ def _vpncmangle() -> VpncmangleState | None:
         translations = json.loads(vpncmangle.CONFIG_PATH.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         translations = {}
+    counters = vpncmangle.stats()
+    reasons = counters.get("dropped", {})
     return VpncmangleState(
         running=process is not None and process.poll() is None,
         translations=sum(
             len(ni.get("dns64", [])) + len(ni.get("dns66", []))
             for ni in translations.values()
         ),
+        answers_translated=counters.get("translated"),
+        answers_dropped=sum(reasons.values()) if counters else None,
+        drop_reasons=reasons,
     )
 
 

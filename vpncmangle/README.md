@@ -17,6 +17,8 @@ vpnc writes the translations to `/opt/ncubed/config/vpncmangle/translations.json
               "dns66": [["fd6c:1::/52", "fdff:db8:c57::/52"]]}}
 ```
 
-Logs go to the journal (`journalctl -t vpncmangle`), or `vpnctl logs --source vpncmangle`. `vpnctl status` shows whether it runs.
+Logs go to the journal (`journalctl -t vpncmangle`), or `vpnctl logs --source vpncmangle`. `vpnctl status` shows whether it runs and how many answers it translated and dropped since it started (`-o json`: why), `vpnctl ni show` the same per network instance. vpncmangle writes these counters to `/run/vpncmangle/stats.json` every 30 seconds.
+
+Dropped: a packet from port 53 that isn't DNS, an answer from an address of no network instance, an answer while no translations are loaded, and an answer that fails to translate.
 
 DNS over TCP isn't translated: `CORE` refuses it, so a tenant can't answer with other addresses.

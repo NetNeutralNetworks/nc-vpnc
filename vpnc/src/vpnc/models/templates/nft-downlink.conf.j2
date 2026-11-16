@@ -3,37 +3,40 @@
     {#- Before Jool, which translates what arrives on any interface, past the forward chain. #}
     chain nat64 {
         type filter hook prerouting priority mangle; policy accept;
-        iifname != { "{{ core_interfaces | join('", "') }}" } ip6 daddr {{ nat64_scope }} drop
+        iifname != { "{{ core_interfaces | join('", "') }}" } ip6 daddr {{ nat64_scope }} counter drop
     }
 
 {% endif %}
     chain input {
         type filter hook input priority filter; policy drop;
-        meta l4proto ipv6-icmp jump icmpv6-in-out
+        meta l4proto ipv6-icmp counter jump icmpv6-in-out
 {%- for interface in downlink_interfaces %}
-        iifname "{{ interface }}" ct state established,related accept
+        iifname "{{ interface }}" ct state established,related counter accept
 {%- endfor %}
+        counter drop
     }
 
     chain forward {
         type filter hook forward priority filter; policy drop;
 {%- for interface in core_interfaces %}
-        meta nfproto ipv6 iifname "{{ interface }}" accept
+        meta nfproto ipv6 iifname "{{ interface }}" counter accept
 {%- endfor %}
-        meta nfproto ipv6 ct state established,related accept
+        meta nfproto ipv6 ct state established,related counter accept
+        counter drop
     }
 
     chain output {
         type filter hook output priority filter; policy drop;
-        meta l4proto ipv6-icmp jump icmpv6-in-out
-        meta nfproto ipv6 ct state established,related accept
+        meta l4proto ipv6-icmp counter jump icmpv6-in-out
+        meta nfproto ipv6 ct state established,related counter accept
 {%- for interface in downlink_interfaces %}
         {#- SSH tunnels. #}
-        oifname "{{ interface }}" tcp dport 22 accept
+        oifname "{{ interface }}" tcp dport 22 counter accept
 {%- endfor %}
 {%- for probe in probes %}
-        {{ probe }} accept
+        {{ probe }} counter accept
 {%- endfor %}
+        counter drop
     }
 
 {% include 'nft-icmpv6-in-out.conf.j2' %}

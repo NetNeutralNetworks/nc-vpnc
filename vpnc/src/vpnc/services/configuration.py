@@ -34,7 +34,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger("vpnc")
 
 # An NPTv6 rule in vpnc's table: NPTv6 prefix and the network it maps to.
-NPTV6_RULE_RE = re.compile(r"ip6 daddr (\S+) dnat (?:ip6 )?prefix to (\S+)")
+NPTV6_RULE_RE = re.compile(
+    r"ip6 daddr (\S+) (?:counter packets \d+ bytes \d+ )?dnat (?:ip6 )?prefix to (\S+)",
+)
 
 
 TENANT_FILE_RE = re.compile(rf"{config.DOWNLINK_TEN_FILE_RE}|.+\/DEFAULT\.yaml$")

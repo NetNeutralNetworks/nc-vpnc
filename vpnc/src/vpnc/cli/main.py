@@ -275,9 +275,15 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def vpncmangle_text(state: dict[str, Any]) -> str:
-    """Return vpncmangle's state, e.g. running, 12 translations."""
+    """Return vpncmangle's state, e.g. running, 12 translations, 3 answers ..."""
     running = "running" if state["running"] else "not running"
-    return f"{running}, {state['translations']} translations"
+    text = f"{running}, {state['translations']} translations"
+    if state.get("answers_translated") is not None:
+        text += (
+            f"; answers {state['answers_translated']} translated,"
+            f" {state['answers_dropped']} dropped"
+        )
+    return text
 
 
 def _up(row: dict[str, Any]) -> dict[str, Any]:
@@ -332,6 +338,27 @@ def cmd_ni_show(args: argparse.Namespace) -> None:
             ("Connections", f"{up(data)} up"),
             ("NAT64 scope", data.get("nat64_scope")),
             ("NPTv6 scope", data.get("nptv6_scope")),
+            *(
+                [("Sessions", sessions_text(data["sessions"]))]
+                if data.get("sessions") is not None
+                else []
+            ),
+            *(
+                [("Firewall drops", data["firewall_dropped"])]
+                if data.get("firewall_dropped") is not None
+                else []
+            ),
+            *(
+                [
+                    (
+                        "DNS answers",
+                        f"{data['dns_answers_translated']} translated,"
+                        f" {data['dns_answers_dropped']} dropped",
+                    ),
+                ]
+                if data.get("dns_answers_translated") is not None
+                else []
+            ),
         ],
     )
     if data.get("translations"):
@@ -340,6 +367,15 @@ def cmd_ni_show(args: argparse.Namespace) -> None:
             data["translations"],
             [("TRANSLATION", "type"), ("LOCAL", "local"), ("REMOTE", "remote")],
         )
+
+
+def sessions_text(counts: dict[str, int]) -> str:
+    """Return session counts, e.g. 12 (NAT64 9, NPTV6 3)."""
+    total = sum(counts.values())
+    if not total:
+        return "0"
+    parts = ", ".join(f"{kind} {count}" for kind, count in sorted(counts.items()))
+    return f"{total} ({parts})"
 
 
 def _filter(prefix: str | None) -> dict[str, str | None]:
@@ -483,7 +519,7 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
     data = request("GET", f"/v1/connections/{quote(args.id)}")
     if dump(data, args.output):
         return
-    details = data.get("details") or {}
+    tunnel = data.get("tunnel") or {}
     items: list[tuple[str, Any]] = [
         ("Connection", data["id"]),
         ("Tenant", data["tenant"]),
@@ -493,28 +529,16 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
         ("Oper status", data["oper_status"]),
         ("Last change", f"{data['last_change']} ({age(data['last_change'])} ago)"),
         ("Interface transitions", data["interface_transitions"]),
-        ("Remote", data.get("remote")),
+        ("Remote", tunnel.get("remote") or data.get("remote")),
         ("Interface", data.get("interface")),
         ("MTU", data.get("mtu")),
         ("Addresses", data.get("addresses")),
+        *tunnel_items(data["type"], tunnel),
     ]
-    if "ike_state" in details:
-        items += [
-            ("IKE state", details["ike_state"]),
-            (
-                "Child SAs",
-                [f"{c['name']} {c['state']}" for c in details.get("child_sas", [])],
-            ),
-        ]
-    if "last_handshake" in details:
-        handshake = details["last_handshake"]
-        items.append(
-            ("Last handshake", f"{age(handshake)} ago" if handshake else "never"),
-        )
     if data.get("probes"):
         items.append(("Probes", [probe_text(probe) for probe in data["probes"]]))
-    if "auto_resets_24h" in details:
-        items.append(("Auto resets (24h)", details["auto_resets_24h"]))
+    if data.get("auto_resets_24h") is not None:
+        items.append(("Auto resets (24h)", data["auto_resets_24h"]))
     if counters := data.get("counters"):
         items += [
             (
@@ -533,6 +557,91 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
             ("Out rate", f"{rate(rates['out_bits_rate'])} {over}"),
         ]
     fields(items)
+    if tunnel.get("sas"):
+        print()
+        sa_table(tunnel["sas"])
+
+
+def until(timestamp: str | None) -> str:
+    """Return how long until a time (ISO 8601), e.g. 2h13m."""
+    if not timestamp:
+        return "-"
+    then = datetime.datetime.fromisoformat(timestamp)
+    return duration(max((then - datetime.datetime.now(then.tzinfo)).total_seconds(), 0))
+
+
+def when(timestamp: str | None, *, future: bool = False) -> str | None:
+    """Return a time with how long ago or until, e.g. ... (2h13m ago)."""
+    if not timestamp:
+        return None
+    if future:
+        return f"{timestamp} (in {until(timestamp)})"
+    return f"{timestamp} ({age(timestamp)} ago)"
+
+
+def key_exchange_text(tunnel: dict[str, Any]) -> str | None:
+    """Return the key exchanges, e.g. ECP_384 + ML_KEM_768 + PPK."""
+    methods = [*tunnel.get("key_exchange", []), *(["PPK"] if tunnel.get("ppk") else [])]
+    return " + ".join(methods) or None
+
+
+def tunnel_items(ctype: str, tunnel: dict[str, Any]) -> list[tuple[str, Any]]:
+    """Return a VPN connection's session fields, the same for each type."""
+    if ctype == "PHYSICAL":
+        return []
+    if not tunnel:
+        return [("Session", "none")]
+    items: list[tuple[str, Any]] = [
+        ("Session state", tunnel.get("state")),
+        ("Session id", tunnel.get("session_id")),
+        ("Local", tunnel.get("local")),
+        ("Local identity", tunnel.get("local_identity")),
+        ("Remote identity", tunnel.get("remote_identity")),
+        ("Encryption", tunnel.get("encryption")),
+        ("Integrity", tunnel.get("integrity")),
+        ("PRF", tunnel.get("prf")),
+        ("Key exchange", key_exchange_text(tunnel)),
+        ("NAT", tunnel.get("nat")),
+        ("Established", when(tunnel.get("established"))),
+        ("Rekey", when(tunnel.get("rekey"), future=True)),
+        ("Last handshake", when(tunnel.get("last_handshake"))),
+        ("Allowed IPs", tunnel.get("allowed_ips")),
+    ]
+    # What the type doesn't have, or isn't known.
+    return [(key, value) for key, value in items if value not in (None, [], "")]
+
+
+def sa_table(sas: list[dict[str, Any]]) -> None:
+    """Print IPsec child SAs."""
+    rows = [
+        {
+            **sa,
+            "crypto": "/".join(
+                v for v in (sa.get("encryption"), sa.get("integrity")) if v
+            ),
+            "pfs": " + ".join(sa.get("key_exchange") or []) or None,
+            "spis": f"{sa.get('spi_in') or '-'}/{sa.get('spi_out') or '-'}",
+            "traffic": f"{size(sa.get('in_octets'))}/{size(sa.get('out_octets'))}",
+            "age": age(sa.get("installed")),
+            "rekey_in": until(sa.get("rekey")),
+        }
+        for sa in sas
+    ]
+    table(
+        rows,
+        [
+            ("SA", "id"),
+            ("STATE", "state"),
+            ("ENCRYPTION", "crypto"),
+            ("PFS", "pfs"),
+            ("SPI IN/OUT", "spis"),
+            ("LOCAL TS", "local_ts"),
+            ("REMOTE TS", "remote_ts"),
+            ("IN/OUT", "traffic"),
+            ("AGE", "age"),
+            ("REKEY IN", "rekey_in"),
+        ],
+    )
 
 
 def cmd_connections_ssh_setup(args: argparse.Namespace) -> None:
@@ -776,6 +885,83 @@ def cmd_tcp(args: argparse.Namespace) -> None:
             print(f"Couldn't connect to {target}: {data['error']}.")
     if not data["connected"]:
         sys.exit(1)
+
+
+def cmd_sessions(args: argparse.Namespace) -> None:
+    """Show the sessions through a network instance and how they're translated."""
+    data = request(
+        "GET",
+        f"/v1/network-instances/{quote(args.network_instance)}/sessions",
+        params={
+            "address": args.address,
+            "protocol": args.protocol,
+            "limit": args.limit,
+        },
+    )
+    if dump(data, args.output):
+        return
+    for row in data["sessions"]:
+        if row["translated_source"]:
+            row["translated"] = (
+                f"{row['translated_source']} > {row['translated_destination']}"
+            )
+        row["expires_in"] = duration(row["expires"])
+    table(
+        data["sessions"],
+        [
+            ("TYPE", "type"),
+            ("PROTO", "protocol"),
+            ("SOURCE", "source"),
+            ("DESTINATION", "destination"),
+            ("TRANSLATED AS", "translated"),
+            ("STATE", "state"),
+            ("EXPIRES", "expires_in"),
+        ],
+    )
+    if data["total"] > len(data["sessions"]):
+        print(f"{len(data['sessions'])} of {data['total']} shown (--limit).")
+
+
+def cmd_firewall(args: argparse.Namespace) -> None:
+    """Show a network instance's firewall rules with their counters."""
+    data = request(
+        "GET",
+        f"/v1/network-instances/{quote(args.network_instance)}/firewall",
+    )
+    if dump(data, args.output):
+        return
+    if args.hits:
+        data = [rule for rule in data if rule["packets"]]
+    for row in data:
+        row["size"] = size(row["bytes"])
+    table(
+        data,
+        [
+            ("CHAIN", "chain"),
+            ("PACKETS", "packets"),
+            ("BYTES", "size"),
+            ("RULE", "rule"),
+        ],
+    )
+
+
+def cmd_translate(args: argparse.Namespace) -> None:
+    """Show an address as admins reach it (LOCAL) and in the tenant (REMOTE)."""
+    data = request(
+        "GET",
+        "/v1/translate",
+        params={"address": args.address, "network_instance": args.network_instance},
+    )
+    if not dump(data, args.output):
+        table(
+            data,
+            [
+                ("NETWORK INSTANCE", "network_instance"),
+                ("TYPE", "type"),
+                ("LOCAL", "local"),
+                ("REMOTE", "remote"),
+            ],
+        )
 
 
 def cmd_capture(args: argparse.Namespace) -> None:
@@ -1240,6 +1426,7 @@ OPER_STATUSES = ["UP", "DOWN", "DORMANT"]
 TYPES = ["IPSEC", "WIREGUARD", "SSH", "PHYSICAL"]
 OUTPUTS = ["table", "wide", "json", "yaml"]
 SOURCES = ["vpnc", "vpncmangle", "charon"]
+PROTOCOLS = ["TCP", "UDP", "ICMP", "ICMPV6"]
 LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 # Per command its actions, and per action what its argument completes to.
@@ -1265,6 +1452,9 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "ping": {},
     "traceroute": {},
     "tcp": {},
+    "translate": {},
+    "sessions": {},
+    "firewall": {},
     "capture": {},
     "logs": {},
     "version": {},
@@ -1285,7 +1475,15 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "completion": {"bash": None, "zsh": None},
 }
 # Commands whose first argument is a network instance.
-NI_COMMANDS = ("routes", "ping", "traceroute", "tcp")
+NI_COMMANDS = (
+    "routes",
+    "ping",
+    "traceroute",
+    "tcp",
+    "translate",
+    "sessions",
+    "firewall",
+)
 # Actions taking several ids.
 MULTIPLE = ("stop", "start", "reset", "restart")
 # Options whose values come from the API.
@@ -1318,6 +1516,10 @@ OPTION_VALUES = {
     "--lines": [],
     "-w": [],
     "--write": [],
+    "-p": PROTOCOLS,
+    "--protocol": PROTOCOLS,
+    "-l": [],
+    "--limit": [],
 }
 
 
@@ -1516,6 +1718,21 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("address")
     p.add_argument("port", type=int)
     p.add_argument("-t", "--timeout", type=float, default=3, help="default: 3s")
+    p = add(commands, "sessions", cmd_sessions)
+    p.add_argument("network_instance", **ni_help)
+    p.add_argument("address", nargs="?", help="only sessions with this address")
+    p.add_argument("-p", "--protocol", type=str.upper, choices=PROTOCOLS)
+    p.add_argument("-l", "--limit", type=int, default=1000, help="default: 1000")
+    p = add(commands, "firewall", cmd_firewall)
+    p.add_argument("network_instance", **ni_help)
+    p.add_argument("--hits", action="store_true", help="only rules that matched")
+    p = add(commands, "translate", cmd_translate)
+    p.add_argument(
+        "network_instance",
+        nargs="?",
+        help="e.g. C0001-00; required for a tenant's IPv4 address",
+    )
+    p.add_argument("address", help="as admins reach it, or in the tenant")
 
     p = add(commands, "capture", cmd_capture)
     p.add_argument("target", help="a connection (C0001-00-0) or network instance")
