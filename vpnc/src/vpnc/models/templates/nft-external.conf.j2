@@ -16,6 +16,7 @@
 
     chain input {
         type filter hook input priority filter; policy drop;
+        iifname "lo" counter accept
         {#- Routes are configured: anyone on the external network could add one. #}
         icmpv6 type nd-router-advert counter drop
         meta l4proto ipv6-icmp counter jump icmpv6-in-out
@@ -41,6 +42,7 @@
 
     chain output {
         type filter hook output priority filter; policy drop;
+        oifname "lo" counter accept
         meta l4proto ipv6-icmp counter jump icmpv6-in-out
         meta l4proto esp counter accept
         udp sport 500 udp dport 500 counter accept

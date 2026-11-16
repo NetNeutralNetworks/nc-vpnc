@@ -1,6 +1,7 @@
 {#- CORE: BGP and BFD from the uplinks, IPv6 forwarded from them; no IPv4 except forwarding in ENDPOINT mode. #}
     chain input {
         type filter hook input priority filter; policy drop;
+        iifname "lo" counter accept
         meta l4proto ipv6-icmp counter jump icmpv6-in-out
         meta nfproto ipv6 ct state established,related counter accept
 {%- if mode.name == "HUB" %}
@@ -42,6 +43,7 @@
 
     chain output {
         type filter hook output priority filter; policy accept;
+        oifname "lo" counter accept
         meta l4proto ipv6-icmp counter jump icmpv6-in-out
         meta nfproto ipv4 counter drop
     }
