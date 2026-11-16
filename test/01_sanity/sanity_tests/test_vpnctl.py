@@ -131,11 +131,14 @@ class TestVpnctl:
         """An IPsec connection shows its IKE and child SA."""
         connection = vpnctl(host, "connections show C0001-00-0")
 
-        assert connection["details"]["ike_state"] == "ESTABLISHED"
+        tunnel = connection["tunnel"]
+        assert tunnel["state"] == "ESTABLISHED"
+        assert tunnel["encryption"].startswith("AES_GCM_16_")
+        assert tunnel["key_exchange"][0] == "ECP_384"
         # During a rekey (every 90 seconds here) the old child SA is listed too.
-        assert {"name": "C0001-00-0", "state": "INSTALLED"} in connection["details"][
-            "child_sas"
-        ]
+        assert ("C0001-00-0", "INSTALLED") in {
+            (sa["name"], sa["state"]) for sa in tunnel["sas"]
+        }
 
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_translations(self, host: str) -> None:

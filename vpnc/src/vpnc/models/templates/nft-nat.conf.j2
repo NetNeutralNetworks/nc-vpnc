@@ -3,7 +3,7 @@
         type nat hook prerouting priority dstnat; policy accept;
 {%- for interface in core_interfaces %}
   {%- for network in nptv6_networks %}
-        iifname "{{ interface }}" ip6 daddr {{ network.nptv6_prefix }} dnat ip6 prefix to {{ network.to }}
+        iifname "{{ interface }}" ip6 daddr {{ network.nptv6_prefix }} counter dnat ip6 prefix to {{ network.to }}
   {%- endfor %}
 {%- endfor %}
     }
@@ -12,8 +12,8 @@
         type nat hook postrouting priority srcnat; policy accept;
 {%- for interface in downlink_interfaces %}
   {%- if mode.name == "ENDPOINT" %}
-        meta nfproto ipv4 oifname "{{ interface }}" masquerade
+        meta nfproto ipv4 oifname "{{ interface }}" counter masquerade
   {%- endif %}
-        meta nfproto ipv6 oifname "{{ interface }}" masquerade
+        meta nfproto ipv6 oifname "{{ interface }}" counter masquerade
 {%- endfor %}
     }

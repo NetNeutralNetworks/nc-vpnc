@@ -30,7 +30,7 @@ RESET_TIMEOUT = 300
 
 
 def connection(host: str, name: str) -> dict[str, Any]:
-    """Return a connection's state and details."""
+    """Return a connection's state."""
     return json.loads(
         conftest.run_cmd(host, f"{VPNCTL} -o json connections show {name}"),
     )
@@ -38,7 +38,7 @@ def connection(host: str, name: str) -> dict[str, Any]:
 
 def resets(host: str, name: str) -> int:
     """Return how often a connection was reset automatically in the last 24 hours."""
-    return connection(host, name)["details"]["auto_resets_24h"]
+    return connection(host, name)["auto_resets_24h"]
 
 
 def ssh_pid() -> str:
@@ -92,7 +92,7 @@ class TestStuckRecovery:
         time.sleep(FULL_CHECK)
         current = connection(*IPSEC)
         assert current["oper_status"] != "UP"
-        assert current["details"]["child_sas"] == []
+        assert (current["tunnel"] or {}).get("sas", []) == []
         assert resets(*IPSEC) + resets(*IPSEC_RESPONDER) == ipsec_resets
 
         conftest.wait_until(

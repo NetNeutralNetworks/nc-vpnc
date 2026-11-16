@@ -142,18 +142,41 @@ def listen_port(network_instance_id: str, ifname: str) -> int | None:
 
 
 def peer_status(network_instance_id: str, ifname: str) -> dict[str, Any]:
-    """Return the endpoint and last handshake (Unix time) of an interface's peer."""
+    """Return an interface's listen port and public key, and its peer's state.
+
+    The peer's endpoint, port, public key, allowed IPs and last handshake (Unix
+    time, 0 if never).
+    """
 
     def run() -> dict[str, Any]:
         with WireGuard() as wg:
-            peers = list(_peers(wg.info(ifname)[0]).values())
-        if not peers:
-            return {"endpoint": None, "last_handshake": 0}
-        endpoint = peers[0].get("WGPEER_A_ENDPOINT") or {}
-        handshake = peers[0].get("WGPEER_A_LAST_HANDSHAKE_TIME") or {}
-        return {
-            "endpoint": endpoint.get("addr"),
-            "last_handshake": handshake.get("tv_sec", 0),
+            device = wg.info(ifname)[0]
+        public_key = device.get("WGDEVICE_A_PUBLIC_KEY")
+        output: dict[str, Any] = {
+            "listen_port": device.get("WGDEVICE_A_LISTEN_PORT"),
+            "public_key": public_key.decode() if public_key else None,
+            "endpoint": None,
+            "endpoint_port": None,
+            "peer_public_key": None,
+            "allowed_ips": [],
+            "last_handshake": 0,
         }
+        peers = list(_peers(device).items())
+        if not peers:
+            return output
+        peer_key, peer = peers[0]
+        endpoint = peer.get("WGPEER_A_ENDPOINT") or {}
+        handshake = peer.get("WGPEER_A_LAST_HANDSHAKE_TIME") or {}
+        output.update(
+            endpoint=endpoint.get("addr"),
+            endpoint_port=endpoint.get("port"),
+            peer_public_key=peer_key,
+            allowed_ips=[
+                str(ipaddress.ip_network(a["addr"]))
+                for a in peer.get("WGPEER_A_ALLOWEDIPS") or []
+            ],
+            last_handshake=handshake.get("tv_sec", 0),
+        )
+        return output
 
     return namespace.call(network_instance_id, run)

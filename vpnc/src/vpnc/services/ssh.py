@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import atexit
+import base64
+import binascii
 import functools
+import hashlib
 import logging
 import os
 import pathlib
@@ -95,6 +98,12 @@ class SshTunnel(threading.Thread):
             )
             self._stop_event.wait(delay)
             delay = min(delay * 2, RESTART_DELAY_MAX)
+
+    @property
+    def pid(self) -> int | None:
+        """Return the process id of the running ssh."""
+        proc = self._proc
+        return proc.pid if proc is not None and proc.poll() is None else None
 
     def stop(self) -> None:
         """Stop ssh and the thread."""
@@ -241,6 +250,40 @@ def unsupported_kex(config: vpnc.models.ssh.ConnectionConfigSSH) -> str | None:
 def known_hosts(connection_name: str) -> pathlib.Path:
     """Return the file with the host key of a connection's server."""
     return config.VPNC_KNOWN_HOSTS_DIR.joinpath(connection_name)
+
+
+def session(connection_name: str) -> tuple[int, float] | None:
+    """Return the process id and start (Unix time) of a tunnel's running ssh."""
+    tunnel = SSH_TUNNELS.get(connection_name)
+    if tunnel is None:
+        return None
+    pid, started = tunnel.pid, tunnel.started
+    return (pid, started) if pid is not None and started is not None else None
+
+
+def host_key(connection_name: str) -> str | None:
+    """Return the type and fingerprint of the accepted host key of a server.
+
+    E.g. ssh-ed25519 SHA256:abc..., as ssh-keygen -l shows it.
+    """
+    try:
+        lines = known_hosts(connection_name).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        fields = line.split()
+        # [marker] hosts type key [comment]
+        if fields and fields[0].startswith("@"):
+            fields = fields[1:]
+        if len(fields) < 3:  # noqa: PLR2004
+            continue
+        try:
+            blob = base64.b64decode(fields[2], validate=True)
+        except binascii.Error:
+            continue
+        digest = base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
+        return f"{fields[1]} SHA256:{digest}"
+    return None
 
 
 def _prepare_directories() -> None:

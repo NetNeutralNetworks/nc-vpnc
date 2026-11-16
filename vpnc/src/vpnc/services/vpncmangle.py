@@ -3,6 +3,7 @@
 import atexit
 import json
 import logging
+import os
 import pathlib
 import subprocess
 from ipaddress import IPv4Network
@@ -15,6 +16,8 @@ from vpnc.services import configuration
 logger = logging.getLogger("vpnc")
 
 CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpncmangle/translations.json")
+# vpncmangle writes its counters there.
+STATS_PATH = pathlib.Path("/run/vpncmangle/stats.json")
 
 
 def generate_config() -> None:
@@ -64,6 +67,9 @@ def start() -> None:
     # Start the VPNC mangle process in the CORE network instance.
     # This process mangles DNS responses to translate A responses to AAAA responses.
     logger.info("Starting vpncmangle process in network instance %s.", config.CORE_NI)
+    user = accounts.user(accounts.VPNCMANGLE)
+    STATS_PATH.parent.mkdir(mode=0o755, exist_ok=True)
+    os.chown(STATS_PATH.parent, user.pw_uid, user.pw_gid)
     # It reads the tenants' DNS responses: not as root, and with only the
     # capability for the netfilter queue and its nftables table.
     proc = namespace.popen(
@@ -76,6 +82,14 @@ def start() -> None:
 
     global PROCESS  # noqa: PLW0603
     PROCESS = proc
+
+
+def stats() -> dict[str, Any]:
+    """Return vpncmangle's counters since it started; empty if there are none."""
+    try:
+        return json.loads(STATS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def ensure_running() -> None:

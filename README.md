@@ -43,6 +43,8 @@ Addressing in hub mode, from the service settings:
 | `prefix_downlink_interface_v4` | /24, a /28 per connection | Tunnel interface addresses; the same for every tenant. |
 | `prefix_downlink_interface_v6` | /48, a /64 per connection | Tunnel interface addresses; the same for every tenant. |
 
+NPTv6 here maps the destination prefix 1:1 and masquerades the source; it's stateful (conntrack), not RFC 6296.
+
 vpncmangle (started by vpnc) rewrites DNS answers from tenants: A records become AAAA records in the NAT64 prefix, and AAAA records get the NPTv6 prefix. Only over UDP: DNS over TCP to tenants is refused. It runs as the `vpnc-mangle` account, which can only configure the network. See [vpncmangle/README.md](vpncmangle/README.md).
 
 ## Installation
@@ -211,12 +213,12 @@ post_quantum:
 State, read live:
 
 ```bash
-~$ sudo vpnctl status                        # mode, connections up, vpncmangle, restart needed
+~$ sudo vpnctl status                        # mode, connections up, vpncmangle and its DNS answers, restart needed
 ~$ sudo vpnctl tenants list
 ~$ sudo vpnctl ni list [C0001]               # network instances
-~$ sudo vpnctl ni show C0001-00              # with NAT64 and NPTv6 translations
+~$ sudo vpnctl ni show C0001-00              # with NAT64 and NPTv6 translations, sessions, firewall drops, DNS answers
 ~$ sudo vpnctl connections list [C0001 | C0001-00] [--oper-status DOWN] [--admin-status DOWN] [--type IPSEC]   # -o wide: MTU, traffic and its rate, probes answered
-~$ sudo vpnctl connections show C0001-00-0   # e.g. last change, IKE and child SAs, probes, traffic counters and rates
+~$ sudo vpnctl connections show C0001-00-0   # e.g. last change, session (see below), probes, traffic counters and rates
 ~$ sudo vpnctl connections probes C0001-00-0 # per probe its tests of the last 3 minutes: result and response time
 ~$ sudo vpnctl connections logs C0001-00-0 [-n 100] [-f]   # vpnc's, ssh's and charon's lines
 ~$ sudo vpnctl connections ssh-setup C0001-00-1 [--username vpnc] [--interface eth0]   # a script that sets up the SSH server for an account
@@ -227,6 +229,8 @@ State, read live:
 ~$ sudo vpnctl version
 ```
 
+`connections show` has the same session fields for each VPN type, where it has them: local and remote address, identities (IKE ids; WireGuard public keys; the SSH username and the server's host key), encryption, integrity, PRF, key exchange (with ML-KEM and PPK), NAT, when it was established and rekeys, the last WireGuard handshake and allowed IPs. IPsec adds its child SAs: algorithms, PFS, SPIs, traffic selectors, traffic and rekey time. ssh doesn't report what it negotiated: its key exchange is only shown when post-quantum fixes it.
+
 Troubleshooting inside a network instance (destinations are IP addresses):
 
 ```bash
@@ -234,6 +238,10 @@ Troubleshooting inside a network instance (destinations are IP addresses):
 ~$ sudo vpnctl ping C0001-00 10.0.0.1 [-c 5] [-s 56]
 ~$ sudo vpnctl traceroute C0001-00 10.0.0.1
 ~$ sudo vpnctl tcp C0001-00 10.0.0.1 443     # a TCP connection test
+~$ sudo vpnctl sessions C0001-00 [10.0.0.1] [-p tcp]   # NAT64, NPTv6 and routed sessions, as translated
+~$ sudo vpnctl firewall C0001-00 [--hits]    # vpnc's rules with their counters, since the firewall last changed
+~$ sudo vpnctl translate C0001-00 10.0.0.1   # an address in the tenant as admins reach it
+~$ sudo vpnctl translate fdcc:0:c:1::a00:1   # and back: tenant, network instance and address
 ~$ sudo vpnctl capture C0001-00-0 [-c 20] [-w FILE] [-e -X port 443]   # tcpdump on the connection's interface, with its options and filter
 ~$ sudo vpnctl capture EXTERNAL esp          # or on all interfaces of a network instance
 ```

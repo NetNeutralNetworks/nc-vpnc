@@ -55,11 +55,16 @@ def run(netns: str, commands: str, *, json_output: bool = False) -> str:
     return namespace.call(netns, lambda: _run(commands, json_output=json_output))
 
 
-def _strip_handles(value: Any) -> Any:  # noqa: ANN401
+def _comparable(value: Any) -> Any:  # noqa: ANN401
+    """Return a JSON listing without handles and counter values, which change."""
     if isinstance(value, dict):
-        return {k: _strip_handles(v) for k, v in value.items() if k != "handle"}
+        return {
+            k: {} if k == "counter" else _comparable(v)
+            for k, v in value.items()
+            if k != "handle"
+        }
     if isinstance(value, list):
-        return [_strip_handles(v) for v in value]
+        return [_comparable(v) for v in value]
     return value
 
 
@@ -85,7 +90,7 @@ def ruleset(netns: str) -> dict[str, Any]:
             if "table" in t
         }
         return {
-            "table": _strip_handles([x for x in listing if _in_table(x)]),
+            "table": _comparable([x for x in listing if _in_table(x)]),
             "iptables": sorted(names & set(IPTABLES_TABLES)),
         }
 

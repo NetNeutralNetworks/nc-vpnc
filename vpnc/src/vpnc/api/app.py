@@ -151,7 +151,7 @@ def _network_instance(ni_id: str) -> NetworkInstance:
 def get_network_instance(ni_id: str) -> status.NetworkInstanceState:
     """Return a network instance with its NAT64 and NPTv6 translations."""
     ni = _network_instance(ni_id)
-    return status.network_instance_states([ni], translations=True)[0]
+    return status.network_instance_states([ni], detail=True)[0]
 
 
 @app.get("/v1/connections")
@@ -304,9 +304,9 @@ def get_network_instance_logs(
     return _logs(queries, lines, follow=follow)
 
 
-def _hub_only() -> None:
+def _hub_only(what: str = "BGP only runs") -> None:
     if not tenant.is_hub():
-        raise ConfigError(409, "Conflict", "BGP only runs in hub mode.")
+        raise ConfigError(409, "Conflict", f"{what} in hub mode.")
 
 
 @app.get("/v1/bgp/neighbors")
@@ -376,6 +376,48 @@ def traceroute(
 def tcp(ni_id: str, body: diagnostics.TcpRequest) -> diagnostics.TcpResult:
     """Open a TCP connection from a network instance."""
     return diagnostics.tcp(_network_instance(ni_id).id, body)
+
+
+@app.get("/v1/network-instances/{ni_id}/sessions")
+def list_sessions(
+    ni_id: str,
+    address: Annotated[diagnostics.IPAddress | None, Query()] = None,
+    protocol: Annotated[
+        Literal["TCP", "UDP", "ICMP", "ICMPV6"] | None,
+        Query(),
+        Upper,
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=100000)] = 1000,
+) -> diagnostics.Sessions:
+    """Return the sessions through a network instance: NAT64, NPTv6 and routed."""
+    ni = _network_instance(ni_id)
+    return diagnostics.sessions(ni, address, protocol, limit)
+
+
+@app.get("/v1/network-instances/{ni_id}/firewall")
+def list_firewall(ni_id: str) -> list[diagnostics.FirewallRule]:
+    """Return the rules of a network instance's firewall with their counters."""
+    return diagnostics.firewall(_network_instance(ni_id).id)
+
+
+@app.get("/v1/translate")
+def translate(
+    address: Annotated[diagnostics.IPAddress, Query()],
+    network_instance: Annotated[str | None, Query()] = None,
+) -> list[diagnostics.AddressTranslation]:
+    """Return an address as admins reach it and in the tenant, from either side.
+
+    An IPv4 address is a tenant's: it needs the network instance.
+    """
+    _hub_only("Addresses are only translated")
+    if network_instance is not None:
+        selected = [_network_instance(network_instance)]
+    elif address.version == 4:  # noqa: PLR2004
+        detail = "An IPv4 address needs a network instance."
+        raise ConfigError(422, "Invalid request", detail)
+    else:
+        selected = list(helpers.network_instances().values())
+    return diagnostics.translate(address, selected)
 
 
 @app.get("/v1/logs", response_model=list[logs.LogLine])
