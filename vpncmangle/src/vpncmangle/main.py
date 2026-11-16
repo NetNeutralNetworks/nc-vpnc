@@ -128,11 +128,10 @@ def _mangle_dns(pkt: Packet) -> None:
     """Translate the addresses in a DNS response to ones reachable from CORE."""
     pkt_sc = sc.IPv6(pkt.get_payload())
 
-    # If not DNS record.
+    # Unparsable: a client may still read addresses from it.
     if not pkt_sc.haslayer(sc.DNS):
-        logger.warning("Captured packet without DNS response.")
-        logger.warning(pkt_sc)
-        pkt.accept()
+        logger.warning("Dropping a packet from port 53 that isn't DNS: %s", pkt_sc)
+        pkt.drop()
         return
     # If not a response (QR field, query is 0, response 1).
     if pkt_sc[sc.DNS].qr != 1:
