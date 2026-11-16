@@ -1,9 +1,9 @@
 """Various enums used throughout the package. Their values are upper case."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ConnectionType(str, Enum):
+class ConnectionType(StrEnum):
     """Define the modes in which the connections can run."""
 
     IPSEC = "IPSEC"
@@ -12,14 +12,14 @@ class ConnectionType(str, Enum):
     WIREGUARD = "WIREGUARD"
 
 
-class ServiceMode(str, Enum):
+class ServiceMode(StrEnum):
     """Define the modes in which the service can run."""
 
     HUB = "HUB"
     ENDPOINT = "ENDPOINT"
 
 
-class NetworkInstanceType(str, Enum):
+class NetworkInstanceType(StrEnum):
     """Define the modes in which the service can run."""
 
     ENDPOINT = "ENDPOINT"
@@ -28,7 +28,7 @@ class NetworkInstanceType(str, Enum):
     DOWNLINK = "DOWNLINK"
 
 
-class TestType(str, Enum):
+class TestType(StrEnum):
     """Define how a probe tests its target, named as in OpenConfig."""
 
     # An echo request; ICMPv6 to an IPv6 address.

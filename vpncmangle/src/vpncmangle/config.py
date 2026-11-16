@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 # needed for pydantic to create the classes
-import ipaddress  # noqa: TCH003
+import ipaddress
 import logging
 import pathlib
 

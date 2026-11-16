@@ -7,7 +7,7 @@ last lines, a follower only what's added.
 from __future__ import annotations
 
 import asyncio
-import datetime
+import datetime as dt
 import functools
 import json
 import re
@@ -85,7 +85,7 @@ def _message(entry: Entry) -> str:
 def _time(entry: Entry) -> str:
     """Return an entry's local time, e.g. 2026-11-11 07:29:01."""
     seconds = int(entry["__REALTIME_TIMESTAMP"]) / 1e6
-    time = datetime.datetime.fromtimestamp(seconds, datetime.UTC).astimezone()
+    time = dt.datetime.fromtimestamp(seconds, dt.UTC).astimezone()
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -209,9 +209,7 @@ def _start(queries: list[Query], count: int) -> tuple[list[Follower], list[LogLi
     tail = journal("--lines=1")
     cursor = str(tail[-1]["__CURSOR"]) if tail else None
     end = _seqnum(tail[-1]) if tail else -1
-    lines = [
-        pair for query in queries for pair in query.last(count) if pair[0] <= end
-    ]
+    lines = [pair for query in queries for pair in query.last(count) if pair[0] <= end]
     return [Follower(query, cursor) for query in queries], _merge(lines, count)
 
 

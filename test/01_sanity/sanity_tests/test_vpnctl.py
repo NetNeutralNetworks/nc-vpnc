@@ -318,7 +318,7 @@ class TestVpnctlLogsAndCounters:
     """vpnctl shows the daemon logs and traffic counters."""
 
     def test_logs(self) -> None:
-        """vpnc's log, by level; vpncmangle's and charon's log."""
+        """Vpnc's log, by level; vpncmangle's and charon's log."""
         lines = vpnctl("hub00", "logs -n 20")
         assert 0 < len(lines) <= 20  # noqa: PLR2004
         assert {line["source"] for line in lines} == {"vpnc"}

@@ -154,7 +154,7 @@ def generate_config() -> None:
 def stop() -> None:
     """Shut down IPsec when terminating the program."""
     logger.info("Stopping FRR process.")
-    proc = subprocess.Popen(  # noqa: S603
+    proc = subprocess.Popen(
         ["/usr/lib/frr/frrinit.sh", "stop"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -172,7 +172,7 @@ def start() -> None:
     config.FRR_CONFIG_PATH.unlink(missing_ok=True)
 
     logger.info("Starting FRR process.")
-    proc = subprocess.Popen(  # noqa: S603
+    proc = subprocess.Popen(
         ["/usr/lib/frr/frrinit.sh", "start"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

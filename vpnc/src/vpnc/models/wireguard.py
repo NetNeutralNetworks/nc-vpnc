@@ -57,8 +57,7 @@ class ConnectionConfigWireGuard(BaseModel):
             holder = (holders or users)[0]
             if holder != name:
                 msg = (
-                    f"WireGuard port {self.local_port} of {name}"
-                    f" is in use by {holder}."
+                    f"WireGuard port {self.local_port} of {name} is in use by {holder}."
                 )
                 raise ValueError(msg)
 

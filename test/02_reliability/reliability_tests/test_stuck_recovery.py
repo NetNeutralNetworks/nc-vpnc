@@ -54,10 +54,9 @@ def ssh_pid() -> str:
 
 def all_up() -> bool:
     """Return whether the connections are up (and SSH passes traffic)."""
-    return (
-        all(connection(*c)["oper_status"] == "UP" for c in (IPSEC, SSH))
-        and conftest.ssh_tunnel_works(SSH[0])
-    )
+    return all(
+        connection(*c)["oper_status"] == "UP" for c in (IPSEC, SSH)
+    ) and conftest.ssh_tunnel_works(SSH[0])
 
 
 @pytest.fixture(autouse=True)

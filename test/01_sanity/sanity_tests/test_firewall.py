@@ -152,7 +152,7 @@ class TestFirewall:
 
     @pytest.mark.parametrize(("host", "network_instance"), NETWORK_INSTANCES)
     def test_no_other_tables(self, host: str, network_instance: str) -> None:
-        """vpnc's table is the only one (e.g. none of its old iptables ones)."""
+        """Vpnc's table is the only one (e.g. none of its old iptables ones)."""
         tables = conftest.run_cmd(
             host,
             f"ip netns exec {network_instance} nft list tables",

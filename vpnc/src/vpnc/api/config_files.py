@@ -12,7 +12,7 @@ time; the rollback is stored, so it also happens after vpnc restarts.
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import difflib
 import json
 import logging
@@ -328,8 +328,8 @@ def diff(tenant_id: str) -> str:
     )
 
 
-def _now() -> datetime.datetime:
-    return datetime.datetime.now().astimezone()
+def _now() -> dt.datetime:
+    return dt.datetime.now().astimezone()
 
 
 def _history_path(tenant_id: str, revision: int) -> pathlib.Path:
@@ -389,7 +389,7 @@ def _clear_pending(tenant_id: str) -> bool:
 def _schedule(tenant_id: str, confirm_by: str) -> None:
     if timer := TIMERS.pop(tenant_id, None):
         timer.cancel()
-    delay = datetime.datetime.fromisoformat(confirm_by) - _now()
+    delay = dt.datetime.fromisoformat(confirm_by) - _now()
     timer = threading.Timer(
         max(delay.total_seconds(), 0),
         _roll_back_unconfirmed,
@@ -589,7 +589,7 @@ def commit(
                 logger.info("Confirmed the commit of %s.", tenant_id)
             return CommitResult(id=tenant_id, changed=changed, restart_needed=restart)
         # A new confirmed commit rolls back to before the first.
-        confirm_by = (_now() + datetime.timedelta(seconds=confirm)).isoformat(
+        confirm_by = (_now() + dt.timedelta(seconds=confirm)).isoformat(
             timespec="seconds",
         )
         rollback = pending["rollback"] if pending else previous
@@ -653,7 +653,7 @@ def history(tenant_id: str) -> list[HistoryEntry]:
             stat = path.stat()
         except FileNotFoundError:
             break
-        replaced = datetime.datetime.fromtimestamp(stat.st_mtime).astimezone()
+        replaced = dt.datetime.fromtimestamp(stat.st_mtime).astimezone()
         output.append(
             HistoryEntry(
                 revision=revision,

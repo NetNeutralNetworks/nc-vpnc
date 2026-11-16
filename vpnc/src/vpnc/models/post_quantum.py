@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, Field, SecretStr, field_validator
@@ -16,7 +16,7 @@ from vpnc.models.secret import Secret
 PPK_MIN_BYTES = 32
 
 
-class MlKem(str, Enum):
+class MlKem(StrEnum):
     """ML-KEM parameter sets (FIPS 203)."""
 
     ML_KEM_768 = "ML_KEM_768"

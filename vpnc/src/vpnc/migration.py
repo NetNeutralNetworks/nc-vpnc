@@ -7,7 +7,7 @@ STEPS, and the steps before those can be removed.
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import logging
 import re
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -45,8 +45,7 @@ class Step(NamedTuple):
 def _upper(data: dict[str, Any], *keys: str) -> dict[str, Any]:
     """Return a mapping with the string values of keys in upper case."""
     return {
-        k: v.upper() if k in keys and isinstance(v, str) else v
-        for k, v in data.items()
+        k: v.upper() if k in keys and isinstance(v, str) else v for k, v in data.items()
     }
 
 
@@ -202,7 +201,7 @@ def _backup_path(path: pathlib.Path, version: str, text: str) -> pathlib.Path:
     try:
         if backup.read_text(encoding="utf-8") != text:
             # Another file was converted before.
-            stamp = datetime.datetime.now().astimezone().strftime("%Y%m%dT%H%M%S")
+            stamp = dt.datetime.now().astimezone().strftime("%Y%m%dT%H%M%S")
             backup = backup.with_name(f"{backup.name}.{stamp}")
     except FileNotFoundError:
         pass

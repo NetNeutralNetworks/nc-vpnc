@@ -54,7 +54,7 @@ def start_hub_services() -> None:
     # Load the NAT64 kernel module (jool). This may cause the program to exit if
     # it fails to start
     logger.info("Loading kernel module Jool.")
-    proc = subprocess.run(  # noqa: S603
+    proc = subprocess.run(
         ["/usr/sbin/modprobe", "jool"],
         stdout=subprocess.PIPE,
         check=True,

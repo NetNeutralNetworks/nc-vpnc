@@ -118,7 +118,9 @@ def mangle_dns(pkt: Packet) -> None:
     try:
         _mangle_dns(pkt)
     except Exception:
-        logger.warning("Dropping a DNS response that can't be translated.", exc_info=True)
+        logger.warning(
+            "Dropping a DNS response that can't be translated.", exc_info=True
+        )
         stats.dropped(stats.ERROR)
         # Fails if it already got a verdict.
         with contextlib.suppress(Exception):
@@ -174,7 +176,7 @@ def _mangle_dns(pkt: Packet) -> None:
 
     if ni_config is None:
         logger.error(
-            "IPv6 source address '%s' doesn't seem to match any configured address/network instance",
+            "Source address '%s' matches no network instance's translations.",
             ipv6_src_addr,
         )
         stats.dropped(stats.UNKNOWN_SOURCE)

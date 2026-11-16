@@ -13,7 +13,7 @@ VPNC_NODES = ["hub00", "hub01", "end00", "end01"]
 
 @pytest.mark.parametrize("host", VPNC_NODES)
 def test_vpnc_running_without_restarts(host: str) -> None:
-    """vpnc is running and never crashed (a crash restarts the container)."""
+    """Vpnc is running and never crashed (a crash restarts the container)."""
     restarts = subprocess.run(  # noqa: S603
         [  # noqa: S607
             "docker",
@@ -42,7 +42,7 @@ def test_ssh_is_unprivileged(host: str) -> None:
 
 
 SECRET_DIRS = (
-    "/opt/ncubed/config/vpnc/active /opt/ncubed/config/vpnc/history"
+    "/opt/ncubed/config/vpnc/active /opt/ncubed/config/vpnc/history"  # noqa: S105
     " /etc/swanctl/conf.d /etc/wireguard"
 )
 

@@ -543,7 +543,7 @@ class TestScale:
         assert not wrong, f"{len(wrong)} wrong, e.g. {wrong[:5]}"
 
     def test_vpnctl_responsive(self) -> None:
-        """vpnctl shows status, every connection and an NI's logs within seconds."""
+        """Vpnctl shows status, every connection and an NI's logs within seconds."""
         ni = f"{TENANTS[-1]}-{NIS_PER_TENANT - 1:02d}"
         for command in (
             "vpnctl status",

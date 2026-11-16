@@ -607,10 +607,12 @@ class TestRestartNotice:
 
         assert "Restart" not in output
         conftest.wait_until(
-            lambda: json.loads(
-                conftest.run_cmd(host, f"{VPNCTL} -o json ni show C0001-00"),
-            )["translations"][0]["local"]
-            == "fdcc:0:c:1::/96",
+            lambda: (
+                json.loads(
+                    conftest.run_cmd(host, f"{VPNCTL} -o json ni show C0001-00"),
+                )["translations"][0]["local"]
+                == "fdcc:0:c:1::/96"
+            ),
             timeout=APPLY_TIMEOUT,
             message="the NAT64 translation to be restored",
         )

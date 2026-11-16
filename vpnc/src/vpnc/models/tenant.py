@@ -32,10 +32,10 @@ from vpnc.models.enums import ServiceMode
 
 # Needed for pydantim ports and type checking
 from vpnc.models.network_instance import (
-    NetworkInstanceCore,  # noqa: TCH001
-    NetworkInstanceDownlink,  # noqa: TCH001
-    NetworkInstanceEndpoint,  # noqa: TCH001
-    NetworkInstanceExternal,  # noqa: TCH001
+    NetworkInstanceCore,
+    NetworkInstanceDownlink,
+    NetworkInstanceEndpoint,
+    NetworkInstanceExternal,
 )
 
 if TYPE_CHECKING:

@@ -157,7 +157,7 @@ def _start(tests: list[Test]) -> tuple[list[_Running], dict[Test, str]]:
     for test in tests:
         try:
             running.append(_Running(test))
-        except OSError as err:  # noqa: PERF203
+        except OSError as err:
             failed[test] = err.strerror or str(err)
     return running, failed
 
