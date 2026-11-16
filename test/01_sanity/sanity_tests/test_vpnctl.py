@@ -408,12 +408,22 @@ class TestVpnctlSshSetup:
         assert f"- to: {ipv4}\n" in script
         assert f"- to: {ipv6}\n" in script
         assert "Match User vpnc\n" in script
-        assert "\nssh-ed25519 " in script
         # Out of the connection's remote_config_interface.
         assert f"-s {ipv4} -o eth0 -j MASQUERADE\n" in script
         assert f"-s {ipv6} -o eth0 -j MASQUERADE\n" in script
         # A shell accepts it.
         conftest.run_cmd_shell(host, f"bash -c '{command} | sh -n'")
+
+    @pytest.mark.parametrize("host", list(SSH_SETUP))
+    def test_key(self, host: str) -> None:
+        """The script adds the connection's key, which the server knows."""
+        script = conftest.run_cmd(
+            host,
+            f"{VPNCTL} connections ssh-setup {SSH_CONNECTION}",
+        )
+        known = conftest.run_cmd("cli00", "cat /home/vpnc/.ssh/authorized_keys")
+
+        assert f"key='{' '.join(known.split()[:2])}'\n" in script
 
     def test_interface(self) -> None:
         """Another interface to masquerade out of can be given."""

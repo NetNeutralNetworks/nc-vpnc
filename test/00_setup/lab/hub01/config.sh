@@ -9,7 +9,8 @@ do
     cp -f ${SCRIPTDIR}/C0001.yaml /opt/ncubed/config/vpnc/${i}/C0001.yaml
 done
 
-install -m 600 -o vpnc-ssh -g vpnc-ssh ${SCRIPTDIR}/id_ed25519 /var/lib/vpnc-ssh/.ssh/
+# The key of the SSH connection.
+install -m 600 -o vpnc-ssh -g vpnc-ssh ${SCRIPTDIR}/id_ed25519 /var/lib/vpnc-ssh/.ssh/C0001-00-1
 
 ${SCRIPTDIR}/../snmpd.sh
 ${SCRIPTDIR}/../journald.sh

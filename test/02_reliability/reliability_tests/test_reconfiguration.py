@@ -266,6 +266,43 @@ class TestReconfiguration:
         )
         assert f"{NI}-0" in conftest.snmp_interfaces(HOST)
 
+    def test_ssh_connection_gets_its_own_key(self) -> None:
+        """An SSH connection gets a key of its own, and a new one when added again."""
+        ssh = {
+            "id": 1,
+            "interface": {"ipv4": ["10.200.0.5/30"], "ipv6": ["fdcc:200:0:1::1/64"]},
+            "routes": {"ipv4": [], "ipv6": []},
+            "config": {
+                "type": "ssh",
+                "remote_addrs": ["192.0.2.99"],
+                "remote_tunnel_id": 5,
+                "username": "vpnc",
+            },
+        }
+
+        def key(connection: str) -> str:
+            script = vpnctl(f"connections ssh-setup {connection}")
+            return re.search(r"^key='(.+)'$", script, re.MULTILINE).group(1)
+
+        def added_key() -> str:
+            write_tenant([BASE_CONNECTION, ssh])
+            return conftest.wait_until(
+                lambda: key(f"{NI}-1"),
+                timeout=APPLY_TIMEOUT,
+                message="the SSH connection's key",
+            )
+
+        first = added_key()
+        assert first != key("C0001-00-1")
+
+        write_tenant([BASE_CONNECTION])
+        conftest.wait_until(
+            lambda: "tun1" not in links(NI),
+            timeout=APPLY_TIMEOUT,
+            message="the SSH connection to be removed",
+        )
+        assert added_key() != first
+
     def test_peers_follow_connections(self) -> None:
         """A connection's peer is accepted only while it's configured and enabled."""
         peer = ipsec_connection(
