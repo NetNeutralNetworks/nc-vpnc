@@ -3,12 +3,22 @@
 Errors are RFC 9457 problem details (application/problem+json).
 """
 
+import logging
 import pathlib
 import subprocess
 from collections.abc import AsyncIterator, Callable
 from typing import Annotated, Any, Literal, NoReturn
 
-from fastapi import APIRouter, Body, Depends, FastAPI, Path, Query, Request
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    FastAPI,
+    Path,
+    Query,
+    Request,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BeforeValidator, ValidationError
@@ -27,6 +37,8 @@ from vpnc.models.connections import Connection
 from vpnc.models.network_instance import NetworkInstance
 from vpnc.models.ssh import INTERFACE_PATTERN, USERNAME_PATTERN
 from vpnc.services import control, ssh
+
+logger = logging.getLogger("vpnc")
 
 app = FastAPI(
     title="vpnc",
@@ -383,16 +395,46 @@ def get_logs(
 UNIT = "ncubed-vpnc.service"
 
 
+def _systemctl(action: str) -> None:
+    """Have systemd restart or stop vpnc.
+
+    systemctl is in vpnc's cgroup: stopping vpnc can kill it before it exits,
+    after the job was queued.
+    """
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["/usr/bin/systemctl", "--no-block", action, UNIT],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        logger.exception("Running systemctl %s failed.", action)
+        return
+    if result.returncode > 0:
+        logger.error("systemctl %s failed: %s", action, result.stderr.strip())
+
+
 @app.post("/v1/service/{action}", status_code=202)
-def service_action(action: Literal["restart", "stop"]) -> dict[str, str]:
+def service_action(
+    action: Literal["restart", "stop"],
+    background: BackgroundTasks,
+) -> dict[str, str]:
     """Restart or stop vpnc (systemd); it happens after the response."""
     if not pathlib.Path("/run/systemd/system").is_dir():
         raise ConfigError(409, "Conflict", "vpnc doesn't run under systemd here.")
-    subprocess.run(  # noqa: S603
-        ["/usr/bin/systemctl", "--no-block", action, UNIT],
-        check=True,
+    loaded = subprocess.run(  # noqa: S603
+        ["/usr/bin/systemctl", "show", "--property=LoadState", "--value", UNIT],
+        capture_output=True,
+        text=True,
+        check=False,
         timeout=10,
-    )
+    ).stdout.strip()
+    if loaded != "loaded":
+        detail = f"{UNIT} isn't loaded ({loaded or 'unknown'})."
+        raise ConfigError(409, "Conflict", detail)
+    background.add_task(_systemctl, action)
     return {"action": action}
 
 
