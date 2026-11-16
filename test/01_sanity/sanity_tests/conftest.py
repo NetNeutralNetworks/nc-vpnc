@@ -11,6 +11,7 @@ if TEST_DIR not in sys.path:
 
 from lab_helpers import (  # noqa: E402
     advertise_router,
+    capabilities,
     echo_sweep,
     ike_answered,
     key_exchanges,
@@ -27,6 +28,7 @@ from lab_helpers import (  # noqa: E402
 
 __all__ = [
     "advertise_router",
+    "capabilities",
     "echo_sweep",
     "ike_answered",
     "key_exchanges",

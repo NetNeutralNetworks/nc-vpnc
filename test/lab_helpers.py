@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import ipaddress
 import itertools
+import re
 import subprocess
 import time
 from typing import TYPE_CHECKING, TypeVar
@@ -65,6 +66,15 @@ def run_cmd_shell(host: str, command: str) -> str:
         check=True,
         shell=True,
     ).stdout
+
+
+def capabilities(host: str, process: str) -> set[str]:
+    """Return the capabilities a process holds (the oldest of that name)."""
+    pid = run_cmd(host, f"pgrep -o -x {process}").strip()
+    status = run_cmd(host, f"cat /proc/{pid}/status")
+    mask = re.search(r"^CapPrm:\s*(\S+)", status, re.MULTILINE).group(1)
+    names = run_cmd(host, f"capsh --decode={mask}").strip().partition("=")[2]
+    return set(filter(None, names.split(",")))
 
 
 def write_file(host: str, path: str, content: str) -> None:
