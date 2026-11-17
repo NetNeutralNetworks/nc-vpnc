@@ -9,11 +9,12 @@ import pyroute2
 from pydantic import BaseModel
 
 from vpnc import helpers
-from vpnc.models import connections, enums
+from vpnc.models import enums
 from vpnc.network import state
 
 if TYPE_CHECKING:
     import vpnc.models.network_instance
+    from vpnc.models import connections
 
 logger = logging.getLogger("vpnc")
 

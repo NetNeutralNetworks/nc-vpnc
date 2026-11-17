@@ -28,6 +28,7 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from vpnc import config, helpers, migration
+from vpnc.models import enums
 from vpnc.models.enums import ServiceMode
 
 # Needed for pydantim ports and type checking
@@ -40,6 +41,7 @@ from vpnc.models.network_instance import (
 
 if TYPE_CHECKING:
     import pathlib
+    from collections.abc import Iterable
 
 logger = logging.getLogger("vpnc")
 
@@ -234,11 +236,7 @@ class Tenants(BaseModel):
     config: Tenant | ServiceHub | ServiceEndpoint
 
 
-class ConfigurationError(RuntimeError):
-    """The service (DEFAULT) configuration is missing or invalid."""
-
-
-def load_tenant_config(
+def load(
     path: pathlib.Path,
 ) -> tuple[
     ServiceHub | ServiceEndpoint | Tenant | None,
@@ -292,23 +290,51 @@ def load_tenant_config(
     return tenant, config.VPNC_CONFIG_TENANT.get(tenant.id)
 
 
-def get_default_tenant() -> ServiceHub | ServiceEndpoint:
-    """Return the default tenant configuration."""
-    if not (default_tenant := config.VPNC_CONFIG_TENANT.get(config.DEFAULT_TENANT)):
-        default_tenant, _ = load_tenant_config(
-            config.VPNC_A_CONFIG_PATH_SERVICE,
-        )
-    if not isinstance(
-        default_tenant,
-        (ServiceHub, ServiceEndpoint),
-    ):
+def load_default() -> ServiceHub | ServiceEndpoint:
+    """Load the service (DEFAULT) configuration; vpnc can't run without it."""
+    default_tenant, _ = load(config.VPNC_A_CONFIG_PATH_SERVICE)
+    if not isinstance(default_tenant, (ServiceHub, ServiceEndpoint)):
         msg = "Service isn't configured correctly. Data class is not of a service type."
         logger.critical(msg)
-        # Exiting here would only end the calling thread, silently.
-        raise ConfigurationError(msg)
+        raise config.ConfigurationError(msg)
+    config.VPNC_CONFIG_TENANT[default_tenant.id] = default_tenant
     return default_tenant
 
 
-def is_hub() -> bool:
-    """Return whether the service runs in hub mode."""
-    return get_default_tenant().mode == ServiceMode.HUB
+def core_route_overlaps(
+    tenants: Iterable[Tenant],
+) -> list[tuple[str, str, str, str]]:
+    """Return a hub's IPv6 routes in CORE that overlap: (route, of, route, of).
+
+    A tenant's route without NPTv6 is a route in CORE as it is, so it mustn't
+    take traffic of the uplinks' routes, the NAT64 and NPTv6 prefixes or another
+    network instance's routes. "Of" is a connection, or the prefix's setting.
+    """
+    # Route, of what, and its network instance (the service's count as one).
+    routes: list[tuple[IPv6Network, str, str]] = []
+    for tenant_config in tenants:
+        if isinstance(tenant_config, ServiceEndpoint):
+            return []
+        if isinstance(tenant_config, ServiceHub):
+            routes += [
+                (getattr(tenant_config, name), name, config.DEFAULT_TENANT)
+                for name in ("prefix_downlink_nat64", "prefix_downlink_nptv6")
+            ]
+        for ni in tenant_config.network_instances.values():
+            for connection in ni.connections.values():
+                for route in connection.routes.ipv6:
+                    name = connection.name(ni)
+                    # A default route to the uplinks is less specific than any.
+                    if ni.type == enums.NetworkInstanceType.CORE and route.to.prefixlen:
+                        routes.append((route.to, name, config.DEFAULT_TENANT))
+                    elif (
+                        ni.type == enums.NetworkInstanceType.DOWNLINK
+                        and not route.nptv6
+                    ):
+                        routes.append((route.to, name, ni.id))
+    return [
+        (str(route), of, str(other), other_of)
+        for index, (route, of, ni_id) in enumerate(routes)
+        for other, other_of, other_ni_id in routes[index + 1 :]
+        if ni_id != other_ni_id and route.overlaps(other)
+    ]

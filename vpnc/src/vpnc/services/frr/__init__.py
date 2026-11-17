@@ -11,8 +11,8 @@ from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from vpnc import config, files
-from vpnc.models import enums, tenant
+from vpnc import config, files, helpers
+from vpnc.models import enums
 
 if TYPE_CHECKING:
     from ipaddress import IPv4Network, IPv6Network
@@ -108,7 +108,7 @@ def observe() -> BaseObserver:
 
 def generate_config() -> None:
     """Generate FRR configuration."""
-    default_tenant = tenant.get_default_tenant()
+    default_tenant = helpers.get_default_tenant()
 
     if default_tenant.mode != enums.ServiceMode.HUB:
         return

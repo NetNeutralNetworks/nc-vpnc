@@ -14,6 +14,7 @@ from pyroute2.netlink.exceptions import NetlinkError
 from vpnc import config, helpers, shared
 from vpnc.network import namespace, state
 from vpnc.services import charon
+from vpnc.services.strongswan import strongswan
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -90,13 +91,13 @@ class Monitor(threading.Thread):
         logger.info("Starting duplicate SA monitor.")
         threading.Thread(
             target=self.supervise,
-            args=("Duplicate SA monitor", self.monitor_duplicate_sa_events),
+            args=("Duplicate SA monitor", self.watch_duplicate_sas),
             daemon=True,
         ).start()
         logger.info("Starting interface state monitor.")
         threading.Thread(
             target=self.supervise,
-            args=("Interface state monitor", self.monitor_xfrm_interface_state),
+            args=("Interface state monitor", self.watch_xfrm_interfaces),
             daemon=True,
         ).start()
 
@@ -106,9 +107,6 @@ class Monitor(threading.Thread):
         Also corrects the XFRM interface states (missed events). The SAs are
         listed once, and returned for the checks that follow.
         """
-        # Imported here: the package imports this module first.
-        from vpnc.services.strongswan import strongswan  # noqa: PLC0415
-
         with charon.session(tries=CONNECT_TRIES) as vcs:
             strongswan.sync(vcs)
 
@@ -191,12 +189,12 @@ class Monitor(threading.Thread):
                 keys = list(event_data)
                 yield keys[1] if len(keys) == 2 else keys[0]  # noqa: PLR2004
 
-    def monitor_duplicate_sa_events(self) -> None:
+    def watch_duplicate_sas(self) -> None:
         """Resolve duplicate SAs of the connections with IKE/child up/down events."""
         for ike_name in self.ike_events(timeout=0.1):
             self.resolve_duplicate_sas(ike_name)
 
-    def monitor_xfrm_interface_state(self) -> None:
+    def watch_xfrm_interfaces(self) -> None:
         """Monitor VPN tunnel state and set interface state accordingly.
 
         Acts on IKE/child up/down events. Events missed while it wasn't listening

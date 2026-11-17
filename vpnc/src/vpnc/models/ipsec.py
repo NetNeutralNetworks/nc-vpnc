@@ -12,14 +12,17 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from vpnc import config, helpers
-from vpnc.models import connections, enums
+from vpnc.models import enums
 from vpnc.models.post_quantum import PostQuantumIPsec
 from vpnc.models.secret import Secret
 from vpnc.network import state
 from vpnc.services import charon
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     import vpnc.models.network_instance
+    from vpnc.models import connections, tenant
 
 logger = logging.getLogger("vpnc")
 
@@ -169,3 +172,22 @@ class ConnectionConfigIPsec(BaseModel):
         return self.post_quantum.ppk.id or (
             f"{connection.name(network_instance)}-{socket.gethostname()}"
         )
+
+
+def ppk_id_users(tenants: Iterable[tenant.Tenant]) -> dict[str, list[str]]:
+    """Return per PPK id the IPsec connections using it, sorted.
+
+    charon selects a PPK by the id the peer sends, so an id must be unique.
+    """
+    users: dict[str, list[str]] = {}
+    for tenant_config in tenants:
+        for network_instance in tenant_config.network_instances.values():
+            for connection in network_instance.connections.values():
+                cfg = connection.config
+                if cfg.type == enums.ConnectionType.IPSEC and (
+                    ppk_id := cfg.ppk_id(network_instance, connection)
+                ):
+                    users.setdefault(ppk_id, []).append(
+                        connection.name(network_instance),
+                    )
+    return {ppk_id: sorted(names) for ppk_id, names in users.items()}

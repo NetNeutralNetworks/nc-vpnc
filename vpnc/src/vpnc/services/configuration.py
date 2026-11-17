@@ -8,7 +8,7 @@ import pathlib
 import re
 import threading
 import time
-from ipaddress import AddressValueError, IPv4Network, IPv6Address, IPv6Network
+from ipaddress import AddressValueError, IPv4Network, IPv6Network
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -18,13 +18,12 @@ from watchdog.events import (
 )
 from watchdog.observers import Observer
 
-import vpnc.models.network_instance
 import vpnc.models.tenant
-from vpnc import config, files, migration
-from vpnc.models import enums
+from vpnc import config, files, helpers, migration
 from vpnc.models.secret import REVEAL
 from vpnc.network import nftables
 from vpnc.services import jool, vpncmangle
+from vpnc.services.reconciler import RECONCILER
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -42,7 +41,7 @@ NPTV6_RULE_RE = re.compile(
 TENANT_FILE_RE = re.compile(rf"{config.DOWNLINK_TEN_FILE_RE}|.+\/DEFAULT\.yaml$")
 
 
-def observe_configuration() -> BaseObserver:
+def observe() -> BaseObserver:
     """Create the observer for DOWNLINK network instances configuration."""
 
     # A failing handler would end the observer thread, so errors are only logged.
@@ -83,7 +82,7 @@ def observe_configuration() -> BaseObserver:
     # remove the tenant: the new file has its own event.
     def removed(path: pathlib.Path) -> None:
         if not path.exists():
-            delete_downlink_tenant(path)
+            delete_tenant(path)
 
     # Create the observer object. This doesn't start the handler.
     observer: BaseObserver = Observer()
@@ -136,7 +135,7 @@ def rescan() -> None:
             manage_tenant(path)
     for path in set(FILE_STATES) - paths:
         logger.warning("Configuration file %s was removed unnoticed.", path)
-        delete_downlink_tenant(path)
+        delete_tenant(path)
 
 
 # Configuration file per tenant, to write updates (e.g. NPTv6 prefixes) back.
@@ -161,12 +160,12 @@ def _unsupported(tenant: Any, *, hub: bool) -> bool:  # noqa: ANN401
 
 
 def _manage_tenant(path: pathlib.Path) -> None:
-    hub = vpnc.models.tenant.is_hub()
+    hub = helpers.is_hub()
     migration.migrate_file(path)
     # Before reading: a later change is seen as one.
     if (file_state := _file_state(path)) is not None:
         FILE_STATES[path] = file_state
-    tenant, active_tenant = vpnc.models.tenant.load_tenant_config(path)
+    tenant, active_tenant = vpnc.models.tenant.load(path)
     if not tenant:
         return
 
@@ -187,9 +186,7 @@ def _manage_tenant(path: pathlib.Path) -> None:
         vpncmangle.generate_config()
 
     # The reconciler applies the configuration; removed network instances too.
-    from vpnc.services import reconcile  # noqa: PLC0415  (import cycle)
-
-    reconcile.RECONCILER.trigger(
+    RECONCILER.trigger(
         "network_instances",
         *(network_instance_ids | previous_ids),
     )
@@ -254,14 +251,14 @@ def _add_nptv6_prefixes_to_candidate(
         logger.info("Added NPTv6 prefixes to the candidate %s.", path)
 
 
-def delete_downlink_tenant(path: pathlib.Path) -> None:
+def delete_tenant(path: pathlib.Path) -> None:
     """Remove downlink VPN connections."""
     with LOCK:
-        _delete_downlink_tenant(path)
+        _delete_tenant(path)
 
 
-def _delete_downlink_tenant(path: pathlib.Path) -> None:
-    hub = vpnc.models.tenant.is_hub()
+def _delete_tenant(path: pathlib.Path) -> None:
+    hub = helpers.is_hub()
     FILE_STATES.pop(path, None)
 
     tenant_id = path.stem
@@ -292,63 +289,13 @@ def _delete_downlink_tenant(path: pathlib.Path) -> None:
         # Without the tenant's DNS translations.
         vpncmangle.generate_config()
     # The reconciler removes the network instances.
-    from vpnc.services import reconcile  # noqa: PLC0415  (import cycle)
-
-    reconcile.RECONCILER.trigger(
+    RECONCILER.trigger(
         "network_instances",
         *(ni.id for ni in active_network_instances),
     )
 
 
-def _downlink_offset(
-    network_instance: vpnc.models.network_instance.NetworkInstance,
-) -> str:
-    """Return a hub's DOWNLINK as the groups of its scopes, e.g. c:1:0 for C0001-00."""
-    tenant_id = network_instance.tenant_id
-    return f"{tenant_id[0]}:{int(tenant_id[1:], 16):x}:{network_instance.number}"
-
-
-def get_network_instance_nat64_scope(
-    network_instance: vpnc.models.network_instance.NetworkInstance,
-) -> IPv6Network | None:
-    """Return the IPv6 NAT64 scope for a network instance. This is always a /96."""
-    default_tenant = vpnc.models.tenant.get_default_tenant()
-
-    if network_instance.type != enums.NetworkInstanceType.DOWNLINK:
-        return None
-
-    if default_tenant.mode != enums.ServiceMode.HUB:
-        return None
-
-    nat64_prefix = default_tenant.prefix_downlink_nat64
-    nat64_network_address = int(nat64_prefix[0])
-    offset = f"0:0:{_downlink_offset(network_instance)}::"
-    nat64_offset = int(IPv6Address(offset))
-    nat64_address = IPv6Address(nat64_network_address + nat64_offset)
-    return IPv6Network(nat64_address).supernet(new_prefix=96)
-
-
-def get_network_instance_nptv6_scope(
-    network_instance: vpnc.models.network_instance.NetworkInstance,
-) -> IPv6Network | None:
-    """Return the IPv6 NPTv6 scope for a network instance. This is always a /48."""
-    default_tenant = vpnc.models.tenant.get_default_tenant()
-
-    if network_instance.type != enums.NetworkInstanceType.DOWNLINK:
-        return None
-
-    if default_tenant.mode != enums.ServiceMode.HUB:
-        return None
-
-    nptv6_superscope = default_tenant.prefix_downlink_nptv6
-    nptv6_network_address = int(nptv6_superscope[0])
-    offset = f"{_downlink_offset(network_instance)}::"
-    nptv6_offset = int(IPv6Address(offset))
-    nptv6_address = IPv6Address(nptv6_network_address + nptv6_offset)
-    return IPv6Network(nptv6_address).supernet(new_prefix=48)
-
-
-def get_network_instance_nat64_mappings_state(
+def nat64_mapping(
     network_instance_name: str,
 ) -> tuple[IPv6Network, IPv4Network] | None:
     """Retrieve the live NAT64 mapping configured in Jool."""
@@ -360,7 +307,7 @@ def get_network_instance_nat64_mappings_state(
         return None
 
 
-def get_network_instance_nptv6_mappings_state(
+def nptv6_mappings(
     network_instance_name: str,
 ) -> list[tuple[IPv6Network, IPv6Network]]:
     """Retrieve the live NPTv6 mappings from vpnc's nftables table."""

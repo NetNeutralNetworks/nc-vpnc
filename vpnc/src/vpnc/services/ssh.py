@@ -17,14 +17,14 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
-import vpnc.models.connections
-import vpnc.models.ssh
 from vpnc import accounts, config, files, helpers
 from vpnc.models import enums
 from vpnc.models.post_quantum import OPENSSH_KEX
 
 if TYPE_CHECKING:
+    import vpnc.models.connections
     import vpnc.models.network_instance
+    import vpnc.models.ssh
 
 
 logger = logging.getLogger("vpnc")

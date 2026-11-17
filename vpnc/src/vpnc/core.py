@@ -9,19 +9,20 @@ import subprocess
 import sys
 import time
 
-from vpnc import api, config, shared
-from vpnc.models import enums, tenant
+from vpnc import api, config, helpers, shared
+from vpnc.models import enums
 from vpnc.models.network_instance import NetworkInstance
 from vpnc.network import events, namespace
 from vpnc.services import (
     configuration,
     frr,
-    reconcile,
+    network_instances,
     snmp,
     strongswan,
     vpncmangle,
     watchdog,
 )
+from vpnc.services.reconciler import RECONCILER
 
 logger = logging.getLogger("vpnc")
 
@@ -65,30 +66,38 @@ def start_hub_services() -> None:
     # Start the VPNC mangle process in the CORE network instance.
     # This process mangles DNS responses to translate A responses to AAAA responses.
     vpncmangle.start()
-    reconcile.RECONCILER.register("vpncmangle", lambda _: vpncmangle.ensure_running())
+    RECONCILER.register("vpncmangle", lambda _: vpncmangle.ensure_running())
 
     # VPNC in hub mode uses FRR to exchange routes. Start FRR to make sure it can
     # load the CORE and EXTERNAL network instances
     frr.start()
-    reconcile.RECONCILER.register("frr", lambda _: frr.ensure_reloaded())
+    RECONCILER.register("frr", lambda _: frr.ensure_reloaded())
 
 
 def apply_or_exit(network_instance: NetworkInstance) -> None:
     """Set up a network instance of the service; without it vpnc can't run."""
     try:
-        reconcile.apply_network_instance(network_instance)
+        network_instances.apply(network_instance)
     except ValueError:
         sys.exit(1)
 
 
 def concentrator() -> None:
     """Set up the DEFAULT tenant."""
-    default_tenant = tenant.get_default_tenant()
+    default_tenant = helpers.get_default_tenant()
     logger.info("#" * 100)
     logger.info(
         "Starting ncubed vpnc daemon in %s mode.",
         default_tenant.mode,
     )
+
+    # Before anything triggers them. Checks run in the order they're registered.
+    RECONCILER.register(
+        "configuration",
+        lambda keys: configuration.rescan() if keys is None else None,
+    )
+    RECONCILER.register("network_instances", network_instances.check)
+    RECONCILER.register("routes", network_instances.check_routes)
 
     prepare_namespaces()
 
@@ -115,7 +124,7 @@ def concentrator() -> None:
         finally:
             watchdog.check(keys, sas_listing)
 
-    reconcile.RECONCILER.register("connections", check_connections)
+    RECONCILER.register("connections", check_connections)
 
     # Create and mount the CORE network instance. This provides the management
     # connectivity. The CORE namespace has no internet connectivity.
@@ -128,7 +137,7 @@ def concentrator() -> None:
 
     # Start the event handler.
     logger.info("Monitoring tenant config changes.")
-    configuration_obs = configuration.observe_configuration()
+    configuration_obs = configuration.observe()
     configuration_obs.start()
 
     config_files = list(config.VPNC_A_CONFIG_DIR.glob(pattern="*.yaml"))
@@ -136,11 +145,11 @@ def concentrator() -> None:
         configuration.manage_tenant(file_path)
 
     # Apply the configuration and keep correcting differences from it.
-    reconcile.RECONCILER.start()
+    RECONCILER.start()
 
     # Without one of these vpnc does nothing, unnoticed: exit, so it's restarted.
     threads = {
-        "reconciler": reconcile.RECONCILER,
+        "reconciler": RECONCILER,
         "link monitor": events.MONITOR,
         "configuration watcher": configuration_obs,
         "API": api.start(),
