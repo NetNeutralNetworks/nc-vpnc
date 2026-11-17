@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import time
 from ipaddress import IPv4Network, IPv6Network
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from pydantic import BaseModel, ValidationInfo, field_validator
 
 from vpnc import config, shared
+from vpnc.models import enums
 
 if TYPE_CHECKING:
+    from vpnc.models import tenant
     from vpnc.models.network_instance import NetworkInstance
 
 Net = TypeVar("Net", IPv4Network, IPv6Network)
@@ -23,6 +25,21 @@ def network_instances() -> dict[str, NetworkInstance]:
         for tenant_config in list(config.VPNC_CONFIG_TENANT.values())
         for ni in tenant_config.network_instances.values()
     }
+
+
+def get_default_tenant() -> tenant.ServiceHub | tenant.ServiceEndpoint:
+    """Return the service (DEFAULT) configuration; it's loaded at startup."""
+    try:
+        default_tenant = config.VPNC_CONFIG_TENANT[config.DEFAULT_TENANT]
+    except KeyError:
+        msg = "The service configuration isn't loaded."
+        raise config.ConfigurationError(msg) from None
+    return cast("tenant.ServiceHub | tenant.ServiceEndpoint", default_tenant)
+
+
+def is_hub() -> bool:
+    """Return whether the service runs in hub mode."""
+    return get_default_tenant().mode == enums.ServiceMode.HUB
 
 
 def split_connection_name(name: str) -> tuple[str, str]:

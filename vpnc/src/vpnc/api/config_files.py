@@ -24,13 +24,10 @@ from pydantic import BaseModel, ValidationError
 
 from vpnc import config, files, migration
 from vpnc.models import enums, tenant
-from vpnc.models.network_instance import (
-    core_route_overlaps,
-    ppk_id_users,
-    wireguard_port_users,
-)
+from vpnc.models.ipsec import ppk_id_users
 from vpnc.models.post_quantum import PostQuantumPresharedKey
 from vpnc.models.secret import REVEAL
+from vpnc.models.wireguard import wireguard_port_users
 from vpnc.services import configuration, ssh
 from vpnc.services.strongswan import strongswan
 
@@ -473,7 +470,7 @@ def _check_node(candidates: dict[str, Model | None]) -> None:
     if config.DEFAULT_TENANT in candidates:
         # The service's prefixes.
         own |= set(tenant.MAX_PREFIX_LENGTHS)
-    for route, of, other, other_of in core_route_overlaps(tenants.values()):
+    for route, of, other, other_of in tenant.core_route_overlaps(tenants.values()):
         if of not in own:
             # The candidate's route first.
             route, of, other, other_of = other, other_of, route, of  # noqa: PLW2901

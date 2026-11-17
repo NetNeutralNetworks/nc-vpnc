@@ -13,7 +13,7 @@ import vici
 import vici.exception
 
 from vpnc import config, files, helpers
-from vpnc.models import enums, tenant
+from vpnc.models import enums
 from vpnc.models.ipsec import Initiation
 from vpnc.models.post_quantum import STRONGSWAN_KE, ppk_bytes
 from vpnc.network import namespace
@@ -73,7 +73,7 @@ def _path(ni_id: str) -> pathlib.Path:
 
 def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
     """Return the IPsec connections of a network instance by name."""
-    default_tenant = tenant.get_default_tenant()
+    default_tenant = helpers.get_default_tenant()
     result: dict[str, Connection] = {}
     for connection in network_instance.connections.values():
         cfg = connection.config

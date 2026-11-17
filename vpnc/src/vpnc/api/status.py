@@ -22,7 +22,7 @@ from pyroute2.netlink.exceptions import NetlinkError
 import vpnc
 from vpnc import config, helpers
 from vpnc.api import config_files, diagnostics
-from vpnc.models import enums, tenant
+from vpnc.models import enums
 from vpnc.models.post_quantum import OPENSSH_KEX
 from vpnc.network import nftables, state, traffic
 from vpnc.services import charon, configuration, probes, ssh, vpncmangle, wireguard
@@ -642,7 +642,7 @@ def network_instance_states(
     by_ni: dict[str, list[ConnectionState]] = {}
     for s in connection_states(selected, interfaces=False):
         by_ni.setdefault(s.network_instance, []).append(s)
-    hub = tenant.is_hub()
+    hub = helpers.is_hub()
     output: list[NetworkInstanceState] = []
     for ni in selected:
         up, total = _counts(by_ni.get(ni.id, []))
@@ -654,8 +654,8 @@ def network_instance_states(
             connections=total,
         )
         if hub and ni.type == enums.NetworkInstanceType.DOWNLINK:
-            nat64 = configuration.get_network_instance_nat64_scope(ni)
-            nptv6 = configuration.get_network_instance_nptv6_scope(ni)
+            nat64 = ni.nat64_scope()
+            nptv6 = ni.nptv6_scope()
             item.nat64_scope = str(nat64) if nat64 else None
             item.nptv6_scope = str(nptv6) if nptv6 else None
             if detail:
@@ -686,13 +686,13 @@ def _add_datapath(item: NetworkInstanceState, ni: NetworkInstance) -> None:
 def _translations(ni_id: str) -> list[Translation]:
     """Return the NAT64 and NPTv6 translations as applied (Jool and nftables)."""
     output: list[Translation] = []
-    if nat64 := configuration.get_network_instance_nat64_mappings_state(ni_id):
+    if nat64 := configuration.nat64_mapping(ni_id):
         output.append(
             Translation(type="NAT64", local=str(nat64[0]), remote=str(nat64[1])),
         )
     output.extend(
         Translation(type="NPTV6", local=str(local), remote=str(remote))
-        for local, remote in configuration.get_network_instance_nptv6_mappings_state(
+        for local, remote in configuration.nptv6_mappings(
             ni_id,
         )
     )
@@ -732,7 +732,7 @@ def status() -> Status:
     states = connection_states(interfaces=False)
     up, total = _counts(states)
     return Status(
-        mode=tenant.get_default_tenant().mode,
+        mode=helpers.get_default_tenant().mode,
         tenants=len(config.VPNC_CONFIG_TENANT),
         network_instances=len(helpers.network_instances()),
         connections_up=up,
@@ -743,7 +743,7 @@ def status() -> Status:
 
 
 def _vpncmangle() -> VpncmangleState | None:
-    if not tenant.is_hub():
+    if not helpers.is_hub():
         return None
     process = vpncmangle.PROCESS
     try:
@@ -962,7 +962,7 @@ def version() -> Version:
     except OSError:
         logger.warning("Reading the strongSwan version failed.", exc_info=True)
     frr = None
-    if tenant.is_hub():
+    if helpers.is_hub():
         with contextlib.suppress(OSError, subprocess.SubprocessError):
             result = subprocess.run(
                 ["/usr/bin/vtysh", "-c", "show version"],

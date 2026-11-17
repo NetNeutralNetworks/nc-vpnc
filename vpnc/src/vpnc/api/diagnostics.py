@@ -16,7 +16,7 @@ from pyroute2 import Conntrack
 
 from vpnc.models import enums
 from vpnc.network import namespace, nftables
-from vpnc.services import configuration, jool
+from vpnc.services import jool
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -240,7 +240,7 @@ def _mappings(
     ni: NetworkInstance,
 ) -> Iterator[tuple[str, IPv6Network, IPv4Network | IPv6Network]]:
     """Return a downlink's translations: type, CORE side and tenant side prefix."""
-    if nat64 := configuration.get_network_instance_nat64_scope(ni):
+    if nat64 := ni.nat64_scope():
         yield "NAT64", nat64, IPv4Network("0.0.0.0/0")
     for connection in ni.connections.values():
         for route6 in connection.routes.ipv6:
@@ -422,7 +422,7 @@ def session_list(
 
     With NAT64, IPv4 flows are Jool's translations: they're left out of conntrack's.
     """
-    nat64 = configuration.get_network_instance_nat64_scope(ni) is not None
+    nat64 = ni.nat64_scope() is not None
     found = [
         *(_nat64_sessions(ni.id) if nat64 else []),
         *_conntrack_sessions(ni.id, ipv4=not nat64),

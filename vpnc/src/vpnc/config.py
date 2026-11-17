@@ -66,3 +66,7 @@ VPNC_CONFIG_TENANT: dict[
     str,
     tenant.Tenant | tenant.ServiceHub | tenant.ServiceEndpoint,
 ] = {}
+
+
+class ConfigurationError(RuntimeError):
+    """The service (DEFAULT) configuration is missing or invalid."""

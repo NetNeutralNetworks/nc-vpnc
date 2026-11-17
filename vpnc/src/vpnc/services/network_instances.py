@@ -1,158 +1,31 @@
-"""Reconcile the configured state with the actual state.
+"""Applies and removes network instances and their routes: the reconciler's checks.
 
 Every check is idempotent: it compares the configuration with the system and
-only changes what differs. The full check runs every FULL_CHECK_INTERVAL
-seconds as a safety net for missed events and manual changes. Events call
-trigger() to run a check sooner, for the affected keys only.
-
-Checks run one at a time in a single worker thread, in registration order.
+only changes what differs.
 """
 
 from __future__ import annotations
 
 import atexit
 import logging
-import threading
-import time
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from pyroute2 import netns
 
-from vpnc import config, helpers, shared
-from vpnc.models import enums, tenant
+from vpnc import config, helpers
+from vpnc.models import enums
 from vpnc.models.network_instance import jool_instances, open_external
 from vpnc.network import events, namespace, state
 from vpnc.services import configuration, frr, strongswan
+from vpnc.services.reconciler import RECONCILER
 
 if TYPE_CHECKING:
     from vpnc.models.network_instance import NetworkInstance
 
 logger = logging.getLogger("vpnc")
 
-# Seconds between full checks.
-FULL_CHECK_INTERVAL = 30
-# Seconds to wait after a trigger, so a burst of events results in one run.
-TRIGGER_DELAY = 0.5
-
-# A check gets the keys to reconcile (e.g. network instance names), or None for
-# everything.
-Check = Callable[[set[str] | None], None]
-
-
-class Reconciler:
-    """Run registered checks periodically (full) and on demand (scoped)."""
-
-    def __init__(
-        self,
-        interval: float = FULL_CHECK_INTERVAL,
-        trigger_delay: float = TRIGGER_DELAY,
-    ) -> None:
-        """Create a reconciler. Register checks and call start() to run it."""
-        self.interval = interval
-        self.trigger_delay = trigger_delay
-        self._checks: dict[str, Check] = {}
-        self._pending: dict[str, set[str] | None] = {}
-        self._condition = threading.Condition()
-        self._thread: threading.Thread | None = None
-
-    def register(self, name: str, check: Check) -> None:
-        """Register a check. Checks run in registration order."""
-        with self._condition:
-            self._checks[name] = check
-
-    def trigger(self, check: str | None = None, *keys: str) -> None:
-        """Run a check soon for the given keys; without keys fully, without check all.
-
-        Unknown checks are ignored.
-        """
-        with self._condition:
-            if check is None:
-                self._pending = dict.fromkeys(self._checks)
-            elif check in self._checks:
-                current = self._pending.get(check, set())
-                if not keys:
-                    self._pending[check] = None
-                elif current is not None:
-                    self._pending[check] = current | set(keys)
-            self._condition.notify()
-
-    def start(self) -> None:
-        """Start the worker thread. A full check runs right away."""
-        if self._thread and self._thread.is_alive():
-            return
-        logger.info("Starting reconciler with checks: %s.", ", ".join(self._checks))
-        self._thread = threading.Thread(
-            target=self._run,
-            name="reconciler",
-            daemon=True,
-        )
-        self._thread.start()
-
-    def is_alive(self) -> bool:
-        """Return whether the worker thread runs."""
-        return self._thread is not None and self._thread.is_alive()
-
-    def run_checks(self, pending: dict[str, set[str] | None]) -> None:
-        """Run the pending checks now, in registration order."""
-        for name, check in list(self._checks.items()):
-            if name not in pending or shared.STOP_EVENT.is_set():
-                continue
-            keys = pending[name]
-            start = time.monotonic()
-            try:
-                check(keys)
-            except Exception:
-                logger.exception("Reconcile check '%s' failed.", name)
-            logger.debug(
-                "Reconcile check '%s' (%s) took %.2fs.",
-                name,
-                "full" if keys is None else ", ".join(sorted(keys)),
-                time.monotonic() - start,
-            )
-
-    def run_triggered(self) -> None:
-        """Run the scoped checks triggered so far, e.g. halfway a full check.
-
-        Full triggers stay pending for the worker.
-        """
-        with self._condition:
-            pending = {
-                name: keys for name, keys in self._pending.items() if keys is not None
-            }
-            for name in pending:
-                del self._pending[name]
-        if pending:
-            self.run_checks(pending)
-
-    def _run(self) -> None:
-        state.keep_sockets()
-        next_full_check = time.monotonic()
-        while not shared.STOP_EVENT.is_set():
-            with self._condition:
-                timeout = max(0.0, next_full_check - time.monotonic())
-                if not self._pending and timeout > 0:
-                    self._condition.wait(timeout)
-            if shared.STOP_EVENT.is_set():
-                return
-
-            full_check = time.monotonic() >= next_full_check
-            if not full_check:
-                # Let a burst of events accumulate.
-                time.sleep(self.trigger_delay)
-            with self._condition:
-                if full_check:
-                    pending: dict[str, set[str] | None] = dict.fromkeys(self._checks)
-                else:
-                    pending = self._pending
-                self._pending = {}
-
-            self.run_checks(pending)
-            if full_check:
-                # From its end: a long full check leaves time for triggered ones.
-                next_full_check = time.monotonic() + self.interval
-
-
+# The network instances that can have IPsec connections.
+IPSEC_TYPES = (enums.NetworkInstanceType.CORE, enums.NetworkInstanceType.DOWNLINK)
 # The configuration last applied per network instance, to remove what's gone.
 APPLIED: dict[str, NetworkInstance] = {}
 # Network instances whose link and address events are watched, with the identity
@@ -170,7 +43,7 @@ def configured_network_instance(tenant_id: str, ni_id: str) -> NetworkInstance |
     )
 
 
-def apply_network_instance(network_instance: NetworkInstance) -> bool:
+def apply(network_instance: NetworkInstance) -> bool:
     """Reconcile a network instance and its routes.
 
     Returns whether the configuration was updated (new NPTv6 prefixes).
@@ -181,6 +54,10 @@ def apply_network_instance(network_instance: NetworkInstance) -> bool:
         previous = None
     with state.session():
         updated = network_instance.reconcile(previous)
+        if network_instance.type in IPSEC_TYPES:
+            strongswan.apply(network_instance)
+        if network_instance.type == enums.NetworkInstanceType.CORE and helpers.is_hub():
+            frr.generate_config()
         if watch(network_instance.id):
             # The links were read before they were monitored: read them again,
             # so no change is missed.
@@ -190,7 +67,7 @@ def apply_network_instance(network_instance: NetworkInstance) -> bool:
     return updated
 
 
-def check_network_instances(keys: set[str] | None) -> None:
+def check(keys: set[str] | None) -> None:
     """Reconcile network instances; remove the ones no longer configured.
 
     A full check runs triggered checks between network instances, so changes don't
@@ -203,12 +80,12 @@ def check_network_instances(keys: set[str] | None) -> None:
         # Opened below; a missing CORE would fail every full check.
         namespace.add(name=config.CORE_NI)
         with state.session(), state.netns(config.CORE_NI), jool_instances():
-            _check_network_instances(keys)
+            _check(keys)
     else:
-        _check_network_instances(keys)
+        _check(keys)
 
 
-def _check_network_instances(keys: set[str] | None) -> None:
+def _check(keys: set[str] | None) -> None:
     # First: new peers are accepted before their connections are loaded.
     open_external()
     updated_tenants: set[str] = set()
@@ -222,7 +99,7 @@ def _check_network_instances(keys: set[str] | None) -> None:
         if network_instance is None:
             continue
         try:
-            if apply_network_instance(network_instance):
+            if apply(network_instance):
                 updated_tenants.add(tenant_id)
         except Exception:
             logger.exception("Reconciling network instance %s failed.", ni_id)
@@ -242,7 +119,7 @@ def remove_unconfigured(
             continue
         logger.info("Removing network instance %s.", ni_id)
         try:
-            remove_network_instance(APPLIED.pop(ni_id))
+            remove(APPLIED.pop(ni_id))
         except Exception:
             logger.exception("Removing network instance %s failed.", ni_id)
 
@@ -259,7 +136,7 @@ def remove_unconfigured(
     delete_stale_core_routes(list(configured.values()))
 
 
-def remove_network_instance(network_instance: NetworkInstance) -> None:
+def remove(network_instance: NetworkInstance) -> None:
     """Remove a network instance with its connections, routes and VPN config."""
     strongswan.remove(network_instance.id)
     unwatch(network_instance.id)
@@ -268,7 +145,7 @@ def remove_network_instance(network_instance: NetworkInstance) -> None:
     # The kernel deleted its link to CORE.
     state.changed(config.CORE_NI)
     delete_core_routes(network_instance)
-    if tenant.is_hub():
+    if helpers.is_hub():
         frr.generate_config()
 
 
@@ -321,7 +198,7 @@ def reconcile_routes(
     network instance's destinations (current and previous) and routes via its link
     are managed, as CORE holds the routes of all network instances.
     """
-    if net_inst.type == enums.NetworkInstanceType.CORE and tenant.is_hub():
+    if net_inst.type == enums.NetworkInstanceType.CORE and helpers.is_hub():
         return
 
     with (
@@ -386,20 +263,10 @@ def delete_stale_core_routes(network_instances: list[NetworkInstance]) -> None:
 def check_routes(keys: set[str] | None) -> None:
     """Reconcile the routes of network instances whose links changed.
 
-    Full checks skip this: check_network_instances already reconciles all routes.
+    Full checks skip this: check() already reconciles all routes.
     """
     if keys is None:
         return
     for ni_id, network_instance in helpers.network_instances().items():
         if ni_id in keys and namespace.exists(ni_id):
             reconcile_routes(network_instance)
-
-
-# The reconciler of the service.
-RECONCILER = Reconciler()
-RECONCILER.register(
-    "configuration",
-    lambda keys: configuration.rescan() if keys is None else None,
-)
-RECONCILER.register("network_instances", check_network_instances)
-RECONCILER.register("routes", check_routes)

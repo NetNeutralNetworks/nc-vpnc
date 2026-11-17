@@ -25,14 +25,14 @@ from pydantic import (
 )
 
 from vpnc import config, files, helpers
-from vpnc.models import connections, enums, tenant
+from vpnc.models import connections, enums
+from vpnc.models.wireguard import wireguard_port_users
 from vpnc.network import namespace, nftables, state
-from vpnc.services import configuration, frr, jool, strongswan
+from vpnc.services import jool
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
-# Needed for pydantim ports and type checking
 logger = logging.getLogger("vpnc")
 
 TEMPLATES_ENV = files.templates(__file__)
@@ -121,37 +121,13 @@ def _log_unassigned_nptv6(
     _NPTV6_UNASSIGNED[network_instance_id] = set(unassigned)
 
 
-def wireguard_port_users(
-    tenants: Iterable[tenant.Tenant] | None = None,
-) -> dict[int, list[str]]:
-    """Return per local WireGuard port the connections using it, sorted.
-
-    All WireGuard interfaces listen in EXTERNAL, so only one can use a port.
-    """
-    if tenants is None:
-        tenants = list(config.VPNC_CONFIG_TENANT.values())
-    users: dict[int, list[str]] = {}
-    for tenant_config in tenants:
-        for network_instance in tenant_config.network_instances.values():
-            for connection in network_instance.connections.values():
-                if connection.config.type == enums.ConnectionType.WIREGUARD:
-                    users.setdefault(connection.config.local_port, []).append(
-                        connection.name(network_instance),
-                    )
-    return {port: sorted(names) for port, names in users.items()}
-
-
 def external_sets() -> dict[str, list[str]]:
     """Return the elements of EXTERNAL's sets, as nft text.
 
     The peers are the remote_addrs of enabled IPsec and WireGuard connections; a
     WireGuard peer only with its connection's local port.
     """
-    # At startup EXTERNAL and CORE are set up before the configuration is loaded.
-    default_tenant = tenant.get_default_tenant()
-    tenants = [default_tenant] + [
-        t for t in list(config.VPNC_CONFIG_TENANT.values()) if t.id != default_tenant.id
-    ]
+    tenants = list(config.VPNC_CONFIG_TENANT.values())
     sets: dict[str, set[str]] = {
         f"{kind}_peers_ipv{version}": set()
         for kind in ("ipsec", "wireguard")
@@ -296,6 +272,14 @@ class NetworkInstance(BaseModel):
                 raise ValueError(msg)
         return v
 
+    def nat64_scope(self) -> IPv6Network | None:
+        """Return the NAT64 scope: only a hub's DOWNLINK has one."""
+        return None
+
+    def nptv6_scope(self) -> IPv6Network | None:
+        """Return the NPTv6 scope: only a hub's DOWNLINK has one."""
+        return None
+
     @abstractmethod
     def set_firewall(self) -> bool:
         """Make the namespace's nftables table as configured."""
@@ -310,7 +294,7 @@ class NetworkInstance(BaseModel):
         # DOWNLINK namespaces are removed when vpnc stops.
         self._ensure_namespace(cleanup=self.type == enums.NetworkInstanceType.DOWNLINK)
         updated = self.set_firewall()
-        self._set_network_instance_connections(previous)
+        self._set_connections(previous)
         self._delete_unconfigured_interfaces()
         self._reconcile_services()
         return updated
@@ -369,7 +353,7 @@ class NetworkInstance(BaseModel):
                         ),
                     )
 
-        nat64_scope = configuration.get_network_instance_nat64_scope(self)
+        nat64_scope = self.nat64_scope()
         if nat64_scope and self.type == enums.NetworkInstanceType.DOWNLINK:
             core_routes.append(
                 route_or_blackhole(
@@ -397,7 +381,7 @@ class NetworkInstance(BaseModel):
         """Return the routes of a DOWNLINK/ENDPOINT network instance to the uplinks."""
         if not self.linked_to_core:
             return []
-        default_tenant = tenant.get_default_tenant()
+        default_tenant = helpers.get_default_tenant()
         veth = self.veth_downlink
         routes: list[state.Route] = []
         core_ni = default_tenant.network_instances[config.CORE_NI]
@@ -442,7 +426,7 @@ class NetworkInstance(BaseModel):
         return True
 
     def _reconcile_services(self) -> None:
-        """Reconcile the services of the network instance type (NAT64, VPN, ...)."""
+        """Reconcile what only this type of network instance has (NAT64)."""
 
     def _ensure_namespace(self, *, cleanup: bool) -> None:
         """Ensure the namespace, its sysctls and its link to CORE."""
@@ -462,11 +446,11 @@ class NetworkInstance(BaseModel):
             namespace.ensure_sysctls(self.id, UNROUTED_NETWORK_INSTANCE_SYSCTLS)
 
         if self.linked_to_core:
-            self._set_network_instance_link()
+            self._set_core_link()
 
     def _delete_unconfigured_interfaces(self) -> None:
         """Delete connection interfaces (XFRM, tun, WireGuard) no longer configured."""
-        configured = self._get_network_instance_connections()
+        configured = self._get_connections()
         with state.netns(self.id) as dl:
             for name, link in list(dl.state.links.items()):
                 if link.kind in ("xfrm", "tun", "wireguard") and name not in configured:
@@ -475,7 +459,7 @@ class NetworkInstance(BaseModel):
     def delete(self) -> None:
         """Delete a network instance (Linux namespace)."""
         if self.linked_to_core:
-            self._delete_network_instance_link()
+            self._delete_core_link()
 
         for conn in _ssh_first(self.connections.values()):
             logger.info(
@@ -487,11 +471,11 @@ class NetworkInstance(BaseModel):
 
         namespace.delete(self.id)
 
-    def _get_network_instance_connections(self) -> set[str]:
+    def _get_connections(self) -> set[str]:
         """Get all configured connections (interfaces)."""
         return {connection.intf_name(self) for connection in self.connections.values()}
 
-    def _set_network_instance_connections(
+    def _set_connections(
         self,
         active_network_instance: NetworkInstance | None,
     ) -> None:
@@ -500,7 +484,7 @@ class NetworkInstance(BaseModel):
         Adds connections to the network instance (Linux namespace).
         """
         if active_network_instance:
-            self._delete_network_instance_connections(
+            self._delete_connections(
                 active_network_instance,
             )
         for connection in self.connections.values():
@@ -517,7 +501,7 @@ class NetworkInstance(BaseModel):
                     connection,
                 )
 
-    def _delete_network_instance_connections(
+    def _delete_connections(
         self,
         active_network_instance: NetworkInstance,
     ) -> None:
@@ -530,7 +514,7 @@ class NetworkInstance(BaseModel):
         active_connections.reverse()
 
         # Configured interfaces for connections.
-        configured_connections = self._get_network_instance_connections()
+        configured_connections = self._get_connections()
 
         for conn in _ssh_first(active_connections):
             interface_name = conn.intf_name(self)
@@ -544,7 +528,7 @@ class NetworkInstance(BaseModel):
 
             conn.delete(active_network_instance)
 
-    def _set_network_instance_link(
+    def _set_core_link(
         self,
     ) -> None:
         """Create a link and routes between a DOWNLINK and the CORE network instance."""
@@ -575,7 +559,7 @@ class NetworkInstance(BaseModel):
             state.ensure_link_state(ni_dl, dl_state, veth_d, up=True)
 
             # Link-local addresses for routing, and IPv4 in ENDPOINT mode.
-            endpoint = not tenant.is_hub()
+            endpoint = not helpers.is_hub()
             state.ensure_addresses(
                 ni_core,
                 core_state,
@@ -591,7 +575,7 @@ class NetworkInstance(BaseModel):
                 [IPv6Interface("fe80::1/64")],
             )
 
-    def _delete_network_instance_link(
+    def _delete_core_link(
         self,
     ) -> None:
         """Delete a link between a DOWNLINK and the CORE network instance."""
@@ -659,14 +643,9 @@ class NetworkInstanceCore(NetworkInstance):
 
     _no_probes = field_validator("connections")(_refuse_probes)
 
-    def _reconcile_services(self) -> None:
-        strongswan.apply(self)
-        if tenant.is_hub():
-            frr.generate_config()
-
     def set_firewall(self) -> bool:
         """Accept BGP and BFD from the uplinks, and forward IPv6 from them."""
-        default_tenant = tenant.get_default_tenant()
+        default_tenant = helpers.get_default_tenant()
         bgp_neighbors: list[str] = []
         if default_tenant.mode == enums.ServiceMode.HUB:
             # CORE has no IPv4.
@@ -681,7 +660,7 @@ class NetworkInstanceCore(NetworkInstance):
         self._apply_firewall(
             "nft-core.conf.j2",
             mode=default_tenant.mode,
-            interfaces=sorted(self._get_network_instance_connections()),
+            interfaces=sorted(self._get_connections()),
             bgp_neighbors=bgp_neighbors,
         )
         return False
@@ -694,9 +673,33 @@ class NetworkInstanceDownlink(NetworkInstance):
         enums.NetworkInstanceType.DOWNLINK
     )
 
+    def _scope_offset(self) -> int:
+        """Return its place in the scopes: c:1:0 (as groups) for C0001-00."""
+        tenant_id = self.tenant_id
+        groups = f"{tenant_id[0]}:{int(tenant_id[1:], 16):x}:{self.number}"
+        return int(IPv6Address(f"{groups}::"))
+
+    def nat64_scope(self) -> IPv6Network | None:
+        """Return the NAT64 scope on a hub: a /96 of prefix_downlink_nat64."""
+        default_tenant = helpers.get_default_tenant()
+        if default_tenant.mode != enums.ServiceMode.HUB:
+            return None
+        # Two groups further than in the NPTv6 scope: 0:0:c:1:0::.
+        address = int(default_tenant.prefix_downlink_nat64[0]) + (
+            self._scope_offset() >> 32
+        )
+        return IPv6Network(IPv6Address(address)).supernet(new_prefix=96)
+
+    def nptv6_scope(self) -> IPv6Network | None:
+        """Return the NPTv6 scope on a hub: a /48 of prefix_downlink_nptv6."""
+        default_tenant = helpers.get_default_tenant()
+        if default_tenant.mode != enums.ServiceMode.HUB:
+            return None
+        address = int(default_tenant.prefix_downlink_nptv6[0]) + self._scope_offset()
+        return IPv6Network(IPv6Address(address)).supernet(new_prefix=48)
+
     def _reconcile_services(self) -> None:
-        self._set_downlink_nat64()
-        strongswan.apply(self)
+        self._set_nat64()
 
     def set_firewall(self) -> bool:
         """Accept traffic from CORE and ICMPv6 only; NPTv6 and NAT66.
@@ -706,11 +709,11 @@ class NetworkInstanceDownlink(NetworkInstance):
         updated, nptv6_networks = self._calculate_nptv6_mappings()
         self._apply_firewall(
             "nft-downlink.conf.j2",
-            mode=tenant.get_default_tenant().mode,
+            mode=helpers.get_default_tenant().mode,
             core_interfaces=[self.veth_downlink],
-            downlink_interfaces=sorted(self._get_network_instance_connections()),
+            downlink_interfaces=sorted(self._get_connections()),
             nptv6_networks=nptv6_networks,
-            nat64_scope=configuration.get_network_instance_nat64_scope(self),
+            nat64_scope=self.nat64_scope(),
             probes=self._probe_rules(),
         )
         return updated
@@ -739,11 +742,11 @@ class NetworkInstanceDownlink(NetworkInstance):
         """Calculate the NPTv6 translations for a network instance (Linux namespace)."""
         updated = False
         nptv6_list: list[connections.RouteIPv6] = []
-        if not tenant.is_hub():
+        if not helpers.is_hub():
             return updated, nptv6_list
 
         # Get NPTv6 prefix for this network instance
-        if not (nptv6_scope := configuration.get_network_instance_nptv6_scope(self)):
+        if not (nptv6_scope := self.nptv6_scope()):
             return updated, []
 
         # Get only routes that should have NPTv6 performed.
@@ -804,13 +807,13 @@ class NetworkInstanceDownlink(NetworkInstance):
         _log_unassigned_nptv6(self.id, unassigned, nptv6_scope)
         return updated, [x for x in nptv6_list if x.nptv6_prefix]
 
-    def _set_downlink_nat64(self) -> None:
+    def _set_nat64(self) -> None:
         """Add NAT64 rules to a network instance (Linux namespace)."""
-        if not tenant.is_hub():
+        if not helpers.is_hub():
             logger.debug("Not running in hub mode. Not configuring NAT64.")
             return
 
-        if not (nat64_scope := configuration.get_network_instance_nat64_scope(self)):
+        if not (nat64_scope := self.nat64_scope()):
             logger.warning(
                 "No NAT64 scope found for network instance %s",
                 self.id,
@@ -861,67 +864,9 @@ class NetworkInstanceEndpoint(NetworkInstance):
         """Accept traffic from CORE and ICMPv6 only; NAT."""
         self._apply_firewall(
             "nft-endpoint.conf.j2",
-            mode=tenant.get_default_tenant().mode,
+            mode=helpers.get_default_tenant().mode,
             core_interfaces=[self.veth_downlink],
-            downlink_interfaces=sorted(self._get_network_instance_connections()),
+            downlink_interfaces=sorted(self._get_connections()),
             nptv6_networks=[],
         )
         return False
-
-
-def core_route_overlaps(
-    tenants: Iterable[tenant.Tenant],
-) -> list[tuple[str, str, str, str]]:
-    """Return a hub's IPv6 routes in CORE that overlap: (route, of, route, of).
-
-    A tenant's route without NPTv6 is a route in CORE as it is, so it mustn't
-    take traffic of the uplinks' routes, the NAT64 and NPTv6 prefixes or another
-    network instance's routes. "Of" is a connection, or the prefix's setting.
-    """
-    # Route, of what, and its network instance (the service's count as one).
-    routes: list[tuple[IPv6Network, str, str]] = []
-    for tenant_config in tenants:
-        if isinstance(tenant_config, tenant.ServiceEndpoint):
-            return []
-        if isinstance(tenant_config, tenant.ServiceHub):
-            routes += [
-                (getattr(tenant_config, name), name, config.DEFAULT_TENANT)
-                for name in ("prefix_downlink_nat64", "prefix_downlink_nptv6")
-            ]
-        for ni in tenant_config.network_instances.values():
-            for connection in ni.connections.values():
-                for route in connection.routes.ipv6:
-                    name = connection.name(ni)
-                    # A default route to the uplinks is less specific than any.
-                    if ni.type == enums.NetworkInstanceType.CORE and route.to.prefixlen:
-                        routes.append((route.to, name, config.DEFAULT_TENANT))
-                    elif (
-                        ni.type == enums.NetworkInstanceType.DOWNLINK
-                        and not route.nptv6
-                    ):
-                        routes.append((route.to, name, ni.id))
-    return [
-        (str(route), of, str(other), other_of)
-        for index, (route, of, ni_id) in enumerate(routes)
-        for other, other_of, other_ni_id in routes[index + 1 :]
-        if ni_id != other_ni_id and route.overlaps(other)
-    ]
-
-
-def ppk_id_users(tenants: Iterable[tenant.Tenant]) -> dict[str, list[str]]:
-    """Return per PPK id the IPsec connections using it, sorted.
-
-    charon selects a PPK by the id the peer sends, so an id must be unique.
-    """
-    users: dict[str, list[str]] = {}
-    for tenant_config in tenants:
-        for network_instance in tenant_config.network_instances.values():
-            for connection in network_instance.connections.values():
-                cfg = connection.config
-                if cfg.type == enums.ConnectionType.IPSEC and (
-                    ppk_id := cfg.ppk_id(network_instance, connection)
-                ):
-                    users.setdefault(ppk_id, []).append(
-                        connection.name(network_instance),
-                    )
-    return {ppk_id: sorted(names) for ppk_id, names in users.items()}

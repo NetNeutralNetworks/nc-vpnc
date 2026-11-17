@@ -24,7 +24,7 @@ from pydantic import (
 )
 
 from vpnc import helpers
-from vpnc.models import enums, tenant
+from vpnc.models import enums
 from vpnc.models.ipsec import ConnectionConfigIPsec
 from vpnc.models.physical import ConnectionConfigPhysical
 from vpnc.models.ssh import ConnectionConfigSSH
@@ -191,7 +191,7 @@ class Connection(BaseModel):
         network_instance: network_instance.NetworkInstance,
     ) -> tuple[list[IPv4Interface], list[IPv6Interface]]:
         """Calculate Interface IP addresses for a DOWNLINK if not configured."""
-        default_tenant = tenant.get_default_tenant()
+        default_tenant = helpers.get_default_tenant()
         interface_ipv4_address = self.interface.ipv4  # pylint: disable=no-member
         interface_ipv6_address = self.interface.ipv6  # pylint: disable=no-member
         if (

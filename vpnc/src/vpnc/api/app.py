@@ -32,7 +32,7 @@ from vpnc.api.config_files import (
     HistoryEntry,
     Revision,
 )
-from vpnc.models import enums, tenant
+from vpnc.models import enums
 from vpnc.models.connections import Connection
 from vpnc.models.network_instance import NetworkInstance
 from vpnc.models.ssh import INTERFACE_PATTERN, USERNAME_PATTERN
@@ -305,7 +305,7 @@ def get_network_instance_logs(
 
 
 def _hub_only(what: str = "BGP only runs") -> None:
-    if not tenant.is_hub():
+    if not helpers.is_hub():
         raise ConfigError(409, "Conflict", f"{what} in hub mode.")
 
 

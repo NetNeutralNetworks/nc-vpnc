@@ -11,7 +11,6 @@ from typing import Any
 
 from vpnc import accounts, config, files, helpers, shared
 from vpnc.network import namespace
-from vpnc.services import configuration
 
 logger = logging.getLogger("vpnc")
 
@@ -29,7 +28,7 @@ def generate_config() -> None:
             if net_ni.id in (config.CORE_NI, config.EXTERNAL_NI):
                 continue
             output[net_ni.id] = {"dns64": [], "dns66": []}
-            if nat64_scope := configuration.get_network_instance_nat64_scope(net_ni):
+            if nat64_scope := net_ni.nat64_scope():
                 output[net_ni.id]["dns64"] = [
                     (str(nat64_scope), str(IPv4Network("0.0.0.0/0"))),
                 ]

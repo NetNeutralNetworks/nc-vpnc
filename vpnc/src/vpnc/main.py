@@ -74,9 +74,9 @@ def _check_system_requirements() -> None:
         ],
     )
 
-    tenant_config, _ = tenant.load_tenant_config(config.VPNC_A_CONFIG_PATH_SERVICE)
-    if not isinstance(tenant_config, (tenant.ServiceHub, tenant.ServiceEndpoint)):
-        logger.critical("Service configuration is invalid")
+    try:
+        tenant_config = tenant.load_default()
+    except config.ConfigurationError:
         sys.exit(1)
 
     if tenant_config.mode == enums.ServiceMode.HUB:
@@ -123,10 +123,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _signal_handler)
 
     # Start the concentrator
-    try:
-        core.concentrator()
-    except tenant.ConfigurationError:
-        sys.exit(1)
+    core.concentrator()
 
 
 if __name__ == "__main__":

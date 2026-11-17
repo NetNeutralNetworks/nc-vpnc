@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import logging
 from ipaddress import IPv4Address, IPv6Address
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
-import vpnc.models.network_instance
-import vpnc.services.ssh
 from vpnc import accounts, helpers
-from vpnc.models import connections, enums
+from vpnc.models import enums
 from vpnc.models.post_quantum import PostQuantumSSH
 from vpnc.network import state
+from vpnc.services import ssh
+
+if TYPE_CHECKING:
+    import vpnc.models.network_instance
+    from vpnc.models import connections
 
 logger = logging.getLogger("vpnc")
 
@@ -63,7 +66,7 @@ class ConnectionConfigSSH(BaseModel):
             state.ensure_link_state(dl.ipr, dl.state, tun, up=connection.enabled)
             connection.ensure_mtu_and_addresses(network_instance, dl)
 
-        vpnc.services.ssh.start(network_instance, connection)
+        ssh.start(network_instance, connection)
         return tun
 
     def delete(
@@ -72,11 +75,11 @@ class ConnectionConfigSSH(BaseModel):
         connection: connections.Connection,
     ) -> None:
         """Delete a connection, with its key and its server's host key."""
-        vpnc.services.ssh.stop(network_instance, connection)
+        ssh.stop(network_instance, connection)
         connection.delete_interface(network_instance)
         name = connection.name(network_instance)
-        vpnc.services.ssh.known_hosts(name).unlink(missing_ok=True)
-        vpnc.services.ssh.delete_key(name)
+        ssh.known_hosts(name).unlink(missing_ok=True)
+        ssh.delete_key(name)
 
     def intf_name(
         self,
