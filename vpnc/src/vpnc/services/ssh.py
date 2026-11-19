@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import base64
 import binascii
+import dataclasses
 import functools
 import hashlib
 import logging
@@ -39,6 +40,29 @@ RESTART_DELAY_MAX = 30
 STABLE_AFTER = 60
 # Characters logged of a line ssh prints.
 MAX_LINE = 500
+# What ssh prints (at LogLevel DEBUG1) of each key exchange, also of a rekey.
+# Ciphers and MACs are the same both ways: vpnc and the server set one list each.
+KEX_LINE = re.compile(
+    r"debug1: kex: (?:algorithm: (?P<kex>\S+)"
+    r"|client->server cipher: (?P<cipher>\S+) MAC: (?P<mac>\S+) )"
+)
+# What ssh prints at LogLevel VERBOSE when the session is set up.
+AUTHENTICATED = "Authenticated to "
+# The MAC of an AEAD cipher.
+IMPLICIT_MAC = "<implicit>"
+
+
+@dataclasses.dataclass(frozen=True)
+class Session:
+    """A running ssh and what it negotiated (None: not yet)."""
+
+    pid: int
+    # Unix time.
+    authenticated: float | None
+    key_exchange: str | None
+    cipher: str | None
+    # None with an AEAD cipher.
+    mac: str | None
 
 
 class SshTunnel(threading.Thread):
@@ -56,8 +80,25 @@ class SshTunnel(threading.Thread):
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._proc: subprocess.Popen[str] | None = None
-        # When the running ssh started (Unix time), None if it doesn't run.
-        self.started: float | None = None
+        self._reset()
+
+    def _reset(self) -> None:
+        """Forget the session of an ssh that exited."""
+        self.authenticated: float | None = None
+        self.key_exchange: str | None = None
+        self.cipher: str | None = None
+        self.mac: str | None = None
+
+    def _parse(self, line: str) -> None:
+        """Note the algorithms of a key exchange."""
+        if not (match := KEX_LINE.match(line)):
+            return
+        if kex := match["kex"]:
+            self.key_exchange = helpers.printable(kex)
+        else:
+            self.cipher = helpers.printable(match["cipher"])
+            mac = match["mac"]
+            self.mac = None if mac == IMPLICIT_MAC else helpers.printable(mac)
 
     def run(self) -> None:
         """Keep ssh running."""
@@ -75,16 +116,20 @@ class SshTunnel(threading.Thread):
                     text=True,
                     errors="replace",
                 )
-                self.started = time.time()
             # Logged with the connection name, so it shows in its logs.
             last = ""
             for line in proc.stderr or []:
+                if line.startswith("debug"):
+                    self._parse(line)
+                    continue
                 # From the server: no control characters (e.g. terminal escapes).
                 if line := helpers.printable(line.strip())[:MAX_LINE]:
                     logger.info("SSH tunnel %s: %s", self.connection_name, line)
                     last = line
+                    if line.startswith(AUTHENTICATED):
+                        self.authenticated = time.time()
             proc.wait()
-            self.started = None
+            self._reset()
             if self._stop_event.is_set():
                 return
             if time.monotonic() - started > STABLE_AFTER:
@@ -252,13 +297,18 @@ def known_hosts(connection_name: str) -> pathlib.Path:
     return config.VPNC_KNOWN_HOSTS_DIR.joinpath(connection_name)
 
 
-def session(connection_name: str) -> tuple[int, float] | None:
-    """Return the process id and start (Unix time) of a tunnel's running ssh."""
+def session(connection_name: str) -> Session | None:
+    """Return the session of a tunnel's running ssh."""
     tunnel = SSH_TUNNELS.get(connection_name)
-    if tunnel is None:
+    if tunnel is None or (pid := tunnel.pid) is None:
         return None
-    pid, started = tunnel.pid, tunnel.started
-    return (pid, started) if pid is not None and started is not None else None
+    return Session(
+        pid=pid,
+        authenticated=tunnel.authenticated,
+        key_exchange=tunnel.key_exchange,
+        cipher=tunnel.cipher,
+        mac=tunnel.mac,
+    )
 
 
 def host_key(connection_name: str) -> str | None:
@@ -361,6 +411,9 @@ def _start(
         "/usr/bin/ssh",
         # The server is set up beforehand (remote_setup): no command to run.
         "-N",
+        # The negotiated algorithms: see KEX_LINE.
+        "-o",
+        "LogLevel=DEBUG1",
         "-o",
         "ControlMaster=yes",
         "-o",

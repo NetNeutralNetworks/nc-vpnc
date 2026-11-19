@@ -23,7 +23,6 @@ import vpnc
 from vpnc import config, helpers
 from vpnc.api import config_files, diagnostics
 from vpnc.models import enums
-from vpnc.models.post_quantum import OPENSSH_KEX
 from vpnc.network import nftables, state, traffic
 from vpnc.services import charon, configuration, probes, ssh, vpncmangle, wireguard
 
@@ -124,7 +123,7 @@ class SecurityAssociation(BaseModel):
 class Tunnel(BaseModel):
     """A VPN connection's session as set up. None/empty where the type lacks it."""
 
-    # IPsec: the IKE SA's, e.g. ESTABLISHED or CONNECTING.
+    # IPsec: the IKE SA's, e.g. ESTABLISHED or CONNECTING; SSH: the same two.
     state: str | None = None
     # Changes when the session is set up again: IKE SA id, ssh's process id.
     session_id: int | None = None
@@ -134,10 +133,12 @@ class Tunnel(BaseModel):
     # IKE ids; WireGuard public keys; SSH username and the server's host key.
     local_identity: str | None = None
     remote_identity: str | None = None
+    # As negotiated; WireGuard: fixed by the protocol.
     encryption: str | None = None
+    # None with an AEAD cipher.
     integrity: str | None = None
     prf: str | None = None
-    # The classical one, then the additional (ML-KEM) ones.
+    # The classical one, then the additional (ML-KEM) ones. SSH: one, hybrid or not.
     key_exchange: list[str] = []
     # IPsec: a post-quantum preshared key was used.
     ppk: bool | None = None
@@ -483,17 +484,19 @@ def _ssh(name: str, connection: Connection) -> Tunnel | None:
     session = ssh.session(name)
     if session is None:
         return None
-    pid, started = session
     cfg = connection.config
-    pq = cfg.post_quantum
     return Tunnel(
-        session_id=pid,
+        state="ESTABLISHED" if session.authenticated else "CONNECTING",
+        session_id=session.pid,
         remote=_endpoint(cfg.remote_addrs[0], SSH_PORT),
         local_identity=cfg.username,
         remote_identity=ssh.host_key(name),
-        # Only known when vpnc allows a single one.
-        key_exchange=[OPENSSH_KEX[pq.ml_kem]] if pq.enabled else [],
-        established=_timestamp(started),
+        encryption=session.cipher,
+        integrity=session.mac,
+        key_exchange=[session.key_exchange] if session.key_exchange else [],
+        established=(
+            _timestamp(session.authenticated) if session.authenticated else None
+        ),
     )
 
 
