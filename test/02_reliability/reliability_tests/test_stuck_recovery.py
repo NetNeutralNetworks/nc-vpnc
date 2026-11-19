@@ -46,7 +46,7 @@ def ssh_pid() -> str:
     try:
         return conftest.run_cmd(
             SSH[0],
-            f"pgrep -f ControlPath=/run/vpnc-ssh/{SSH[1]}.sock",
+            f"pgrep -f UserKnownHostsFile=\\S+/{SSH[1]}\\b",
         ).strip()
     except subprocess.CalledProcessError:
         return ""

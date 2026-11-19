@@ -31,9 +31,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("vpnc")
 
-# Of ssh's account; not in /run/vpnc, which is root's.
-SSH_SOCKET_DIR = pathlib.Path("/run/vpnc-ssh/")
-
 # Seconds before reconnecting, doubled after each failed attempt.
 RESTART_DELAY_MIN = 1
 RESTART_DELAY_MAX = 30
@@ -331,6 +328,11 @@ def remote_setup(
         routes=[str(address.network) for address in (*if_ipv4, *if_ipv6)],
         interface=interface or cfg.remote_config_interface,
         key=public_key(name),
+        tenant=network_instance.tenant_id,
+        host_key_path=(
+            f"network_instances.{network_instance.id.rpartition('-')[2]}"
+            f".connections.{connection.id}.config.host_key"
+        ),
     )
 
 
@@ -362,6 +364,20 @@ def unsupported_kex(config: vpnc.models.ssh.ConnectionConfigSSH) -> str | None:
 def known_hosts(connection_name: str) -> pathlib.Path:
     """Return the file with the host key of a connection's server."""
     return config.VPNC_KNOWN_HOSTS_DIR.joinpath(connection_name)
+
+
+def _pin_host_key(
+    connection_name: str,
+    config: vpnc.models.ssh.ConnectionConfigSSH,
+) -> bool:
+    """Make a configured host key the only one known of the server; return if any."""
+    if config.host_key is None:
+        return False
+    path = known_hosts(connection_name)
+    files.ensure_file(path, f"{config.remote_addrs[0]} {config.host_key}\n")
+    user = accounts.user(accounts.SSH)
+    os.chown(path, user.pw_uid, user.pw_gid)
+    return True
 
 
 def session(connection_name: str) -> Session | None:
@@ -404,10 +420,8 @@ def host_key(connection_name: str) -> str | None:
 
 
 def _prepare_directories() -> None:
-    """Give the directories ssh writes in to its account."""
+    """Give the directory ssh writes in to its account."""
     user = accounts.user(accounts.SSH)
-    SSH_SOCKET_DIR.mkdir(mode=0o700, exist_ok=True)
-    os.chown(SSH_SOCKET_DIR, user.pw_uid, user.pw_gid)
     directory = config.VPNC_KNOWN_HOSTS_DIR
     directory.mkdir(parents=True, exist_ok=True)
     # Root's before, with the files ssh made as root.
@@ -436,7 +450,6 @@ def _start(
     connection: vpnc.models.connections.Connection,
 ) -> None:
     connection_name = connection.name(network_instance)
-    ssh_master_socket = SSH_SOCKET_DIR.joinpath(f"{connection_name}.sock")
     if not connection.enabled:
         stop(network_instance, connection)
         return
@@ -465,8 +478,7 @@ def _start(
     _prepare_directories()
     if not ensure_key(connection_name):
         return
-    # A stale socket (e.g. after a kill) would stop ssh from becoming master.
-    ssh_master_socket.unlink(missing_ok=True)
+    pinned = _pin_host_key(connection_name, connection.config)
 
     command = [
         "/usr/sbin/ip",
@@ -481,10 +493,6 @@ def _start(
         # The negotiated algorithms: see KEX_LINE.
         "-o",
         "LogLevel=DEBUG1",
-        "-o",
-        "ControlMaster=yes",
-        "-o",
-        f"ControlPath={ssh_master_socket}",
         "-o",
         "Tunnel=point-to-point",
         "-o",
@@ -503,8 +511,9 @@ def _start(
         # Never a prompt, e.g. for a password: nobody can answer it.
         "-o",
         "BatchMode=yes",
+        # Only the configured host key; without one, the first the server presents.
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        f"StrictHostKeyChecking={'yes' if pinned else 'accept-new'}",
         "-o",
         f"UserKnownHostsFile={known_hosts(connection_name)}",
         *(

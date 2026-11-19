@@ -185,3 +185,10 @@ echo "server presented as Remote identity. It should be one of these:"
 for public in /etc/ssh/ssh_host_*_key.pub; do
     if [ -f "$public" ]; then ssh-keygen -lf "$public"; fi
 done
+echo
+echo "To let {{ hub }} accept only this server's key, set one of them there:"
+for public in /etc/ssh/ssh_host_*_key.pub; do
+    if [ -f "$public" ]; then
+        echo "vpnctl config set {{ tenant }} {{ host_key_path }} '$(cut -d' ' -f1,2 "$public")'"
+    fi
+done

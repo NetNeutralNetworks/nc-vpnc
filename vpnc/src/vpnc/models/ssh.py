@@ -6,7 +6,7 @@ import logging
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from vpnc import accounts, helpers
 from vpnc.models import enums
@@ -23,6 +23,8 @@ logger = logging.getLogger("vpnc")
 # Used in a script on the remote side and as an ssh argument: names only.
 INTERFACE_PATTERN = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}$"
 USERNAME_PATTERN = r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$"
+# A public key without its comment, e.g. "ssh-ed25519 AAAA...".
+HOST_KEY_PATTERN = r"^[a-z0-9@.-]+ [A-Za-z0-9+/]+={0,2}$"
 
 
 class ConnectionConfigSSH(BaseModel):
@@ -41,7 +43,17 @@ class ConnectionConfigSSH(BaseModel):
         pattern=INTERFACE_PATTERN,
     )
     username: str = Field(pattern=USERNAME_PATTERN)
+    # Optional: the server's public host key (a line of its
+    # /etc/ssh/ssh_host_*_key.pub). Without it, the key the server presents
+    # when first connecting is accepted, and only that one after.
+    host_key: str | None = Field(default=None, pattern=HOST_KEY_PATTERN)
     post_quantum: PostQuantumSSH = Field(default_factory=PostQuantumSSH)
+
+    @field_validator("host_key", mode="before")
+    @classmethod
+    def _without_comment(cls, v: object) -> object:
+        """Take a .pub file's line as it is: the comment isn't part of the key."""
+        return " ".join(v.split()[:2]) if isinstance(v, str) else v
 
     _none_as_default = helpers.none_as_default("post_quantum")
 
