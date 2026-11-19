@@ -1,18 +1,22 @@
 {#- EXTERNAL: only IKE and ESP from IPsec peers, WireGuard from its peers. #}
-{%- macro set(name, type, elements) %}
+{%- macro set(name, type, elements, counter=false) %}
     set {{ name }} {
         type {{ type }}
+{%- if counter %}
+        counter
+{%- endif %}
 {%- if elements %}
         elements = { {{ elements | join(", ") }} }
 {%- endif %}
     }
 {%- endmacro %}
 {{ set("wireguard_ports", "inet_service", wireguard_ports) }}
-{#- The remote_addrs of enabled connections; WireGuard's with the local port. #}
-{{ set("ipsec_peers_ipv4", "ipv4_addr", ipsec_peers_ipv4) }}
-{{ set("ipsec_peers_ipv6", "ipv6_addr", ipsec_peers_ipv6) }}
-{{ set("wireguard_peers_ipv4", "ipv4_addr . inet_service", wireguard_peers_ipv4) }}
-{{ set("wireguard_peers_ipv6", "ipv6_addr . inet_service", wireguard_peers_ipv6) }}
+{#- The remote_addrs of enabled connections; WireGuard's with the local port.
+    Each counts its packets: what a peer sent (see vpnc.services.peers). #}
+{{ set("ipsec_peers_ipv4", "ipv4_addr", ipsec_peers_ipv4, counter=true) }}
+{{ set("ipsec_peers_ipv6", "ipv6_addr", ipsec_peers_ipv6, counter=true) }}
+{{ set("wireguard_peers_ipv4", "ipv4_addr . inet_service", wireguard_peers_ipv4, counter=true) }}
+{{ set("wireguard_peers_ipv6", "ipv6_addr . inet_service", wireguard_peers_ipv6, counter=true) }}
 
     chain input {
         type filter hook input priority filter; policy drop;

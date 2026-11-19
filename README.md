@@ -222,6 +222,9 @@ State, read live:
 ~$ sudo vpnctl connections list [C0001 | C0001-00] [--oper-status DOWN] [--admin-status DOWN] [--type IPSEC]   # -o wide: MTU, traffic and its rate, probes answered
 ~$ sudo vpnctl connections show C0001-00-0   # e.g. last change, session (see below), probes, traffic counters and rates
 ~$ sudo vpnctl connections probes C0001-00-0 # per probe its tests of the last 3 minutes: result and response time
+~$ sudo vpnctl connections diagnose C0001-00-0   # what's wrong: the problem, its details, what was checked
+~$ sudo vpnctl connections events C0001-00-0 [--since 6h] [-n 50] [-f]   # its history; also ni events, tenants events
+~$ sudo vpnctl events [C0001 | C0001-00 | C0001-00-0 | service] [--event OPER_DOWN]   # of everything, or one subject
 ~$ sudo vpnctl connections logs C0001-00-0 [-n 100] [-f]   # vpnc's, ssh's and charon's lines
 ~$ sudo vpnctl connections ssh-setup C0001-00-1 [--username vpnc] [--interface eth0]   # a script that sets up the SSH server for an account
 ~$ sudo vpnctl bgp neighbors                 # hub mode; per address family
@@ -232,6 +235,18 @@ State, read live:
 ```
 
 `connections show` has the same session fields for each VPN type, `-` where the type lacks one or it isn't known: session state and id, local address, identities (IKE ids; WireGuard public keys; the SSH username and the server's host key), encryption, integrity (`-` with an AEAD cipher), key exchange (with ML-KEM and PPK), when it was established and rekeys. Algorithms are as negotiated; WireGuard's are fixed by the protocol. Fields of one type only are shown for that type: PRF and NAT (IPsec), the last handshake and allowed IPs (WireGuard). IPsec adds its child SAs: algorithms, PFS, SPIs, traffic selectors, traffic and rekey time.
+
+Events are what happened to a connection, network instance, tenant or the service: a connection going up or down (`OPER_UP`, `OPER_DOWN`), being enabled, disabled or reset (`ADMIN_UP`, `ADMIN_DOWN`, `RESET`, `AUTO_RESET`), its probes (`PROBES_FAILING`, `PROBES_ANSWERED`), why it failed (see below), a tenant's commits (`CONFIG_COMMITTED`, `CONFIG_CONFIRMED`, `CONFIG_ROLLED_BACK`), a removed network instance (`REMOVED`), a hub's BGP sessions (`BGP_ESTABLISHED`, `BGP_DOWN`, of CORE; noted every full check) and vpnc starting and stopping (`STARTED`, `STOPPED`, of the service). A tenant's events include its network instances', theirs their connections'. They're kept in the journal (also across restarts, as long as the journal keeps them) and show in vpnc's log too.
+
+`connections diagnose` names the problem of a connection, with what's configured next to what the peer sent, what was checked and what charon or ssh reported. Why a connection fails is noted as it happens, from charon's log and ssh's output, and is an event when the reason changes:
+
+| | Reasons |
+|---|---|
+| IPsec | `NO_RESPONSE`, `NO_RESPONSE_AUTH` (the first exchange is answered, the authentication isn't), `DPD_TIMEOUT`, `CLOSED_BY_PEER`, `AUTH_FAILED_REMOTE` (the peer rejected our PSK, PPK or id), `AUTH_FAILED_LOCAL` (the peer's PSK or PPK is wrong), `AUTH_METHOD_MISMATCH`, `ID_MISMATCH`, `PPK_MISMATCH` (a PPK on one side only, or another id), `IKE_VERSION_MISMATCH`, `IKE_CONFIG_MISMATCH`, `IKE_PROPOSAL_MISMATCH`, `CHILD_PROPOSAL_MISMATCH`, `TS_MISMATCH`, `REJECTED_BY_PEER`, `CHILD_REJECTED_BY_PEER`, `KERNEL_FAILED` |
+| SSH | `NO_RESPONSE`, `UNREACHABLE`, `REFUSED`, `PERMISSION_DENIED`, `HOST_KEY_MISMATCH`, `NEGOTIATION_FAILED`, `TUNNEL_REFUSED`, `CLOSED_BY_PEER`, `EXITED` |
+| From its state | `ADMIN_DOWN`, `NO_INTERFACE`, `NOT_LOADED`, `ML_KEM_UNSUPPORTED`, `NOT_IN_FIREWALL`, `NO_ROUTE`, `WAITING_FOR_PEER` (a responder the peer doesn't set up), `CONNECTING`, `KEY_MISMATCH` (WireGuard: the peer sends, but no handshake completes), `NO_CARRIER`, and while up: `PROBES_FAILING`, `ONE_WAY_TRAFFIC`, `FLAPPING` |
+
+EXTERNAL's firewall counts the packets of each IPsec and WireGuard peer, so a silent peer is told apart from one whose packets are refused. WireGuard itself never says why a handshake fails.
 
 Troubleshooting inside a network instance (destinations are IP addresses):
 
@@ -300,7 +315,8 @@ vpnctl uses vpnc's local REST API on the Unix socket `/run/vpnc/api.sock` (root 
 | Path | |
 |---|---|
 | `/v1/status`, `/v1/version` | State and versions |
-| `/v1/tenants`, `/v1/network-instances`, `/v1/connections` | Live state; connections also `stop`, `start`, `reset`, `probes`, `logs` and `ssh-setup` |
+| `/v1/tenants`, `/v1/network-instances`, `/v1/connections` | Live state; connections also `stop`, `start`, `reset`, `probes`, `diagnosis`, `logs` and `ssh-setup` |
+| `/v1/events` | The event history, optionally of a `tenant`, `network_instance` or `connection`; `event`, `since` (seconds), `limit`, `follow` |
 | `/v1/config/tenants/{id}`, `/v1/config/service` | Configuration: `GET`, `PUT`, `PATCH` (merge patch), `DELETE`, `diff`, `schema` (JSON Schema), `commit`, `confirm`, `discard`, `history` |
 | `/v1/bgp/...` | Neighbors and routes |
 | `/v1/network-instances/{id}/routes`, `ping`, `traceroute`, `tcp` | Troubleshooting |

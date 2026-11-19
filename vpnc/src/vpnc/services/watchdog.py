@@ -15,11 +15,11 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from vpnc import helpers, shared
+from vpnc import config, eventlog, helpers, shared
 from vpnc.api import status
 from vpnc.models import enums
 from vpnc.models.ipsec import Initiation
-from vpnc.services import control, probes
+from vpnc.services import control, failures, peers, probes
 
 if TYPE_CHECKING:
     from vpnc.models.connections import Connection
@@ -97,6 +97,8 @@ def check(
     """
     if keys is not None:
         return
+    peers.sample()
+    note_bgp()
     network_instances = list(helpers.network_instances().values())
     connections: dict[str, tuple[NetworkInstance, Connection]] = {
         c.name(ni): (ni, c) for ni in network_instances for c in ni.connections.values()
@@ -117,6 +119,7 @@ def check(
         ],
         {name: connection for name, (_, connection) in connections.items()},
     )
+    failures.keep(set(connections))
     now = time.monotonic()
     down: set[str] = set()
     for current in states.values():
@@ -143,11 +146,14 @@ def check(
         wait = min(RESET_AFTER * 2**entry.resets, RESET_AFTER_MAX)
         if now - entry.since < wait:
             continue
-        logger.warning(
-            "Connection %s has been %s for %ds. Resetting it.",
-            current.id,
-            "without an answered probe" if failing else current.oper_status,
-            now - entry.since,
+        eventlog.record(
+            "AUTO_RESET",
+            f"reset by vpnc: {eventlog.duration(now - entry.since)} "
+            + ("without an answered probe" if failing else current.oper_status),
+            connection=current.id,
+            level=logging.WARNING,
+            reason="PROBES" if failing else current.oper_status,
+            resets=entry.resets + 1,
         )
         _reset(ni, connection)
         entry.since = now
@@ -155,6 +161,64 @@ def check(
 
     for name in DOWN.keys() - down:
         del DOWN[name]
+
+
+# Per BGP neighbor: whether its session is established, and since when.
+BGP: dict[str, tuple[bool, float]] = {}
+
+
+def note_bgp() -> None:
+    """Record the BGP sessions (hub mode) that came up or went down, as CORE's."""
+    if not helpers.is_hub():
+        return
+    try:
+        neighbors = status.bgp_neighbors()
+    except Exception:  # noqa: BLE001 (e.g. FRR is restarting)
+        return
+    now = time.time()
+    for neighbor in neighbors:
+        address = neighbor.neighbor_address
+        established = neighbor.session_state == "ESTABLISHED"
+        was, since = BGP.get(address, (None, now))
+        if was is not None and was == established:
+            continue
+        BGP[address] = (established, now)
+        if was is None:
+            # The first time it's seen: nothing changed.
+            continue
+        name = f"{address} ({neighbor.hostname})" if neighbor.hostname else address
+        lasted = eventlog.duration(now - since)
+        if established:
+            message = f"BGP session with {name} established, was down for {lasted}"
+        else:
+            message = (
+                f"BGP session with {name} down ({neighbor.session_state}), was "
+                f"established for {lasted}"
+            )
+        eventlog.record(
+            "BGP_ESTABLISHED" if established else "BGP_DOWN",
+            message,
+            network_instance=config.CORE_NI,
+            level=logging.INFO if established else logging.WARNING,
+            neighbor_address=address,
+        )
+    for address in BGP.keys() - {n.neighbor_address for n in neighbors}:
+        del BGP[address]
+
+
+def note(keys: set[str] | None) -> None:
+    """Note the oper status of the connections of network instances (keys) now.
+
+    After a link changed, so the change is an event right away. The full check
+    notes all of them, in check().
+    """
+    if keys is None:
+        return
+    configured = helpers.network_instances()
+    status.connection_states(
+        [configured[key] for key in keys if key in configured],
+        interfaces=False,
+    )
 
 
 def _reset(ni: NetworkInstance, connection: Connection) -> None:

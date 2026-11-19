@@ -518,6 +518,10 @@ def cmd_connections_probes(args: argparse.Namespace) -> None:
         )
 
 
+# Events shown with a connection.
+RECENT_EVENTS = 5
+
+
 def cmd_connections_show(args: argparse.Namespace) -> None:
     """Show a connection."""
     data = request("GET", f"/v1/connections/{quote(args.id)}")
@@ -566,6 +570,53 @@ def cmd_connections_show(args: argparse.Namespace) -> None:
     if tunnel.get("sas"):
         print()
         sa_table(tunnel["sas"])
+    _last_events(args.id)
+
+
+def _last_events(connection: str) -> None:
+    """Print a connection's last events."""
+    params = {"connection": connection, "limit": RECENT_EVENTS}
+    if recent := request("GET", "/v1/events", params=params):
+        print("\nLast events (all: vpnctl connections events):")
+        for event in recent:
+            _print_event(event, subject=False)
+
+
+def cmd_connections_diagnose(args: argparse.Namespace) -> None:
+    """Tell what's wrong with a connection, and what was checked."""
+    data = request("GET", f"/v1/connections/{quote(args.id)}/diagnosis")
+    if dump(data, args.output):
+        return
+    problem = data["problem"]
+    status = (
+        f"admin {data['admin_status']}, oper {data['oper_status']} "
+        f"for {age(data['last_change'])}"
+    )
+    items: list[tuple[str, Any]] = [
+        ("Connection", f"{data['id']} ({data['type']})"),
+        ("Status", status),
+        ("Problem", f"{problem}: {data['summary']}" if problem else data["summary"]),
+    ]
+    if data["count"]:
+        seen = (
+            f"{data['count']} times, first {age(data['first_seen'])} ago, "
+            f"last {age(data['last_seen'])} ago"
+        )
+        items.append(("Seen", seen))
+    if data["hint"]:
+        items.append(("Hint", data["hint"]))
+    fields(items)
+    if problem and data["details"]:
+        print("\nDetails:")
+        fields([(f"  {k.replace('_', ' ')}", v) for k, v in data["details"].items()])
+    print("\nChecks:")
+    for check in data["checks"]:
+        print(f"  {check['result']:<6}  {check['name']:<17}  {clean(check['detail'])}")
+    if data["evidence"]:
+        print("\nReported:")
+        for line in data["evidence"]:
+            print(f"  {clean(line)}")
+    _last_events(args.id)
 
 
 def until(timestamp: str | None) -> str:
@@ -760,6 +811,49 @@ def cmd_logs(args: argparse.Namespace) -> None:
     else:
         path, params = "/v1/logs", {"source": args.source, "level": args.level}
     show_log(args, path, params, source=bool(args.ni))
+
+
+# The network instances of the service.
+SERVICE_NIS = ("CORE", "EXTERNAL", "ENDPOINT")
+
+
+def event_subject(target: str | None) -> dict[str, str]:
+    """Return the events filter for a tenant, network instance or connection."""
+    if not target:
+        return {}
+    if target == "service":
+        return {"tenant": "DEFAULT"}
+    first, _, rest = target.partition("-")
+    if first in SERVICE_NIS:
+        return {"connection" if rest else "network_instance": target}
+    kinds = ("tenant", "network_instance", "connection")
+    return {kinds[min(target.count("-"), 2)]: target}
+
+
+def _print_event(event: dict[str, Any], *, subject: bool = True) -> None:
+    time = dt.datetime.fromisoformat(event["time"]).strftime("%Y-%m-%d %H:%M:%S")
+    names = (event[key] for key in ("connection", "network_instance", "tenant"))
+    name = f"{next(filter(None, names), '-'):<11}  " if subject else ""
+    print(f"{time}  {name}{event['event']:<23}  {clean(event['message'])}")
+
+
+def cmd_events(args: argparse.Namespace) -> None:
+    """Show the event history: all, or of a tenant, network instance or connection."""
+    params = {
+        **event_subject(args.target),
+        "event": args.event,
+        "since": args.since,
+        "limit": args.lines,
+    }
+    if not args.follow:
+        data = request("GET", "/v1/events", params=params)
+        if not dump(data, args.output):
+            for event in data:
+                _print_event(event)
+        return
+    for event in stream("/v1/events", {**params, "follow": "true"}):
+        _print_event(event)
+        sys.stdout.flush()
 
 
 def _afi_safis(neighbor: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1303,8 +1397,8 @@ def cmd_config_diff(args: argparse.Namespace) -> None:
 
 
 def seconds(text: str) -> int:
-    """Return the seconds of a duration like 90, 90s, 5m or 1h."""
-    units = {"s": 1, "m": 60, "h": 3600}
+    """Return the seconds of a duration like 90, 90s, 5m, 1h or 2d."""
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
     try:
         if text[-1:] in units:
             return int(text[:-1]) * units[text[-1]]
@@ -1462,9 +1556,13 @@ LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 # Per command its actions, and per action what its argument completes to.
 COMMANDS: dict[str, dict[str, str | None]] = {
     "status": {},
-    "tenants": {"list": None, "show": "tenant"},
-    "ni": {"list": "tenant", "show": "network_instance"},
-    "network-instances": {"list": "tenant", "show": "network_instance"},
+    "tenants": {"list": None, "show": "tenant", "events": "tenant"},
+    "ni": {"list": "tenant", "show": "network_instance", "events": "network_instance"},
+    "network-instances": {
+        "list": "tenant",
+        "show": "network_instance",
+        "events": "network_instance",
+    },
     "connections": {
         "list": "filter",
         "show": "connection",
@@ -1473,6 +1571,8 @@ COMMANDS: dict[str, dict[str, str | None]] = {
         "reset": "control",
         "restart": "control",
         "logs": "connection",
+        "events": "connection",
+        "diagnose": "connection",
         "probes": "connection",
         "ssh-setup": "connection",
     },
@@ -1487,6 +1587,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "firewall": {},
     "capture": {},
     "logs": {},
+    "events": {},
     "version": {},
     "service": {"restart": None, "stop": None},
     "config": {
@@ -1531,6 +1632,8 @@ OPTION_VALUES = {
     "--confirm": ["1m", "5m", "10m"],
     "--source": SOURCES,
     "--level": LEVELS,
+    "--event": [],
+    "--since": ["10m", "1h", "1d"],
     "--username": [],
     "--interface": [],
     "-c": [],
@@ -1563,6 +1666,7 @@ def _ids(kind: str) -> list[str]:
         "target": ["config_tenants"],
         "control": ["tenants", "network_instances", "connections"],
         "capture": ["network_instances", "connections"],
+        "events": ["tenants", "network_instances", "connections"],
     }.get(kind, [])
     if kind == "neighbor":
         return [n["neighbor"] for n in request("GET", "/v1/bgp/neighbors")]
@@ -1597,8 +1701,8 @@ def candidates(words: list[str], current: str) -> list[str]:  # noqa: PLR0911
         return [c for c in COMMANDS if c != "network-instances"]
     if positional[0] in NI_COMMANDS:
         return _ids("network_instance") if len(positional) == 1 else []
-    if positional[0] == "capture":
-        return _ids("capture") if len(positional) == 1 else []
+    if positional[0] in ("capture", "events"):
+        return _ids(positional[0]) if len(positional) == 1 else []
     actions = COMMANDS.get(positional[0], {})
     if len(positional) == 1:
         return list(actions)
@@ -1884,6 +1988,14 @@ def log_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("-f", "--follow", action="store_true", help="print new lines")
 
 
+def event_options(p: argparse.ArgumentParser) -> None:
+    """Add the options of the events commands."""
+    p.add_argument("--event", type=str.upper, help="only these, e.g. OPER_DOWN")
+    p.add_argument("--since", type=seconds, metavar="TIME", help="e.g. 30m, 6h or 2d")
+    p.add_argument("-n", "--lines", type=int, default=50, help="default: 50")
+    p.add_argument("-f", "--follow", action="store_true", help="print new events")
+
+
 def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per option)
     """Return the argument parser."""
     # Before or after the command; a subcommand's default mustn't override it.
@@ -1926,10 +2038,16 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
     tenants = group("tenants", "tenants")
     add(tenants, "list", cmd_tenants_list)
     add(tenants, "show", cmd_tenants_show).add_argument("id", help="e.g. C0001")
+    p = add(tenants, "events", cmd_events)
+    p.add_argument("target", metavar="id", help="e.g. C0001")
+    event_options(p)
 
     ni = group("ni", "network instances", aliases=["network-instances"])
     add(ni, "list", cmd_ni_list).add_argument("tenant", nargs="?", help="e.g. C0001")
     add(ni, "show", cmd_ni_show).add_argument("id", help="e.g. C0001-00")
+    p = add(ni, "events", cmd_events)
+    p.add_argument("target", metavar="id", help="e.g. C0001-00")
+    event_options(p)
 
     connections = group("connections", "connections")
     p = add(connections, "list", cmd_connections_list)
@@ -1941,6 +2059,8 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
     p.add_argument("--type", type=str.upper, choices=TYPES)
     connection = {"help": "e.g. C0001-00-0 or CORE-0"}
     add(connections, "show", cmd_connections_show).add_argument("id", **connection)
+    p = add(connections, "diagnose", cmd_connections_diagnose)
+    p.add_argument("id", **connection)
     for name, func, aliases in (
         ("stop", cmd_connections_stop, []),
         ("start", cmd_connections_start, []),
@@ -1963,6 +2083,9 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
     p = add(connections, "logs", cmd_connections_logs)
     p.add_argument("id", **connection)
     log_options(p)
+    p = add(connections, "events", cmd_events)
+    p.add_argument("target", metavar="id", **connection)
+    event_options(p)
 
     bgp = group("bgp", "BGP (hub mode)")
     add(bgp, "neighbors", cmd_bgp_neighbors)
@@ -2029,6 +2152,14 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
         help="its lines and its connections' (vpnc's, ssh's and charon's)",
     )
     log_options(p)
+    p = add(commands, "events", cmd_events)
+    p.add_argument(
+        "target",
+        nargs="?",
+        help="a tenant (C0001), network instance (C0001-00), connection "
+        "(C0001-00-0) or 'service'; default: all",
+    )
+    event_options(p)
 
     add(commands, "version", cmd_version)
     p = add(commands, "service", cmd_service)

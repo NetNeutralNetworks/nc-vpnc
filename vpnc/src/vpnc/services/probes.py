@@ -13,6 +13,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from vpnc import eventlog
 from vpnc.network import probe
 
 if TYPE_CHECKING:
@@ -95,9 +96,18 @@ def run(
         _forget(configured)
     for name in sorted(TESTED):
         if failing(name) and name not in before:
-            logger.info("None of the probes through %s is answered.", name)
+            eventlog.record(
+                "PROBES_FAILING",
+                "none of its probes is answered",
+                connection=name,
+                level=logging.WARNING,
+            )
         elif name in before and not failing(name):
-            logger.info("Probes through %s are answered again.", name)
+            eventlog.record(
+                "PROBES_ANSWERED",
+                "its probes are answered again",
+                connection=name,
+            )
 
 
 def _forget(configured: dict[str, Connection]) -> None:

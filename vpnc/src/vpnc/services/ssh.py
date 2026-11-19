@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from vpnc import accounts, config, files, helpers
 from vpnc.models import enums
 from vpnc.models.post_quantum import OPENSSH_KEX
+from vpnc.services import failures
 
 if TYPE_CHECKING:
     import vpnc.models.connections
@@ -50,6 +51,20 @@ KEX_LINE = re.compile(
 AUTHENTICATED = "Authenticated to "
 # The MAC of an AEAD cipher.
 IMPLICIT_MAC = "<implicit>"
+# Why ssh exited, by what it printed.
+FAILURES = [
+    (re.compile(r"Permission denied"), "PERMISSION_DENIED"),
+    (re.compile(r"Host key verification failed|HAS CHANGED"), "HOST_KEY_MISMATCH"),
+    (re.compile(r"timed out|not responding"), "NO_RESPONSE"),
+    (
+        re.compile(r"unreachable|No route to host|Invalid argument|Cannot assign"),
+        "UNREACHABLE",
+    ),
+    (re.compile(r"Connection refused"), "REFUSED"),
+    (re.compile(r"no matching .* found"), "NEGOTIATION_FAILED"),
+    (re.compile(r"[Tt]unnel .*(?:failed|refused)|prohibited"), "TUNNEL_REFUSED"),
+    (re.compile(r"closed by|reset by|Broken pipe"), "CLOSED_BY_PEER"),
+]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -118,6 +133,7 @@ class SshTunnel(threading.Thread):
                 )
             # Logged with the connection name, so it shows in its logs.
             last = ""
+            lines: list[str] = []
             for line in proc.stderr or []:
                 if line.startswith("debug"):
                     self._parse(line)
@@ -126,12 +142,15 @@ class SshTunnel(threading.Thread):
                 if line := helpers.printable(line.strip())[:MAX_LINE]:
                     logger.info("SSH tunnel %s: %s", self.connection_name, line)
                     last = line
+                    lines = [*lines[-failures.EVIDENCE + 1 :], line]
                     if line.startswith(AUTHENTICATED):
                         self.authenticated = time.time()
+                        failures.clear(self.connection_name)
             proc.wait()
             self._reset()
             if self._stop_event.is_set():
                 return
+            self._note_failure(lines)
             if time.monotonic() - started > STABLE_AFTER:
                 delay = RESTART_DELAY_MIN
             logger.warning(
@@ -143,6 +162,19 @@ class SshTunnel(threading.Thread):
             )
             self._stop_event.wait(delay)
             delay = min(delay * 2, RESTART_DELAY_MAX)
+
+    def _note_failure(self, lines: list[str]) -> None:
+        """Note why ssh exited, by the last thing it printed that tells."""
+        reason, said = next(
+            (
+                (reason, line)
+                for line in reversed(lines)
+                for pattern, reason in FAILURES
+                if pattern.search(line)
+            ),
+            ("EXITED", lines[-1] if lines else "nothing printed"),
+        )
+        failures.note(self.connection_name, reason, lines, said=said)
 
     @property
     def pid(self) -> int | None:
@@ -468,6 +500,9 @@ def _start(
         "IdentitiesOnly=yes",
         "-i",
         str(key(connection_name)),
+        # Never a prompt, e.g. for a password: nobody can answer it.
+        "-o",
+        "BatchMode=yes",
         "-o",
         "StrictHostKeyChecking=accept-new",
         "-o",

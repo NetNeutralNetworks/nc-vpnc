@@ -481,6 +481,103 @@ SSH_SETUP = {
     "hub00": ("tun0", "100.99.0.16/28", "fdcc:cbe:0:1::/64"),
     "hub01": ("tun1", "100.100.0.16/28", "fdcc:cbf:0:1::/64"),
 }
+VPN_CONNECTIONS = sorted(
+    name for name, (kind, _) in HUB_CONNECTIONS.items() if kind != "PHYSICAL"
+)
+# A peer counts as heard once two samples (full checks) saw its packets.
+PEER_SEEN_TIMEOUT = 100
+
+
+class TestVpnctlEvents:
+    """vpnctl shows what happened to connections, and what's wrong with one."""
+
+    def test_events(self) -> None:
+        """The history has vpnc's start, and each VPN connection going up."""
+        started = vpnctl("hub00", "events service --event STARTED")
+        assert started
+        assert started[-1]["connection"] is None
+        assert "HUB" in started[-1]["message"]
+
+        up = vpnctl("hub00", "events --event OPER_UP -n 1000")
+        assert {event["connection"] for event in up} >= set(VPN_CONNECTIONS)
+
+    @pytest.mark.parametrize("host", ["hub00", "hub01"])
+    def test_bgp_events(self, host: str) -> None:
+        """A hub's BGP sessions becoming established are events of CORE."""
+        events = vpnctl(host, "ni events CORE --event BGP_ESTABLISHED -n 1000")
+        established = {event["details"]["neighbor_address"] for event in events}
+        neighbors = {n["neighbor_address"] for n in vpnctl(host, "bgp neighbors")}
+        assert neighbors
+        assert established >= neighbors
+
+    def test_events_of_subject(self) -> None:
+        """A tenant's events include its network instances' and connections'."""
+        tenant = vpnctl("hub00", "events C0001 -n 1000")
+        ni = vpnctl("hub00", "ni events C0001-00 -n 1000")
+        connection = vpnctl("hub00", "connections events C0001-00-0 -n 1000")
+        assert connection
+        assert {e["connection"] for e in connection} == {"C0001-00-0"}
+        assert {e["network_instance"] for e in ni} == {"C0001-00"}
+        assert {e["tenant"] for e in tenant} == {"C0001"}
+        assert {e["network_instance"] for e in tenant} >= {"C0001-00", "C0001-01"}
+        times = [e["time"] for e in tenant]
+        assert times == sorted(times)
+
+    def test_events_table(self) -> None:
+        """An event is a line with its time, subject, name and what happened."""
+        line = conftest.run_cmd(
+            "hub00",
+            f"{VPNCTL} connections events C0001-00-0 --event OPER_UP -n 1",
+        )
+        time = r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d"
+        assert re.fullmatch(
+            rf"{time}  C0001-00-0 +OPER_UP +oper status UP, was DOWN for .*\n",
+            line,
+        )
+
+    @pytest.mark.parametrize("name", VPN_CONNECTIONS)
+    def test_diagnose_healthy(self, name: str) -> None:
+        """A connection that works has no problem, and no check that failed."""
+        diagnosis = vpnctl("hub00", f"connections diagnose {name}")
+        assert diagnosis["oper_status"] == "UP"
+        # FLAPPING: tests before this one took it down several times.
+        assert diagnosis["problem"] in (None, "FLAPPING")
+        failed = [c["name"] for c in diagnosis["checks"] if c["result"] == "FAILED"]
+        assert failed in ([], ["stability"])
+
+    def test_diagnose_ipsec(self) -> None:
+        """IPsec shows its ids and traffic selectors next to the configured ones."""
+
+        def checks() -> dict[str, list[dict[str, str]]]:
+            diagnosis = vpnctl("hub00", "connections diagnose C0001-00-0")
+            found: dict[str, list[dict[str, str]]] = {}
+            for check in diagnosis["checks"]:
+                found.setdefault(check["name"], []).append(check)
+            return found
+
+        found = checks()
+        ike = found["IKE SA"][0]["detail"]
+        assert "remote id 192.0.2.7 (configured 192.0.2.7)" in ike
+        assert found["child SA"][0]["detail"].endswith("(as configured)")
+        assert all(check["result"] == "OK" for check in found["route to peer"])
+        # EXTERNAL counts what the peer sends, from the address it uses.
+        conftest.wait_until(
+            lambda: any(
+                check["result"] == "OK"
+                for check in checks().get("packets from peer", [])
+            ),
+            PEER_SEEN_TIMEOUT,
+            message="the peer's packets to be counted",
+        )
+
+    def test_diagnose_table(self) -> None:
+        """The diagnosis names the connection, its status and the problem."""
+        output = conftest.run_cmd("hub00", f"{VPNCTL} connections diagnose CORE-0")
+        assert output.startswith("Connection:  CORE-0 (IPSEC)\nStatus:      admin UP")
+        assert "\nProblem:     " in output
+        assert "\nChecks:\n  OK      admin status       enabled\n" in output
+
+
 SSH_CONNECTION = "C0001-00-1"
 
 
