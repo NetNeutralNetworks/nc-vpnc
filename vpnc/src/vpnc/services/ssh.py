@@ -452,6 +452,11 @@ def _start(
     tunnel = SshTunnel(connection_name, command)
     tunnel.start()
     SSH_TUNNELS[connection_name] = tunnel
+    # atexit runs the last registered first: ssh closes its session before charon
+    # deletes the SAs and the namespace is removed. Else the socket lingers and
+    # keeps the old namespace, with its XFRM if_id, after a restart.
+    atexit.unregister(stop_all)
+    atexit.register(stop_all)
     SSH_CONNECTIONS[connection_name] = connection
 
 
@@ -468,7 +473,6 @@ def stop(
             tunnel.stop()
 
 
-@atexit.register
 def stop_all() -> None:
     """Stop all SSH tunnels."""
     for name in list(SSH_TUNNELS):

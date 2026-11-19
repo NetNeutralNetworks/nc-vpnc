@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import errno
 import logging
 import os
 import socket
@@ -23,6 +24,7 @@ from typing import TYPE_CHECKING, TypeVar
 import pyroute2
 from pyroute2 import netns
 from pyroute2.netlink import NETLINK_ROUTE
+from pyroute2.netlink.exceptions import NetlinkError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -57,9 +59,24 @@ def add(name: str, cleanup: bool = False) -> str:  # noqa: FBT001, FBT002
 
 
 def delete(name: str) -> None:
-    """Delete a namespace from the system."""
-    if exists(name):
-        netns.remove(name)
+    """Delete a namespace from the system, with its links."""
+    if not exists(name):
+        return
+    # A process or socket can keep a removed namespace alive, with its links and
+    # what they hold in another namespace (an XFRM if_id, a WireGuard port).
+    try:
+        with IPRoute(name) as ipr:
+            for link in ipr.get_links():
+                if link.get_attr("IFLA_IFNAME") == "lo":
+                    continue
+                try:
+                    ipr.link("del", index=link["index"])
+                except NetlinkError as err:
+                    if err.code != errno.ENODEV:  # E.g. a veth's deleted peer.
+                        raise
+    except (OSError, NetlinkError):
+        logger.warning("Deleting the links in %s failed.", name, exc_info=True)
+    netns.remove(name)
 
 
 def exists(name: str) -> bool:

@@ -497,8 +497,8 @@ class NetworkInstance(BaseModel):
                 connection.add(network_instance=self)
             except Exception:
                 logger.exception(
-                    "Failed to set up connection '%s' interface(s)",
-                    connection,
+                    "Failed to set up connection %s.",
+                    connection.name(self),
                 )
 
     def _delete_connections(
