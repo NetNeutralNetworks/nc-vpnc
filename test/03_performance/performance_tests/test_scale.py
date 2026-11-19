@@ -56,6 +56,8 @@ CPU_SAMPLE = 90
 SETTLE = 60
 # What a vpnctl command may take, including docker exec.
 VPNCTL_TIMEOUT = 5
+# A connection briefly down (e.g. rekeying) comes back up within this.
+UP_TIMEOUT = 60
 
 # Prints per scale namespace its addresses and routes as JSON lines, and the
 # WireGuard handshakes.
@@ -556,12 +558,15 @@ class TestScale:
             took = time.monotonic() - started
             conftest.measured(f"{command}: {took:.1f}s")
             assert took < VPNCTL_TIMEOUT, f"{command} took {took:.1f}s"
-        connections = json.loads(
-            conftest.run_cmd(HOST, "vpnctl connections list -o json"),
-        )
-        up = [
-            c
-            for c in connections
-            if c["tenant"] in TENANTS and c["oper_status"] == "UP"
-        ]
-        assert len(up) == len(INDEXES)
+
+        def all_up() -> bool:
+            connections = json.loads(
+                conftest.run_cmd(HOST, "vpnctl connections list -o json"),
+            )
+            status = {c["id"]: c["oper_status"] for c in connections}
+            down = [name for name in INDEXES if status.get(name) != "UP"]
+            assert not down, f"{len(down)} not UP: {down[:10]}"
+            return True
+
+        # E.g. one that's rekeying.
+        conftest.wait_until(all_up, timeout=UP_TIMEOUT, message="every connection UP")
