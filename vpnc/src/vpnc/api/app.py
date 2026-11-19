@@ -567,6 +567,11 @@ def config_routes(  # noqa: C901 (a nested function per route)
         """Return a unified diff; secrets are hidden."""
         return config_files.diff(target_id)
 
+    @router.get("/schema", summary=f"JSON Schema of the {what} configuration")
+    def schema(target_id: Target) -> dict[str, Any]:
+        """Return the keys it can have, with their types and defaults."""
+        return config_files.schema(target_id)
+
     @router.post("/commit", summary="Apply the staged changes")
     def commit(
         target_id: Target,

@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import datetime as dt
 import difflib
+import functools
 import json
 import logging
 import threading
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from vpnc import config, files, helpers, migration
 from vpnc.models import enums, tenant
@@ -242,6 +243,20 @@ def read(tenant_id: str, revision: Revision, *, reveal: bool) -> dict[str, Any]:
             detail = f"Removing {tenant_id} is staged."
         raise ConfigError(404, "Not found", detail)
     return _dump(model, reveal=reveal)  # type: ignore[return-value]
+
+
+@functools.cache
+def _schema(*, service: bool) -> dict[str, Any]:
+    if service:
+        # Of both modes: its mode says which applies.
+        return TypeAdapter(tenant.ServiceHub | tenant.ServiceEndpoint).json_schema()
+    return tenant.Tenant.model_json_schema()
+
+
+def schema(tenant_id: str) -> dict[str, Any]:
+    """Return the JSON Schema of a tenant's or the service's configuration."""
+    check_id(tenant_id)
+    return _schema(service=tenant_id == config.DEFAULT_TENANT)
 
 
 def write_candidate(tenant_id: str, data: Any) -> dict[str, Any]:  # noqa: ANN401

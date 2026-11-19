@@ -59,6 +59,23 @@ TRANSLATIONS_C0001_00 = [
 ]
 
 
+def complete(line: str) -> list[str]:
+    """Return what bash offers on hub00 for a command line; a new word after a space."""
+    script = (
+        "source /etc/bash_completion.d/vpnctl; "
+        'read -ra COMP_WORDS <<< "$1"; [[ $1 == *" " ]] && COMP_WORDS+=(""); '
+        "COMP_CWORD=$((${#COMP_WORDS[@]} - 1)); _vpnctl 2> /dev/null; "
+        'printf "%s\\n" "${COMPREPLY[@]}"'
+    )
+    container = f"{conftest.CONTAINER_PREFIX}hub00"
+    return subprocess.run(  # noqa: S603
+        ["docker", "exec", container, "bash", "-c", script, "bash", line],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+
+
 def vpnctl(host: str, args: str) -> Any:  # noqa: ANN401
     """Run vpnctl with JSON output and return the decoded output."""
     return json.loads(conftest.run_cmd(host, f"{VPNCTL} -o json {args}"))
@@ -222,11 +239,48 @@ class TestVpnctl:
 
     def test_completion(self) -> None:
         """Completion offers the connections, and the tenants with configuration."""
-        connections = conftest.run_cmd("hub00", f"{VPNCTL} __complete connections show")
-        assert sorted(connections.split()) == sorted(HUB_CONNECTIONS)
+        assert sorted(complete("vpnctl connections show ")) == sorted(HUB_CONNECTIONS)
+        assert complete("vpnctl connections show C0001-01") == ["C0001-01-0"]
+        assert sorted(complete("vpnctl config show ")) == ["C0001", "service"]
 
-        targets = conftest.run_cmd("hub00", f"{VPNCTL} __complete config show")
-        assert sorted(targets.split()) == ["C0001", "service"]
+    def test_config_completion(self) -> None:
+        """Completion offers a configuration's keys level by level, and values."""
+        path = "network_instances.00.connections."
+        # What's there (a dot: it has keys below), and to set: the next one.
+        assert complete(f"vpnctl config show C0001 {path}") == [
+            f"{path}0.",
+            f"{path}1.",
+        ]
+        assert complete(f"vpnctl config set C0001 {path}") == [
+            f"{path}0.",
+            f"{path}1.",
+            f"{path}2",
+        ]
+        assert complete(f"vpnctl config set C0001 {path}0.m") == [
+            f"{path}0.metadata.",
+            f"{path}0.mtu",
+        ]
+        # The keys of the connection's type.
+        keys = complete(f"vpnctl config set C0001 {path}0.config.")
+        assert f"{path}0.config.psk" in keys
+        assert f"{path}0.config.username" not in keys
+        assert f"{path}1.config.username" in complete(
+            f"vpnctl config set C0001 {path}1.config.",
+        )
+
+        assert complete(f"vpnctl config set C0001 {path}0.config.type ") == [
+            "IPSEC",
+            "PHYSICAL",
+            "SSH",
+            "WIREGUARD",
+        ]
+        assert complete(f"vpnctl config set C0001 {path}0.enabled ") == [
+            "true",
+            "false",
+        ]
+        assert complete("vpnctl config set service mode ") == ["HUB", "ENDPOINT"]
+        # Not a secret's value.
+        assert complete(f"vpnctl config set C0001 {path}0.config.psk ") == []
 
 
 def neighbor_address(host: str, hostname: str) -> str:

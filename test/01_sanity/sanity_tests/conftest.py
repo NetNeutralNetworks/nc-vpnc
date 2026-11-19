@@ -10,6 +10,7 @@ if TEST_DIR not in sys.path:
     sys.path.insert(0, TEST_DIR)
 
 from lab_helpers import (  # noqa: E402
+    CONTAINER_PREFIX,
     advertise_router,
     capabilities,
     echo_sweep,
@@ -27,6 +28,7 @@ from lab_helpers import (  # noqa: E402
 )
 
 __all__ = [
+    "CONTAINER_PREFIX",
     "advertise_router",
     "capabilities",
     "echo_sweep",

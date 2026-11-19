@@ -1412,9 +1412,13 @@ def cmd_config_discard(args: argparse.Namespace) -> None:
 BASH_COMPLETION = """\
 _vpnctl() {
     local IFS=$'\\n'
-    local words
-    words=$(vpnctl __complete "${COMP_WORDS[@]:1:COMP_CWORD-1}" 2>/dev/null)
-    COMPREPLY=($(compgen -W "$words" -- "${COMP_WORDS[COMP_CWORD]}"))
+    local lines
+    lines=$(vpnctl __complete "${COMP_WORDS[@]:1:COMP_CWORD}" 2>/dev/null)
+    # With a description (after a tab): in the order given.
+    [[ $lines == *$'\\t'* ]] && compopt -o nosort
+    COMPREPLY=($(cut -f1 <<< "$lines"))
+    # A path that goes on: no space after it.
+    [[ ${#COMPREPLY[@]} -eq 1 && ${COMPREPLY[0]} == *. ]] && compopt -o nospace
 }
 complete -F _vpnctl vpnctl
 """
@@ -1422,9 +1426,22 @@ complete -F _vpnctl vpnctl
 ZSH_COMPLETION = """\
 #compdef vpnctl
 _vpnctl() {
-    local -a completions
-    completions=(${(f)"$(vpnctl __complete "${(@)words[2,CURRENT-1]}" 2>/dev/null)"})
-    compadd -a completions
+    local -a lines text group
+    local line value
+    lines=(${(f)"$(vpnctl __complete "${(@)words[2,CURRENT]}" 2>/dev/null)"})
+    # With a description (after a tab): one per line, in the order given.
+    group=(-J vpnctl)
+    [[ "$lines" == *$'\\t'* ]] && group=(-V vpnctl -l)
+    for line in $lines; do
+        value=${line%%$'\\t'*}
+        text=("${line#*$'\\t'}")
+        if [[ $value == *. ]]; then
+            # A path that goes on: no space after it.
+            compadd $group -S '' -d text -- $value
+        else
+            compadd $group -d text -- $value
+        fi
+    done
 }
 if [[ "$funcstack[1]" = "_vpnctl" ]]; then
     _vpnctl "$@"
@@ -1555,8 +1572,17 @@ def _ids(kind: str) -> list[str]:
     return [*ids, "service"] if kind == "target" else ids
 
 
-def complete(words: list[str]) -> list[str]:  # noqa: PLR0911 (a return per kind of word)
-    """Return the completions for the word after words (the typed ones)."""
+def complete(words: list[str]) -> list[str]:
+    """Return the completions of the last word (as far as typed), after the others.
+
+    A completion may have a description, after a tab.
+    """
+    *before, current = words or [""]
+    return [word for word in candidates(before, current) if word.startswith(current)]
+
+
+def candidates(words: list[str], current: str) -> list[str]:  # noqa: PLR0911
+    """Return what the word after words can be; current is typed so far."""
     if words and words[-1] in OPTION_IDS:
         return _ids(OPTION_IDS[words[-1]])
     if words and words[-1] in OPTION_VALUES:
@@ -1579,26 +1605,262 @@ def complete(words: list[str]) -> list[str]:  # noqa: PLR0911 (a return per kind
     kind = actions.get(positional[1])
     if kind and (len(positional) == 2 or positional[1] in MULTIPLE):  # noqa: PLR2004
         return _ids(kind)
-    if len(positional) == 3 and positional[1] in PATH_ACTIONS:  # noqa: PLR2004
-        return paths(staged(positional[2]))
+    if positional[0] == "config" and positional[1] in PATH_ACTIONS:
+        return config_candidates(positional[1], positional[2:], current)
     return []
 
 
 PATH_ACTIONS = ("show", "edit", "set", "delete")
 
+# Completion of configuration paths and values, from the JSON Schema.
 
-def paths(data: Any, prefix: str = "") -> list[str]:  # noqa: ANN401
-    """Return the dotted paths in the configuration."""
-    if isinstance(data, dict):
-        items = [(str(k), v) for k, v in data.items()]
-    elif isinstance(data, list):
-        items = [(str(i), v) for i, v in enumerate(data)]
-    else:
+# How the formats of values are described.
+FORMATS = {
+    "ipv4": "IPv4 address",
+    "ipv6": "IPv6 address",
+    "ipv4network": "IPv4 prefix",
+    "ipv6network": "IPv6 prefix",
+    "ipv4interface": "IPv4 address/length",
+    "ipv6interface": "IPv6 address/length",
+    "password": "secret",
+}
+
+
+def scalar(value: Any) -> str | None:  # noqa: ANN401
+    """Return a value as it's typed in, e.g. true; None if it isn't a single word."""
+    if value is None or isinstance(value, dict | list):
+        return None
+    text = json.dumps(value) if isinstance(value, bool) else str(value)
+    return text if text and not any(c.isspace() for c in text) else None
+
+
+def choices(schema: dict[str, Any]) -> list[str]:
+    """Return the values a schema limits to, as they're typed in."""
+    if schema.get("type") == "boolean":
+        return ["true", "false"]
+    values = schema.get("enum") or ([schema["const"]] if "const" in schema else [])
+    return [str(scalar(value)) for value in values]
+
+
+class Node:
+    """A place in a configuration: what the schema allows there, and what's set."""
+
+    def __init__(
+        self,
+        root: dict[str, Any],
+        schema: dict[str, Any],
+        data: Any,  # noqa: ANN401
+        *,
+        required: bool = False,
+        added: bool = False,
+    ) -> None:
+        """Take the schema as the parent has it: with the default.
+
+        An added one isn't there yet: it's set as a whole.
+        """
+        self.root = root
+        self.schema = schema
+        self.data = data
+        self.required = required
+        self.added = added
+        self.options = self._variants(schema)
+        self.variants = self._selected()
+
+    def _variants(self, schema: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return the schemas a value can follow, except null."""
+        if ref := schema.get("$ref"):
+            return self._variants(self.root["$defs"][ref.rpartition("/")[2]])
+        if options := schema.get("anyOf") or schema.get("oneOf"):
+            return [v for option in options for v in self._variants(option)]
+        return [] if schema.get("type") == "null" else [schema]
+
+    def _selected(self) -> list[dict[str, Any]]:
+        """Return the options what's set fits, e.g. the one of a connection's type."""
+        if not isinstance(self.data, dict):
+            return self.options
+        selected = [
+            option
+            for option in self.options
+            if all(
+                str(self.data[key]).upper() == str(schema["const"]).upper()
+                for key, schema in option.get("properties", {}).items()
+                if "const" in schema and self.data.get(key) is not None
+            )
+        ]
+        return selected or self.options
+
+    @property
+    def container(self) -> bool:
+        """Return whether it has keys or items below it."""
+        return not self.added and (
+            isinstance(self.data, dict | list)
+            or any(v.get("type") in ("object", "array") for v in self.variants)
+        )
+
+    @property
+    def secret(self) -> bool:
+        """Return whether its value is a secret."""
+        return any(v.get("format") == "password" for v in self.variants)
+
+    def _set(self, key: str) -> tuple[bool, Any]:
+        """Return whether a key or index is set, and to what."""
+        data = self.data
+        if isinstance(data, dict) and key in data:
+            return True, data[key]
+        if isinstance(data, list) and key.isdigit() and int(key) < len(data):
+            return True, data[int(key)]
+        return False, None
+
+    def _property(self, variant: dict[str, Any], key: str) -> dict[str, Any]:
+        """Return a key's schema; of a key that selects the option: all its values."""
+        values = [
+            option["properties"][key]["const"]
+            for option in self.options
+            if "const" in option.get("properties", {}).get(key, {})
+        ]
+        return {"enum": values} if len(values) > 1 else variant["properties"][key]
+
+    def children(self, *, new: bool) -> dict[str, Node]:
+        """Return what's below it by key; with new, also what can be set or added."""
+        if self.added:
+            return {}
+        # Per key: its schema, whether it's required and whether it's added.
+        found: dict[str, tuple[Any, bool, bool]] = {}
+        for variant in self.variants:
+            required = variant.get("required", [])
+            for key in variant.get("properties", {}):
+                schema = self._property(variant, key)
+                found.setdefault(key, (schema, key in required, False))
+            if variant.get("type") == "array":
+                count = len(self.data) if isinstance(self.data, list) else 0
+                keys, more = [str(index) for index in range(count)], [str(count)]
+                schema = variant.get("items")
+            else:
+                schema = variant.get("additionalProperties")
+                mapping = schema and isinstance(self.data, dict)
+                keys = [str(key) for key in self.data] if mapping else []
+                more = next_key(keys)
+            for key in keys:
+                found.setdefault(key, (schema, False, False))
+            for key in more:
+                found.setdefault(key, (schema, False, True))
+        return {
+            key: Node(
+                self.root,
+                schema if isinstance(schema, dict) else {},
+                self._set(key)[1],
+                required=required,
+                added=added,
+            )
+            for key, (schema, required, added) in found.items()
+            if new or self._set(key)[0]
+        }
+
+    def kind(self) -> str:
+        """Return the values it takes, e.g. integer 1280-65535."""
+        return " | ".join(dict.fromkeys(filter(None, map(self._kind, self.variants))))
+
+    def _kind(self, schema: dict[str, Any]) -> str:
+        if fixed := choices(schema):
+            return " | ".join(fixed)
+        kind = str(schema.get("type", ""))
+        if kind == "array":
+            items = Node(self.root, schema.get("items") or {}, None).kind()
+            return f"list of {items}" if items else "list"
+        if schema.get("format") in FORMATS:
+            return FORMATS[schema["format"]]
+        if kind == "integer" and "minimum" in schema and "maximum" in schema:
+            return f"integer {schema['minimum']}-{schema['maximum']}"
+        return "" if kind == "object" else kind
+
+    def _needs(self) -> str:
+        """Return the keys a mapping that's added must have, if it's of one kind."""
+        required = self.variants[0].get("required") if len(self.variants) == 1 else []
+        return f"needs {', '.join(required)}" if self.added and required else ""
+
+    def text(self) -> str:
+        """Return its value and what it takes, e.g. 300 (integer, default 86400)."""
+        value = None if self.secret else scalar(self.data)
+        default = scalar(self.schema.get("default"))
+        kind = self.kind()
+        notes = [
+            "new" if self.added else "",
+            kind if kind != value else "",
+            self._needs(),
+            "required" if self.required and self.data is None else "",
+            f"default {default}" if default not in (None, value) else "",
+        ]
+        details = ", ".join(note for note in notes if note)
+        return " ".join(filter(None, [value, f"({details})" if details else ""]))
+
+    def values(self) -> list[tuple[str, str]]:
+        """Return the values to offer, each with what it is (current, default)."""
+        if self.secret:
+            return []
+        found: dict[str, list[str]] = {
+            choice: [] for variant in self.variants for choice in choices(variant)
+        }
+        current, default = scalar(self.data), scalar(self.schema.get("default"))
+        for value, note in ((current, "current"), (default, "default")):
+            if value is not None:
+                found.setdefault(value, []).append(note)
+        return [(value, ", ".join(notes)) for value, notes in found.items()]
+
+
+def next_key(keys: list[str]) -> list[str]:
+    """Return the key after numbered ones (e.g. 01 after 00), to add an item."""
+    if not keys or not all(key.isdigit() for key in keys):
         return []
-    output: list[str] = []
-    for key, value in items:
-        output += [prefix + key, *paths(value, f"{prefix}{key}.")]
-    return output
+    return [f"{max(map(int, keys)) + 1:0{len(keys[0])}d}"]
+
+
+def config_node(target: str, keys: list[str], *, new: bool) -> Node | None:
+    """Return the place in a configuration (with staged changes) at the keys."""
+    schema = request("GET", f"{config_path(target)}/schema")
+    node: Node | None = Node(schema, schema, staged(target) or {})
+    for key in keys:
+        if node is None:
+            break
+        node = node.children(new=new).get(key)
+    return node
+
+
+def described(items: list[tuple[str, str, str]]) -> list[str]:
+    """Return completions (word, name, text) with name and text as description."""
+    width = max((len(name) for _, name, _ in items), default=0)
+    return [
+        f"{word}\t{f'{name:<{width}}  {text}'.rstrip()}" for word, name, text in items
+    ]
+
+
+def path_candidates(target: str, current: str, *, new: bool) -> list[str]:
+    """Return the paths one level below what's typed; new: also what can be set."""
+    prefix = current[: current.rfind(".") + 1]
+    if (node := config_node(target, split(prefix), new=new)) is None:
+        return []
+    return described(
+        [
+            (f"{prefix}{key}{'.' * child.container}", key, child.text())
+            for key, child in node.children(new=new).items()
+        ],
+    )
+
+
+def value_candidates(target: str, path: str) -> list[str]:
+    """Return the values a path can be set to: choices, the current and default."""
+    if (node := config_node(target, split(path), new=True)) is None:
+        return []
+    return described([(value, value, note) for value, note in node.values()])
+
+
+def config_candidates(action: str, arguments: list[str], current: str) -> list[str]:
+    """Return the paths after a target, or the values after a path to set."""
+    new = action == "set"
+    if len(arguments) == 1:
+        return path_candidates(arguments[0], current, new=new)
+    if len(arguments) == 2 and new:  # noqa: PLR2004
+        return value_candidates(*arguments)
+    return []
 
 
 def cmd_completion(args: argparse.Namespace) -> None:

@@ -11,7 +11,7 @@ from ipaddress import (
     IPv6Network,
     NetmaskValueError,
 )
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import pydantic_core
 import yaml
@@ -21,6 +21,7 @@ from pydantic import (
     ConfigDict,
     Field,
     ValidationInfo,
+    WithJsonSchema,
     field_serializer,
     field_validator,
     model_validator,
@@ -58,7 +59,7 @@ class Tenant(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
-    version: Version
+    version: Annotated[Version, WithJsonSchema({"type": "string"})]
 
     id: str = Field(pattern=config.TENANT_ID_PATTERN)
     name: str
