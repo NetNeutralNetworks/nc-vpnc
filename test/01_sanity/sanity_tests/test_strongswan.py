@@ -48,9 +48,10 @@ class TestCharon:
     """Charon runs with vpnc's settings."""
 
     @pytest.mark.parametrize("host", ["hub00", "hub01", "end00", "end01"])
-    def test_runs_as_swan(self, host: str) -> None:
-        """Charon has dropped root for the swan user."""
-        assert conftest.run_cmd(host, "ps -C charon -o user=").split() == ["swan"]
+    def test_runs_as_vpnc_swan(self, host: str) -> None:
+        """Charon has dropped root for the vpnc-swan account."""
+        users = conftest.run_cmd(host, "ps -C charon -o user:32=").split()
+        assert users == ["vpnc-swan"]
 
     @pytest.mark.parametrize("host", ["hub00", "hub01", "end00", "end01"])
     def test_capabilities(self, host: str) -> None:

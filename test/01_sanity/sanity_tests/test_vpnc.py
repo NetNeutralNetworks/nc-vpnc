@@ -62,6 +62,6 @@ def test_secrets_only_for_root(host: str) -> None:
     ]
     assert not wrong
 
-    # charon's user (swan) can't replace the directory vpnc writes in.
+    # charon's user (vpnc-swan) can't replace the directory vpnc writes in.
     owners = conftest.run_cmd_shell(host, "stat -c '%U %a' /etc/swanctl")
     assert owners.split() == ["root", "755"]
