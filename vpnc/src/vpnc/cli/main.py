@@ -597,7 +597,8 @@ def tunnel_items(ctype: str, tunnel: dict[str, Any]) -> list[tuple[str, Any]]:
         return []
     if not tunnel:
         return [("Session", "none")]
-    items: list[tuple[str, Any]] = [
+    # The same for each type, "-" where it lacks one.
+    common: list[tuple[str, Any]] = [
         ("Session state", tunnel.get("state")),
         ("Session id", tunnel.get("session_id")),
         ("Local", tunnel.get("local")),
@@ -605,16 +606,18 @@ def tunnel_items(ctype: str, tunnel: dict[str, Any]) -> list[tuple[str, Any]]:
         ("Remote identity", tunnel.get("remote_identity")),
         ("Encryption", tunnel.get("encryption")),
         ("Integrity", tunnel.get("integrity")),
-        ("PRF", tunnel.get("prf")),
         ("Key exchange", key_exchange_text(tunnel)),
-        ("NAT", tunnel.get("nat")),
         ("Established", when(tunnel.get("established"))),
         ("Rekey", when(tunnel.get("rekey"), future=True)),
+    ]
+    # Only shown for the type that has them.
+    specific: list[tuple[str, Any]] = [
+        ("PRF", tunnel.get("prf")),
+        ("NAT", tunnel.get("nat")),
         ("Last handshake", when(tunnel.get("last_handshake"))),
         ("Allowed IPs", tunnel.get("allowed_ips")),
     ]
-    # What the type doesn't have, or isn't known.
-    return [(key, value) for key, value in items if value not in (None, [], "")]
+    return common + [(key, value) for key, value in specific if value not in (None, [])]
 
 
 def sa_table(sas: list[dict[str, Any]]) -> None:

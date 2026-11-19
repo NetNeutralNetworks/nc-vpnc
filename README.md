@@ -229,7 +229,7 @@ State, read live:
 ~$ sudo vpnctl version
 ```
 
-`connections show` has the same session fields for each VPN type, where it has them: local and remote address, identities (IKE ids; WireGuard public keys; the SSH username and the server's host key), encryption, integrity, PRF, key exchange (with ML-KEM and PPK), NAT, when it was established and rekeys, the last WireGuard handshake and allowed IPs. IPsec adds its child SAs: algorithms, PFS, SPIs, traffic selectors, traffic and rekey time. ssh doesn't report what it negotiated: its key exchange is only shown when post-quantum fixes it.
+`connections show` has the same session fields for each VPN type, `-` where the type lacks one or it isn't known: session state and id, local address, identities (IKE ids; WireGuard public keys; the SSH username and the server's host key), encryption, integrity (`-` with an AEAD cipher), key exchange (with ML-KEM and PPK), when it was established and rekeys. Algorithms are as negotiated; WireGuard's are fixed by the protocol. Fields of one type only are shown for that type: PRF and NAT (IPsec), the last handshake and allowed IPs (WireGuard). IPsec adds its child SAs: algorithms, PFS, SPIs, traffic selectors, traffic and rekey time.
 
 Troubleshooting inside a network instance (destinations are IP addresses):
 

@@ -141,6 +141,39 @@ class TestVpnctl:
         }
 
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
+    def test_ssh_connection(self, host: str) -> None:
+        """An SSH connection shows what ssh negotiated.
+
+        hub01 doesn't set post_quantum: OpenSSH's default is hybrid ML-KEM too.
+        """
+        tunnel = vpnctl(host, "connections show C0001-00-1")["tunnel"]
+
+        assert tunnel["state"] == "ESTABLISHED"
+        assert tunnel["established"]
+        assert tunnel["encryption"]
+        assert tunnel["key_exchange"] == ["mlkem768x25519-sha256"]
+
+    def test_session_fields(self) -> None:
+        """IPsec, SSH and WireGuard connections show the same session fields."""
+        common = [
+            "Session state",
+            "Session id",
+            "Local",
+            "Local identity",
+            "Remote identity",
+            "Encryption",
+            "Integrity",
+            "Key exchange",
+            "Established",
+            "Rekey",
+        ]
+        for cid in ("C0001-00-0", "C0001-00-1", "C0001-01-0"):
+            output = conftest.run_cmd("hub00", f"{VPNCTL} connections show {cid}")
+            labels = [line.split(":")[0] for line in output.splitlines()]
+
+            assert [label for label in labels if label in common] == common, cid
+
+    @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_translations(self, host: str) -> None:
         """A network instance shows its NAT64 and NPTv6 translations as applied."""
         network_instance = vpnctl(host, "ni show C0001-00")
