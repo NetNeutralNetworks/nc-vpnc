@@ -346,6 +346,38 @@ def advertise_router(host: str, netns: str, ifname: str) -> None:
     run_cmd(host, f"ip netns exec {netns} python3 {path} {ifname}")
 
 
+# Sends an ICMPv6 packet too big about an ESP packet (SPI) from source to
+# destination, to source: as a router between them would.
+PACKET_TOO_BIG = """\
+import socket, struct, sys
+
+source, destination, spi, mtu = sys.argv[1:5]
+esp = struct.pack("!II", int(spi, 16), 1) + bytes(32)
+quoted = struct.pack("!IHBB", 6 << 28, len(esp), 50, 63)
+quoted += socket.inet_pton(socket.AF_INET6, source)
+quoted += socket.inet_pton(socket.AF_INET6, destination)
+sock = socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
+sock.sendto(struct.pack("!BBHI", 2, 0, 0, int(mtu)) + quoted + esp, (source, 0))
+"""
+
+
+def packet_too_big(  # noqa: PLR0913
+    host: str,
+    netns: str,
+    source: str,
+    destination: str,
+    spi: str,
+    mtu: int,
+) -> None:
+    """Tell source, from a network namespace of host, its ESP packet was too big."""
+    path = "/tmp/packet_too_big.py"  # noqa: S108
+    write_file(host, path, PACKET_TOO_BIG)
+    run_cmd(
+        host,
+        f"ip netns exec {netns} python3 {path} {source} {destination} {spi} {mtu}",
+    )
+
+
 def snmp_walk(host: str, oid: str) -> dict[tuple[int, ...], str]:
     """Walk a column of a node with SNMP and return its values by index."""
     output = run_cmd(
