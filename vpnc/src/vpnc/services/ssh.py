@@ -220,6 +220,42 @@ def delete_key(connection_name: str) -> None:
     path.with_name(f"{path.name}.pub").unlink(missing_ok=True)
 
 
+def delete_unconfigured_keys() -> None:
+    """Delete the keys and host keys of SSH connections that aren't configured.
+
+    The API makes the key of a configured connection, also of one that's removed
+    before it's set up. Keeps those of a tenant whose file didn't load.
+    """
+    key_dir = key("_").parent
+    # Under the API's lock: it reads the configuration, then makes the key.
+    with LOCK:
+        configured = {
+            connection.name(ni)
+            for ni in helpers.network_instances().values()
+            for connection in ni.connections.values()
+            if connection.config.type == enums.ConnectionType.SSH
+        }
+        found = {
+            path.name.removesuffix(".pub")
+            for directory in (key_dir, config.VPNC_KNOWN_HOSTS_DIR)
+            if directory.is_dir()
+            for path in directory.iterdir()
+        }
+        for name in sorted(found - configured):
+            if not helpers.split_connection_name(name)[1].isdigit():
+                continue  # Not a connection's.
+            match = config.DOWNLINK_CON_RE.match(name)
+            tenant_id = match.group(2) if match else config.DEFAULT_TENANT
+            if (
+                tenant_id not in config.VPNC_CONFIG_TENANT
+                and config.VPNC_A_CONFIG_DIR.joinpath(f"{tenant_id}.yaml").exists()
+            ):
+                continue
+            logger.info("Deleting the SSH key of %s: it isn't configured.", name)
+            delete_key(name)
+            known_hosts(name).unlink(missing_ok=True)
+
+
 def public_key(connection_name: str) -> str | None:
     """Return a connection's public key, made if needed; None if that failed."""
     if not ensure_key(connection_name):

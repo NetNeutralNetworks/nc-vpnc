@@ -16,7 +16,7 @@ from vpnc import config, helpers
 from vpnc.models import enums
 from vpnc.models.network_instance import jool_instances, open_external
 from vpnc.network import events, namespace, state
-from vpnc.services import configuration, frr, strongswan
+from vpnc.services import configuration, frr, ssh, strongswan
 from vpnc.services.reconciler import RECONCILER
 
 if TYPE_CHECKING:
@@ -107,6 +107,7 @@ def _check(keys: set[str] | None) -> None:
     for tenant_id in updated_tenants:
         configuration.write_tenant(tenant_id)
     remove_unconfigured(helpers.network_instances(), keys)
+    ssh.delete_unconfigured_keys()
 
 
 def remove_unconfigured(
