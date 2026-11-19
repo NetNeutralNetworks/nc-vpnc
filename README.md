@@ -164,6 +164,8 @@ ssh runs as the `vpnc-ssh` account, without privileges. Every connection logs in
 
 `psk`, `private_key` and the PPK `key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
 
+A hub's BGP neighbors can have a `password` (TCP MD5), set on the neighbor too: the uplink tunnel's key alone then doesn't give a BGP session.
+
 Weak cryptography of an IPsec connection is only committed with `--allow-weak`: a `psk` of fewer than 32 characters (whoever answers the connection as its peer can try PSKs offline; `vpnctl generate psk` makes a random one), `ike_version` 1, and proposals with DES, 3DES, no encryption, MD5 or a Diffie-Hellman group under 2048 bits. What a connection has already stays as it is; vpnc logs it when it loads the configuration, and `vpnctl connections diagnose` shows it.
 
 `EXTERNAL` only accepts IKE and ESP from the `remote_addrs` of IPsec connections, and WireGuard from the `remote_addrs` of WireGuard connections, on their `local_port`. Peers of disabled connections aren't accepted, nor is a WireGuard peer that moves to another address.

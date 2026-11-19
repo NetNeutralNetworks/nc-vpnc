@@ -2,6 +2,7 @@
 
 import atexit
 import logging
+import re
 import subprocess
 import threading
 import time
@@ -29,6 +30,11 @@ RELOAD_LOCK = threading.Lock()
 RELOAD_PENDING = threading.Event()
 
 
+def _without_passwords(text: str) -> str:
+    """Return frr-reload.py's output without the neighbors' passwords."""
+    return re.sub(r"( password) \S+", r"\1 ***", text)
+
+
 def reload_config() -> bool:
     """Load the FRR config file into FRR idempotently; return whether it worked."""
     with RELOAD_LOCK:
@@ -49,11 +55,11 @@ def reload_config() -> bool:
             logger.error(
                 "Reloading the FRR configuration failed (rc=%s): %s",
                 proc.returncode,
-                (proc.stderr or proc.stdout).strip()[-1000:],
+                _without_passwords(proc.stderr or proc.stdout).strip()[-1000:],
             )
             RELOAD_PENDING.set()
             return False
-        logger.debug(proc.stdout)
+        logger.debug(_without_passwords(proc.stdout))
         RELOAD_PENDING.clear()
         # Wait to make sure the configuration is applied
         time.sleep(1)
@@ -120,6 +126,7 @@ def generate_config() -> None:
             "neighbor_ip": neighbor.neighbor_address,
             "neighbor_asn": neighbor.neighbor_asn,
             "neighbor_priority": neighbor.priority,
+            "password": neighbor.password and neighbor.password.get_secret_value(),
         }
         neighbors.append(neighbor_cfg)
 
@@ -147,7 +154,9 @@ def generate_config() -> None:
     }
 
     frr_render = frr_template.render(**frr_cfg)
-    if files.ensure_file(config.FRR_CONFIG_PATH, frr_render):
+    # With a password, only for root: frr-reload.py and vtysh load it.
+    secret = any(neighbor["password"] for neighbor in neighbors)
+    if files.ensure_file(config.FRR_CONFIG_PATH, frr_render, secret=secret):
         logger.info("Generated FRR configuration.")
 
 

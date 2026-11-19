@@ -23,6 +23,9 @@ router bgp {{ as }} vrf {{ core_ni }}
 {%- for neighbor in neighbors %}
   neighbor {{ neighbor.neighbor_ip }} remote-as {{ neighbor.neighbor_asn }}
   neighbor {{ neighbor.neighbor_ip }} peer-group UPLINK
+  {%- if neighbor.password %}
+  neighbor {{ neighbor.neighbor_ip }} password {{ neighbor.password }}
+  {%- endif %}
 {%- endfor %}
   address-family ipv6 unicast
     redistribute connected route-map REDIS-RM-STATIC-TO-BGP

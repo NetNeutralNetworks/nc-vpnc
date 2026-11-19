@@ -31,6 +31,7 @@ from pydantic_core import PydanticCustomError
 from vpnc import config, helpers, migration
 from vpnc.models import enums
 from vpnc.models.enums import ServiceMode
+from vpnc.models.secret import Secret
 
 # Needed for pydantim ports and type checking
 from vpnc.models.network_instance import (
@@ -123,6 +124,18 @@ class BGPNeighbor(BaseModel):
     # Optional, lower is more preferred CORE uplink for receiving traffic,
     # defaults to 0, max is 9
     priority: int = Field(0, ge=0, le=9)
+    # Optional: the session's TCP MD5 password, the same on the neighbor. Next to
+    # the uplink's tunnel: its key alone then doesn't give a BGP session.
+    password: Secret | None = None
+
+    @field_validator("password")
+    @classmethod
+    def _one_word(cls, v: Secret | None) -> Secret | None:
+        """It's a line of FRR's configuration, and a TCP MD5 key."""
+        if v is not None and not re.fullmatch(r"\S{1,80}", v.get_secret_value()):
+            msg = "1 to 80 characters without spaces"
+            raise ValueError(msg)
+        return v
 
 
 class BGP(BaseModel):
