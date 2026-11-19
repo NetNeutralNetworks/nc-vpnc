@@ -2,7 +2,9 @@
 
 The reason comes from what charon or ssh reports (see the strongSwan monitor and
 the SSH tunnel). A new reason is an event; repeats of it are only counted, as a
-failing connection retries forever.
+failing connection retries forever. Its details don't make it new, and a reason
+is an event again only after a while: anyone who can send from a peer's address
+chooses both.
 """
 
 from __future__ import annotations
@@ -76,20 +78,28 @@ WHILE_UP = ("DPD_TIMEOUT", "CLOSED_BY_PEER")
 PENDING: dict[str, Failure] = {}
 PENDING_SECONDS = 35
 SETTLE = 2
+# Seconds before a reason is an event of a connection again, unless it was set
+# up in between.
+EVENT_INTERVAL = 600
+# When a connection's reasons were last an event.
+RECORDED: dict[str, dict[str, float]] = {}
 _LOCK = threading.Lock()
 
 
 def _keep(name: str, failure: Failure) -> bool:
-    """Make a failure the connection's last (lock held); return whether it's new."""
+    """Make a failure the connection's last (lock held); return whether it's an event."""
     current = CURRENT.get(name)
-    if current and (current.reason, current.details) == (
-        failure.reason,
-        failure.details,
-    ):
-        current.last, current.evidence = failure.last, failure.evidence
+    if current and current.reason == failure.reason:
+        # The latest details: what diagnose shows.
+        current.details, current.evidence = failure.details, failure.evidence
+        current.last = failure.last
         current.count += 1
         return False
     CURRENT[name] = failure
+    recorded = RECORDED.setdefault(name, {})
+    if failure.last - recorded.get(failure.reason, 0) < EVENT_INTERVAL:
+        return False
+    recorded[failure.reason] = failure.last
     return True
 
 
@@ -131,6 +141,7 @@ def clear(name: str) -> None:
     with _LOCK:
         CURRENT.pop(name, None)
         PENDING.pop(name, None)
+        RECORDED.pop(name, None)
 
 
 def seen(name: str, *, up: bool) -> None:
@@ -142,6 +153,7 @@ def seen(name: str, *, up: bool) -> None:
         if up:
             UP.add(name)
             CURRENT.pop(name, None)
+            RECORDED.pop(name, None)
             if pending and now - pending.last > SETTLE:
                 del PENDING[name]
             return
@@ -157,7 +169,7 @@ def seen(name: str, *, up: bool) -> None:
 def keep(names: set[str]) -> None:
     """Forget the failures of connections that aren't among names."""
     with _LOCK:
-        for failed in (CURRENT, PENDING):
+        for failed in (CURRENT, PENDING, RECORDED):
             for name in failed.keys() - names:
                 del failed[name]
         UP.intersection_update(names)

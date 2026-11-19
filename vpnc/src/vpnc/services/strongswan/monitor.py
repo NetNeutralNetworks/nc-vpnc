@@ -90,10 +90,16 @@ def ipsec_connections(peer: str | None = "") -> list[str]:
     ]
 
 
-def charon_up(name: str) -> bool:
-    """Return whether a connection has an established IKE SA with a child SA."""
+def charon_up(names: list[str]) -> set[str]:
+    """Return the connections with an established IKE SA with a child SA."""
     with charon.session() as vcs:
-        return any(charon.sa_up(sa.get(name, {})) for sa in vcs.list_sas({"ike": name}))
+        return {
+            name
+            for name in names
+            if any(
+                charon.sa_up(sa.get(name, {})) for sa in vcs.list_sas({"ike": name})
+            )
+        }
 
 
 class Monitor(threading.Thread):
@@ -240,7 +246,8 @@ class Monitor(threading.Thread):
         names = [result.name] if result.name else ipsec_connections(result.peer)
         if result.name is None and len(names) > 1:
             # The peer has several connections: not the ones that work.
-            names = [name for name in names if not charon_up(name)]
+            up = charon_up(names)
+            names = [name for name in names if name not in up]
         for name in names:
             if result.reason is None:
                 failures.clear(name)

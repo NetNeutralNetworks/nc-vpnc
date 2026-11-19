@@ -383,6 +383,36 @@ class TestReconfiguration:
                 message=f"IKE from {PROBE_ADDRESS} to be {expected} ({change})",
             )
 
+    def test_failed_attempts_are_one_event(self) -> None:
+        """What a peer proposes doesn't make its failed attempts new events."""
+        peer = ipsec_connection(
+            1,
+            ("10.200.0.5/30", "fdcc:200:0:1::1/64"),
+            [],
+            [],
+            remote_addrs=[PROBE_ADDRESS],
+        )
+        name = f"{NI}-1"
+        write_tenant([BASE_CONNECTION, peer])
+        conftest.wait_until(
+            ike_answered,
+            timeout=APPLY_TIMEOUT,
+            message=f"IKE from {PROBE_ADDRESS} to be answered",
+        )
+
+        # With the PRFs SHA-256, SHA-384 and SHA-512.
+        for prf in (5, 6, 7, 5, 6, 7):
+            assert conftest.ike_answered("mgt00", "EXTERNAL", HOST_ADDRESS, prf)
+
+        conftest.wait_until(
+            lambda: vpnctl_json(f"connections diagnose {name}")["count"] >= 6,  # noqa: PLR2004
+            timeout=APPLY_TIMEOUT,
+            message="the failed attempts to be noted",
+        )
+        events = vpnctl_json(f"connections events {name} -n 200")
+        mismatches = [e for e in events if e["event"] == "IKE_PROPOSAL_MISMATCH"]
+        assert len(mismatches) == 1
+
     def test_change_addresses(self) -> None:
         """Changed interface addresses replace the old ones."""
         changed = ipsec_connection(
