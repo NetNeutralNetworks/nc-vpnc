@@ -284,8 +284,16 @@ def vpncmangle_text(state: dict[str, Any]) -> str:
         text += (
             f"; answers {state['answers_translated']} translated,"
             f" {state['answers_dropped']} dropped"
+            f"{reasons_text(state.get('drop_reasons'))}"
         )
     return text
+
+
+def reasons_text(reasons: dict[str, int] | None) -> str:
+    """Return why DNS answers were dropped, e.g. " (RATE_LIMITED 12, ERROR 1)"."""
+    if not reasons:
+        return ""
+    return f" ({', '.join(f'{reason} {count}' for reason, count in reasons.items())})"
 
 
 def _up(row: dict[str, Any]) -> dict[str, Any]:
@@ -357,6 +365,7 @@ def cmd_ni_show(args: argparse.Namespace) -> None:
                         (
                             f"{data['dns_answers_translated']} translated,"
                             f" {data['dns_answers_dropped']} dropped"
+                            f"{reasons_text(data.get('dns_drop_reasons'))}"
                         ),
                     ),
                 ]

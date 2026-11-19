@@ -2,6 +2,7 @@
 
 import contextlib
 import logging
+import struct
 import sys
 from ipaddress import IPv4Address, IPv6Address
 from logging.handlers import SysLogHandler
@@ -21,7 +22,15 @@ QUERY_AAAA = 28
 SECTIONS = (("an", "ancount"), ("ns", "nscount"), ("ar", "arcount"))
 
 
-TABLE = "ip6 vpncmangle"
+# IPv6 extension headers nftables looks past for the UDP header.
+HOP_BY_HOP, ROUTING, FRAGMENT, AUTHENTICATION, DESTINATION = 0, 43, 44, 51, 60
+EXTENSION_HEADERS = (HOP_BY_HOP, ROUTING, FRAGMENT, AUTHENTICATION, DESTINATION)
+UDP = 17
+IPV6_HEADER = 40
+UDP_HEADER = 8
+DNS_HEADER = 12
+# The QR bit in the header's third byte: a response.
+RESPONSE = 0x80
 
 
 def _journal_handler() -> logging.Handler:
@@ -38,21 +47,47 @@ def _journal_handler() -> logging.Handler:
 
 def setup_nftables(queue_number: int) -> None:
     """Queue DNS responses to vpncmangle, and drop the old ip6tables rule."""
-    # TODO@draggeta: fix DNS over TCP
-    nftables.run(
-        f"""
-table {TABLE}
-delete table {TABLE}
-destroy table ip6 mangle
-table {TABLE} {{
-    chain postrouting {{
-        type filter hook postrouting priority mangle; policy accept;
-        udp sport 53 queue num {queue_number}
-    }}
-}}
-""",
-    )
+    nftables.apply(queue_number)
     logger.info("Queueing DNS responses to netfilter queue %s.", queue_number)
+
+
+def dns_offset(packet: bytes) -> int | None:
+    """Return where the DNS message of an IPv6 UDP packet starts; None: it has none."""
+    if len(packet) < IPV6_HEADER:
+        return None
+    header, offset = packet[6], IPV6_HEADER
+    while header in EXTENSION_HEADERS:
+        if len(packet) < offset + 8:
+            return None
+        if header == FRAGMENT:
+            length = 8
+        elif header == AUTHENTICATION:
+            length = (packet[offset + 1] + 2) * 4
+        else:
+            length = (packet[offset + 1] + 1) * 8
+        header, offset = packet[offset], offset + length
+    if header != UDP or len(packet) < offset + UDP_HEADER + DNS_HEADER:
+        return None
+    return offset + UDP_HEADER
+
+
+def network_instance(source: IPv6Address) -> str | None:
+    """Return the network instance a source address is translated for."""
+    for local_network, name, _ in config.ACL_MATCH:
+        if source in local_network:
+            return name
+    return None
+
+
+def too_costly(packet: bytes, offset: int) -> str | None:
+    """Return why a response isn't parsed: one thread handles every tenant's."""
+    limits = config.LIMITS
+    if len(packet) > limits.max_size:
+        return stats.OVERSIZED
+    # The answer, authority and additional counts, as the response claims.
+    if sum(struct.unpack_from("!3H", packet, offset + 6)) > limits.max_records:
+        return stats.TOO_MANY_RECORDS
+    return None
 
 
 def translate(
@@ -123,7 +158,23 @@ def mangle_dns(pkt: Packet) -> None:
 
 def _mangle_dns(pkt: Packet) -> None:
     """Translate the addresses in a DNS response to ones reachable from CORE."""
-    pkt_sc = sc.IPv6(pkt.get_payload())
+    payload = pkt.get_payload()
+    # Before parsing, which costs most.
+    if (offset := dns_offset(payload)) is None:
+        logger.warning("Dropping a packet from port 53 that isn't DNS.")
+        stats.dropped(stats.NOT_DNS)
+        pkt.drop()
+        return
+    if not payload[offset + 2] & RESPONSE:
+        logger.debug("Packet is not of type response.")
+        pkt.accept()
+        return
+    if reason := too_costly(payload, offset):
+        logger.debug("Dropping a response: %s.", reason)
+        stats.dropped(reason, network_instance(IPv6Address(payload[8:24])))
+        pkt.drop()
+        return
+    pkt_sc = sc.IPv6(payload)
 
     # Unparsable: a client may still read addresses from it.
     if not pkt_sc.haslayer(sc.DNS):

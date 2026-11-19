@@ -15,8 +15,12 @@ from vpnc.network import namespace
 logger = logging.getLogger("vpnc")
 
 CONFIG_PATH = pathlib.Path("/opt/ncubed/config/vpncmangle/translations.json")
+# The service's dns settings.
+LIMITS_PATH = CONFIG_PATH.with_name("limits.json")
 # vpncmangle writes its counters there.
 STATS_PATH = pathlib.Path("/run/vpncmangle/stats.json")
+# The kernel's netfilter queues of the reading thread's namespace (root only).
+QUEUES_PATH = "/proc/thread-self/net/netfilter/nfnetlink_queue"
 
 
 def generate_config() -> None:
@@ -42,6 +46,8 @@ def generate_config() -> None:
                     )
 
         files.ensure_file(CONFIG_PATH, json.dumps(output))
+        limits = helpers.get_default_tenant().dns
+        files.ensure_file(LIMITS_PATH, limits.model_dump_json())
 
 
 # The running vpncmangle process.
@@ -83,12 +89,29 @@ def start() -> None:
     PROCESS = proc
 
 
+def _queue_dropped() -> int:
+    """Return the responses the kernel dropped: the queue was full or unread."""
+
+    def read() -> int:
+        # queue, peer, waiting, copy mode, copy range, dropped, user dropped, ...
+        lines = pathlib.Path(QUEUES_PATH).read_text(encoding="utf-8").splitlines()
+        return sum(int(n) for line in lines for n in line.split()[5:7])
+
+    try:
+        return namespace.call(config.CORE_NI, read)
+    except (OSError, ValueError):
+        return 0
+
+
 def stats() -> dict[str, Any]:
     """Return vpncmangle's counters since it started; empty if there are none."""
     try:
-        return json.loads(STATS_PATH.read_text(encoding="utf-8"))
+        counters = json.loads(STATS_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+    if dropped := _queue_dropped():
+        counters.setdefault("dropped", {})["QUEUE_FULL"] = dropped
+    return counters
 
 
 def ensure_running() -> None:

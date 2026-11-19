@@ -218,6 +218,8 @@ class NetworkInstanceState(BaseModel):
     # DNS answers vpncmangle translated and dropped (hub downlinks), since it started.
     dns_answers_translated: int | None = None
     dns_answers_dropped: int | None = None
+    # By reason: as the service's, without the ones of no network instance.
+    dns_drop_reasons: dict[str, int] | None = None
 
 
 class TenantState(BaseModel):
@@ -239,7 +241,8 @@ class VpncmangleState(BaseModel):
     # DNS answers since vpncmangle started; None if it hasn't counted (yet).
     answers_translated: int | None
     answers_dropped: int | None
-    # By reason: NOT_DNS, NO_TRANSLATIONS, UNKNOWN_SOURCE, ERROR.
+    # By reason: NOT_DNS, NO_TRANSLATIONS, UNKNOWN_SOURCE, ERROR; over the dns
+    # limits OVERSIZED, TOO_MANY_RECORDS, RATE_LIMITED; QUEUE_FULL (the kernel's).
     drop_reasons: dict[str, int]
 
 
@@ -710,6 +713,7 @@ def network_instance_states(
                 counts = vpncmangle.stats().get("network_instances", {}).get(ni.id, {})
                 item.dns_answers_translated = counts.get("translated", 0)
                 item.dns_answers_dropped = counts.get("dropped", 0)
+                item.dns_drop_reasons = counts.get("reasons", {})
         if detail:
             _add_datapath(item, ni)
         output.append(item)

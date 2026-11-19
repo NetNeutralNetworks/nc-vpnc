@@ -181,8 +181,8 @@ def _manage_tenant(path: pathlib.Path) -> None:
     config.VPNC_CONFIG_TENANT[tenant.id] = tenant
     TENANT_PATHS[tenant.id] = path
 
-    if hub and tenant.name != config.DEFAULT_TENANT:
-        # DNS mangling
+    if hub:
+        # DNS mangling: the tenants' translations and the service's limits.
         vpncmangle.generate_config()
 
     # The reconciler applies the configuration; removed network instances too.
