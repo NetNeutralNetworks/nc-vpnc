@@ -67,7 +67,7 @@ update: root pip-vpnc $(if $(wildcard $(VENV)/bin/vpncmangle),\
 	account-vpnc-mangle account-vpnc-ssh pip-vpncmangle) \
 	misc-config $(if $(wildcard /etc/snmp/snmpd.conf.d),$(SNMP_CONF) old-snmp-config) \
 	$(if $(wildcard /etc/frr),$(FRR_SNMP_CONF)) vpnctl \
-	$(if $(SYSTEMD),$(STAMP)/started)
+	$(if $(SYSTEMD),$(CONFDIR)/units/$(UNIT) $(STAMP)/started)
 
 root:
 	@[ "$$(id -u)" = 0 ] || { echo "Run as root." >&2; exit 1; }
@@ -145,8 +145,7 @@ snmpd: apt-update
 
 # Configuration. File targets without prerequisites: created when missing, never overwritten.
 
-config: $(CONFDIR)/candidate/DEFAULT.yaml $(CONFDIR)/active/DEFAULT.yaml \
-	$(if $(SYSTEMD),$(CONFDIR)/units/$(UNIT))
+config: $(CONFDIR)/candidate/DEFAULT.yaml $(CONFDIR)/active/DEFAULT.yaml
 	$(if $(filter endpoint,$(MODE)),,[ -e $(CONFDIR)/candidate/config.yaml.example ] || \
 		install -m 600 config/vpnc/config/config.yaml.example $(CONFDIR)/candidate/)
 	chmod 700 $(CONFDIR)/candidate $(CONFDIR)/active $(CONFDIR)/history
@@ -157,9 +156,6 @@ $(CONFDIR)/candidate $(CONFDIR)/active $(CONFDIR)/history:
 
 $(CONFDIR)/candidate/DEFAULT.yaml $(CONFDIR)/active/DEFAULT.yaml: | $(CONFDIR)/candidate $(CONFDIR)/active $(CONFDIR)/history
 	install -m 600 config/vpnc/config/config-$(CONFIG_MODE).yaml.example $@
-
-$(CONFDIR)/units/$(UNIT):
-	install -D -m 644 config/vpnc/units/$(UNIT) $@
 
 # vpnc, vpncmangle and charon log to the journal now; this rotated charon's
 # old log file.
@@ -270,19 +266,24 @@ typer-cleanup:
 
 # Service.
 
-service:
+service: $(if $(SYSTEMD),$(CONFDIR)/units/$(UNIT))
 	$(SYSTEMCTL) link $(CONFDIR)/units/$(UNIT)
 	$(SYSTEMCTL) daemon-reload
 	$(SYSTEMCTL) enable $(UNIT)
+
+# vpnc's own unit: replaced when it changes. Local changes go in a drop-in.
+$(CONFDIR)/units/$(UNIT): config/vpnc/units/$(UNIT)
+	install -D -m 644 $< $@
+	$(SYSTEMCTL) daemon-reload
 
 # A full install always restarts, e.g. for upgraded strongSwan or FRR.
 start:
 	$(SYSTEMCTL) restart $(UNIT)
 	$(if $(SYSTEMD),mkdir -p $(STAMP) && touch $(STAMP)/started)
 
-# make update restarts only when vpnc, vpncmangle or charon's settings changed;
-# vpnc starts charon, which reads its settings only then.
+# make update restarts only when vpnc, vpncmangle, the unit or charon's settings
+# changed; vpnc starts charon, which reads its settings only then.
 $(STAMP)/started: $(STAMP)/vpnc $(wildcard $(STAMP)/vpncmangle) \
-	/etc/strongswan.d/vpnc.conf
+	/etc/strongswan.d/vpnc.conf $(CONFDIR)/units/$(UNIT)
 	$(SYSTEMCTL) restart $(UNIT)
 	touch $@

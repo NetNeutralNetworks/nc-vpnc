@@ -64,7 +64,7 @@ This upgrades the system packages, installs vpnc in `/opt/ncubed/vpnc`, `vpnctl`
 ~$ make update
 ```
 
-This reinstalls vpnc (and vpncmangle on a hub) and restarts vpnc only if something changed. Configuration files are only installed when missing, so local edits are kept. The Python dependencies are installed at the versions and hashes in the lock files (`requirements*.txt`). Then configure the service:
+This reinstalls vpnc (and vpncmangle on a hub) and restarts vpnc only if something changed. Configuration files are only installed when missing, so local edits are kept. The systemd unit is replaced when it changes: put local changes in a drop-in (`systemctl edit ncubed-vpnc`). The Python dependencies are installed at the versions and hashes in the lock files (`requirements*.txt`). Then configure the service:
 
 ```bash
 ~$ sudo vpnctl config edit service
