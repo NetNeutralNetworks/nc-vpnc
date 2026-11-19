@@ -184,6 +184,21 @@ class ServiceEndpoint(ServiceTenant):
     ] = Field(default_factory=dict)
 
 
+class DNS(BaseModel):
+    """Limits on a network instance's DNS responses, which vpncmangle translates.
+
+    One thread translates every network instance's: these keep one of them from
+    taking it. The defaults are vpncmangle's.
+    """
+
+    # kbytes of responses per second; more are dropped.
+    rate_limit: int = Field(default=50, ge=1)
+    # Bytes of a response (its IPv6 packet); a larger one is dropped.
+    max_size: int = Field(default=4096, ge=512, le=65535)
+    # Records in a response; one with more is dropped.
+    max_records: int = Field(default=100, ge=1, le=65535)
+
+
 class ServiceHub(ServiceTenant):
     """Define a service data structure."""
 
@@ -210,6 +225,10 @@ class ServiceHub(ServiceTenant):
 
     ## BGP config
     bgp: BGP
+
+    dns: DNS = Field(default_factory=DNS)
+
+    _none_as_default = helpers.none_as_default("dns")
 
     @field_validator(*MAX_PREFIX_LENGTHS)
     @classmethod

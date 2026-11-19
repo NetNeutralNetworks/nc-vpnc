@@ -45,7 +45,7 @@ Addressing in hub mode, from the service settings:
 
 NPTv6 here maps the destination prefix 1:1 and masquerades the source; it's stateful (conntrack), not RFC 6296.
 
-vpncmangle (started by vpnc) rewrites DNS answers from tenants: A records become AAAA records in the NAT64 prefix, and AAAA records get the NPTv6 prefix. Only over UDP: DNS over TCP to tenants is refused. It runs as the `vpnc-mangle` account, which can only configure the network. See [vpncmangle/README.md](vpncmangle/README.md).
+vpncmangle (started by vpnc) rewrites DNS answers from tenants: A records become AAAA records in the NAT64 prefix, and AAAA records get the NPTv6 prefix. Only over UDP: DNS over TCP to tenants is refused. What a network instance's answers may cost is limited (the service's `dns` settings), so one tenant's DNS server can't stop the others' answers. It runs as the `vpnc-mangle` account, which can only configure the network. See [vpncmangle/README.md](vpncmangle/README.md).
 
 charon (strongSwan, started by vpnc) runs as the `vpnc-swan` account, which can only configure the network.
 

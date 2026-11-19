@@ -5,9 +5,22 @@ import logging
 
 import pydantic_core
 
-from . import config
+from . import config, nftables
 
 logger = logging.getLogger("vpncmangle")
+
+
+def _load_limits() -> config.Limits | None:
+    """Return the limits as configured; the defaults without a file; None: invalid."""
+    try:
+        text = config.LIMITS_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return config.Limits()
+    try:
+        return config.Limits.model_validate_json(text)
+    except pydantic_core.ValidationError:
+        logger.exception("The limits in '%s' aren't valid. Skipping", config.LIMITS_PATH)
+        return None
 
 
 def load_config() -> None:
@@ -47,5 +60,12 @@ def load_config() -> None:
     # Replaced in one go: the packet thread reads it meanwhile.
     config.CONFIG = new_cfg
     config.ACL_MATCH = acl_match
+    if (limits := _load_limits()) is not None:
+        config.LIMITS = limits
 
     logger.info("Loaded new configuration.")
+    # The rate limits are per network instance.
+    try:
+        nftables.apply()
+    except (nftables.NftablesError, OSError):
+        logger.exception("Updating the nftables table failed.")

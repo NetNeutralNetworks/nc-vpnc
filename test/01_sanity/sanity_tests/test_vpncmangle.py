@@ -36,24 +36,16 @@ class TestVpncmangle:
 class TestNftablesMangle:
     """Tests if netfilter is set up correctly to forward traffic to vpncmangle."""
 
-    table_hub = (
-        "table ip6 vpncmangle {\n"
-        "\tchain postrouting {\n"
-        "\t\ttype filter hook postrouting priority mangle; policy accept;\n"
-        "\t\tudp sport 53 queue to 0\n"
-        "\t}\n"
-        "}"
-    )
-
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_nftables_mangle_hub(self, host: str) -> None:
         """Test if vpncmangle queues DNS responses."""
         table_state = conftest.run_cmd(
             host,
             "ip netns exec CORE nft list table ip6 vpncmangle",
-        ).strip()
+        )
 
-        assert table_state == self.table_hub
+        assert "udp sport 53 jump responses" in table_state
+        assert "queue to 0" in table_state
 
 
 class TestDNSMangle:

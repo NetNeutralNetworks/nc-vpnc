@@ -675,6 +675,111 @@ class TestRestartNotice:
         )
 
 
+# Of C0001-01, which mgt00 reaches through hub00 too.
+OTHER_DNS_SERVER = "fdcc:0:c:1:1::172.17.31.1"
+# Longer than vpncmangle's 30 seconds between writes of its counters.
+COUNTERS_TIMEOUT = 45
+
+
+def dns_answers(
+    server: str,
+    name: str = DNS_NAME,
+    record: str = "AAAA",
+    count: int = 1,
+) -> int:
+    """Return how many of mgt00's queries, sent at once, a DNS server answers."""
+    dig = f"dig +short +time=1 +tries=1 {name} {record} @{server}"
+    output = conftest.run_cmd_shell(
+        "mgt00",
+        f"bash -c 'for i in $(seq {count}); do {dig} & done; wait' || true",
+    )
+    return sum(not line.startswith(";") for line in output.splitlines() if line)
+
+
+def dns_dropped(reason: str, network_instance: str = DRIFT_NI) -> int:
+    """Return the DNS answers of a network instance dropped for a reason."""
+    state = vpnctl_json(f"ni show {network_instance}")
+    return state["dns_drop_reasons"].get(reason, 0)
+
+
+@contextlib.contextmanager
+def dns_limit(name: str, value: int, default: int) -> Iterator[None]:
+    """Give the service a dns limit until the context exits."""
+    vpnctl(f"config set service dns.{name} {value}")
+    vpnctl("config commit service")
+    try:
+        yield
+    finally:
+        vpnctl(f"config set service dns.{name} {default}")
+        vpnctl("config commit service")
+        conftest.wait_until(
+            lambda: dns_answers(DNS_SERVER) == 1,
+            timeout=APPLY_TIMEOUT,
+            message="DNS answers after the limit is back",
+        )
+
+
+class TestDnsLimits:
+    """The service's dns settings limit what a network instance's answers cost."""
+
+    def test_rate_limit(self) -> None:
+        """Answers over the rate limit are dropped; another network instance's aren't."""
+        queries = 60
+        dropped = dns_dropped("RATE_LIMITED")
+        assert dns_answers(DNS_SERVER, count=queries) == queries
+
+        # 1 kbyte per second, 2 at once: some 20 answers.
+        with dns_limit("rate_limit", 1, 50):
+            conftest.wait_until(
+                lambda: 0 < dns_answers(DNS_SERVER, count=queries) < queries,
+                timeout=APPLY_TIMEOUT,
+                message="some answers over the rate limit to be dropped",
+            )
+            assert dns_answers(OTHER_DNS_SERVER) == 1
+
+        conftest.wait_until(
+            lambda: dns_dropped("RATE_LIMITED") > dropped,
+            timeout=COUNTERS_TIMEOUT,
+            message="the dropped answers to be counted",
+        )
+
+    @pytest.mark.parametrize(
+        ("limit", "value", "default", "name", "record", "reason"),
+        [
+            ("max_size", 512, 4096, "big.example.com", "TXT", "OVERSIZED"),
+            # An answer and its EDNS record.
+            ("max_records", 1, 100, DNS_NAME, "AAAA", "TOO_MANY_RECORDS"),
+        ],
+    )
+    def test_costly_answer_dropped(  # noqa: PLR0913
+        self,
+        limit: str,
+        value: int,
+        default: int,
+        name: str,
+        record: str,
+        reason: str,
+    ) -> None:
+        """An answer over a limit is dropped and counted; a small one isn't."""
+        dropped = dns_dropped(reason)
+        assert dns_answers(DNS_SERVER, name, record) == 1
+
+        with dns_limit(limit, value, default):
+            conftest.wait_until(
+                lambda: dns_answers(DNS_SERVER, name, record) == 0,
+                timeout=APPLY_TIMEOUT,
+                message=f"an answer over {limit} to be dropped",
+            )
+            if limit == "max_size":
+                assert dns_answers(DNS_SERVER, "txt.example.com", "TXT") == 1
+
+        conftest.wait_until(
+            lambda: dns_dropped(reason) > dropped,
+            timeout=COUNTERS_TIMEOUT,
+            message="the dropped answer to be counted",
+        )
+
+
 class TestOldConfiguration:
     """Configuration of the previous version is converted."""
 

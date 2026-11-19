@@ -152,4 +152,12 @@ bgp:
     neighbor_address: fd00:1:2::1:1
     # Optional, lower is more preferred uplink for receiving traffic, defaults to 0, max is 9
     priority: 1
+
+## DNS limits
+# Optional: what a network instance's DNS answers may cost; more is dropped
+# (see vpnctl status). One process translates every tenant's answers.
+# dns:
+#   rate_limit: 50    # kbytes of answers per second
+#   max_size: 4096    # bytes of an answer
+#   max_records: 100  # records in an answer
 ...

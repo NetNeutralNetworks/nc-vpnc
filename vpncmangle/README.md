@@ -17,8 +17,18 @@ vpnc writes the translations to `/opt/ncubed/config/vpncmangle/translations.json
               "dns66": [["fd6c:1::/52", "fdff:db8:c57::/52"]]}}
 ```
 
-Logs go to the journal (`journalctl -t vpncmangle`), or `vpnctl logs --source vpncmangle`. `vpnctl status` shows whether it runs and how many answers it translated and dropped since it started (`-o json`: why), `vpnctl ni show` the same per network instance. vpncmangle writes these counters to `/run/vpncmangle/stats.json` every 30 seconds.
+One thread translates every network instance's answers, so what one of them may cost is limited, with the service's `dns` settings (in `limits.json`, next to the translations):
 
-Dropped: a packet from port 53 that isn't DNS, an answer from an address of no network instance, an answer while no translations are loaded, and an answer that fails to translate.
+| Setting | Default | Dropped |
+| --- | --- | --- |
+| `rate_limit` | 50 | A network instance's answers over this many kbytes per second (and twice that at once), by nftables before they're queued (`RATE_LIMITED`). |
+| `max_size` | 4096 | An answer of more bytes, as IPv6 packet (`OVERSIZED`). |
+| `max_records` | 100 | An answer with more records (`TOO_MANY_RECORDS`). |
+
+An answer of one address takes about 0.4 ms to translate, one of 100 about 9 ms: at these limits one network instance takes about a quarter of the thread.
+
+Logs go to the journal (`journalctl -t vpncmangle`), or `vpnctl logs --source vpncmangle`. `vpnctl status` shows whether it runs and how many answers it translated and dropped since it started, and why; `vpnctl ni show` the same per network instance. vpncmangle writes these counters to `/run/vpncmangle/stats.json` every 30 seconds.
+
+Dropped as well: a packet from port 53 that isn't DNS (`NOT_DNS`), an answer from an address of no network instance (`UNKNOWN_SOURCE`), an answer while no translations are loaded (`NO_TRANSLATIONS`), an answer that fails to translate (`ERROR`), and answers the kernel couldn't queue because vpncmangle didn't keep up (`QUEUE_FULL`).
 
 DNS over TCP isn't translated: `CORE` refuses it, so a tenant can't answer with other addresses.
