@@ -81,6 +81,8 @@ class CommitResult(BaseModel):
     confirm_by: str | None = None
     # Service settings that only apply after vpnc restarts.
     restart_needed: list[str] = []
+    # Weak cryptography the commit added, per connection (allow_weak).
+    warnings: list[str] = []
 
 
 # Service settings read at startup only. The downlink prefixes are partly
@@ -522,6 +524,49 @@ def _check_node(candidates: dict[str, Model | None]) -> None:
             _check_post_quantum(model)
 
 
+def _added_weaknesses(tenant_id: str, candidate: Model | None) -> list[str]:
+    """Return the weak cryptography a candidate adds to its IPsec connections.
+
+    What the active configuration has already, with the same setting, stays
+    without asking: e.g. the short PSK of a connection that's in use.
+    """
+    if candidate is None:
+        return []
+    active = _load(tenant_id, "active")
+    before = {
+        connection.name(ni): connection.config.weaknesses()
+        for ni in (active.network_instances.values() if active else [])
+        for connection in ni.connections.values()
+        if connection.config.type == enums.ConnectionType.IPSEC
+    }
+    return [
+        f"{connection.name(ni)}: {what}"
+        for ni in candidate.network_instances.values()
+        for connection in ni.connections.values()
+        if connection.config.type == enums.ConnectionType.IPSEC
+        for kind, (what, setting) in connection.config.weaknesses().items()
+        if before.get(connection.name(ni), {}).get(kind, (None, None))[1] != setting
+    ]
+
+
+def _check_weak(candidates: dict[str, Model | None], *, allow: bool) -> list[str]:
+    """Refuse candidates that add weak cryptography, unless allowed; return it."""
+    added = [
+        weakness
+        for tenant_id, candidate in candidates.items()
+        for weakness in _added_weaknesses(tenant_id, candidate)
+    ]
+    if added and not allow:
+        raise ConfigError(
+            422,
+            "Weak cryptography",
+            "; ".join(added) + ". Commit with --allow-weak to accept it.",
+        )
+    for weakness in added:
+        logger.warning("Committed with weak cryptography: %s.", weakness)
+    return added
+
+
 def _check_post_quantum(model: Model) -> None:
     """Refuse post-quantum cryptography that charon or OpenSSH lacks."""
     for ni in model.network_instances.values():
@@ -587,22 +632,26 @@ def commit(
     confirm: int | None = None,
     *,
     check_node: bool = True,
+    allow_weak: bool = False,
 ) -> CommitResult:
     """Make the staged changes active.
 
     With confirm (seconds), roll back unless confirmed in time; a commit
-    without it confirms. commit_all checks all at once.
+    without it confirms. commit_all checks all at once. Weak cryptography (a
+    short PSK, IKEv1, weak algorithms) is only added with allow_weak.
     """
     check_id(tenant_id)
     with LOCK:
         previous = _text(tenant_id, "active")
         changed = False
+        warnings: list[str] = []
         if _text(tenant_id, "candidate") is not None:
             candidate = _load(tenant_id, "candidate")
             if candidate is None:
                 _keep_service(tenant_id)
             if check_node:
                 _check_node({tenant_id: candidate})
+            warnings = _check_weak({tenant_id: candidate}, allow=allow_weak)
             filled = candidate is not None and _fill_ppk_ids(candidate)
             # Only changed configurations: the files may differ in formatting.
             if not _same(candidate, _load(tenant_id, "active")):
@@ -622,7 +671,12 @@ def commit(
             if pending and confirm is None:
                 _clear_pending(tenant_id)
                 _confirmed(tenant_id)
-            return CommitResult(id=tenant_id, changed=changed, restart_needed=restart)
+            return CommitResult(
+                id=tenant_id,
+                changed=changed,
+                restart_needed=restart,
+                warnings=warnings,
+            )
         # A new confirmed commit rolls back to before the first.
         confirm_by = (_now() + dt.timedelta(seconds=confirm)).isoformat(
             timespec="seconds",
@@ -639,6 +693,7 @@ def commit(
             changed=changed,
             confirm_by=confirm_by,
             restart_needed=restart,
+            warnings=warnings,
         )
 
 
@@ -751,17 +806,24 @@ def _staged_ids() -> list[str]:
     return sorted(ids | set(_pending_ids()))
 
 
-def commit_all(confirm: int | None = None) -> list[CommitResult]:
+def commit_all(
+    confirm: int | None = None,
+    *,
+    allow_weak: bool = False,
+) -> list[CommitResult]:
     """Commit the staged changes of all tenants and the service.
 
     All are validated first, so an invalid one stops the commit of all.
     """
     with LOCK:
         staged = _staged_ids()
-        _check_node(
-            {tenant_id: _load(tenant_id, "candidate") for tenant_id in staged},
-        )
-        results = [commit(tenant_id, confirm, check_node=False) for tenant_id in staged]
+        candidates = {tenant_id: _load(tenant_id, "candidate") for tenant_id in staged}
+        _check_node(candidates)
+        _check_weak(candidates, allow=allow_weak)
+        results = [
+            commit(tenant_id, confirm, check_node=False, allow_weak=True)
+            for tenant_id in staged
+        ]
     return [r for r in results if r.changed or r.confirm_by or r.restart_needed]
 
 

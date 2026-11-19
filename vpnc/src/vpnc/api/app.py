@@ -524,12 +524,15 @@ SERVICE = config.DEFAULT_TENANT
 @app.post("/v1/config/commit")
 def commit_all(
     confirm: Annotated[int | None, Query(ge=10, le=86400)] = None,
+    allow_weak: bool = False,  # noqa: FBT001, FBT002
 ) -> list[CommitResult]:
     """Commit the staged changes of all tenants and the service.
 
-    With confirm (seconds), each is rolled back unless confirmed in time.
+    With confirm (seconds), each is rolled back unless confirmed in time. Weak
+    cryptography (a short PSK, IKEv1, weak algorithms) is only added with
+    allow_weak.
     """
-    return config_files.commit_all(confirm)
+    return config_files.commit_all(confirm, allow_weak=allow_weak)
 
 
 @app.post("/v1/config/confirm")
@@ -605,12 +608,14 @@ def config_routes(  # noqa: C901 (a nested function per route)
     def commit(
         target_id: Target,
         confirm: Annotated[int | None, Query(ge=10, le=86400)] = None,
+        allow_weak: bool = False,  # noqa: FBT001, FBT002
     ) -> CommitResult:
         """With confirm (seconds), it's rolled back unless confirmed in time.
 
-        A commit without confirm confirms an earlier one.
+        A commit without confirm confirms an earlier one. Weak cryptography (a
+        short PSK, IKEv1, weak algorithms) is only added with allow_weak.
         """
-        return config_files.commit(target_id, confirm)
+        return config_files.commit(target_id, confirm, allow_weak=allow_weak)
 
     @router.post("/confirm", summary="Confirm a commit")
     def confirm(target_id: Target) -> CommitResult:

@@ -81,7 +81,7 @@ network_instances:
           ipsec_lifetime: 90
           # Optional, defaults to START: initiate and respond. NONE: respond only.
           # initiation: START
-          psk: "secret&pass<word>core"
+          psk: "secret&pass<word>core-of-the-vpnc-lab"
           # Optional: hybrid ML-KEM key exchange. Requires Ubuntu 26.04 (strongSwan 6).
           post_quantum:
             enabled: true
@@ -114,7 +114,7 @@ network_instances:
           remote_addrs: [2001:db8::4]
           ike_lifetime: 300
           ipsec_lifetime: 90
-          psk: "secret&pass<word>core"
+          psk: "secret&pass<word>core-of-the-vpnc-lab"
 
 
 # VPN CONFIG

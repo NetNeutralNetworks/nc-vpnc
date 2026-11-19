@@ -20,6 +20,7 @@ from watchdog.observers import Observer
 
 import vpnc.models.tenant
 from vpnc import config, files, helpers, migration
+from vpnc.models import enums
 from vpnc.models.secret import REVEAL
 from vpnc.network import nftables
 from vpnc.services import jool, vpncmangle
@@ -159,6 +160,20 @@ def _unsupported(tenant: Any, *, hub: bool) -> bool:  # noqa: ANN401
     return True
 
 
+def _warn_weak(tenant: Any) -> None:  # noqa: ANN401
+    """Log the weak cryptography of a tenant's IPsec connections."""
+    for network_instance in tenant.network_instances.values():
+        for connection in network_instance.connections.values():
+            if connection.config.type != enums.ConnectionType.IPSEC:
+                continue
+            for what, _ in connection.config.weaknesses().values():
+                logger.warning(
+                    "%s has weak cryptography: %s.",
+                    connection.name(network_instance),
+                    what,
+                )
+
+
 def _manage_tenant(path: pathlib.Path) -> None:
     hub = helpers.is_hub()
     migration.migrate_file(path)
@@ -178,6 +193,7 @@ def _manage_tenant(path: pathlib.Path) -> None:
     network_instance_ids = {ni.id for ni in tenant.network_instances.values()}
 
     logger.info("Applying tenant %s.", tenant.id)
+    _warn_weak(tenant)
     config.VPNC_CONFIG_TENANT[tenant.id] = tenant
     TENANT_PATHS[tenant.id] = path
 

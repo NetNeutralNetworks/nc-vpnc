@@ -83,6 +83,7 @@ network_instances:
           ipsec_lifetime: 90
           # Optional, defaults to START: initiate and respond. NONE: respond only.
           initiation: START
+          # At least 32 characters, or it needs --allow-weak: vpnctl generate psk
           psk: secretpasswordendpoint
           # Optional
           # traffic_selectors:
@@ -111,6 +112,7 @@ network_instances:
           ipsec_proposal: aes128gcm16-prfsha384-ecp384
           ipsec_lifetime: 90
           initiation: START
+          # At least 32 characters, or it needs --allow-weak: vpnctl generate psk
           psk: secretpasswordendpoint
   ENDPOINT:
     type: ENDPOINT # ENDPOINT

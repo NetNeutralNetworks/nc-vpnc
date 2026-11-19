@@ -262,6 +262,8 @@ class _Diagnoser:
             problem="NO_INTERFACE",
         )
         if self.cfg.type == IPSEC:
+            for what, _ in self.cfg.weaknesses().values():
+                self.check("cryptography", f"weak: {what}", ok=None, problem="")
             self.charon()
         if self.cfg.type in (IPSEC, WIREGUARD):
             routes = {a: _route(a) for a in map(str, self.cfg.remote_addrs)}
