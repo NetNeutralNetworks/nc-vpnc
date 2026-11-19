@@ -32,6 +32,8 @@ APPLY_TIMEOUT = 60
 SNMP_TIMEOUT = 120
 # Drift is corrected by the full check, which runs every 30 seconds.
 DRIFT_TIMEOUT = 120
+# A deleted interface is recreated right away, not by the full check.
+RECREATE_TIMEOUT = 10
 # Time to confirm a commit: much longer than applying one takes.
 CONFIRM = 30
 
@@ -772,11 +774,16 @@ def drift_baseline() -> dict[str, Any]:
     )
 
 
-def assert_drift_corrected(tamper: str, expected: dict[str, Any]) -> None:
+def assert_drift_corrected(
+    tamper: str,
+    expected: dict[str, Any],
+    recreated: tuple[str, str] | None = None,
+) -> None:
     """Run a command that removes something by hand and wait until it's corrected.
 
     The command fails if there's nothing to remove. Starts and ends in the
-    expected state, with the connections up.
+    expected state, with the connections up. recreated: a (netns, interface)
+    that's back within RECREATE_TIMEOUT.
     """
 
     def corrected() -> bool:
@@ -788,6 +795,13 @@ def assert_drift_corrected(tamper: str, expected: dict[str, Any]) -> None:
         message=f"{HOST} to be as before the drift tests",
     )
     conftest.run_cmd_shell(HOST, tamper)
+    if recreated:
+        netns, ifname = recreated
+        conftest.wait_until(
+            lambda: ifname in links(netns),
+            timeout=RECREATE_TIMEOUT,
+            message=f"{ifname} to be recreated in {netns}",
+        )
     conftest.wait_until(
         corrected,
         timeout=DRIFT_TIMEOUT,
@@ -818,6 +832,35 @@ class TestDrift:
             f"ip --netns {DRIFT_NI} link del xfrm0",
             drift_baseline,
         )
+
+    def test_xfrm_interface_left_in_external(
+        self,
+        drift_baseline: dict[str, Any],
+    ) -> None:
+        """An XFRM interface a failed move left in EXTERNAL doesn't block its own."""
+        # It's made in EXTERNAL, then moved; this one has its if_id.
+        leftover = "xc0001000"
+        assert_drift_corrected(
+            f"bash -c 'ip --netns {DRIFT_NI} link del xfrm0 && "
+            f"ip --netns EXTERNAL link add {leftover} type xfrm if_id 0xc0001000'",
+            drift_baseline,
+            recreated=(DRIFT_NI, "xfrm0"),
+        )
+        assert leftover not in links("EXTERNAL")
+
+    def test_wireguard_interface_left_in_external(
+        self,
+        drift_baseline: dict[str, Any],
+    ) -> None:
+        """The same for a WireGuard interface, which has the same name there."""
+        wg = "wg-C0001-01-0"
+        assert_drift_corrected(
+            f"bash -c 'ip --netns EXTERNAL link add {wg} type wireguard && "
+            f"ip --netns C0001-01 link del {wg}'",
+            drift_baseline,
+            recreated=("C0001-01", wg),
+        )
+        assert wg not in links("EXTERNAL")
 
     def test_deleted_core_link(self, drift_baseline: dict[str, Any]) -> None:
         """A deleted link between CORE and a network instance is recreated."""
