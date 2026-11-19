@@ -9,7 +9,8 @@ import subprocess
 import sys
 import time
 
-from vpnc import api, config, helpers, shared
+import vpnc
+from vpnc import api, config, eventlog, helpers, shared
 from vpnc.models import enums
 from vpnc.models.network_instance import NetworkInstance
 from vpnc.network import events, namespace
@@ -82,13 +83,14 @@ def apply_or_exit(network_instance: NetworkInstance) -> None:
         sys.exit(1)
 
 
-def concentrator() -> None:
+def concentrator() -> None:  # noqa: PLR0915 (the start sequence)
     """Set up the DEFAULT tenant."""
     default_tenant = helpers.get_default_tenant()
     logger.info("#" * 100)
-    logger.info(
-        "Starting ncubed vpnc daemon in %s mode.",
-        default_tenant.mode,
+    eventlog.record(
+        "STARTED",
+        f"vpnc {vpnc.__version__} started in {default_tenant.mode.value} mode",
+        tenant=config.DEFAULT_TENANT,
     )
 
     # Before anything triggers them. Checks run in the order they're registered.
@@ -125,6 +127,7 @@ def concentrator() -> None:
             watchdog.check(keys, sas_listing)
 
     RECONCILER.register("connections", check_connections)
+    RECONCILER.register("status", watchdog.note)
 
     # Create and mount the CORE network instance. This provides the management
     # connectivity. The CORE namespace has no internet connectivity.

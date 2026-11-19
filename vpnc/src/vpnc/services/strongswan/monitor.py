@@ -12,9 +12,11 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 from pyroute2.netlink.exceptions import NetlinkError
 
 from vpnc import config, helpers, shared
+from vpnc.models import enums
 from vpnc.network import namespace, state
-from vpnc.services import charon
+from vpnc.services import charon, failures
 from vpnc.services.strongswan import strongswan
+from vpnc.services.strongswan.classifier import Classifier, Result
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -76,6 +78,24 @@ def delete_xfrm_policy(policy: XfrmPolicy) -> None:
     )
 
 
+def ipsec_connections(peer: str | None = "") -> list[str]:
+    """Return the enabled IPsec connections; with a peer, those to its address."""
+    return [
+        connection.name(ni)
+        for ni in helpers.network_instances().values()
+        for connection in ni.connections.values()
+        if connection.enabled
+        and connection.config.type == enums.ConnectionType.IPSEC
+        and (peer == "" or peer in map(str, connection.config.remote_addrs))
+    ]
+
+
+def charon_up(name: str) -> bool:
+    """Return whether a connection has an established IKE SA with a child SA."""
+    with charon.session() as vcs:
+        return any(charon.sa_up(sa.get(name, {})) for sa in vcs.list_sas({"ike": name}))
+
+
 class Monitor(threading.Thread):
     """Monitor the strongswan service and components.
 
@@ -98,6 +118,12 @@ class Monitor(threading.Thread):
         threading.Thread(
             target=self.supervise,
             args=("Interface state monitor", self.watch_xfrm_interfaces),
+            daemon=True,
+        ).start()
+        logger.info("Starting failure monitor.")
+        threading.Thread(
+            target=self.supervise,
+            args=("Failure monitor", self.watch_failures),
             daemon=True,
         ).start()
 
@@ -188,6 +214,38 @@ class Monitor(threading.Thread):
                     continue
                 keys = list(event_data)
                 yield keys[1] if len(keys) == 2 else keys[0]  # noqa: PLR2004
+
+    def watch_failures(self) -> None:
+        """Note why connections fail and when they're set up, from charon's log."""
+        classifier = Classifier()
+        with charon.session(None, tries=CONNECT_TRIES) as vcs:
+            for _, event in vcs.listen(event_types=["log"], timeout=1):
+                if shared.STOP_EVENT.is_set():
+                    return
+                # The other subsystems (e.g. NET, ENC) say what's sent, not why.
+                if event is None or event.get("group") not in (b"IKE", b"CFG"):
+                    continue
+                line = charon.decode(event)
+                result = classifier.feed(
+                    line.get("ikesa-name"),
+                    line.get("ikesa-uniqueid"),
+                    helpers.printable(line.get("msg", "")),
+                )
+                if result is not None:
+                    self.note(result)
+
+    @staticmethod
+    def note(result: Result) -> None:
+        """Note a failure, or that it's over, for the connections it's about."""
+        names = [result.name] if result.name else ipsec_connections(result.peer)
+        if result.name is None and len(names) > 1:
+            # The peer has several connections: not the ones that work.
+            names = [name for name in names if not charon_up(name)]
+        for name in names:
+            if result.reason is None:
+                failures.clear(name)
+            elif name in ipsec_connections():
+                failures.note(name, result.reason, result.lines, **result.details)
 
     def watch_duplicate_sas(self) -> None:
         """Resolve duplicate SAs of the connections with IKE/child up/down events."""

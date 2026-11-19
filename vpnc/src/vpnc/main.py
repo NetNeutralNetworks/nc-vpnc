@@ -9,7 +9,7 @@ import subprocess
 import sys
 from logging.handlers import SysLogHandler
 
-from vpnc import accounts, config, core, files, migration, shared
+from vpnc import accounts, config, core, eventlog, files, migration, shared
 from vpnc.models import enums, tenant
 
 # LOGGER
@@ -20,6 +20,7 @@ logger = logging.getLogger()
 def _signal_handler(*_: object) -> None:
     """Shut down the program gracefully."""
     logger.info("SIGTERM received. Stopping all threads.")
+    eventlog.record("STOPPED", "vpnc is stopping", tenant=config.DEFAULT_TENANT)
     shared.STOP_EVENT.set()
 
 

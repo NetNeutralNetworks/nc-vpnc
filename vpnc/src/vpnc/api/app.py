@@ -6,7 +6,7 @@ Errors are RFC 9457 problem details (application/problem+json).
 import logging
 import pathlib
 import subprocess
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Annotated, Any, Literal, NoReturn
 
 from fastapi import (
@@ -23,8 +23,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BeforeValidator, ValidationError
 
-from vpnc import config, helpers
-from vpnc.api import config_files, diagnostics, logs, status
+from vpnc import config, eventlog, helpers
+from vpnc.api import config_files, diagnosis, diagnostics, events, logs, status
 from vpnc.api.config_files import (
     CommitResult,
     ConfigError,
@@ -199,6 +199,12 @@ def get_connection(connection_id: str) -> status.ConnectionState:
     return _connection_state(connection_id)
 
 
+@app.get("/v1/connections/{connection_id}/diagnosis")
+def get_connection_diagnosis(connection_id: str) -> diagnosis.Diagnosis:
+    """Return what's wrong with a connection: the problem, details and checks."""
+    return diagnosis.diagnose(*_connection(connection_id))
+
+
 @app.get("/v1/connections/{connection_id}/probes")
 def get_connection_probes(connection_id: str) -> list[status.ProbeDetail]:
     """Return a connection's probes with their last tests (3 minutes)."""
@@ -250,18 +256,19 @@ def reset_connection(connection_id: str) -> status.ConnectionState:
         control.reset(*_connection(connection_id))
     except control.ControlError as err:
         raise ConfigError(409, "Conflict", str(err)) from err
+    eventlog.record("RESET", "reset by an administrator", connection=connection_id)
     return _connection_state(connection_id)
 
 
 def _logs(
-    queries: list[logs.Query],
+    queries: Sequence[logs.Selection],
     lines: int,
     *,
     follow: bool,
 ) -> Any:  # noqa: ANN401
-    """Return the last log lines; with follow, as a stream that continues.
+    """Return the last log lines or events; with follow, as a stream that continues.
 
-    The stream has a JSON log line per line; empty lines keep it alive.
+    The stream has a JSON log line or event per line; empty lines keep it alive.
     """
     if not follow:
         return logs.last(queries, lines)
@@ -302,6 +309,28 @@ def get_network_instance_logs(
     """Return the last log lines of a network instance and its connections."""
     queries = logs.network_instance_queries(_network_instance(ni_id).id, level=level)
     return _logs(queries, lines, follow=follow)
+
+
+# A tenant, network instance or connection; also one that's removed.
+Subject = Query(pattern=r"^[A-Za-z0-9-]+$")
+
+
+@app.get("/v1/events", response_model=list[events.Event])
+def get_events(  # noqa: PLR0913, PLR0917 (a parameter per filter)
+    tenant_id: Annotated[str | None, Subject, Query(alias="tenant")] = None,
+    ni_id: Annotated[str | None, Subject, Query(alias="network_instance")] = None,
+    connection_id: Annotated[str | None, Subject, Query(alias="connection")] = None,
+    event: Annotated[str | None, Upper, Query(pattern=r"^[A-Za-z_]+$")] = None,
+    since: Annotated[int | None, Query(ge=1, description="Seconds back.")] = None,
+    limit: Lines = 100,
+    follow: Follow = False,  # noqa: FBT002
+) -> Any:  # noqa: ANN401
+    """Return the last events: all, or of a tenant, network instance or connection.
+
+    A tenant's include its network instances', theirs their connections'.
+    """
+    query = events.Query(tenant_id, ni_id, connection_id, event, since)
+    return _logs([query], limit, follow=follow)
 
 
 def _hub_only(what: str = "BGP only runs") -> None:

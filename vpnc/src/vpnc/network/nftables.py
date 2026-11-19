@@ -113,18 +113,41 @@ def replace(netns: str, table: str) -> None:
 
 def _element(value: Any) -> str:  # noqa: ANN401
     """Return a JSON listing's set element as nft text, e.g. "192.0.2.8 . 51820"."""
+    if isinstance(value, dict) and "elem" in value:
+        # With its counter.
+        return _element(value["elem"]["val"])
     if isinstance(value, dict) and "concat" in value:
         return " . ".join(_element(part) for part in value["concat"])
     return str(value)
 
 
-def set_elements(netns: str) -> dict[str, list[str]]:
-    """Return the elements of the sets in vpnc's table, as nft text."""
+def _sets(netns: str) -> dict[str, list[Any]]:
+    """Return the elements of the sets in vpnc's table, as nft lists them."""
     listing = json.loads(run(netns, f"list table {TABLE}", json_output=True))
     return {
-        item["set"]["name"]: [_element(e) for e in item["set"].get("elem", [])]
+        item["set"]["name"]: item["set"].get("elem", [])
         for item in listing["nftables"]
         if "set" in item
+    }
+
+
+def set_elements(netns: str) -> dict[str, list[str]]:
+    """Return the elements of the sets in vpnc's table, as nft text."""
+    return {name: [_element(e) for e in items] for name, items in _sets(netns).items()}
+
+
+def set_counters(netns: str) -> dict[str, dict[str, int]]:
+    """Return per set that counts, the packets each element matched."""
+    return {
+        name: counted
+        for name, items in _sets(netns).items()
+        if (
+            counted := {
+                _element(item): item["elem"]["counter"]["packets"]
+                for item in items
+                if isinstance(item, dict) and "counter" in item.get("elem", {})
+            }
+        )
     }
 
 

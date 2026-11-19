@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import yaml
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from vpnc import config, files, helpers, migration
+from vpnc import config, eventlog, files, helpers, migration
 from vpnc.models import enums, tenant
 from vpnc.models.ipsec import ppk_id_users
 from vpnc.models.post_quantum import PostQuantumPresharedKey
@@ -188,6 +188,12 @@ def _same(first: Model | None, second: Model | None) -> bool:
 def _changed(tenant_id: str) -> bool:
     """Return whether the candidate differs from the active configuration."""
     return not _same(_load(tenant_id, "candidate"), _load(tenant_id, "active"))
+
+
+def staged(tenant_id: str) -> bool:
+    """Return whether a tenant has staged changes."""
+    with LOCK:
+        return _changed(tenant_id)
 
 
 def _keep_service(tenant_id: str) -> None:
@@ -398,6 +404,17 @@ def _clear_pending(tenant_id: str) -> bool:
     return existed
 
 
+def _committed(tenant_id: str, confirm: int | None) -> None:
+    what = "configuration committed" if _text(tenant_id, "active") else "removed"
+    if confirm:
+        what += f", rolled back unless confirmed in {eventlog.duration(confirm)}"
+    eventlog.record("CONFIG_COMMITTED", what, tenant=tenant_id)
+
+
+def _confirmed(tenant_id: str) -> None:
+    eventlog.record("CONFIG_CONFIRMED", "commit confirmed", tenant=tenant_id)
+
+
 def _schedule(tenant_id: str, confirm_by: str) -> None:
     if timer := TIMERS.pop(tenant_id, None):
         timer.cancel()
@@ -422,7 +439,12 @@ def _roll_back_unconfirmed(tenant_id: str) -> None:
             return
         _set_active(tenant_id, pending["rollback"])
         _clear_pending(tenant_id)
-        logger.warning("Rolled back %s: the commit wasn't confirmed.", tenant_id)
+        eventlog.record(
+            "CONFIG_ROLLED_BACK",
+            "configuration rolled back: the commit wasn't confirmed",
+            tenant=tenant_id,
+            level=logging.WARNING,
+        )
 
 
 def resume_pending() -> None:
@@ -593,12 +615,13 @@ def commit(
                 _path(tenant_id, "candidate").unlink()
         if changed:
             _save_history(tenant_id, previous)
+            _committed(tenant_id, confirm)
         restart = restart_needed() if tenant_id == config.DEFAULT_TENANT else []
         pending = _pending(tenant_id)
         if confirm is None or not (changed or pending):
             if pending and confirm is None:
                 _clear_pending(tenant_id)
-                logger.info("Confirmed the commit of %s.", tenant_id)
+                _confirmed(tenant_id)
             return CommitResult(id=tenant_id, changed=changed, restart_needed=restart)
         # A new confirmed commit rolls back to before the first.
         confirm_by = (_now() + dt.timedelta(seconds=confirm)).isoformat(
@@ -651,7 +674,7 @@ def confirm(tenant_id: str) -> CommitResult:
     with LOCK:
         if not _clear_pending(tenant_id):
             raise ConfigError(409, "Conflict", f"{tenant_id} has no commit to confirm.")
-    logger.info("Confirmed the commit of %s.", tenant_id)
+    _confirmed(tenant_id)
     return CommitResult(id=tenant_id, changed=True)
 
 

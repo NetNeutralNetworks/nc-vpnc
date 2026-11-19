@@ -20,11 +20,19 @@ from pydantic import BaseModel
 from pyroute2.netlink.exceptions import NetlinkError
 
 import vpnc
-from vpnc import config, helpers
+from vpnc import config, eventlog, helpers
 from vpnc.api import config_files, diagnostics
 from vpnc.models import enums
 from vpnc.network import nftables, state, traffic
-from vpnc.services import charon, configuration, probes, ssh, vpncmangle, wireguard
+from vpnc.services import (
+    charon,
+    configuration,
+    failures,
+    probes,
+    ssh,
+    vpncmangle,
+    wireguard,
+)
 
 if TYPE_CHECKING:
     from vpnc.models.connections import Connection
@@ -333,7 +341,10 @@ class _Seen:
     """A connection's oper_status as last seen."""
 
     status: OperStatus
+    enabled: bool
     last_change: str
+    # When (Unix time) it became UP, or stopped being UP.
+    since: float
     transitions: int = 0
 
 
@@ -342,15 +353,45 @@ _SEEN: dict[str, _Seen] = {}
 _SEEN_LOCK = threading.Lock()
 
 
-def _track(name: str, current: OperStatus) -> tuple[str, int]:
-    """Return when a connection's oper_status last changed, and how often."""
+def _track(name: str, current: OperStatus, *, enabled: bool) -> tuple[str, int]:
+    """Return when a connection's oper_status last changed, and how often.
+
+    Records the changes as events.
+    """
+    now = time.time()
     with _SEEN_LOCK:
         if (seen := _SEEN.get(name)) is None:
-            seen = _SEEN[name] = _Seen(current, _timestamp())
-        elif seen.status != current:
-            seen.status, seen.last_change = current, _timestamp()
+            seen = _SEEN[name] = _Seen(current, enabled, _timestamp(now), now)
+        if seen.enabled != enabled:
+            seen.enabled = enabled
+            eventlog.record(
+                "ADMIN_UP" if enabled else "ADMIN_DOWN",
+                f"admin status {'UP: enabled' if enabled else 'DOWN: disabled'}",
+                connection=name,
+            )
+        if seen.status != current:
+            if "UP" in (seen.status, current):
+                # DOWN and DORMANT alternate while a connection is being set up.
+                new, old = ("UP", "DOWN") if current == "UP" else ("DOWN", "UP")
+                lasted = eventlog.duration(now - seen.since)
+                eventlog.record(
+                    f"OPER_{new}",
+                    f"oper status {new}, was {old} for {lasted}",
+                    connection=name,
+                )
+                seen.since = now
+            seen.status, seen.last_change = current, _timestamp(now)
             seen.transitions += 1
+        # After the change: why it went down is an event after that it did.
+        failures.seen(name, up=current == "UP")
         return seen.last_change, seen.transitions
+
+
+def down_since(name: str) -> float | None:
+    """Return since when (Unix time) a connection isn't UP; None if it is."""
+    with _SEEN_LOCK:
+        seen = _SEEN.get(name)
+        return seen.since if seen and seen.status != "UP" else None
 
 
 def _endpoint(address: Any, port: Any) -> str | None:  # noqa: ANN401
@@ -590,7 +631,11 @@ def connection_states(
                 current = "UP" if link is not None and link.passes_traffic else "DOWN"
                 if ctype == enums.ConnectionType.SSH:
                     tunnel = _ssh(name, connection)
-            last_change, transitions = _track(name, current)
+            last_change, transitions = _track(
+                name,
+                current,
+                enabled=connection.enabled,
+            )
             counters = snapshot.counters.get(ifname or "")
             rates = traffic.rates(ni.id, ifname) if counters else None
             output.append(

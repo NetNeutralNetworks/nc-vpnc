@@ -1,7 +1,8 @@
 """Log lines: vpnc's own (incl. SSH), vpncmangle's and charon's, also per connection.
 
 All three log to the journal, read with journalctl: a request reads only the
-last lines, a follower only what's added.
+last lines, a follower only what's added. Events (vpnc.api.events) are read the
+same way.
 """
 
 from __future__ import annotations
@@ -13,13 +14,13 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Sequence
 
 LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 # Each source is also its journal's SYSLOG_IDENTIFIER.
@@ -41,6 +42,19 @@ FOLLOW_INTERVAL = 0.5
 KEEPALIVE = 15
 
 Entry = dict[str, Any]
+
+
+class Selection(Protocol):
+    """Journal entries to read as items (log lines or events), with their seqnum."""
+
+    def entries(self, *args: str) -> list[Entry]:
+        """Return the journal entries, oldest first; selected() selects."""
+
+    def selected(self, entries: list[Entry]) -> list[tuple[int, Any]]:
+        """Return the selected ones of entries as items."""
+
+    def last(self, count: int) -> list[tuple[int, Any]]:
+        """Return the last count items, oldest first."""
 
 
 class LogLine(BaseModel):
@@ -67,26 +81,32 @@ def journal(*args: str) -> list[Entry]:
         return []
     entries = [json.loads(line) for line in result.stdout.splitlines() if line]
     # With --grep and --lines, journalctl gives the newest first.
-    return sorted(entries, key=_seqnum)
+    return sorted(entries, key=seqnum)
 
 
-def _seqnum(entry: Entry) -> int:
+def seqnum(entry: Entry) -> int:
+    """Return an entry's sequence number: its place in the journal."""
     return int(entry.get("__SEQNUM", 0))
 
 
-def _message(entry: Entry) -> str:
+def message_of(entry: Entry) -> str:
+    """Return an entry's message."""
     # journalctl gives a message that isn't UTF-8 as a list of bytes.
-    message = entry.get("MESSAGE", "")
-    if isinstance(message, list):
-        return bytes(cast("list[int]", message)).decode(errors="replace")
-    return str(message)
+    text = entry.get("MESSAGE", "")
+    if isinstance(text, list):
+        return bytes(cast("list[int]", text)).decode(errors="replace")
+    return str(text)
+
+
+def local_time(entry: Entry) -> dt.datetime:
+    """Return when an entry was logged, in local time."""
+    seconds = int(entry["__REALTIME_TIMESTAMP"]) / 1e6
+    return dt.datetime.fromtimestamp(seconds, dt.UTC).astimezone()
 
 
 def _time(entry: Entry) -> str:
     """Return an entry's local time, e.g. 2026-11-11 07:29:01."""
-    seconds = int(entry["__REALTIME_TIMESTAMP"]) / 1e6
-    time = dt.datetime.fromtimestamp(seconds, dt.UTC).astimezone()
-    return time.strftime("%Y-%m-%d %H:%M:%S")
+    return local_time(entry).strftime("%Y-%m-%d %H:%M:%S")
 
 
 @dataclass(frozen=True)
@@ -129,7 +149,7 @@ class Query:
 
     def line(self, entry: Entry) -> LogLine | None:
         """Return an entry as a line, if selected."""
-        message = _message(entry)
+        message = message_of(entry)
         if self.charon:
             return self._charon_line(entry, message)
         if self.name_re is not None and not self.name_re.search(message):
@@ -170,19 +190,16 @@ class Query:
 
     def selected(self, entries: list[Entry]) -> list[tuple[int, LogLine]]:
         """Return the selected lines of entries with their seqnum."""
-        return [(_seqnum(e), line) for e in entries if (line := self.line(e))]
+        return [(seqnum(e), line) for e in entries if (line := self.line(e))]
 
 
-def _merge(
-    lines: list[tuple[int, LogLine]],
-    count: int | None = None,
-) -> list[LogLine]:
+def _merge(lines: list[tuple[int, Any]], count: int | None = None) -> list[Any]:
     """Return the lines of several queries in journal order, the last count."""
     merged = [line for _, line in sorted(lines, key=lambda pair: pair[0])]
     return merged if count is None else merged[-count:]
 
 
-def last(queries: list[Query], count: int) -> list[LogLine]:
+def last(queries: Sequence[Selection], count: int) -> list[Any]:
     """Return the last count lines of the logs together, oldest first."""
     return _merge([line for query in queries for line in query.last(count)], count)
 
@@ -190,12 +207,12 @@ def last(queries: list[Query], count: int) -> list[LogLine]:
 class Follower:
     """Read what's added to the journal for a query."""
 
-    def __init__(self, query: Query, cursor: str | None) -> None:
+    def __init__(self, query: Selection, cursor: str | None) -> None:
         """Start after cursor; None: at the journal's start."""
         self.query = query
         self.cursor = cursor
 
-    def read(self) -> list[tuple[int, LogLine]]:
+    def read(self) -> list[tuple[int, Any]]:
         """Return the selected lines added since the last read."""
         after = [f"--after-cursor={self.cursor}"] if self.cursor else []
         entries = self.query.entries(*after)
@@ -204,16 +221,19 @@ class Follower:
         return self.query.selected(entries)
 
 
-def _start(queries: list[Query], count: int) -> tuple[list[Follower], list[LogLine]]:
+def _start(
+    queries: Sequence[Selection],
+    count: int,
+) -> tuple[list[Follower], list[Any]]:
     """Return followers from the journal's end, and the last count lines up to it."""
     tail = journal("--lines=1")
     cursor = str(tail[-1]["__CURSOR"]) if tail else None
-    end = _seqnum(tail[-1]) if tail else -1
+    end = seqnum(tail[-1]) if tail else -1
     lines = [pair for query in queries for pair in query.last(count) if pair[0] <= end]
     return [Follower(query, cursor) for query in queries], _merge(lines, count)
 
 
-async def follow(queries: list[Query], count: int) -> AsyncIterator[LogLine | None]:
+async def follow(queries: Sequence[Selection], count: int) -> AsyncIterator[Any]:
     """Yield the last count lines of the logs, then the lines added to them.
 
     None when there were none for KEEPALIVE seconds.

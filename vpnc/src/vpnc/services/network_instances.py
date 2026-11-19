@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyroute2 import netns
 
-from vpnc import config, helpers
+from vpnc import config, eventlog, helpers
 from vpnc.models import enums
 from vpnc.models.network_instance import jool_instances, open_external
 from vpnc.network import events, namespace, state
@@ -118,7 +118,7 @@ def remove_unconfigured(
     for ni_id in list(APPLIED):
         if ni_id in configured or (keys is not None and ni_id not in keys):
             continue
-        logger.info("Removing network instance %s.", ni_id)
+        eventlog.record("REMOVED", "removed", network_instance=ni_id)
         # Forgotten only once removed, so a failure is retried.
         try:
             remove(APPLIED[ni_id])
@@ -168,6 +168,8 @@ def watch(ni_id: str) -> bool:
         state.changed(ni_id)
         if event["event"] in ("RTM_NEWLINK", "RTM_DELLINK"):
             RECONCILER.trigger("routes", ni_id)
+            # A connection may have gone up or down.
+            RECONCILER.trigger("status", ni_id)
         elif event["event"] == events.RESYNC:
             RECONCILER.trigger("routes", ni_id)
             RECONCILER.trigger("network_instances", ni_id)

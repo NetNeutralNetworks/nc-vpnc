@@ -48,6 +48,9 @@ $BOLD  vpnctl bgp routes [--received-from ADDRESS]$DEFAULT       also --advertis
 $BOLD  vpnctl version$DEFAULT                                    vpnc, kernel, strongSwan, FRR
 
 Troubleshooting
+$BOLD  vpnctl connections diagnose C0001-00-0$DEFAULT            what's wrong with it, and what was checked
+$BOLD  vpnctl connections events C0001-00-0 [-f]$DEFAULT         its history: up, down, why it failed
+$BOLD  vpnctl events [C0001|C0001-00] [--since 6h]$DEFAULT       of a tenant, network instance or everything
 $BOLD  vpnctl connections logs C0001-00-0 [-f]$DEFAULT           vpnc's, ssh's and charon's lines
 $BOLD  vpnctl logs --ni C0001-00 [-f]$DEFAULT                    a network instance and its connections
 $BOLD  vpnctl logs --level WARNING -n 100$DEFAULT                also --source vpncmangle|charon
