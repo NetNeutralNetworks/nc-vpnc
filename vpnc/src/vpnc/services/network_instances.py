@@ -118,10 +118,13 @@ def remove_unconfigured(
         if ni_id in configured or (keys is not None and ni_id not in keys):
             continue
         logger.info("Removing network instance %s.", ni_id)
+        # Forgotten only once removed, so a failure is retried.
         try:
-            remove(APPLIED.pop(ni_id))
+            remove(APPLIED[ni_id])
         except Exception:
             logger.exception("Removing network instance %s failed.", ni_id)
+        else:
+            del APPLIED[ni_id]
 
     if keys is not None:
         return
