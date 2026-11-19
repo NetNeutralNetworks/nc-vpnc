@@ -55,12 +55,6 @@ table {TABLE} {{
     logger.info("Queueing DNS responses to netfilter queue %s.", queue_number)
 
 
-def clean_nftables() -> None:
-    """Remove vpncmangle's table."""
-    nftables.run(f"destroy table {TABLE}\n")
-    logger.info("Removed table %s.", TABLE)
-
-
 def translate(
     record: sc.DNSRR,
     ni_config: config.VpncMangleConfig,
@@ -249,7 +243,8 @@ def main() -> None:
                 exc_info=True,
             )
         finally:
-            clean_nftables()
+            # The table stays: without a listener its queue drops DNS responses
+            # instead of passing them untranslated. setup_nftables replaces it.
             nfqueue.unbind()
 
         sleep(0.1)
