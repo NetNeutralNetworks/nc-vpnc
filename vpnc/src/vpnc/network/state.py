@@ -557,12 +557,21 @@ def _move_from(
     ipr: namespace.IPRoute,
     state: NetnsState,
     name: str,
+    source_name: str,
     **kwargs: object,
 ) -> None:
-    """Create an interface in another namespace and move it into state's."""
-    ipr_src.link("add", ifname=name, **kwargs)
-    index = ipr_src.link_lookup(ifname=name)[0]
-    ipr_src.link("set", index=index, net_ns_fd=state.name)
+    """Create an interface in another namespace and move it into state's as name.
+
+    source_name, its name there, is the connection's own: what a failed move left
+    behind blocks only that connection, and is deleted first.
+    """
+    for index in ipr_src.link_lookup(ifname=source_name):
+        logger.warning("Deleting leftover interface %s.", source_name)
+        ipr_src.link("del", index=index)
+    ipr_src.link("add", ifname=source_name, **kwargs)
+    index = ipr_src.link_lookup(ifname=source_name)[0]
+    # Moved and renamed at once.
+    ipr_src.link("set", index=index, net_ns_fd=state.name, ifname=name)
     refresh_link(ipr, state, name)
 
 
@@ -584,7 +593,16 @@ def ensure_xfrm(
         if_id,
         state.name,
     )
-    _move_from(ipr_external, ipr, state, name, kind="xfrm", xfrm_if_id=if_id)
+    _move_from(
+        ipr_external,
+        ipr,
+        state,
+        name,
+        # Unique, unlike the names in the namespaces (xfrm0 in each).
+        f"x{if_id:08x}",
+        kind="xfrm",
+        xfrm_if_id=if_id,
+    )
     return True
 
 
@@ -600,7 +618,8 @@ def ensure_wireguard(
         return False
     delete_link(ipr, state, name)
     logger.info("Creating WireGuard interface %s in %s.", name, state.name)
-    _move_from(ipr_external, ipr, state, name, kind="wireguard")
+    # Already unique: it has the connection's name.
+    _move_from(ipr_external, ipr, state, name, name, kind="wireguard")
     return True
 
 
