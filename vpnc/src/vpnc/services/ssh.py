@@ -244,11 +244,10 @@ def delete_unconfigured_keys() -> None:
         for name in sorted(found - configured):
             if not helpers.split_connection_name(name)[1].isdigit():
                 continue  # Not a connection's.
-            match = config.DOWNLINK_CON_RE.match(name)
-            tenant_id = match.group(2) if match else config.DEFAULT_TENANT
+            tenant_id = helpers.downlink_tenant(name) or config.DEFAULT_TENANT
             if (
                 tenant_id not in config.VPNC_CONFIG_TENANT
-                and config.VPNC_A_CONFIG_DIR.joinpath(f"{tenant_id}.yaml").exists()
+                and helpers.tenant_file(tenant_id).exists()
             ):
                 continue
             logger.info("Deleting the SSH key of %s: it isn't configured.", name)

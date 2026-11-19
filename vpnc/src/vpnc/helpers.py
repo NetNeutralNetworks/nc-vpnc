@@ -12,6 +12,8 @@ from vpnc import config, shared
 from vpnc.models import enums
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from vpnc.models import tenant
     from vpnc.models.network_instance import NetworkInstance
 
@@ -46,6 +48,17 @@ def split_connection_name(name: str) -> tuple[str, str]:
     """Return the network instance and number of a connection's name."""
     network_instance_id, _, number = name.rpartition("-")
     return network_instance_id, number
+
+
+def downlink_tenant(connection_name: str) -> str | None:
+    """Return the tenant of a downlink connection (C0001 of C0001-00-1), else None."""
+    match = config.DOWNLINK_CON_RE.match(connection_name)
+    return match.group(2) if match else None
+
+
+def tenant_file(tenant_id: str) -> Path:
+    """Return the active configuration file of a tenant."""
+    return config.VPNC_A_CONFIG_DIR.joinpath(f"{tenant_id}.yaml")
 
 
 def endpoint(address: object, port: object) -> str:

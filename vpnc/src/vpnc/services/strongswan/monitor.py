@@ -254,13 +254,13 @@ class Monitor(threading.Thread):
         if ike_name.startswith(config.CORE_NI):
             number = helpers.split_connection_name(ike_name)[1]
             return config.CORE_NI, helpers.xfrm_interface_name(number)
-        if not (match := config.DOWNLINK_CON_RE.match(ike_name)):
+        if not (tenant_id := helpers.downlink_tenant(ike_name)):
             logger.debug("Ignoring IKE SA '%s': not a vpnc connection.", ike_name)
             return None
-        network_instance, tenant_id, connection_id = match.groups()
+        network_instance, connection_id = helpers.split_connection_name(ike_name)
         # A deleted connection's SA is terminated by the reconciler. Until then
         # it can still rekey or change state.
-        if not config.VPNC_A_CONFIG_DIR.joinpath(f"{tenant_id}.yaml").exists():
+        if not helpers.tenant_file(tenant_id).exists():
             logger.info("No configuration file found for '%s'", tenant_id)
             return None
         return network_instance, helpers.xfrm_interface_name(connection_id)
