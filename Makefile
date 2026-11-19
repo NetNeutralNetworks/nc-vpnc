@@ -89,8 +89,6 @@ packages: apt-update
 		python3-packaging ssh wireguard iputils-ping traceroute tcpdump
 	$(SYSTEMCTL) mask ipsec.service strongswan-starter.service strongswan.service
 	$(SYSTEMCTL) stop ipsec.service strongswan-starter.service strongswan.service || true
-	getent group swan > /dev/null || groupadd swan
-	id swan > /dev/null 2>&1 || useradd -g swan swan
 
 # An account vpnc runs a program as, instead of as root.
 account-%:
@@ -178,8 +176,8 @@ misc-config: $(MISC_CONF)
 		touch /etc/strongswan.d/vpnc.conf; \
 	fi
 
-# vpnc's own drop-ins: replaced when they change.
-/etc/strongswan.d/vpnc.conf: config/strongswan/vpnc.conf
+# vpnc's own drop-ins: replaced when they change. charon runs as vpnc-swan.
+/etc/strongswan.d/vpnc.conf: config/strongswan/vpnc.conf | account-vpnc-swan
 	install -D -m 644 $< $@
 
 /etc/iproute2/rt_protos.d/vpnc.conf: config/iproute2/vpnc.conf
