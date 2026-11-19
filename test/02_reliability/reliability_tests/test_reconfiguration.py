@@ -98,6 +98,11 @@ BASE_CONNECTION = ipsec_connection(
 
 def write_tenant(connections: list[dict[str, Any]]) -> None:
     """Write the test tenant's configuration."""
+    conftest.write_file(HOST, TENANT_FILE, tenant_yaml(connections))
+
+
+def tenant_yaml(connections: list[dict[str, Any]]) -> str:
+    """Return the test tenant's configuration."""
     tenant = {
         "version": "0.1.4",
         "id": "C0002",
@@ -112,7 +117,51 @@ def write_tenant(connections: list[dict[str, Any]]) -> None:
             },
         },
     }
-    conftest.write_file(HOST, TENANT_FILE, yaml.safe_dump(tenant))
+    return yaml.safe_dump(tenant)
+
+
+SSH_CONNECTION = {
+    "id": 1,
+    "interface": {"ipv4": ["10.200.0.5/30"], "ipv6": ["fdcc:200:0:1::1/64"]},
+    "routes": {"ipv4": [], "ipv6": []},
+    "config": {
+        "type": "ssh",
+        "remote_addrs": ["192.0.2.99"],
+        "remote_tunnel_id": 5,
+        "username": "vpnc",
+    },
+}
+API_SOCKET = "/run/vpnc/api.sock"
+SSH_SETUP_URL = f"http://localhost/v1/connections/{NI}-1/ssh-setup"
+SSH_KEY_FILE = f"/var/lib/vpnc-ssh/.ssh/{NI}-1"
+
+
+def key_in(script: str) -> str:
+    """Return the public key in an ssh-setup script."""
+    return re.search(r"^key='(.+)'$", script, re.MULTILINE).group(1)
+
+
+def ssh_key(connection: str) -> str:
+    """Return the public key of an SSH connection, as ssh-setup shows it."""
+    return key_in(vpnctl(f"connections ssh-setup {connection}"))
+
+
+def added_ssh_key() -> str:
+    """Add the SSH connection and return its key."""
+    write_tenant([BASE_CONNECTION, SSH_CONNECTION])
+    return conftest.wait_until(
+        lambda: ssh_key(f"{NI}-1"),
+        timeout=APPLY_TIMEOUT,
+        message="the SSH connection's key",
+    )
+
+
+def file_exists(path: str) -> bool:
+    """Return whether a file exists on the host."""
+    return (
+        conftest.run_cmd_shell(HOST, f"test -e {path} && echo yes || echo no").strip()
+        == "yes"
+    )
 
 
 def dns_answer() -> str:
@@ -270,32 +319,13 @@ class TestReconfiguration:
 
     def test_ssh_connection_gets_its_own_key(self) -> None:
         """An SSH connection gets a key of its own, and a new one when added again."""
-        ssh = {
-            "id": 1,
-            "interface": {"ipv4": ["10.200.0.5/30"], "ipv6": ["fdcc:200:0:1::1/64"]},
-            "routes": {"ipv4": [], "ipv6": []},
-            "config": {
-                "type": "ssh",
-                "remote_addrs": ["192.0.2.99"],
-                "remote_tunnel_id": 5,
-                "username": "vpnc",
-            },
-        }
-
-        def key(connection: str) -> str:
-            script = vpnctl(f"connections ssh-setup {connection}")
-            return re.search(r"^key='(.+)'$", script, re.MULTILINE).group(1)
-
-        def added_key() -> str:
-            write_tenant([BASE_CONNECTION, ssh])
-            return conftest.wait_until(
-                lambda: key(f"{NI}-1"),
-                timeout=APPLY_TIMEOUT,
-                message="the SSH connection's key",
-            )
-
-        first = added_key()
-        assert first != key("C0001-00-1")
+        first = added_ssh_key()
+        assert first != ssh_key("C0001-00-1")
+        conftest.wait_until(
+            lambda: "tun1" in links(NI),
+            timeout=APPLY_TIMEOUT,
+            message="the SSH connection to be set up",
+        )
 
         write_tenant([BASE_CONNECTION])
         conftest.wait_until(
@@ -303,7 +333,32 @@ class TestReconfiguration:
             timeout=APPLY_TIMEOUT,
             message="the SSH connection to be removed",
         )
-        assert added_key() != first
+        assert added_ssh_key() != first
+
+    def test_ssh_key_of_connection_removed_before_set_up(self) -> None:
+        """A connection removed before it's set up loses the key the API made."""
+        conftest.write_file(
+            HOST, "/root/with_ssh.yaml", tenant_yaml([BASE_CONNECTION, SSH_CONNECTION])
+        )
+        conftest.write_file(HOST, "/root/base.yaml", tenant_yaml([BASE_CONNECTION]))
+        # Added, its key asked for and removed, within the reconciler's delay.
+        script = conftest.run_cmd_shell(
+            HOST,
+            f"timeout {APPLY_TIMEOUT} bash -c '"
+            f"cp /root/with_ssh.yaml {TENANT_FILE}; "
+            f"until setup=$(curl -sf --unix-socket {API_SOCKET} {SSH_SETUP_URL}); "
+            "do :; done; "
+            f"cp /root/base.yaml {TENANT_FILE}; "
+            "rm /root/with_ssh.yaml /root/base.yaml; "
+            'echo "$setup"\'',
+        )
+        first = key_in(script)
+        conftest.wait_until(
+            lambda: not file_exists(SSH_KEY_FILE),
+            timeout=APPLY_TIMEOUT,
+            message="the SSH key to be deleted",
+        )
+        assert added_ssh_key() != first
 
     def test_peers_follow_connections(self) -> None:
         """A connection's peer is accepted only while it's configured and enabled."""
