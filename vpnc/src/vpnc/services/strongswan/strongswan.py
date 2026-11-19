@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import vici
 import vici.exception
 
-from vpnc import config, files, helpers
+from vpnc import config, eventlog, files, helpers
 from vpnc.models import enums
 from vpnc.models.ipsec import Initiation
 from vpnc.models.post_quantum import STRONGSWAN_KE, ppk_bytes
@@ -38,6 +38,8 @@ VICI_ERRORS = (
 
 # Per connection, what vpnc last loaded into charon.
 LOADED: dict[str, str] = {}
+# Seconds to wait for the peer to confirm a terminated IKE SA.
+TERMINATE_TIMEOUT = 5
 # The key exchange methods charon supports; read once it's running.
 KEY_EXCHANGES: frozenset[str] | None = None
 # Connections refused for a missing ML-KEM, logged once.
@@ -217,14 +219,44 @@ def _pending(
     return pending
 
 
+def _kept(old: str | None, new: Connection) -> list[str]:
+    """Return what changed that a connection's SAs keep the old of.
+
+    The key they were authenticated with, and the traffic selectors: charon
+    only negotiates those anew as an initiator.
+    """
+    if old is None:
+        return []
+    (was, was_keys), (conn, keys) = json.loads(old), new
+
+    def data(keys: list[dict[str, Any]], kind: str) -> list[str]:
+        return [key["data"] for key in keys if key["type"] == kind]
+
+    changed = [
+        field
+        for field, kind in (("psk", "IKE"), ("ppk", "PPK"))
+        if data(was_keys, kind) != data(keys, kind)
+    ]
+    (was_child,), (child,) = was["children"].values(), conn["children"].values()
+    if any(was_child[ts] != child[ts] for ts in ("local_ts", "remote_ts")):
+        changed.append("traffic_selectors")
+    return changed
+
+
 def _load(
     vcs: vici.Session,
     conns: dict[str, Connection],
     loaded: set[str] | None = None,
-) -> None:
-    """Load connections that changed, or that charon lacks (loaded: its names)."""
+) -> dict[str, list[str]]:
+    """Load connections that changed, or that charon lacks (loaded: its names).
+
+    Returns the ones to reset, with what changed that their SAs keep the old of.
+    """
+    stale: dict[str, list[str]] = {}
     for name, fingerprint in _pending(conns, loaded).items():
         conn, keys = conns[name]
+        if kept := _kept(LOADED.get(name), conns[name]):
+            stale[name] = kept
         vcs.load_conn({name: conn})
         for key in keys:
             # A PPK is decoded like swanctl does; its decoded length was validated.
@@ -237,6 +269,44 @@ def _load(
             _unload_key(vcs, _ppk_id(name))
         LOADED[name] = fingerprint
         logger.info("Loaded IPsec connection %s.", name)
+    return stale
+
+
+def terminate(name: str, *, force: bool = False) -> None:
+    """Terminate a connection's IKE SAs; with force without telling the peer."""
+    with charon.session(charon.VICI_TIMEOUT + TERMINATE_TIMEOUT) as vcs:
+        # Fails when there's no SA, or the peer doesn't confirm in time.
+        charon.terminate(
+            vcs,
+            ike=name,
+            wait=TERMINATE_TIMEOUT,
+            force=force,
+            warn=False,
+        )
+
+
+def initiate(name: str) -> None:
+    """Set an initiator's connection up, without waiting for it."""
+    with charon.session() as vcs:
+        charon.initiate(vcs, name, warn=False)
+
+
+def _renew(conns: dict[str, Connection], stale: dict[str, list[str]]) -> None:
+    """Reset connections whose SAs have what was configured before."""
+    for name, changed in stale.items():
+        eventlog.record(
+            "CONFIG_RESET",
+            f"reset: its {', '.join(changed)} changed",
+            connection=name,
+            changed=changed,
+        )
+        try:
+            terminate(name)
+            # A responder's peer sets it up again.
+            if conns[name][0]["children"][name]["start_action"] == "start":
+                initiate(name)
+        except VICI_ERRORS:
+            logger.exception("Resetting IPsec connection %s failed.", name)
 
 
 def _unload_key(vcs: vici.Session, key_id: str) -> None:
@@ -266,7 +336,8 @@ def apply(network_instance: NetworkInstance) -> None:
     """Make charon's connections of a network instance as configured.
 
     Only connections that changed are loaded; others, and their SAs, aren't
-    touched. Failures are retried by the full check (sync).
+    touched. A changed PSK, PPK or traffic selectors resets the connection: its
+    SAs would keep the old. Failures are retried by the full check (sync).
     """
     conns = connections(network_instance)
     _write(network_instance.id, conns)
@@ -275,13 +346,15 @@ def apply(network_instance: NetworkInstance) -> None:
         return
     try:
         with charon.session() as vcs:
-            _load(vcs, conns)
+            stale = _load(vcs, conns)
             _unload(vcs, gone)
     except VICI_ERRORS:
         logger.exception(
             "Loading the IPsec connections of %s failed.",
             network_instance.id,
         )
+        return
+    _renew(conns, stale)
 
 
 def remove(ni_id: str) -> None:
@@ -312,13 +385,14 @@ def sync(vcs: vici.Session) -> None:
         for name in loaded
         if name in conns and all(key["id"] in keys for key in conns[name][1])
     }
-    _load(vcs, conns, complete)
+    stale = _load(vcs, conns, complete)
     if unknown := loaded - conns.keys():
         logger.warning("Unloading unknown IPsec connections: %s.", sorted(unknown))
         _unload(vcs, unknown)
     for key in keys - {key["id"] for _, own in conns.values() for key in own}:
         logger.warning("Unloading unknown IPsec key %s.", key)
         vcs.unload_shared({"id": key})
+    _renew(conns, stale)
 
 
 def stop() -> None:
