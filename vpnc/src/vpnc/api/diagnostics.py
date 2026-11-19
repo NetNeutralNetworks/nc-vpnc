@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, Field
 from pyroute2 import Conntrack
 
+from vpnc import helpers
 from vpnc.models import enums
 from vpnc.network import namespace, nftables
 from vpnc.services import jool
@@ -330,7 +331,7 @@ def _address(address: str | None, port: int | str | None, protocol: str) -> str:
     """Return address:port, or the address alone for ICMP."""
     if port is None or protocol.startswith("ICMP"):
         return str(address)
-    return f"[{address}]:{port}" if ":" in str(address) else f"{address}:{port}"
+    return helpers.endpoint(address, port)
 
 
 def _expires(text: str) -> int | None:

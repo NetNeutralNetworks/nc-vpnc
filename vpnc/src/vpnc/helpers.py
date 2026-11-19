@@ -48,6 +48,12 @@ def split_connection_name(name: str) -> tuple[str, str]:
     return network_instance_id, number
 
 
+def endpoint(address: object, port: object) -> str:
+    """Return address:port, with an IPv6 address in brackets."""
+    address = str(address)
+    return f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
+
+
 def xfrm_interface_name(number: int | str) -> str:
     """Return the name of the XFRM interface of a connection's number."""
     return f"xfrm{number}"

@@ -357,10 +357,9 @@ def _endpoint(address: Any, port: Any) -> str | None:  # noqa: ANN401
     """Return address:port, with an IPv6 address in brackets."""
     if address is None:
         return None
-    address = str(address)
     if port is None:
-        return address
-    return f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
+        return str(address)
+    return helpers.endpoint(address, port)
 
 
 def _in(seconds: Any) -> str | None:  # noqa: ANN401
