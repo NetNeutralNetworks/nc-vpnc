@@ -226,8 +226,9 @@ def nft_drop(host: str, netns: str, *matches: str) -> Iterator[None]:
         run_cmd_shell(host, f"{nft} delete table inet {table} || true")
 
 
-# Sends an IKEv2 IKE_SA_INIT with a proposal vpnc doesn't use (AES-CBC, SHA-256,
-# ECP-256) from an ephemeral port. charon answers it with NO_PROPOSAL_CHOSEN.
+# Sends an IKEv2 IKE_SA_INIT with a proposal vpnc doesn't use (AES-CBC, a PRF:
+# SHA-256 by default, ECP-256) from an ephemeral port. charon answers it with
+# NO_PROPOSAL_CHOSEN.
 IKE_PROBE = """\
 import os, socket, struct, sys
 
@@ -243,7 +244,7 @@ def transform(last, kind, transform_id, attributes=b""):
 
 transforms = (
     transform(False, 1, 12, struct.pack("!HH", 0x800E, 128))
-    + transform(False, 2, 5)
+    + transform(False, 2, int(sys.argv[2]))
     + transform(False, 3, 12)
     + transform(True, 4, 19)
 )
@@ -271,14 +272,14 @@ with socket.socket(family, socket.SOCK_DGRAM) as sock:
 """
 
 
-def ike_answered(host: str, netns: str, address: str) -> bool:
+def ike_answered(host: str, netns: str, address: str, prf: int = 5) -> bool:
     """Return whether IKE to address, from a network namespace of host, is answered.
 
     charon answers any IKE_SA_INIT it receives, so no answer means it was dropped.
     """
     path = "/tmp/ike_probe.py"  # noqa: S108
     write_file(host, path, IKE_PROBE)
-    output = run_cmd(host, f"ip netns exec {netns} python3 {path} {address}")
+    output = run_cmd(host, f"ip netns exec {netns} python3 {path} {address} {prf}")
     return output.strip() == "answered"
 
 
