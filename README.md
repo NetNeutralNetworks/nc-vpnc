@@ -147,7 +147,7 @@ network_instances:
 |---|---|
 | `IPSEC` | `remote_addrs`, `psk`, `local_id`, `remote_id`, `ike_version` (2), `ike_proposal` (`aes256gcm16-prfsha384-ecp384`), `ipsec_proposal` (`aes256gcm16-ecp384`), `ike_lifetime` (86400), `ipsec_lifetime` (3600), `initiation` (`START`: initiate and respond; `NONE`: respond only), `traffic_selectors` (`local`, `remote`; empty means route based), `post_quantum` (see below) |
 | `WIREGUARD` | `remote_addrs`, `private_key`, `public_key`, `local_port` and `remote_port` (51820) |
-| `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config_interface` (masquerade out of it on the server, in its setup script), `post_quantum` (see below) |
+| `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config_interface` (masquerade out of it on the server, in its setup script), `host_key` (the only host key accepted of the server), `post_quantum` (see below) |
 | `PHYSICAL` | `interface_name` |
 
 An SSH connection logs in as `username` and only opens the tunnel: vpnc doesn't configure the server. Set up the server (Ubuntu) once, as root, with the script `vpnctl` makes for the connection:
@@ -155,6 +155,8 @@ An SSH connection logs in as `username` and only opens the tunnel: vpnc doesn't 
 ```bash
 ~$ sudo vpnctl connections ssh-setup C0001-00-1 [--username vpnc] [--interface eth0] | ssh root@server sh
 ```
+
+The key the server presents when vpnc first connects is accepted, and only that one after. To leave nothing to that first connection, set the server's public host key (a line of its `/etc/ssh/ssh_host_*_key.pub`, without the comment) as `host_key`: the script prints the command for it.
 
 It adds the account with the connection's key, the tunnel's interface and routes, the firewall rules (masquerading out of `--interface`, by default `remote_config_interface`) and an sshd configuration in which the account can only open the tunnel. The script isn't for root: give another account with `--username` and make it the connection's `username`.
 
@@ -352,7 +354,7 @@ LibreNMS reads BGP4V2-MIB only for VyOS; for Linux it reads BGP4-MIB, so it show
 |---|---|
 | `/opt/ncubed/vpnc/` | The installation (virtualenv); `vpnctl` is linked to `/usr/local/bin` |
 | `/opt/ncubed/config/vpnc/` | Configuration: `active`, `candidate` (staged) and `history` |
-| `/opt/ncubed/config/vpnc/known_hosts/` | The host key of each SSH connection's server, accepted when first connecting. Delete a connection's file to accept a new key. |
+| `/opt/ncubed/config/vpnc/known_hosts/` | The host key of each SSH connection's server: its `host_key`, or else the one accepted when first connecting. Delete a connection's file to accept a new key. |
 | `/var/lib/vpnc-ssh/.ssh/` | The key of each SSH connection, named like it |
 | `/run/vpnc/api.sock` | The API |
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import datetime as dt
 import json
+import struct
 from typing import TYPE_CHECKING, Any
 
 from . import conftest
@@ -27,6 +29,11 @@ WIREGUARD = ("hub00", "C0001-01-0")
 WIREGUARD_CONFIG = ("hub00", "C0001", "network_instances.01.connections.0.config")
 # A valid key that isn't the peer's.
 OTHER_PUBLIC_KEY = "6NwLHrFvVqz0dvuWUXKQMo1tUUHEaYuWbpWhw4qDGWM="
+# The SSH server, and an Ed25519 host key that isn't its.
+SSH_SERVER = "cli00"
+OTHER_HOST_KEY = "ssh-ed25519 " + base64.b64encode(
+    struct.pack(">I11sI32s", 11, b"ssh-ed25519", 32, bytes(32)),
+).decode()
 # What a connection that works has: nothing, or it went down often (these tests).
 WORKS = (None, "FLAPPING")
 # A failure is noted when it's tried again: within a minute.
@@ -94,7 +101,8 @@ def changed(
 
     def put(new: Any) -> None:  # noqa: ANN401
         text = json.dumps(new, separators=(",", ":"))
-        conftest.run_cmd(host, f"{VPNCTL} config set {target} {path} {text}")
+        # Quoted: a value may have a space.
+        conftest.run_cmd_shell(host, f"{VPNCTL} config set {target} {path} '{text}'")
         commit(host, target)
 
     put(value)
@@ -231,6 +239,18 @@ class TestDiagnosis:
             denied = diagnosed(SSH, "PERMISSION_DENIED")
             assert "Permission denied" in denied["details"]["said"]
             assert "ssh-setup" in denied["hint"]
+
+    def test_ssh_host_key(self) -> None:
+        """Only the configured host key is accepted of the server."""
+        public = conftest.run_cmd(SSH_SERVER, "cat /etc/ssh/ssh_host_ed25519_key.pub")
+        host_key = " ".join(public.split()[:2])
+
+        with changed(SSH_CONFIG, "host_key", host_key, sides=(SSH,)):
+            diagnosed(SSH, *WORKS)
+            with changed(SSH_CONFIG, "host_key", OTHER_HOST_KEY, sides=()):
+                mismatch = diagnosed(SSH, "HOST_KEY_MISMATCH")
+                assert "host_key" in mismatch["hint"]
+            diagnosed(SSH, *WORKS)
 
     def test_wireguard_key(self) -> None:
         """A wrong public key: the peer's packets arrive, no handshake completes."""
