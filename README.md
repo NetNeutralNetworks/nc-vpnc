@@ -47,7 +47,16 @@ NPTv6 here maps the destination prefix 1:1 and masquerades the source; it's stat
 
 vpncmangle (started by vpnc) rewrites DNS answers from tenants: A records become AAAA records in the NAT64 prefix, and AAAA records get the NPTv6 prefix. Only over UDP: DNS over TCP to tenants is refused. What a network instance's answers may cost is limited (the service's `dns` settings), so one tenant's DNS server can't stop the others' answers. It runs as the `vpnc-mangle` account, which can only configure the network. See [vpncmangle/README.md](vpncmangle/README.md).
 
-charon (strongSwan, started by vpnc) runs as the `vpnc-swan` account, which can only configure the network.
+charon (strongSwan, started by vpnc) runs as the `vpnc-swan` account, which can only configure the network. It only loads the plugins connections with a PSK need (`/etc/strongswan.d/vpnc.conf`), so `ipsec status` doesn't work: use `vpnctl` or `swanctl`.
+
+charon answers IKE from peers before they're authenticated, and holds every connection's keys, so keep it confined and up to date:
+
+```bash
+~$ sudo aa-status | grep charon                  # its AppArmor profile is in enforce mode
+~$ sudo cat /proc/$(pidof charon)/attr/current   # and the running charon has it
+```
+
+An update of strongSwan only replaces its files: the running charon is the old one until vpnc restarts, which stops every tunnel. Restart it (`vpnctl service restart`) in a maintenance window after a security update.
 
 ## Installation
 

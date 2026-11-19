@@ -54,6 +54,22 @@ class TestCharon:
         assert users == ["vpnc-swan"]
 
     @pytest.mark.parametrize("host", ["hub00", "hub01", "end00", "end01"])
+    def test_plugins(self, host: str) -> None:
+        """Charon only loads the plugins connections with a PSK need."""
+        stats = conftest.run_cmd(host, "swanctl --stats")
+        plugins = stats.split("loaded plugins:")[1].split()
+
+        assert sorted(plugins) == [
+            "charon",
+            "kernel-netlink",
+            "nonce",
+            "openssl",
+            "random",
+            "socket-default",
+            "vici",
+        ]
+
+    @pytest.mark.parametrize("host", ["hub00", "hub01", "end00", "end01"])
     def test_capabilities(self, host: str) -> None:
         """Charon only keeps the capability to configure the network."""
         assert conftest.capabilities(host, "charon") == {"cap_net_admin"}
