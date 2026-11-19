@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from vpnc import config, files, migration
+from vpnc import config, files, helpers, migration
 from vpnc.models import enums, tenant
 from vpnc.models.ipsec import ppk_id_users
 from vpnc.models.post_quantum import PostQuantumPresharedKey
@@ -610,7 +610,7 @@ def set_enabled(tenant_id: str, connection: str, *, enabled: bool) -> None:
     In the active configuration, which is loaded right away, and in staged
     changes: a commit doesn't undo it. It isn't a commit: no history is kept.
     """
-    ni_id, _, number = connection.rpartition("-")
+    ni_id, number = helpers.split_connection_name(connection)
     path = _path(tenant_id, "active")
     with LOCK:
         staged = _text(tenant_id, "candidate") is not None
