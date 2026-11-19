@@ -9,5 +9,6 @@ done
 "${BASE}/../journald.sh"
 
 if [ "$(ps -p 1 -o comm=)" != "systemd" ]; then
-    /opt/ncubed/vpnc/bin/vpnc
+    # Replaces the shell: the init process (tini) signals vpnc itself.
+    exec /opt/ncubed/vpnc/bin/vpnc
 fi

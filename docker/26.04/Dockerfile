@@ -25,7 +25,7 @@ SHELL ["/bin/bash", "-c"]
 RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
     --mount=type=bind,source=./config/,target=/tmp/repo/config/            \
     echo "Install APT packages"                                         && \
-    apt-get update && apt-get install -y make                           && \
+    apt-get update && apt-get install -y make tini                      && \
     make -C /tmp/repo MODE=hub packages account-vpnc-mangle account-vpnc-ssh hub-packages frr snmpd misc-config config && \
     rm -rf /var/lib/apt/lists/*
 
@@ -38,6 +38,8 @@ RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
 # Configuration directory.
 VOLUME /opt/ncubed/config/vpnc
 
+# A minimal init as PID 1: passes signals on and reaps what daemons leave behind.
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/opt/ncubed/vpnc/bin/vpnc"]
 
 

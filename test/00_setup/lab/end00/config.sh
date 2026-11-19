@@ -16,5 +16,6 @@ ${SCRIPTDIR}/../journald.sh
 if [ "$(ps -p 1 -o comm=)" == "systemd" ]; then
     /usr/bin/systemctl restart ncubed-vpnc.service
 else
-    /opt/ncubed/vpnc/bin/vpnc
+    # Replaces the shell: the init process (tini) signals vpnc itself.
+    exec /opt/ncubed/vpnc/bin/vpnc
 fi

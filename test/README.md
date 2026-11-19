@@ -29,6 +29,10 @@ the provider side (strongSwan, FRR); cli00/cli01 are customer networks behind
 end00/end01. The labels show what each tunnel uses. mgt00 sends its traffic
 through hub00 and mgt01 through hub01, so the tests' traffic crosses both hubs.
 
+The containers have tini as init (PID 1): `docker stop` stops vpnc as systemd
+would, and what daemons leave behind is reaped. A container stops when its vpnc
+exits.
+
 ## Scale lab
 
 Runs next to the base lab, with its own bridge and container names.
