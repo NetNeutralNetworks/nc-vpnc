@@ -151,37 +151,45 @@ def generate_config() -> None:
         logger.info("Generated FRR configuration.")
 
 
-def stop() -> None:
-    """Shut down IPsec when terminating the program."""
-    logger.info("Stopping FRR process.")
-    proc = subprocess.Popen(
-        ["/usr/lib/frr/frrinit.sh", "stop"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=False,
-    )
-    logger.info(proc.args)
+FRRINIT_TIMEOUT = 120
 
-    proc.wait()
+
+def _frrinit(action: str) -> None:
+    """Run frrinit.sh start or stop; raises if it fails or times out.
+
+    Its output goes to vpnc's: the daemons it starts keep a pipe open.
+    """
+    proc = subprocess.run(  # noqa: S603
+        ["/usr/lib/frr/frrinit.sh", action],
+        check=False,
+        timeout=FRRINIT_TIMEOUT,
+    )
+    if proc.returncode:
+        msg = f"FRR {action} failed ({proc.returncode}); see its output above."
+        raise RuntimeError(msg)
+
+
+def stop() -> None:
+    """Stop FRR when vpnc exits."""
+    logger.info("Stopping FRR process.")
+    try:
+        _frrinit("stop")
+    except (OSError, subprocess.TimeoutExpired, RuntimeError):
+        logger.exception("Stopping FRR failed.")
 
 
 def start() -> None:
-    """Start the IPSec service in the EXTERNAL network instance."""
+    """Start FRR; raises if it doesn't, for systemd to restart vpnc."""
     # Remove old frr config files
     logger.debug("Unlinking FRR config file %s at startup", config.FRR_CONFIG_PATH)
     config.FRR_CONFIG_PATH.unlink(missing_ok=True)
 
     logger.info("Starting FRR process.")
-    proc = subprocess.Popen(
-        ["/usr/lib/frr/frrinit.sh", "start"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    logger.debug(proc.args)
-    time.sleep(5)
+    # Also stops a partly started FRR if starting fails.
     atexit.register(stop)
-
-    proc.wait()
+    _frrinit("start")
+    # frrinit.sh only starts watchfrr, which then starts the daemons.
+    time.sleep(5)
 
     # FRR doesn't monitor for file config changes directly, so a file observer is
     # used to auto reload the configuration.
