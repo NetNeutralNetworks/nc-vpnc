@@ -1,14 +1,17 @@
 [Unit]
 Description=ncubed VPNC strongSwan IPsec init
-StartLimitInterval=200
-StartLimitBurst=5
+# Keep restarting, e.g. while FRR fails to start.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/ncubed
 ExecStart=/opt/ncubed/vpnc/bin/vpnc
 Restart=on-failure
+# 15, 21, 30, 42, then every 60 s.
 RestartSec=15
+RestartSteps=4
+RestartMaxDelaySec=60
 
 [Install]
 WantedBy=multi-user.target
