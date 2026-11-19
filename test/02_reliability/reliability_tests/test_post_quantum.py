@@ -69,7 +69,12 @@ class TestPostQuantum:
         vpnctl(END, f'config set DEFAULT {PPK_PATH} "0x{"ab" * 32}"')
         vpnctl(END, "config commit DEFAULT")
         try:
-            conftest.run_cmd(END, "swanctl --terminate --ike CORE-0")
+            # A changed PPK resets the connection.
+            conftest.wait_until(
+                lambda: not ike_key_exchanges(END, "CORE-0"),
+                timeout=REKEY_TIMEOUT,
+                message="CORE-0 to be reset",
+            )
             deadline = time.monotonic() + DOWN_TIME
             while time.monotonic() < deadline:
                 assert not ike_key_exchanges(END, "CORE-0"), "Up with the wrong PPK"

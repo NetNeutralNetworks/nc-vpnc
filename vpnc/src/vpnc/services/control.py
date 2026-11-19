@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from vpnc.models import enums
 from vpnc.models.ipsec import Initiation
 from vpnc.network import state
-from vpnc.services import charon, ssh, wireguard
+from vpnc.services import ssh, wireguard
 from vpnc.services.strongswan import strongswan
 
 if TYPE_CHECKING:
@@ -22,9 +22,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("vpnc")
 
-# Seconds to wait for the peer to confirm a terminated IKE SA.
-TERMINATE_TIMEOUT = 5
-
 LOCK = threading.Lock()
 
 
@@ -32,25 +29,10 @@ class ControlError(Exception):
     """The connection can't be reset."""
 
 
-def _terminate(name: str, *, force: bool = False) -> None:
-    """Terminate a connection's IKE SAs; with force without telling the peer."""
-    with charon.session(charon.VICI_TIMEOUT + TERMINATE_TIMEOUT) as vcs:
-        # Fails when there's no SA, or the peer doesn't confirm in time.
-        charon.terminate(
-            vcs,
-            ike=name,
-            wait=TERMINATE_TIMEOUT,
-            force=force,
-            warn=False,
-        )
-
-
 def _initiate(name: str, connection: Connection) -> None:
-    if connection.config.initiation != Initiation.INITIATOR:
-        # The peer sets the connection up again.
-        return
-    with charon.session() as vcs:
-        charon.initiate(vcs, name, warn=False)
+    # A responder's peer sets the connection up again.
+    if connection.config.initiation == Initiation.INITIATOR:
+        strongswan.initiate(name)
 
 
 def _apply_service(ni: NetworkInstance, connection: Connection) -> None:
@@ -93,7 +75,7 @@ def apply(ni: NetworkInstance, connection: Connection) -> None:
         if connection.enabled:
             _initiate(name, connection)
         else:
-            _terminate(name)
+            strongswan.terminate(name)
 
 
 def reset(ni: NetworkInstance, connection: Connection, *, force: bool = False) -> None:
@@ -112,7 +94,7 @@ def reset(ni: NetworkInstance, connection: Connection, *, force: bool = False) -
     with LOCK:
         logger.info("Resetting connection %s.", name)
         if ctype == enums.ConnectionType.IPSEC:
-            _terminate(name, force=force)
+            strongswan.terminate(name, force=force)
             _initiate(name, connection)
             return
         # Removes the WireGuard peer or stops ssh, then sets it up again.
