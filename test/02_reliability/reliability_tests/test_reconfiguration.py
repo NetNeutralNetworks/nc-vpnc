@@ -644,6 +644,41 @@ class TestReconfiguration:
         assert shown == secret
 
 
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("psk", "tooshort"),
+            ("ike_version", "1"),
+            ("ipsec_proposal", "aes256-sha256-modp1024"),
+        ],
+    )
+    def test_weak_cryptography_needs_allow_weak(self, key: str, value: str) -> None:
+        """A short PSK, IKEv1 or a weak algorithm is only committed when allowed."""
+        path = f"network_instances.{NI_KEY}.connections.0.config.{key}"
+        vpnctl(f"config set C0002 {path} {value}")
+
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            vpnctl("config commit C0002")
+        assert f"{NI}-0" in err.value.stderr
+        assert "--allow-weak" in err.value.stderr
+        assert vpnctl_json(f"config show C0002 {path} --reveal-secrets") != value
+
+        assert f"Weak cryptography: {NI}-0" in vpnctl("config commit C0002 --allow-weak")
+        assert str(vpnctl_json(f"config show C0002 {path} --reveal-secrets")) == value
+        # What it has stays, without asking again.
+        vpnctl("config set C0002 name Renamed")
+        assert vpnctl("config commit C0002") == "Committed.\n"
+
+    def test_generated_psk_is_committed(self) -> None:
+        """A generated PSK is committed as it is."""
+        path = f"network_instances.{NI_KEY}.connections.0.config.psk"
+        psk = vpnctl("generate psk").strip()
+
+        vpnctl(f"config set C0002 {path} {psk}")
+        assert vpnctl("config commit C0002") == "Committed.\n"
+        assert vpnctl_json(f"config show C0002 {path} --reveal-secrets") == psk
+
+
 class TestRestartNotice:
     """Service settings that apply after a restart are pointed out."""
 

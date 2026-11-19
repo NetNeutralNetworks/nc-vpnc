@@ -54,7 +54,7 @@ network_instances:
           ipsec_lifetime: 90
           # Optional, defaults to START: initiate and respond. NONE: respond only.
           initiation: NONE
-          psk: secretpasswordendpoint
+          psk: secretpasswordendpoint-of-the-lab
         # Optional
         # traffic_selectors:
         #   local:

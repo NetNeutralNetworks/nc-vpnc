@@ -64,7 +64,7 @@ network_instances:
           ipsec_lifetime: 90
           # Optional, defaults to START: initiate and respond. NONE: respond only.
           initiation: NONE
-          psk: secretpasswordendpoint
+          psk: secretpasswordendpoint-of-the-lab
           # Optional: hybrid ML-KEM key exchange, optionally with a postquantum
           # preshared key (RFC 8784). Requires Ubuntu 26.04 (strongSwan 6).
           post_quantum:

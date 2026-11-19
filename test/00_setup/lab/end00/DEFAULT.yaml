@@ -79,7 +79,7 @@ network_instances:
           ipsec_lifetime: 90
           # Optional, defaults to START: initiate and respond. NONE: respond only.
           initiation: START
-          psk: secretpasswordendpoint
+          psk: secretpasswordendpoint-of-the-lab
           post_quantum:
             enabled: true
             ml_kem: ML_KEM_768
@@ -113,7 +113,7 @@ network_instances:
           ipsec_proposal: aes128gcm16-prfsha384-ecp384
           ipsec_lifetime: 90
           initiation: START
-          psk: secretpasswordendpoint
+          psk: secretpasswordendpoint-of-the-lab
   ENDPOINT:
     type: ENDPOINT # ENDPOINT
     # Optional, arbitrary key-value pairs

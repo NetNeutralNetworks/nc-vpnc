@@ -102,7 +102,7 @@ class TestPostQuantum:
                             "config": {
                                 "type": "ipsec",
                                 "remote_addrs": ["192.0.2.99"],
-                                "psk": "duplicateppkid",
+                                "psk": "duplicateppkid" * 3,
                                 "post_quantum": {
                                     "enabled": True,
                                     "ppk": {"id": HUB_PPK_ID, "key": "x" * 32},

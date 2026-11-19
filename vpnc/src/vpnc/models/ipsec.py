@@ -35,6 +35,17 @@ CLASSICAL_KE_RE = re.compile(
 )
 
 
+# A PSK of fewer characters can be guessed: whoever answers a connection as its
+# peer gets what's needed to try PSKs offline.
+PSK_MIN_LENGTH = 32
+# Algorithms RFC 8221 and RFC 8247 say not to use: DES, 3DES, no encryption,
+# MD5, and Diffie-Hellman groups under 2048 bits.
+WEAK_ALGORITHM_RE = re.compile(
+    r"(3?des|null|blowfish\d*|cast128|(prf)?md5(_128)?|modp(768|1024|1536)(s\d+)?)",
+    re.IGNORECASE,
+)
+
+
 class Initiation(Enum):
     """Define if the VPN connection automatically starts."""
 
@@ -102,6 +113,35 @@ class ConnectionConfigIPsec(BaseModel):
 
     _none_as_default = helpers.none_as_default("traffic_selectors", "post_quantum")
     _upper = helpers.upper("type", "initiation")
+
+    def weaknesses(self) -> dict[str, tuple[str, object]]:
+        """Return what's weak about the connection's cryptography.
+
+        By what it is (e.g. SHORT_PSK): what to tell, and the setting it's about.
+        A commit that adds one, or changes its setting, must allow it.
+        """
+        found: dict[str, tuple[str, object]] = {}
+        psk = self.psk.get_secret_value()
+        if len(psk) < PSK_MIN_LENGTH:
+            found["SHORT_PSK"] = (
+                f"the PSK has fewer than {PSK_MIN_LENGTH} characters"
+                " (vpnctl generate psk makes one)",
+                psk,
+            )
+        if self.ike_version == 1:
+            found["IKEV1"] = ("IKEv1", 1)
+        proposals = (self.ike_proposal, self.ipsec_proposal)
+        weak = sorted(
+            {
+                algorithm.lower()
+                for proposal in proposals
+                for algorithm in proposal.split("-")
+                if WEAK_ALGORITHM_RE.fullmatch(algorithm)
+            },
+        )
+        if weak:
+            found["WEAK_PROPOSAL"] = (f"weak algorithms: {', '.join(weak)}", proposals)
+        return found
 
     def add(
         self,

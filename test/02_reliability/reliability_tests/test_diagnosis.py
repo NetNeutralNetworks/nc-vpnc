@@ -171,7 +171,7 @@ class TestDiagnosis:
         A changed key resets the connection: the SA it had would hide it.
         """
         start = now("end00")
-        with changed(INITIATOR_CONFIG, "psk", "not-the-preshared-key"):
+        with changed(INITIATOR_CONFIG, "psk", "not-the-preshared-key-of-the-peer"):
             diagnosed(INITIATOR, "AUTH_FAILED_REMOTE")
             diagnosed(RESPONDER, "AUTH_FAILED_LOCAL")
         events = events_since(INITIATOR, start)

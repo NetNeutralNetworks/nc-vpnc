@@ -1349,6 +1349,13 @@ def prompt(path: str) -> str:
     return value
 
 
+def cmd_generate_psk(_: argparse.Namespace) -> None:
+    """Print a new random PSK: 256 bits, as 43 characters."""
+    import secrets  # noqa: PLC0415
+
+    print(secrets.token_urlsafe(32))
+
+
 def cmd_config_set(args: argparse.Namespace) -> None:
     """Set a value at a path, creating missing parts; without one, prompt for it."""
     import yaml  # noqa: PLC0415
@@ -1426,8 +1433,9 @@ def _all_or_target(args: argparse.Namespace, action: str) -> str | None:
 
 def cmd_config_commit(args: argparse.Namespace) -> None:
     """Apply the staged changes; with --confirm, roll back unless confirmed."""
+    params = {"confirm": args.confirm, "allow_weak": args.allow_weak or None}
     if (path := _all_or_target(args, "commit")) is None:
-        results = request("POST", "/v1/config/commit", params={"confirm": args.confirm})
+        results = request("POST", "/v1/config/commit", params=params)
         committed = [r for r in results if r["changed"] or r["confirm_by"]]
         for result in committed:
             confirm = f"; confirm before {result['confirm_by']}"
@@ -1437,9 +1445,9 @@ def cmd_config_commit(args: argparse.Namespace) -> None:
         elif args.confirm:
             print("Confirm with: vpnctl config confirm --all, or they're rolled back.")
         for result in results:
-            restart_notice(result)
+            commit_notices(result)
         return
-    result = request("POST", path, params={"confirm": args.confirm})
+    result = request("POST", path, params=params)
     if result.get("confirm_by"):
         print(
             f"Committed. Confirm before {result['confirm_by']} with: "
@@ -1447,11 +1455,13 @@ def cmd_config_commit(args: argparse.Namespace) -> None:
         )
     else:
         print("Committed." if result["changed"] else "No changes.")
-    restart_notice(result)
+    commit_notices(result)
 
 
-def restart_notice(result: dict[str, Any]) -> None:
-    """Say which service settings need a restart to apply."""
+def commit_notices(result: dict[str, Any]) -> None:
+    """Say what was committed weak, and which service settings need a restart."""
+    for warning in result.get("warnings") or []:
+        print(f"Weak cryptography: {warning}")
     if fields_ := result.get("restart_needed"):
         print(
             f"Restart vpnc to apply {', '.join(fields_)}: vpnctl service restart",
@@ -1598,6 +1608,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "logs": {},
     "events": {},
     "version": {},
+    "generate": {"psk": None},
     "service": {"restart": None, "stop": None},
     "config": {
         "list": None,
@@ -2171,6 +2182,8 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
     event_options(p)
 
     add(commands, "version", cmd_version)
+    generate = group("generate", "make a secret")
+    add(generate, "psk", cmd_generate_psk)
     p = add(commands, "service", cmd_service)
     p.add_argument("service_action", choices=["restart", "stop"])
 
@@ -2217,6 +2230,11 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
         type=seconds,
         metavar="TIME",
         help="roll back unless confirmed within TIME, e.g. 5m",
+    )
+    p.add_argument(
+        "--allow-weak",
+        action="store_true",
+        help="accept a short PSK, IKEv1 or weak algorithms in what's committed",
     )
     p = add(cfg, "history", cmd_config_history)
     p.add_argument("target", **target)
