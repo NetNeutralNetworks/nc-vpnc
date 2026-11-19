@@ -34,9 +34,11 @@ def config_path(ifname: str) -> pathlib.Path:
 def generate_config(network_instance: NetworkInstance, connection: Connection) -> None:
     """Write the WireGuard configuration file of a connection."""
     cfg = connection.config
+    address, port = cfg.remote_addrs[0], cfg.remote_port
+    endpoint = f"[{address}]:{port}" if ":" in str(address) else f"{address}:{port}"
     wg_render = TEMPLATES_ENV.get_template("wireguard.conf.j2").render(
         local_port=cfg.local_port,
-        remote_addrs=f"{cfg.remote_addrs[0]}:{cfg.remote_port}",
+        remote_addrs=endpoint,
         routes=",".join(str(route.to) for route in connection.routes.all),
         private_key=cfg.private_key.get_secret_value(),
         public_key=cfg.public_key,
