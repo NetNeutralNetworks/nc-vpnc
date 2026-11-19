@@ -154,6 +154,8 @@ bgp:
     neighbor_address: fd00:1:2::1:1
     # Optional, lower is more preferred uplink for receiving traffic, defaults to 0, max is 9
     priority: 1
+    # Optional: the session's TCP MD5 password, the same on the neighbor.
+    # password: secretpasswordbgp
 
 ## DNS limits
 # Optional: what a network instance's DNS answers may cost; more is dropped

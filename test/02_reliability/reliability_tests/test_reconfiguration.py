@@ -845,6 +845,62 @@ class TestDnsLimits:
         )
 
 
+# hub00's first BGP neighbor (mgt00), mgt00's AS and hub00's address there.
+BGP_NEIGHBOR = "fd00:1:2::1"
+BGP_PEER = ("mgt00", "4233333333", "fd00:1:2::")
+BGP_TIMEOUT = 120
+
+
+def bgp_established() -> bool:
+    """Return whether hub00's BGP session with mgt00 is established."""
+    neighbor = vpnctl_json(f"bgp neighbor {BGP_NEIGHBOR}")
+    return neighbor["session_state"] == "ESTABLISHED"
+
+
+def peer_password(password: str | None) -> None:
+    """Set or remove the password of hub00's session on mgt00."""
+    host, asn, address = BGP_PEER
+    no = "" if password else "no "
+    conftest.run_cmd_shell(
+        host,
+        f"vtysh -c 'configure terminal' -c 'router bgp {asn}' "
+        f"-c '{no}neighbor {address} password {password or ''}'",
+    )
+
+
+class TestBgpPassword:
+    """A BGP session can have a password."""
+
+    def test_bgp_password(self) -> None:
+        """A session with a password is only established with it on both sides."""
+        path = "bgp.neighbors.0.password"
+        assert bgp_established()
+        try:
+            vpnctl(f"config set service {path} labpassword")
+            vpnctl("config commit service")
+            conftest.wait_until(
+                lambda: not bgp_established(),
+                timeout=BGP_TIMEOUT,
+                message="the session to go down without the password on mgt00",
+            )
+
+            peer_password("labpassword")
+            conftest.wait_until(
+                bgp_established,
+                timeout=BGP_TIMEOUT,
+                message="the session to be established with the password",
+            )
+        finally:
+            vpnctl(f"config delete service {path}")
+            vpnctl("config commit service")
+            peer_password(None)
+            conftest.wait_until(
+                bgp_established,
+                timeout=BGP_TIMEOUT,
+                message="the session to be established without a password",
+            )
+
+
 class TestOldConfiguration:
     """Configuration of the previous version is converted."""
 
