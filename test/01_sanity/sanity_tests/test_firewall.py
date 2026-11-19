@@ -1,7 +1,8 @@
-"""The firewall answers pings and peers' tunnel traffic; nothing else gets an answer."""
+"""The firewall answers peers' pings and tunnel traffic; nothing else gets an answer."""
 
 from __future__ import annotations
 
+import re
 import subprocess
 
 import pytest
@@ -11,6 +12,8 @@ from . import conftest
 # The provider side: on the external network (in its EXTERNAL namespace) and at
 # the other end of the hubs' tunnels.
 PROVIDER = "mgt00"
+# Its addresses on the external network, where it has no firewall.
+PROVIDER_EXTERNAL = ("192.0.2.3", "2001:db8::3")
 EXTERNAL_NETNS = "ip netns exec EXTERNAL "
 # (IPv4, IPv6) of the external interfaces.
 EXTERNAL = {
@@ -83,13 +86,51 @@ class TestFirewall:
 
     @pytest.mark.parametrize("host", list(EXTERNAL))
     def test_external(self, host: str) -> None:
-        """An external address answers IPv6 pings only."""
+        """An external address answers its peers' pings only: mgt00's over IPv6."""
         ipv4, ipv6 = EXTERNAL[host]
 
-        assert pings(PROVIDER, ipv6, EXTERNAL_NETNS)
+        assert pings(PROVIDER, ipv6, EXTERNAL_NETNS) == (host in CORE)
         assert not pings(PROVIDER, ipv4, EXTERNAL_NETNS)
         assert tcp_unanswered(PROVIDER, ipv4, EXTERNAL_NETNS)
         assert tcp_unanswered(PROVIDER, ipv6, EXTERNAL_NETNS)
+
+    @pytest.mark.parametrize("host", list(CORE))
+    @pytest.mark.parametrize("peer", ["end00", "end01"])
+    def test_external_pings_peers(self, host: str, peer: str) -> None:
+        """A hub's peers (IPsec, WireGuard) answer its pings from EXTERNAL."""
+        for address in EXTERNAL[peer]:
+            assert pings(host, address, EXTERNAL_NETNS)
+
+    @pytest.mark.parametrize("host", list(EXTERNAL))
+    @pytest.mark.parametrize("address", PROVIDER_EXTERNAL)
+    def test_external_traceroute(self, host: str, address: str) -> None:
+        """A traceroute from EXTERNAL reaches a host that answers it."""
+        output = conftest.run_cmd(
+            host,
+            f"{EXTERNAL_NETNS}traceroute -n -q 1 -w 1 -m 3 {address}",
+        )
+
+        assert re.search(rf"^ *\d+ +{re.escape(address)} ", output, re.MULTILINE)
+
+    @pytest.mark.parametrize("host", list(CORE))
+    def test_external_path_mtu(self, host: str) -> None:
+        """A packet too big for a tunnel packet lowers the path MTU to its peer."""
+        peer = PROVIDER_EXTERNAL[1]
+        get = f"{EXTERNAL_NETNS}ip -6 route get {peer}"
+        spi = re.search(
+            rf"src {EXTERNAL[host][1]} dst {peer}\s+proto esp spi (0x[0-9a-f]+)",
+            conftest.run_cmd(host, f"{EXTERNAL_NETNS}ip xfrm state"),
+        )
+        assert spi
+        assert "mtu" not in conftest.run_cmd(host, get)
+
+        try:
+            conftest.packet_too_big(
+                PROVIDER, "EXTERNAL", EXTERNAL[host][1], peer, spi[1], 1300
+            )
+            assert "mtu 1300" in conftest.run_cmd(host, get)
+        finally:
+            conftest.run_cmd(host, f"{EXTERNAL_NETNS}ip -6 route flush cache")
 
     @pytest.mark.parametrize("host", list(EXTERNAL))
     def test_ike_from_peers_only(self, host: str) -> None:

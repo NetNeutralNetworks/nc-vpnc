@@ -125,12 +125,12 @@ def external_sets() -> dict[str, list[str]]:
     """Return the elements of EXTERNAL's sets, as nft text.
 
     The peers are the remote_addrs of enabled IPsec and WireGuard connections; a
-    WireGuard peer only with its connection's local port.
+    WireGuard peer only with its connection's local port. peers_ has both.
     """
     tenants = list(config.VPNC_CONFIG_TENANT.values())
     sets: dict[str, set[str]] = {
-        f"{kind}_peers_ipv{version}": set()
-        for kind in ("ipsec", "wireguard")
+        f"{kind}peers_ipv{version}": set()
+        for kind in ("ipsec_", "wireguard_", "")
         for version in (4, 6)
     }
     enabled = (
@@ -145,11 +145,13 @@ def external_sets() -> dict[str, list[str]]:
         if cfg.type == enums.ConnectionType.IPSEC:
             for address in cfg.remote_addrs:
                 sets[f"ipsec_peers_ipv{address.version}"].add(str(address))
+                sets[f"peers_ipv{address.version}"].add(str(address))
         elif cfg.type == enums.ConnectionType.WIREGUARD:
             for address in cfg.remote_addrs:
                 sets[f"wireguard_peers_ipv{address.version}"].add(
                     f"{address} . {cfg.local_port}",
                 )
+                sets[f"peers_ipv{address.version}"].add(str(address))
     ports = sorted(wireguard_port_users(tenants))
     return {
         "wireguard_ports": [str(port) for port in ports],

@@ -1,4 +1,5 @@
-{#- EXTERNAL: only IKE and ESP from IPsec peers, WireGuard from its peers. #}
+{#- EXTERNAL: only IKE and ESP from IPsec peers, WireGuard from its peers, and
+    the ICMP that needs. #}
 {%- macro set(name, type, elements, counter=false) %}
     set {{ name }} {
         type {{ type }}
@@ -17,15 +18,15 @@
 {{ set("ipsec_peers_ipv6", "ipv6_addr", ipsec_peers_ipv6, counter=true) }}
 {{ set("wireguard_peers_ipv4", "ipv4_addr . inet_service", wireguard_peers_ipv4, counter=true) }}
 {{ set("wireguard_peers_ipv6", "ipv6_addr . inet_service", wireguard_peers_ipv6, counter=true) }}
+{#- The addresses of both: their pings are answered. #}
+{{ set("peers_ipv4", "ipv4_addr", peers_ipv4) }}
+{{ set("peers_ipv6", "ipv6_addr", peers_ipv6) }}
 
     chain input {
         type filter hook input priority filter; policy drop;
         iifname "lo" counter accept
-        {#- Routes are configured: anyone on the external network could add one. #}
-        icmpv6 type nd-router-advert counter drop
-        meta l4proto ipv6-icmp counter jump icmpv6-in-out
-        {#- Path MTU discovery of the tunnels: only for packets vpnc sent. #}
-        icmp type destination-unreachable icmp code frag-needed ct state related counter accept
+        meta l4proto ipv6-icmp counter jump icmpv6-in
+        meta l4proto icmp counter jump icmp-in
         ip saddr @ipsec_peers_ipv4 counter jump ipsec-peers
         ip6 saddr @ipsec_peers_ipv6 counter jump ipsec-peers
         ip saddr . udp dport @wireguard_peers_ipv4 counter accept
@@ -47,14 +48,53 @@
     chain output {
         type filter hook output priority filter; policy drop;
         oifname "lo" counter accept
-        meta l4proto ipv6-icmp counter jump icmpv6-in-out
+        meta l4proto ipv6-icmp counter jump icmpv6-out
+        meta l4proto icmp counter jump icmp-out
         meta l4proto esp counter accept
         udp sport 500 udp dport 500 counter accept
         udp sport 4500 udp dport 4500 counter accept
         udp sport @wireguard_ports counter accept
         {#- Return traffic to peers behind a NAT. #}
         meta l4proto udp ct state established,related counter accept
+        {#- vpnctl traceroute. #}
+        udp dport 33434-33534 counter accept
         counter drop
     }
 
-{% include 'nft-icmpv6-in-out.conf.j2' %}
+    {#- No router advertisements: routes are configured, and anyone on the
+        external network could add one. #}
+    chain icmpv6-in {
+        {#- Neighbour discovery, from this link only. #}
+        icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 counter accept
+        {#- An MLD snooping switch only keeps delivering neighbour solicitations
+            to listeners that answer its queries. #}
+        icmpv6 type mld-listener-query ip6 saddr fe80::/10 counter accept
+        {#- Only about packets vpnc sent: path MTU discovery of the tunnels, and
+            what vpnctl ping and traceroute get back. #}
+        icmpv6 type { destination-unreachable, packet-too-big, time-exceeded } ct state related counter accept
+        icmpv6 type echo-reply ct state established counter accept
+        icmpv6 type echo-request ip6 saddr @peers_ipv6 counter accept
+        counter drop
+    }
+
+    chain icmpv6-out {
+        icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } counter accept
+        icmpv6 type { mld-listener-report, mld2-listener-report, mld-listener-done } counter accept
+        {#- vpnctl ping, and the answers to peers' pings. #}
+        icmpv6 type echo-request counter accept
+        icmpv6 type echo-reply ct state established counter accept
+        counter drop
+    }
+
+    chain icmp-in {
+        icmp type { destination-unreachable, time-exceeded } ct state related counter accept
+        icmp type echo-reply ct state established counter accept
+        icmp type echo-request ip saddr @peers_ipv4 counter accept
+        counter drop
+    }
+
+    chain icmp-out {
+        icmp type echo-request counter accept
+        icmp type echo-reply ct state established counter accept
+        counter drop
+    }
