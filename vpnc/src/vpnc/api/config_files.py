@@ -1,9 +1,11 @@
-"""The active and candidate (staged) configuration files of tenants and the service.
+"""The active and candidate (staged) configurations of tenants and the service.
 
-A tenant (or the service, DEFAULT) has an active file, which vpnc applies, and
-may have a candidate file with staged changes; a commit makes them active.
-Without a candidate file nothing is staged; an empty one stages removing the
-tenant.
+A tenant (or the service, DEFAULT) has an active configuration, which vpnc runs
+and keeps in its active file, and may have a candidate file with staged
+changes; a commit checks them, writes the active file and runs it. Without a
+candidate file nothing is staged; an empty one stages removing the tenant. An
+active file changed otherwise runs if a commit would accept it; if not, the
+tenant runs what it ran (see configuration.NOT_LOADED).
 
 A commit keeps the active configuration it replaces in the history (empty: the
 tenant didn't exist). A confirmed commit is rolled back unless confirmed in
@@ -71,6 +73,8 @@ class ConfigSummary(BaseModel):
     status: Literal["UNCHANGED", "MODIFIED", "ADDED", "DELETED"]
     # A commit to confirm before then, or it's rolled back.
     confirm_by: str | None = None
+    # Why the active file isn't running, or the candidate file can't be read.
+    error: str | None = None
 
 
 class CommitResult(BaseModel):
@@ -159,17 +163,36 @@ def validate(tenant_id: str, data: Any) -> Model:  # noqa: ANN401
     return model
 
 
+def _running(tenant_id: str) -> Model | None:
+    """Return a copy of the configuration vpnc runs."""
+    model = config.VPNC_CONFIG_TENANT.get(tenant_id)
+    return model.model_copy(deep=True) if model is not None else None
+
+
+def _exists(tenant_id: str) -> bool:
+    """Return whether a tenant runs or has an active file (e.g. one not loaded)."""
+    return tenant_id in config.VPNC_CONFIG_TENANT or _path(tenant_id, "active").exists()
+
+
 def _load(tenant_id: str, revision: Revision) -> Model | None:
     """Return a revision; the candidate is the active one unless changes are staged.
 
-    None if there's none, or removing the tenant is staged.
+    The active one is what runs. None if there's none, or removing the tenant is
+    staged.
     """
+    if revision == "active":
+        return _running(tenant_id)
     text = _text(tenant_id, revision)
-    if text is None and revision == "candidate":
-        return _load(tenant_id, "active")
-    if text is None or not text.strip():
+    if text is None:
+        return _running(tenant_id)
+    if not text.strip():
         return None
-    return validate(tenant_id, yaml.safe_load(text))
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        detail = f"The candidate file of {tenant_id} isn't valid YAML."
+        raise ConfigError(422, "Invalid configuration", detail) from None
+    return validate(tenant_id, data)
 
 
 def _dump(model: Model | None, *, reveal: bool) -> dict[str, Any] | None:
@@ -193,9 +216,12 @@ def _changed(tenant_id: str) -> bool:
 
 
 def staged(tenant_id: str) -> bool:
-    """Return whether a tenant has staged changes."""
+    """Return whether a tenant has staged changes (or a candidate that's invalid)."""
     with LOCK:
-        return _changed(tenant_id)
+        try:
+            return _changed(tenant_id)
+        except (ConfigError, ValidationError):
+            return True
 
 
 def _keep_service(tenant_id: str) -> None:
@@ -205,41 +231,54 @@ def _keep_service(tenant_id: str) -> None:
 
 
 def tenant_ids() -> list[str]:
-    """Return the tenants with a configuration file (not the service)."""
-    return sorted(
-        {
-            p.stem
-            for directory in DIRS.values()
-            for p in directory.glob("*.yaml")
-            if config.TENANT_RE.match(p.stem) and p.stem != config.DEFAULT_TENANT
-        },
-    )
+    """Return the tenants that run or have a configuration file (not the service)."""
+    files = {
+        p.stem
+        for directory in DIRS.values()
+        for p in directory.glob("*.yaml")
+        if config.TENANT_RE.match(p.stem)
+    }
+    return sorted((files | set(config.VPNC_CONFIG_TENANT)) - {config.DEFAULT_TENANT})
 
 
 def summaries() -> list[ConfigSummary]:
     """Return the tenants with configuration (not the service)."""
     output: list[ConfigSummary] = []
     for tenant_id in tenant_ids():
-        active, candidate = _load(tenant_id, "active"), _load(tenant_id, "candidate")
-        if active is None and candidate is None:
-            continue
-        if active is None:
-            status = "ADDED"
-        elif candidate is None:
-            status = "DELETED"
-        elif not _same(active, candidate):
+        error = configuration.NOT_LOADED.get(tenant_id)
+        if error:
+            error = f"active file not loaded: {error}"
+        active = _load(tenant_id, "active")
+        try:
+            candidate = _load(tenant_id, "candidate")
+        except (ConfigError, ValidationError):
+            candidate, error = active, "the candidate file isn't valid"
             status = "MODIFIED"
         else:
-            status = "UNCHANGED"
+            status = _status(active, candidate)
+        if active is None and candidate is None and not error:
+            continue
         output.append(
             ConfigSummary(
                 id=tenant_id,
-                name=(candidate or active).name,  # type: ignore[union-attr]
+                name=(candidate or active).name if candidate or active else None,
                 status=status,
                 confirm_by=(_pending(tenant_id) or {}).get("confirm_by"),
+                error=error,
             ),
         )
     return output
+
+
+def _status(
+    active: Model | None,
+    candidate: Model | None,
+) -> Literal["UNCHANGED", "MODIFIED", "ADDED", "DELETED"]:
+    if active is None:
+        return "ADDED" if candidate is not None else "UNCHANGED"
+    if candidate is None:
+        return "DELETED"
+    return "UNCHANGED" if _same(active, candidate) else "MODIFIED"
 
 
 def read(tenant_id: str, revision: Revision, *, reveal: bool) -> dict[str, Any]:
@@ -247,8 +286,10 @@ def read(tenant_id: str, revision: Revision, *, reveal: bool) -> dict[str, Any]:
     check_id(tenant_id)
     if (model := _load(tenant_id, revision)) is None:
         detail = f"No {revision} configuration of {tenant_id}."
-        if revision == "candidate" and _text(tenant_id, "active") is not None:
+        if revision == "candidate" and _exists(tenant_id):
             detail = f"Removing {tenant_id} is staged."
+        elif error := configuration.NOT_LOADED.get(tenant_id):
+            detail = f"{tenant_id} doesn't run: its active file isn't loaded: {error}."
         raise ConfigError(404, "Not found", detail)
     return _dump(model, reveal=reveal)  # type: ignore[return-value]
 
@@ -316,11 +357,13 @@ def delete_candidate(tenant_id: str) -> CommitResult:
     _keep_service(tenant_id)
     with LOCK:
         if _load(tenant_id, "candidate") is None:
-            if _text(tenant_id, "active") is None:
+            if _text(tenant_id, "candidate") is not None:
+                # Staged already.
+                return CommitResult(id=tenant_id, changed=False)
+            if not _exists(tenant_id):
                 detail = f"No configuration of {tenant_id}."
                 raise ConfigError(404, "Not found", detail)
-            return CommitResult(id=tenant_id, changed=False)
-        if _text(tenant_id, "active") is None:
+        if not _exists(tenant_id):
             # Only staged: nothing to remove on commit.
             _path(tenant_id, "candidate").unlink()
         else:
@@ -370,15 +413,15 @@ def _save_history(tenant_id: str, text: str | None) -> None:
     files.ensure_file(first, content, secret=True)
 
 
-def _set_active(tenant_id: str, text: str | None) -> bool:
-    """Write (or with None remove) the active file; return whether it changed."""
+def _activate(tenant_id: str, model: Model | None) -> None:
+    """Write (or with None remove) the active file, and run it."""
     path = _path(tenant_id, "active")
-    if text is None or not text.strip():
-        changed = path.exists()
+    if model is None:
         path.unlink(missing_ok=True)
-        return changed
-    # Written in place: the configuration watcher applies modified files.
-    return files.ensure_file(path, text, secret=True)
+        configuration.delete_tenant(path)
+        return
+    files.ensure_file(path, _yaml(_dump(model, reveal=True)), secret=True)
+    configuration.run(model, path)
 
 
 def _pending_path(tenant_id: str) -> pathlib.Path:
@@ -407,7 +450,7 @@ def _clear_pending(tenant_id: str) -> bool:
 
 
 def _committed(tenant_id: str, confirm: int | None) -> None:
-    what = "configuration committed" if _text(tenant_id, "active") else "removed"
+    what = "configuration committed" if _exists(tenant_id) else "removed"
     if confirm:
         what += f", rolled back unless confirmed in {eventlog.duration(confirm)}"
     eventlog.record("CONFIG_COMMITTED", what, tenant=tenant_id)
@@ -439,7 +482,11 @@ def _roll_back_unconfirmed(tenant_id: str) -> None:
     with LOCK:
         if (pending := _pending(tenant_id)) is None:
             return
-        _set_active(tenant_id, pending["rollback"])
+        rollback = pending["rollback"]
+        _activate(
+            tenant_id,
+            validate(tenant_id, yaml.safe_load(rollback)) if rollback else None,
+        )
         _clear_pending(tenant_id)
         eventlog.record(
             "CONFIG_ROLLED_BACK",
@@ -462,25 +509,16 @@ def resume_pending() -> None:
 
 
 def _node_tenants(candidates: dict[str, Model | None]) -> dict[str, Model]:
-    """Return the configurations on this node, with the candidates."""
-    tenants: dict[str, Model] = {}
-    for path in DIRS["active"].glob("*.yaml"):
-        other_id = path.stem
-        if other_id in candidates or not config.TENANT_RE.match(other_id):
-            continue
-        other = config.VPNC_CONFIG_TENANT.get(other_id)
-        if other is None or not configuration.loaded(path):
-            # Committed, but not loaded by the watcher yet.
-            try:
-                other = _load(other_id, "active") or other
-            except (ConfigError, ValueError, yaml.YAMLError):
-                logger.warning("Can't read the configuration %s.", path)
-        if other is not None:
-            tenants[other_id] = other
-    return tenants | {k: v for k, v in candidates.items() if v is not None}
+    """Return the configurations running on this node, with the candidates."""
+    running = {
+        tenant_id: model
+        for tenant_id, model in config.VPNC_CONFIG_TENANT.items()
+        if tenant_id not in candidates
+    }
+    return running | {k: v for k, v in candidates.items() if v is not None}
 
 
-def _check_node(candidates: dict[str, Model | None]) -> None:
+def check_conflicts(candidates: dict[str, Model | None]) -> None:
     """Refuse candidates that conflict with another tenant or this node.
 
     A WireGuard port or PPK id another connection uses, a route without NPTv6
@@ -642,26 +680,32 @@ def commit(
     """
     check_id(tenant_id)
     with LOCK:
-        previous = _text(tenant_id, "active")
+        running = _running(tenant_id)
+        previous = _yaml(_dump(running, reveal=True)) or None
         changed = False
         warnings: list[str] = []
-        if _text(tenant_id, "candidate") is not None:
+        not_loaded = tenant_id in configuration.NOT_LOADED
+        # Also when nothing is staged, the active file that isn't loaded of a
+        # tenant that runs is replaced by what runs.
+        if _text(tenant_id, "candidate") is not None or (
+            not_loaded and running is not None
+        ):
             candidate = _load(tenant_id, "candidate")
             if candidate is None:
                 _keep_service(tenant_id)
             if check_node:
-                _check_node({tenant_id: candidate})
+                check_conflicts({tenant_id: candidate})
             warnings = _check_weak({tenant_id: candidate}, allow=allow_weak)
             filled = candidate is not None and _fill_ppk_ids(candidate)
-            # Only changed configurations: the files may differ in formatting.
-            if not _same(candidate, _load(tenant_id, "active")):
-                text = _yaml(_dump(candidate, reveal=True))
-                changed = _set_active(tenant_id, text or None)
+            if not _same(candidate, running) or not_loaded:
+                _activate(tenant_id, candidate)
+                changed = True
                 if filled:
                     # So the filled-in ids don't show as staged changes.
+                    text = _yaml(_dump(candidate, reveal=True))
                     files.ensure_file(_path(tenant_id, "candidate"), text, secret=True)
             if candidate is None:
-                _path(tenant_id, "candidate").unlink()
+                _path(tenant_id, "candidate").unlink(missing_ok=True)
         if changed:
             _save_history(tenant_id, previous)
             _committed(tenant_id, confirm)
@@ -780,7 +824,7 @@ def restore(tenant_id: str, revision: int) -> CommitResult:
     with LOCK:
         if text.strip():
             write_candidate(tenant_id, yaml.safe_load(text))
-        elif _text(tenant_id, "active") is None:
+        elif not _exists(tenant_id):
             _path(tenant_id, "candidate").unlink(missing_ok=True)
         else:
             delete_candidate(tenant_id)
@@ -791,7 +835,7 @@ def discard(tenant_id: str) -> CommitResult:
     """Drop the staged changes."""
     check_id(tenant_id)
     with LOCK:
-        changed = _changed(tenant_id)
+        changed = staged(tenant_id)
         _path(tenant_id, "candidate").unlink(missing_ok=True)
     return CommitResult(id=tenant_id, changed=changed)
 
@@ -818,7 +862,7 @@ def commit_all(
     with LOCK:
         staged = _staged_ids()
         candidates = {tenant_id: _load(tenant_id, "candidate") for tenant_id in staged}
-        _check_node(candidates)
+        check_conflicts(candidates)
         _check_weak(candidates, allow=allow_weak)
         results = [
             commit(tenant_id, confirm, check_node=False, allow_weak=True)

@@ -271,56 +271,48 @@ class Tenants(BaseModel):
 
 def load(
     path: pathlib.Path,
-) -> tuple[
-    ServiceHub | ServiceEndpoint | Tenant | None,
-    ServiceHub | ServiceEndpoint | Tenant | None,
-]:
-    """Load the global configuration."""
+) -> tuple[ServiceHub | ServiceEndpoint | Tenant | None, str | None]:
+    """Load a configuration file; return it, or None and why it can't be loaded."""
     logger.info("Loading configuration file from %s.", path)
+    model, error = _read(path)
+    if error:
+        # Without the file's content: it holds secrets.
+        logger.critical("Configuration file %s isn't loaded: %s.", path, error)
+    return model, error
+
+
+def _read(  # noqa: PLR0911 (a return per reason)
+    path: pathlib.Path,
+) -> tuple[ServiceHub | ServiceEndpoint | Tenant | None, str | None]:
     if not config.TENANT_RE.match(path.stem):
-        logger.error("Invalid filename found in %s. Skipping.", path)
-        return None, None
-    # Errors are logged without the file's content: it holds secrets.
+        return None, "the file name isn't a tenant id"
     try:
         with path.open(encoding="utf-8") as f:
             config_yaml = yaml.safe_load(f)
     except FileNotFoundError:
-        logger.critical("Configuration file could not be found at '%s'.", path)
-        return None, None
+        return None, "it doesn't exist"
+    except UnicodeDecodeError:
+        return None, "it isn't UTF-8 text"
     except (yaml.YAMLError, TypeError) as err:
         mark = getattr(err, "problem_mark", None)
-        logger.critical(
-            "Configuration is not valid '%s': %s%s.",
-            path,
-            getattr(err, "problem", None) or type(err).__name__,
-            f" at line {mark.line + 1}, column {mark.column + 1}" if mark else "",
-        )
-        return None, None
+        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+        problem = getattr(err, "problem", None) or type(err).__name__
+        return None, f"it isn't valid YAML: {problem}{where}"
 
     if isinstance(config_yaml, dict):
         config_yaml = migration.upgrade(config_yaml)
     try:
         tenant = Tenants(config=config_yaml).config
     except pydantic_core.ValidationError as err:
-        logger.critical(
-            "Configuration file '%s' doesn't adhere to the schema:\n%s",
-            path,
-            "\n".join(
-                f"  {'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
-                for error in err.errors(include_input=False, include_context=False)
-            ),
+        errors = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in err.errors(include_input=False, include_context=False)
         )
-        return None, None
+        return None, f"it doesn't adhere to the schema: {errors}"
 
     if tenant.id != path.stem:
-        logger.critical(
-            "Configuration file '%s' holds the configuration of '%s'. Skipping.",
-            path,
-            tenant.id,
-        )
-        return None, None
-
-    return tenant, config.VPNC_CONFIG_TENANT.get(tenant.id)
+        return None, f"it holds the configuration of {tenant.id}"
+    return tenant, None
 
 
 def load_default() -> ServiceHub | ServiceEndpoint:

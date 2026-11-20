@@ -6,7 +6,6 @@ import logging
 import os
 import pathlib
 import re
-import threading
 import time
 from ipaddress import AddressValueError, IPv4Network, IPv6Network
 from typing import TYPE_CHECKING, Any
@@ -19,7 +18,7 @@ from watchdog.events import (
 from watchdog.observers import Observer
 
 import vpnc.models.tenant
-from vpnc import config, files, helpers, migration
+from vpnc import config, eventlog, files, helpers, migration
 from vpnc.models import enums
 from vpnc.models.secret import REVEAL
 from vpnc.network import nftables
@@ -104,8 +103,9 @@ def observe() -> BaseObserver:
     return observer
 
 
-# The watcher and the reconciler (rescan) load and remove tenants.
-LOCK = threading.RLock()
+# The watcher, the reconciler (rescan) and commits load and remove tenants. The
+# configuration files' lock: a commit holds it while applying.
+LOCK = files.CONFIG_LOCK
 # Per configuration file its modification time and size when it was last read.
 FILE_STATES: dict[pathlib.Path, tuple[int, int]] = {}
 
@@ -143,10 +143,17 @@ def rescan() -> None:
 TENANT_PATHS: dict[str, pathlib.Path] = {}
 
 
-def manage_tenant(path: pathlib.Path) -> None:
-    """Configure tenants."""
+# Per tenant why its active file isn't running; it runs what it ran before.
+NOT_LOADED: dict[str, str] = {}
+
+
+def manage_tenant(path: pathlib.Path, *, check: bool = True) -> None:
+    """Run a changed active file, if it can be loaded and passes a commit's checks.
+
+    At startup (check False) the files are what was committed: not checked again.
+    """
     with LOCK:
-        _manage_tenant(path)
+        _manage_tenant(path, check=check)
 
 
 def _unsupported(tenant: Any, *, hub: bool) -> bool:  # noqa: ANN401
@@ -174,19 +181,91 @@ def _warn_weak(tenant: Any) -> None:  # noqa: ANN401
                 )
 
 
-def _manage_tenant(path: pathlib.Path) -> None:
+def _manage_tenant(path: pathlib.Path, *, check: bool) -> None:
     hub = helpers.is_hub()
     migration.migrate_file(path)
     # Before reading: a later change is seen as one.
     if (file_state := _file_state(path)) is not None:
         FILE_STATES[path] = file_state
-    tenant, active_tenant = vpnc.models.tenant.load(path)
-    if not tenant:
+    tenant_id = path.stem
+    tenant, error = vpnc.models.tenant.load(path)
+    if tenant is None:
+        _not_loaded(tenant_id, error or "")
         return
 
     if _unsupported(tenant, hub=hub):
         return
 
+    running = config.VPNC_CONFIG_TENANT.get(tenant_id)
+    if (
+        running is not None
+        and TENANT_PATHS.get(tenant_id) == path
+        and _same(tenant, running)
+    ):
+        # E.g. written by a commit, which applied it already.
+        _loaded(tenant_id)
+        return
+    if check and (error := _refused(tenant_id, tenant)):
+        _not_loaded(tenant_id, error)
+        return
+    run(tenant, path)
+
+
+def _same(first: Any, second: Any) -> bool:  # noqa: ANN401
+    """Return whether two configurations are the same, secrets included."""
+    dumps = [model.model_dump(mode="json", context=REVEAL) for model in (first, second)]
+    return dumps[0] == dumps[1]
+
+
+def _refused(tenant_id: str, tenant: Any) -> str | None:  # noqa: ANN401
+    """Return why a commit would refuse the configuration (weak cryptography aside)."""
+    # The API's module imports this one.
+    from vpnc.api import config_files  # noqa: PLC0415
+
+    try:
+        config_files.check_conflicts({tenant_id: tenant})
+    except config_files.ConfigError as err:
+        return str(err.detail)
+    return None
+
+
+def _not_loaded(tenant_id: str, error: str) -> None:
+    """Note that an active file isn't loaded; the tenant runs what it ran."""
+    if NOT_LOADED.get(tenant_id) == error:
+        return
+    NOT_LOADED[tenant_id] = error
+    running = tenant_id in config.VPNC_CONFIG_TENANT
+    eventlog.record(
+        "CONFIG_NOT_LOADED",
+        f"active file not loaded: {error}; "
+        + ("running the configuration before it" if running else "not running"),
+        tenant=tenant_id,
+        level=logging.WARNING,
+    )
+
+
+def _loaded(tenant_id: str) -> None:
+    if NOT_LOADED.pop(tenant_id, None) is not None:
+        eventlog.record("CONFIG_LOADED", "active file loaded", tenant=tenant_id)
+
+
+def run(tenant: Any, path: pathlib.Path) -> None:  # noqa: ANN401
+    """Run a tenant's configuration: the reconciler applies it.
+
+    The active file at path holds it (e.g. written by a commit).
+    """
+    with LOCK:
+        if (file_state := _file_state(path)) is not None:
+            FILE_STATES[path] = file_state
+        if _unsupported(tenant, hub=helpers.is_hub()):
+            return
+        _loaded(tenant.id)
+        _run(tenant, path)
+
+
+def _run(tenant: Any, path: pathlib.Path) -> None:  # noqa: ANN401
+    hub = helpers.is_hub()
+    active_tenant = config.VPNC_CONFIG_TENANT.get(tenant.id)
     previous_ids: set[str] = set()
     if active_tenant:
         previous_ids = {ni.id for ni in active_tenant.network_instances.values()}
@@ -214,6 +293,10 @@ def write_tenant(tenant_id: str) -> None:
     path = TENANT_PATHS.get(tenant_id)
     if tenant is None or path is None:
         return
+    if helpers.is_hub():
+        # The DNS translations of new NPTv6 prefixes: the watcher doesn't apply
+        # the file again, it's what runs.
+        vpncmangle.generate_config()
     output = files.to_yaml(tenant.model_dump(mode="json", context=REVEAL))
     with files.CONFIG_LOCK:
         if not loaded(path):
@@ -316,6 +399,7 @@ def delete_tenant(path: pathlib.Path) -> None:
 def _delete_tenant(path: pathlib.Path) -> None:
     hub = helpers.is_hub()
     FILE_STATES.pop(path, None)
+    NOT_LOADED.pop(path.stem, None)
 
     tenant_id = path.stem
     if not config.TENANT_RE.match(tenant_id):
@@ -329,18 +413,15 @@ def _delete_tenant(path: pathlib.Path) -> None:
         )
         return
 
+    TENANT_PATHS.pop(tenant_id, None)
+    # E.g. removed by a commit already, or its file was never loaded.
+    if (active_tenant := config.VPNC_CONFIG_TENANT.pop(tenant_id, None)) is None:
+        return
     logger.info(
         "Removing all network instance configuration for tenant '%s'.",
         tenant_id,
     )
-    active_network_instances = []
-    if active_tenant := config.VPNC_CONFIG_TENANT.pop(tenant_id, None):
-        active_network_instances = list(active_tenant.network_instances.values())
-
-    if _unsupported(active_tenant, hub=hub):
-        return
-
-    TENANT_PATHS.pop(tenant_id, None)
+    active_network_instances = list(active_tenant.network_instances.values())
     if hub:
         # Without the tenant's DNS translations.
         vpncmangle.generate_config()

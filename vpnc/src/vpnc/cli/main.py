@@ -1278,6 +1278,7 @@ def cmd_config_list(args: argparse.Namespace) -> None:
                 ("NAME", "name"),
                 ("STAGED", "status"),
                 ("CONFIRM BY", "confirm_by"),
+                ("ERROR", "error"),
             ],
         )
 
