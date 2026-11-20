@@ -74,6 +74,49 @@ def _path(ni_id: str) -> pathlib.Path:
     return config.IPSEC_CONFIG_DIR.joinpath(f"{ni_id}.conf")
 
 
+def proposals(cfg: ConnectionConfigIPsec) -> tuple[str, str]:
+    """Return a connection's IKE and ESP proposal as charon gets them."""
+    pq = cfg.post_quantum
+    # Hybrid: ML-KEM as additional key exchange after the classical one.
+    ke = f"-ke1_{STRONGSWAN_KE[pq.ml_kem]}" if pq.enabled else ""
+    return (
+        cfg.ike_proposal.replace("ike-", "") + ke,
+        cfg.ipsec_proposal.replace("ipsec-", "") + ke,
+    )
+
+
+# A connection that can't be used: only to check what charon accepts.
+CHECK_CONN = "vpnc-proposal-check"
+
+
+def refused_proposals(cfg: ConnectionConfigIPsec) -> str | None:
+    """Return the proposal setting charon refuses (e.g. ike_proposal), or None.
+
+    Raises a VICI error when charon can't be asked.
+    """
+    ike_proposal, esp_proposal = proposals(cfg)
+    conn = {
+        "version": str(cfg.ike_version),
+        "local_addrs": ["%any"],
+        # TEST-NET-3, without keys and never started: no peer can use it.
+        "remote_addrs": ["203.0.113.255"],
+        "local": {"auth": "psk"},
+        "remote": {"auth": "psk"},
+        "proposals": [ike_proposal],
+        "children": {
+            CHECK_CONN: {"esp_proposals": [esp_proposal], "start_action": "none"},
+        },
+    }
+    with charon.session() as vcs:
+        try:
+            vcs.load_conn({CHECK_CONN: conn})
+        except vici.exception.CommandException as err:
+            # E.g. "invalid value for: esp_proposals, config discarded".
+            return "ipsec_proposal" if "esp_proposals" in str(err) else "ike_proposal"
+        vcs.unload_conn({"name": CHECK_CONN})
+    return None
+
+
 def ids(cfg: ConnectionConfigIPsec) -> tuple[str, str]:
     """Return a connection's local and remote id as charon gets them."""
     local_id = cfg.local_id or helpers.get_default_tenant().local_id
@@ -105,8 +148,7 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
                 REFUSED.add(name)
             continue
         REFUSED.discard(name)
-        # Hybrid: ML-KEM as additional key exchange after the classical one.
-        ke = f"-ke1_{STRONGSWAN_KE[pq.ml_kem]}" if pq.enabled else ""
+        ike_proposal, esp_proposal = proposals(cfg)
         local_id, remote_id = ids(cfg)
         xfrm_id = hex(cfg.if_id(network_instance, connection))
         initiator = cfg.initiation == Initiation.INITIATOR
@@ -120,7 +162,7 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
             "life_time": f"{int(cfg.ipsec_lifetime * 1.1 + 0.5)}s",
             "rekey_time": f"{cfg.ipsec_lifetime}s",
             "rekey_bytes": "1024000000",
-            "esp_proposals": [cfg.ipsec_proposal.replace("ipsec-", "") + ke],
+            "esp_proposals": [esp_proposal],
             "hw_offload": "auto",
             # A responder waits for the peer to (re)establish the connection.
             "start_action": "start" if initiator else "none",
@@ -140,7 +182,7 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
             "if_id_out": xfrm_id,
             "local": {"id": local_id, "auth": "psk"},
             "remote": {"id": remote_id, "auth": "psk"},
-            "proposals": [cfg.ike_proposal.replace("ike-", "") + ke],
+            "proposals": [ike_proposal],
             "rekey_time": f"{cfg.ike_lifetime}s",
             "children": {name: child},
         }

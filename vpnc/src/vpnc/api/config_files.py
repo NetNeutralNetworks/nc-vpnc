@@ -566,6 +566,31 @@ def check_conflicts(candidates: dict[str, Model | None]) -> None:
     for model in candidates.values():
         if model is not None:
             _check_post_quantum(model)
+            _check_proposals(model)
+
+
+def _check_proposals(model: Model) -> None:
+    """Refuse IPsec proposals charon doesn't accept."""
+    for ni in model.network_instances.values():
+        for connection in ni.connections.values():
+            if connection.config.type != enums.ConnectionType.IPSEC:
+                continue
+            name = connection.name(ni)
+            try:
+                refused = strongswan.refused_proposals(connection.config)
+            except strongswan.VICI_ERRORS:
+                raise ConfigError(
+                    503,
+                    "charon unavailable",
+                    f"Can't check the proposals of {name} with charon.",
+                ) from None
+            if refused:
+                value = getattr(connection.config, refused)
+                raise ConfigError(
+                    422,
+                    "Invalid configuration",
+                    f"{name}: charon doesn't accept {refused} {value}.",
+                )
 
 
 def _added_weaknesses(tenant_id: str, candidate: Model | None) -> list[str]:
