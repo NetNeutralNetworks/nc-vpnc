@@ -121,6 +121,11 @@ def changed(
             diagnosed(side, *works)
 
 
+def session(side: tuple[str, str]) -> dict[str, Any]:
+    """Return a connection's session as vpnctl shows it."""
+    return vpnctl(side[0], f"connections show {side[1]}")["tunnel"]
+
+
 def child_sa_has(side: tuple[str, str], text: str) -> None:
     """Wait for a connection's child SA to be described with text."""
     conftest.wait_until(
@@ -165,6 +170,23 @@ class TestDiagnosis:
         assert events.index("OPER_DOWN") < events.index("ID_MISMATCH")
         assert events[-1] == "OPER_UP"
         assert "AUTH_FAILED_REMOTE" in events_since(INITIATOR, start)
+
+    def test_id_type(self) -> None:
+        """An id's type counts: FQDN 192.0.2.7 isn't IPv4 192.0.2.7.
+
+        A changed id resets the connection, also as a responder.
+        """
+        with changed(RESPONDER_CONFIG, "remote_id", "fqdn:192.0.2.7"):
+            mismatch = diagnosed(RESPONDER, "ID_MISMATCH")
+            assert mismatch["details"]["configured_remote_id_type"] == "FQDN"
+            assert "another type than the configured FQDN" in mismatch["hint"]
+
+            with changed(INITIATOR_CONFIG, "local_id", "fqdn:192.0.2.7", sides=()):
+                for side in BOTH:
+                    diagnosed(side, *WORKS)
+                assert session(INITIATOR)["local_identity_type"] == "FQDN"
+                assert session(RESPONDER)["remote_identity_type"] == "FQDN"
+                assert session(RESPONDER)["local_identity_type"] == "IPV4_ADDR"
 
     def test_ike_proposal(self) -> None:
         """Proposals without one in common: the responder shows both sides'."""

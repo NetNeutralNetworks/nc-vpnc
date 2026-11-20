@@ -22,6 +22,7 @@ from vpnc.services import charon, failures
 if TYPE_CHECKING:
     import pathlib
 
+    from vpnc.models.ipsec import ConnectionConfigIPsec
     from vpnc.models.network_instance import NetworkInstance
 
 logger = logging.getLogger("vpnc")
@@ -73,9 +74,14 @@ def _path(ni_id: str) -> pathlib.Path:
     return config.IPSEC_CONFIG_DIR.joinpath(f"{ni_id}.conf")
 
 
+def ids(cfg: ConnectionConfigIPsec) -> tuple[str, str]:
+    """Return a connection's local and remote id as charon gets them."""
+    local_id = cfg.local_id or helpers.get_default_tenant().local_id
+    return local_id, cfg.remote_id or str(cfg.remote_addrs[0])
+
+
 def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
     """Return the IPsec connections of a network instance by name."""
-    default_tenant = helpers.get_default_tenant()
     result: dict[str, Connection] = {}
     for connection in network_instance.connections.values():
         cfg = connection.config
@@ -101,7 +107,7 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
         REFUSED.discard(name)
         # Hybrid: ML-KEM as additional key exchange after the classical one.
         ke = f"-ke1_{STRONGSWAN_KE[pq.ml_kem]}" if pq.enabled else ""
-        remote_id = cfg.remote_id or str(cfg.remote_addrs[0])
+        local_id, remote_id = ids(cfg)
         xfrm_id = hex(cfg.if_id(network_instance, connection))
         initiator = cfg.initiation == Initiation.INITIATOR
         local_ts = [str(x) for x in cfg.traffic_selectors.local]
@@ -132,7 +138,7 @@ def connections(network_instance: NetworkInstance) -> dict[str, Connection]:
             "unique": "replace",
             "if_id_in": xfrm_id,
             "if_id_out": xfrm_id,
-            "local": {"id": cfg.local_id or default_tenant.local_id, "auth": "psk"},
+            "local": {"id": local_id, "auth": "psk"},
             "remote": {"id": remote_id, "auth": "psk"},
             "proposals": [cfg.ike_proposal.replace("ike-", "") + ke],
             "rekey_time": f"{cfg.ike_lifetime}s",
@@ -222,8 +228,8 @@ def _pending(
 def _kept(old: str | None, new: Connection) -> list[str]:
     """Return what changed that a connection's SAs keep the old of.
 
-    The key they were authenticated with, and the traffic selectors: charon
-    only negotiates those anew as an initiator.
+    The key they were authenticated with, the ids and the traffic selectors:
+    charon only negotiates those anew as an initiator.
     """
     if old is None:
         return []
@@ -236,6 +242,11 @@ def _kept(old: str | None, new: Connection) -> list[str]:
         field
         for field, kind in (("psk", "IKE"), ("ppk", "PPK"))
         if data(was_keys, kind) != data(keys, kind)
+    ]
+    changed += [
+        f"{side}_id"
+        for side in ("local", "remote")
+        if was[side]["id"] != conn[side]["id"]
     ]
     (was_child,), (child,) = was["children"].values(), conn["children"].values()
     if any(was_child[ts] != child[ts] for ts in ("local_ts", "remote_ts")):
@@ -339,8 +350,8 @@ def apply(network_instance: NetworkInstance) -> None:
     """Make charon's connections of a network instance as configured.
 
     Only connections that changed are loaded; others, and their SAs, aren't
-    touched. A changed PSK, PPK or traffic selectors resets the connection: its
-    SAs would keep the old. Failures are retried by the full check (sync).
+    touched. A changed PSK, PPK, id or traffic selectors resets the connection:
+    its SAs would keep the old. Failures are retried by the full check (sync).
     """
     conns = connections(network_instance)
     _write(network_instance.id, conns)
