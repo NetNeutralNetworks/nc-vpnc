@@ -145,7 +145,7 @@ def concentrator() -> None:  # noqa: PLR0915 (the start sequence)
 
     config_files = list(config.VPNC_A_CONFIG_DIR.glob(pattern="*.yaml"))
     for file_path in config_files:
-        configuration.manage_tenant(file_path)
+        configuration.manage_tenant(file_path, check=False)
 
     # Apply the configuration and keep correcting differences from it.
     RECONCILER.start()

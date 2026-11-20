@@ -534,6 +534,66 @@ class TestReconfiguration:
             message="tenant C0002 to be removed",
         )
 
+    def test_broken_active_file(self) -> None:
+        """An active file that can't be loaded is reported; the tenant keeps running.
+
+        A commit replaces the file with what runs.
+        """
+        conftest.write_file(HOST, TENANT_FILE, "{")
+        conftest.wait_until(
+            lambda: listed("C0002")["error"],
+            timeout=APPLY_TIMEOUT,
+            message="the broken file to be reported",
+        )
+
+        assert "isn't valid YAML" in listed("C0002")["error"]
+        assert vpnctl_json("config show C0002")["name"] == "Reconfiguration test"
+        assert connection_applied(BASE_CONNECTION)
+
+        assert vpnctl("config commit C0002") == "Committed.\n"
+        assert listed("C0002")["error"] is None
+        assert connection_applied(BASE_CONNECTION)
+
+    def test_refused_active_file(self) -> None:
+        """An active file a commit would refuse isn't applied, and is reported."""
+        refused = ipsec_connection(0, ("10.200.0.9/30", "fdcc:200:0:2::1/64"), [], [])
+        # Without NPTv6 inside the uplinks' route fd00::/16.
+        refused["routes"]["ipv6"] = [{"to": "fd00:5::/64", "nptv6": False}]
+        write_tenant([refused])
+        conftest.wait_until(
+            lambda: listed("C0002")["error"],
+            timeout=APPLY_TIMEOUT,
+            message="the refused file to be reported",
+        )
+
+        assert "overlaps fd00::/16" in listed("C0002")["error"]
+        assert connection_applied(BASE_CONNECTION)
+
+        write_tenant([BASE_CONNECTION])
+        conftest.wait_until(
+            lambda: listed("C0002")["error"] is None,
+            timeout=APPLY_TIMEOUT,
+            message="the file to be loaded",
+        )
+
+    def test_delete_tenant_with_broken_file(self) -> None:
+        """A tenant whose active file is broken is deleted like any other."""
+        conftest.write_file(HOST, TENANT_FILE, "{")
+        conftest.wait_until(
+            lambda: listed("C0002")["error"],
+            timeout=APPLY_TIMEOUT,
+            message="the broken file to be reported",
+        )
+
+        vpnctl("config delete C0002")
+        assert vpnctl("config commit C0002") == "Committed.\n"
+        conftest.wait_until(
+            tenant_removed,
+            timeout=APPLY_TIMEOUT,
+            message="tenant C0002 to be removed",
+        )
+        assert "C0002" not in [c["id"] for c in vpnctl_json("config list")]
+
     def test_config_tenant_lifecycle(self) -> None:
         """A tenant is created, changed and deleted with vpnctl."""
         try:
@@ -982,6 +1042,11 @@ def tenant_ids() -> list[str]:
     return [t["id"] for t in vpnctl_json("tenants list")]
 
 
+def listed(tenant_id: str) -> dict[str, Any]:
+    """Return a tenant's line in vpnctl config list."""
+    return next(c for c in vpnctl_json("config list") if c["id"] == tenant_id)
+
+
 def vpnctl(args: str) -> str:
     """Run vpnctl on the host (no spaces in arguments)."""
     return conftest.run_cmd(HOST, f"{VPNCTL} {args}")
@@ -1373,7 +1438,7 @@ class TestWireGuardPorts:
         wait_for_ports({"C0003": 51903, "C0004": 51902})
 
     def test_connection_with_the_port_keeps_it(self) -> None:
-        """A duplicate added outside vpnctl doesn't take over a port in use."""
+        """A duplicate added outside vpnctl isn't applied; the port stays in use."""
         stage("C0004", 51900)
         vpnctl("config commit C0004")
         wait_for_ports({"C0004": 51900})
@@ -1384,10 +1449,12 @@ class TestWireGuardPorts:
             wireguard_tenant("B0001", 51900),
         )
         conftest.wait_until(
-            lambda: "B0001-00" in netns_list(),
+            lambda: listed("B0001")["error"],
             timeout=APPLY_TIMEOUT,
-            message="B0001 to be applied",
+            message="B0001 to be refused",
         )
+        assert "WireGuard port 51900 is used by" in listed("B0001")["error"]
+        assert "B0001-00" not in netns_list()
         # Changes of the connection that has the port are still applied.
         conftest.write_file(
             HOST,
@@ -1399,7 +1466,7 @@ class TestWireGuardPorts:
             timeout=APPLY_TIMEOUT,
             message="the route of C0004 to be applied",
         )
-        assert [listen_port("C0004"), listen_port("B0001")] == [51900, None]
+        assert listen_port("C0004") == 51900  # noqa: PLR2004
 
 
 @pytest.mark.usefixtures("port_tenants")
