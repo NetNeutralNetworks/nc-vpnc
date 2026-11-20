@@ -36,6 +36,8 @@ OTHER_HOST_KEY = "ssh-ed25519 " + base64.b64encode(
 ).decode()
 # What a connection that works has: nothing, or it went down often (these tests).
 WORKS = (None, "FLAPPING")
+# Narrowed traffic selectors don't carry the hub's probes.
+WORKS_NARROWED = (*WORKS, "PROBES_FAILING")
 # A failure is noted when it's tried again: within a minute.
 FAIL_TIMEOUT = 100
 # Peers set up IPsec again; unanswered requests are retried for up to 165s.
@@ -90,10 +92,11 @@ def changed(
     key: str,
     value: Any,  # noqa: ANN401
     sides: tuple[tuple[str, str], ...] = BOTH,
+    works: tuple[str | None, ...] = WORKS,
 ) -> Iterator[None]:
     """Commit a value in a connection's configuration; put the old one back after.
 
-    The sides work again before it returns.
+    The sides work again (have a problem in works) before it returns.
     """
     host, target, path = config
     path = f"{path}.{key}"
@@ -115,7 +118,7 @@ def changed(
         else:
             put(old)
         for side in sides:
-            diagnosed(side, *WORKS)
+            diagnosed(side, *works)
 
 
 def child_sa_has(side: tuple[str, str], text: str) -> None:
@@ -191,13 +194,24 @@ class TestDiagnosis:
         Changed selectors reset the connection, also as a responder.
         """
         narrow = {"local": ["10.98.0.0/24"], "remote": ["10.99.0.0/24"]}
-        with changed(RESPONDER_CONFIG, "traffic_selectors", narrow):
+        # Narrowed until the initiator is reset, below.
+        with changed(
+            RESPONDER_CONFIG,
+            "traffic_selectors",
+            narrow,
+            works=WORKS_NARROWED,
+        ):
             # Negotiated anew: the responder narrows what the initiator proposes.
             child_sa_has(INITIATOR, "10.99.0.0/24 === 10.98.0.0/24 (narrowed from")
             child_sa_has(RESPONDER, "10.98.0.0/24 === 10.99.0.0/24 (as configured)")
 
             other = {"local": ["10.1.0.0/24"], "remote": ["10.2.0.0/24"]}
-            with changed(INITIATOR_CONFIG, "traffic_selectors", other):
+            with changed(
+                INITIATOR_CONFIG,
+                "traffic_selectors",
+                other,
+                works=WORKS_NARROWED,
+            ):
                 diagnosed(INITIATOR, "TS_MISMATCH")
                 details = diagnosed(RESPONDER, "TS_MISMATCH")["details"]
                 # What the peer proposed, and what's configured here.
@@ -205,11 +219,19 @@ class TestDiagnosis:
                 assert details["received_remote_ts"] == "10.1.0.0/24"
                 assert details["configured_local_ts"] == ["10.98.0.0/24"]
                 assert details["configured_remote_ts"] == ["10.99.0.0/24"]
+            start = now("end00")
         # The responder's wider selectors apply once the initiator starts anew:
         # after the responder's reset it proposes the ones it had.
+        conftest.wait_until(
+            lambda: "CLOSED_BY_PEER" in events_since(INITIATOR, start),
+            timeout=RESET_TIMEOUT,
+            interval=3,
+            message="the responder to reset CORE-0",
+        )
         conftest.run_cmd("end00", f"{VPNCTL} connections reset CORE-0")
         for side in BOTH:
             child_sa_has(side, "(as configured)")
+            diagnosed(side, *WORKS)
 
     def test_no_response(self) -> None:
         """A peer that doesn't answer."""

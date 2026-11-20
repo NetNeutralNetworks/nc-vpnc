@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
 import json
 import re
 import subprocess
@@ -393,6 +394,10 @@ class TestReconfiguration:
             remote_addrs=[PROBE_ADDRESS],
         )
         name = f"{NI}-1"
+        # Earlier tests had a connection of this name too.
+        start = dt.datetime.fromisoformat(
+            conftest.run_cmd(HOST, "date -Iseconds").strip(),
+        )
         write_tenant([BASE_CONNECTION, peer])
         conftest.wait_until(
             ike_answered,
@@ -410,7 +415,12 @@ class TestReconfiguration:
             message="the failed attempts to be noted",
         )
         events = vpnctl_json(f"connections events {name} -n 200")
-        mismatches = [e for e in events if e["event"] == "IKE_PROPOSAL_MISMATCH"]
+        mismatches = [
+            e
+            for e in events
+            if e["event"] == "IKE_PROPOSAL_MISMATCH"
+            and dt.datetime.fromisoformat(e["time"]) >= start
+        ]
         assert len(mismatches) == 1
 
     def test_change_addresses(self) -> None:
