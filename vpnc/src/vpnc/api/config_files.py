@@ -148,6 +148,12 @@ def validate(tenant_id: str, data: Any) -> Model:  # noqa: ANN401
     """Return the validated configuration (ValidationError if invalid)."""
     if not isinstance(data, dict):
         raise ConfigError(422, "Invalid configuration", "Expected a mapping.")
+    try:
+        # JSON allows lone surrogates (e.g. "\ud800"); the files are UTF-8.
+        json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
+    except UnicodeEncodeError:
+        detail = "Text should be valid Unicode (no lone surrogates)."
+        raise ConfigError(422, "Invalid configuration", detail) from None
     data = migration.upgrade(data)
     model = (
         tenant.Service(config=data).config
