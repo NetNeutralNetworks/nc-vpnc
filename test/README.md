@@ -33,7 +33,7 @@ sudo test/00_base/deploy-base.sh 26.04
 sudo test/00_base/healthcheck.sh
 sudo python3 -m pytest test/01_sanity        # quick check
 sudo python3 -m pytest test/02_reliability   # full check
-sudo test/00_base/diagnostics.sh            # when something fails
+sudo test/00_setup/diagnostics.sh            # when something fails
 ```
 
 Run the sanity tests on a fresh lab, before the reliability tests.
@@ -75,7 +75,7 @@ lab in an unknown state run here, so other runs keep a working base lab.
 sudo test/00_fuzz/deploy-fuzz.sh 26.04
 sudo test/00_base/healthcheck.sh vpnc-fuzz
 sudo VPNC_LAB=vpnc-fuzz python3 -m pytest test/01_sanity
-sudo test/00_base/diagnostics.sh vpnc-fuzz
+sudo test/00_setup/diagnostics.sh vpnc-fuzz
 ```
 
 `VPNC_LAB` selects the lab the tests run in; without it, the base lab.
