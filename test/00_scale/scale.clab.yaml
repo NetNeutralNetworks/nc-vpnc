@@ -12,15 +12,15 @@ topology:
     mgt00:
       kind: linux
       image: nc-vpnc-lab:${VPNC_VERSION:=latest}
-      cmd: /nc-vpnc/test/00_setup/lab/mgt/mgt00.sh
+      cmd: /nc-vpnc/test/00_base/lab/mgt/mgt00.sh
     hub00:
       kind: linux
       image: nc-vpnc:${VPNC_VERSION:=latest}
-      cmd: /nc-vpnc/test/00_setup/scale/hub00/config.sh
+      cmd: /nc-vpnc/test/00_scale/lab/hub00/config.sh
     peer00:
       kind: linux
       image: nc-vpnc-lab:${VPNC_VERSION:=latest}
-      cmd: /nc-vpnc/test/00_setup/scale/peer00/config.sh
+      cmd: /nc-vpnc/test/00_scale/lab/peer00/config.sh
     br-vpnc-scale:
       kind: bridge
 

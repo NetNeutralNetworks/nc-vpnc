@@ -1,0 +1,62 @@
+# Fuzz lab: the base lab's nodes, for tests that wreck it. Runs next to the base
+# lab, with its own bridge, management network and container names; deploy it
+# with deploy-fuzz.sh.
+name: vpnc-fuzz
+
+# Its own network, so the nodes' names (hub00, ...) don't resolve to another lab.
+mgmt:
+  network: clab-vpnc-fuzz
+  ipv4-subnet: 172.20.21.0/24
+  ipv6-subnet: 3fff:172:20:21::/64
+
+topology:
+  kinds:
+    linux:
+      binds:
+        - ../../:/nc-vpnc/
+        - /lib/modules/:/lib/modules
+  nodes:
+    mgt00:
+      kind: linux
+      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_base/lab/mgt/mgt00.sh
+    mgt01:
+      kind: linux
+      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_base/lab/mgt/mgt01.sh
+    hub00:
+      kind: linux
+      image: nc-vpnc:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_base/lab/hub00/config.sh
+    hub01:
+      kind: linux
+      image: nc-vpnc:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_base/lab/hub01/config.sh
+    end00:
+      kind: linux
+      image: nc-vpnc:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_base/lab/end00/config.sh
+    end01:
+      kind: linux
+      image: nc-vpnc:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_base/lab/end01/config.sh
+    cli00:
+      kind: linux
+      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_base/lab/cli/cli00.sh
+    cli01:
+      kind: linux
+      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      cmd: /nc-vpnc/test/00_base/lab/cli/cli01.sh
+    br-vpnc-fuzz:
+      kind: bridge
+
+  links:
+    - endpoints: ["mgt00:eth1", "br-vpnc-fuzz:fuzz-mgt00"]
+    - endpoints: ["mgt01:eth1", "br-vpnc-fuzz:fuzz-mgt01"]
+    - endpoints: ["hub00:eth1", "br-vpnc-fuzz:fuzz-hub00"]
+    - endpoints: ["hub01:eth1", "br-vpnc-fuzz:fuzz-hub01"]
+    - endpoints: ["end00:eth1", "br-vpnc-fuzz:fuzz-end00"]
+    - endpoints: ["end01:eth1", "br-vpnc-fuzz:fuzz-end01"]
+    - endpoints: ["end00:eth2", "cli00:eth1"]
+    - endpoints: ["end01:eth2", "cli01:eth1"]

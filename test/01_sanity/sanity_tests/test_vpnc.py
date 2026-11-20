@@ -20,7 +20,7 @@ def test_vpnc_running_without_restarts(host: str) -> None:
             "inspect",
             "--format",
             "{{.RestartCount}}",
-            f"clab-vpnc-{host}",
+            f"{conftest.CONTAINER_PREFIX}{host}",
         ],
         capture_output=True,
         text=True,
