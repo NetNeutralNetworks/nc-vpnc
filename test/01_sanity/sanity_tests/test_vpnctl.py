@@ -260,6 +260,17 @@ class TestVpnctl:
         assert complete("vpnctl connections show C0001-01") == ["C0001-01-0"]
         assert sorted(complete("vpnctl config show ")) == ["C0001", "service"]
 
+    # Arabic-Indic and fullwidth digits.
+    @pytest.mark.parametrize(
+        "tenant_id", ["A\u0661\u0662\u0663\u0664", "C\uff10\uff10\uff10\uff11"]
+    )
+    def test_tenant_id_digits_are_ascii(self, tenant_id: str) -> None:
+        """A tenant id with other digits than 0-9 isn't one."""
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            conftest.run_cmd("hub00", f"{VPNCTL} config show {tenant_id}")
+
+        assert "path.tenant_id: String should match pattern" in err.value.stderr
+
     def test_config_completion(self) -> None:
         """Completion offers a configuration's keys level by level, and values."""
         path = "network_instances.00.connections."

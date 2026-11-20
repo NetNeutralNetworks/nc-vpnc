@@ -98,7 +98,7 @@ class Tenant(BaseModel):
 
     def _check_key(self, key: str) -> None:
         """Refuse keys that aren't a network instance number, e.g. 00."""
-        if not re.fullmatch(r"\d{2}", key):
+        if not re.fullmatch(r"[0-9]{2}", key):
             msg = f"network instance '{key}' should be two digits, e.g. 00"
             raise ValueError(msg)
 
