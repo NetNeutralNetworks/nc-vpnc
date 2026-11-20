@@ -10,6 +10,7 @@ The tests run against containerlab labs and check end results in the lab.
 | `01_sanity/` | The freshly deployed lab is configured and working. Read-only. | seconds |
 | `02_reliability/` | Configuration changes, drift and failures (outages, restarts, lost sessions) are handled. Disrupts the lab and restores it. | ~20 min |
 | `03_performance/` | 200 network instances and 300 connections, in the scale lab. | ~10 min |
+| `04_fuzz/` | Generated configuration (Hypothesis), in the fuzz lab. May leave it broken. | ~7 min |
 
 ## Base lab
 
@@ -65,5 +66,14 @@ sudo test/00_base/diagnostics.sh vpnc-fuzz
 ```
 
 `VPNC_LAB` selects the lab the tests run in; without it, the base lab.
+
+```sh
+python3 -m pytest test/04_fuzz                         # on its own: skipped next to other suites
+FUZZ_EXAMPLES=200 python3 -m pytest test/04_fuzz       # examples per test, default 100
+python3 -m pytest test/04_fuzz --hypothesis-show-statistics
+```
+
+The fuzz tests need `python3-hypothesis`. A failure prints the smallest input that
+fails; it's kept in `test/04_fuzz/.hypothesis` and tried first in the next run.
 
 Without a version, the deploy scripts use the last built image (`latest`), as in CI.
