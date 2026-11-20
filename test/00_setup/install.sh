@@ -26,7 +26,8 @@ fi
 # without one there, it's built and put there.
 MODULES="/lib/modules/$(uname -r)/updates/dkms"
 if [[ -n "${JOOL_MODULES}" ]] && compgen -G "${JOOL_MODULES}/jool*.ko*" > /dev/null; then
-  apt-get install -y jool-tools
+  # Not jool-dkms, which jool-tools recommends: it would build the module.
+  apt-get install -y --no-install-recommends jool-tools
   mkdir -p "${MODULES}"
   cp "${JOOL_MODULES}"/jool*.ko* "${MODULES}/"
   depmod -a
