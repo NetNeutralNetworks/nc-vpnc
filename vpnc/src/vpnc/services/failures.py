@@ -79,7 +79,7 @@ PENDING: dict[str, Failure] = {}
 PENDING_SECONDS = 35
 SETTLE = 2
 # Seconds before a reason is an event of a connection again, unless it was set
-# up in between.
+# up or (re)configured in between.
 EVENT_INTERVAL = 600
 # When a connection's reasons were last an event.
 RECORDED: dict[str, dict[str, float]] = {}
@@ -137,7 +137,7 @@ def note(
 
 
 def clear(name: str) -> None:
-    """Forget a connection's failure: it's set up."""
+    """Forget a connection's failures: it's set up, configured anew or removed."""
     with _LOCK:
         CURRENT.pop(name, None)
         PENDING.pop(name, None)
