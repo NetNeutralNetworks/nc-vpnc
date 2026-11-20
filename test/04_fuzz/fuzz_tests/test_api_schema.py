@@ -1,12 +1,14 @@
 """Generated requests to every route of hub00's API (Schemathesis).
 
-No server errors, answers as the OpenAPI schema says, invalid input refused, no
+No server errors, answers as the OpenAPI schema says, invalid input refused,
+valid input accepted where the schema says what's valid (schemathesis.toml), no
 hangs. Afterwards hub00 is reset to as deployed.
 """
 
 from __future__ import annotations
 
 import os
+import pathlib
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -28,20 +30,13 @@ SOCAT = "alpine/socat:1.8.0.3"
 SOCKET_DIR = "/run/vpnc-fuzz-hub00"
 PROXY = "fuzz-api-socat"
 CONTAINER = f"{conftest.CONTAINER_PREFIX}{conftest.HOST}"
-CHECKS = [
-    "not_a_server_error",
-    "response_schema_conformance",
-    "negative_data_rejection",
-    "ensure_resource_availability",
-]
-# Not use_after_free: DELETE of a configuration stages its removal, which a
-# commit applies and a discard drops.
 EXCLUDED = (
     # What would change the service or vpnc itself.
     r"^/v1/(config/commit|config/service/commit|service/)"
     # Followed logs and events stream until closed.
     r"|/logs$|^/v1/events$"
 )
+CONFIG = pathlib.Path(__file__).with_name("schemathesis.toml")
 TIMEOUT = 3600
 
 
@@ -70,8 +65,9 @@ def test_api_schema(deployed: conftest.Deployed) -> None:
         result = subprocess.run(  # noqa: S603
             [  # noqa: S607
                 "docker", "run", "--rm", "--network", f"container:{CONTAINER}",
-                SCHEMATHESIS, "run", "http://127.0.0.1:8080/openapi.json",
-                "--checks", ",".join(CHECKS),
+                "-v", f"{CONFIG}:/schemathesis.toml:ro", SCHEMATHESIS,
+                "--config-file", "/schemathesis.toml",
+                "run", "http://127.0.0.1:8080/openapi.json",
                 "--max-examples", os.environ.get("FUZZ_EXAMPLES", "100"),
                 "--request-timeout", "10",
                 "--exclude-path-regex", EXCLUDED,
