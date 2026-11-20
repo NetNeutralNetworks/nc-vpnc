@@ -18,18 +18,20 @@ DEFAULT_NI = "DEFAULT"  # name of the DEFAULT network instance
 ENDPOINT_NI = "ENDPOINT"  # name of the ENDPOINT network instance
 EXTERNAL_NI = "EXTERNAL"  # name of the EXTERNAL untrusted network instance
 
-# The id of a non-default tenant, e.g. C0001.
-TENANT_ID = r"[2-9A-F]\d{4}"
+# The id of a non-default tenant, e.g. C0001. ASCII digits: \d matches any
+# Unicode digit, and in Python $ also before a final newline (hence \Z).
+TENANT_ID = r"[2-9A-F][0-9]{4}"
+# For JSON Schema and pydantic, whose $ is the end.
 TENANT_ID_PATTERN = rf"^{TENANT_ID}$"
 # Match all tenants
-TENANT_RE = re.compile(rf"^({TENANT_ID}|{DEFAULT_TENANT})$")
+TENANT_RE = re.compile(rf"^({TENANT_ID}|{DEFAULT_TENANT})\Z")
 # Match only non-default tenant configuration files
-DOWNLINK_TEN_FILE_RE = rf".+\/{TENANT_ID}\.yaml$"
+DOWNLINK_TEN_FILE_RE = rf".+\/{TENANT_ID}\.yaml\Z"
 # Match only non-default tenant network instances
-DOWNLINK_NI_RE = re.compile(rf"^{TENANT_ID}-\d{{2}}$")
+DOWNLINK_NI_RE = re.compile(rf"^{TENANT_ID}-[0-9]{{2}}\Z")
 # Match only non-default tenant network instance connections; the groups are the
 # network instance, the tenant and the connection's number.
-DOWNLINK_CON_RE = re.compile(rf"^(({TENANT_ID})-\d{{2}})-(\d)$")
+DOWNLINK_CON_RE = re.compile(rf"^(({TENANT_ID})-[0-9]{{2}})-([0-9])\Z")
 
 # Configuration file paths/directories for swanctl
 IPSEC_CONFIG_DIR = Path("/etc/swanctl/conf.d/")
