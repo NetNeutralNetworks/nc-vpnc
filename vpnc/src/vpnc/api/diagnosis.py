@@ -43,6 +43,8 @@ FLAPPING = 5
 FLAPPING_PERIOD = 3600
 # Packets sent through a child SA without any received: one way.
 ONE_WAY_PACKETS = 10
+# States of a child SA that carries traffic; REKEYING until its successor does.
+CHILD_SA_IN_USE = ("INSTALLED", "REKEYING")
 
 # Problems that aren't a failure reason (those are in failures.REASONS).
 PROBLEMS = {
@@ -353,6 +355,7 @@ class _Diagnoser:
             problem="CONNECTING",
         )
         wanted = f"{' '.join(child['local_ts'])} === {' '.join(child['remote_ts'])}"
+        in_use = any(sa.state in CHILD_SA_IN_USE for sa in tunnel.sas)
         for sa in tunnel.sas:
             sides = (
                 (sa.local_ts, child["local_ts"]),
@@ -369,7 +372,8 @@ class _Diagnoser:
                 "child SA",
                 f"{sa.state}, traffic selectors {' '.join(sa.local_ts)} === "
                 f"{' '.join(sa.remote_ts)} ({compared})",
-                ok=sa.state == "INSTALLED",
+                # A rekey's other child SA isn't a problem.
+                ok=sa.state in CHILD_SA_IN_USE or (None if in_use else False),
                 problem="CONNECTING",
             )
             sent, received = sa.out_pkts or 0, sa.in_pkts or 0
