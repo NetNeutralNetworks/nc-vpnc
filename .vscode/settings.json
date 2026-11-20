@@ -2,5 +2,8 @@
     "python.analysis.extraPaths": [
         "vpnc/src",
         "vpncmangle/src"
-    ]
+    ],
+    // The lab tests; they run as a user in the docker group.
+    "python.testing.pytestEnabled": true,
+    "python.testing.pytestArgs": ["test", "-p", "no:cacheprovider"]
 }
