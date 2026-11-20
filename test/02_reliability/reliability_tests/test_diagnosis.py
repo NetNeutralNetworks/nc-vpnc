@@ -197,7 +197,9 @@ class TestDiagnosis:
                 assert details["received_remote_ts"] == "10.1.0.0/24"
                 assert details["configured_local_ts"] == ["10.98.0.0/24"]
                 assert details["configured_remote_ts"] == ["10.99.0.0/24"]
-        # The configured selectors again, so traffic passes.
+        # The responder's wider selectors apply once the initiator starts anew:
+        # after the responder's reset it proposes the ones it had.
+        conftest.run_cmd("end00", f"{VPNCTL} connections reset CORE-0")
         for side in BOTH:
             child_sa_has(side, "(as configured)")
 

@@ -74,7 +74,7 @@ This reinstalls vpnc (and vpncmangle on a hub) and restarts vpnc only if somethi
 
 ## Configuration
 
-The configuration is YAML, one file per tenant plus `service` (the `DEFAULT` file). Change it with `vpnctl` or the API: changes are validated, staged and applied on commit (see [vpnctl](#vpnctl)). Service settings `mode` and `prefix_downlink_*` need a restart; everything else applies right away. An IPsec connection whose `psk`, PPK or `traffic_selectors` changed is reset (`CONFIG_RESET`): its SAs would keep the old ones, and a wrong value would only show at the next outage.
+The configuration is YAML, one file per tenant plus `service` (the `DEFAULT` file). Change it with `vpnctl` or the API: changes are validated, staged and applied on commit (see [vpnctl](#vpnctl)). Service settings `mode` and `prefix_downlink_*` need a restart; everything else applies right away. An IPsec connection whose `psk`, PPK or `traffic_selectors` changed is reset (`CONFIG_RESET`): its SAs would keep the old ones, and a wrong value would only show at the next outage. Wider `traffic_selectors` of a responder apply once the initiator is reset too: until then it proposes the ones it had.
 
 Values like `HUB` and `IPSEC` are upper case; lower case is still read. Files have a `version`, currently 0.1.4. vpnc converts files of version 0.1.3 at startup and when they are put in `active/`; the originals are kept in `/opt/ncubed/config/vpnc/backup/`. Other versions are refused.
 
