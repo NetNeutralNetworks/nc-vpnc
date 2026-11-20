@@ -13,7 +13,6 @@ topology:
       kind: linux
       image: nc-vpnc-lab:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_setup/lab/mgt/mgt00.sh
-      startup-delay: 10
     hub00:
       kind: linux
       image: nc-vpnc:${VPNC_VERSION:=latest}
