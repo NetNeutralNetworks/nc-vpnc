@@ -22,7 +22,21 @@ fi
 
 # Install the Jool kernel module on the host so it's available in containers.
 # The containers only ship jool-tools; userspace 4.1.x works with any 4.1.x module.
-apt-get install -y "linux-headers-$(uname -r)" jool-dkms jool-tools
+# JOOL_MODULES: a folder with the module built for this kernel (CI caches it);
+# without one there, it's built and put there.
+MODULES="/lib/modules/$(uname -r)/updates/dkms"
+if [[ -n "${JOOL_MODULES}" ]] && compgen -G "${JOOL_MODULES}/jool*.ko*" > /dev/null; then
+  apt-get install -y jool-tools
+  mkdir -p "${MODULES}"
+  cp "${JOOL_MODULES}"/jool*.ko* "${MODULES}/"
+  depmod -a
+else
+  apt-get install -y "linux-headers-$(uname -r)" jool-dkms jool-tools
+  if [[ -n "${JOOL_MODULES}" ]]; then
+    mkdir -p "${JOOL_MODULES}"
+    cp "${MODULES}"/jool*.ko* "${JOOL_MODULES}/"
+  fi
+fi
 # Fail here instead of later in the lab when the module didn't build.
 if ! modprobe jool; then
   echo "ERROR: could not load the Jool kernel module for kernel $(uname -r)." >&2
