@@ -1370,6 +1370,12 @@ def cmd_generate_psk(_: argparse.Namespace) -> None:
     print(secrets.token_urlsafe(32))
 
 
+def cmd_config_add(args: argparse.Namespace) -> None:
+    """Stage a new tenant with a name; set the rest, then commit."""
+    request("POST", "/v1/config/tenants", body={"id": args.tenant, "name": args.name})
+    staged_message(args.tenant)
+
+
 def cmd_config_set(args: argparse.Namespace) -> None:
     """Set a value at a path, creating missing parts; without one, prompt for it."""
     import yaml  # noqa: PLC0415
@@ -1626,6 +1632,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "service": {"restart": None, "stop": None},
     "config": {
         "list": None,
+        "add": None,
         "show": "target",
         "edit": "target",
         "set": "target",
@@ -2214,6 +2221,9 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
     p.add_argument("path", nargs="?", **path)
     p.add_argument("--candidate", action="store_true", help="with staged changes")
     p.add_argument("--reveal-secrets", action="store_true")
+    p = add(cfg, "add", cmd_config_add)
+    p.add_argument("tenant", help="the new tenant's id, e.g. C0002")
+    p.add_argument("name")
     p = add(cfg, "edit", cmd_config_edit)
     p.add_argument("target", **target)
     p.add_argument("path", nargs="?", **path)

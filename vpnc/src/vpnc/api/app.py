@@ -620,6 +620,12 @@ def list_configs() -> list[ConfigSummary]:
     return config_files.summaries()
 
 
+@app.post("/v1/config/tenants", status_code=201)
+def add_config(body: config_files.NewTenant) -> dict[str, Any]:
+    """Stage a new tenant with only its name; set the rest, then commit."""
+    return config_files.add_candidate(body)
+
+
 def tenant_id_path(
     tenant_id: Annotated[
         str,
@@ -661,7 +667,10 @@ def config_routes(  # noqa: C901 (a nested function per route)
 
     @router.patch("", summary=f"Stage changes to the {what} configuration")
     def patch_config(target_id: Target, body: ConfigBody) -> dict[str, Any]:
-        """Merge an RFC 7386 patch into the candidate: null removes."""
+        """Merge an RFC 7386 patch into the candidate: null removes.
+
+        A tenant without configuration is added first (POST /v1/config/tenants).
+        """
         return config_files.patch_candidate(target_id, body)
 
     @router.get("/diff", response_class=PlainTextResponse, summary="Staged changes")
