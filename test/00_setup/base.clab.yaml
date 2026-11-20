@@ -19,12 +19,10 @@ topology:
       kind: linux
       image: nc-vpnc-lab:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_setup/lab/mgt/mgt00.sh
-      startup-delay: 10
     mgt01:
       kind: linux
       image: nc-vpnc-lab:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_setup/lab/mgt/mgt01.sh
-      startup-delay: 10
     hub00:
       kind: linux
       # image: vrnetlab/vr-ubuntu:jammy
@@ -38,22 +36,18 @@ topology:
       kind: linux
       image: nc-vpnc:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_setup/lab/end00/config.sh
-      startup-delay: 20
     end01:
       kind: linux
       image: nc-vpnc:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_setup/lab/end01/config.sh
-      startup-delay: 20
     cli00:
       kind: linux
       image: nc-vpnc-lab:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_setup/lab/cli/cli00.sh
-      startup-delay: 30
     cli01:
       kind: linux
       image: nc-vpnc-lab:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_setup/lab/cli/cli01.sh
-      startup-delay: 30
     br-nc-vpnc:
       kind: bridge
 
