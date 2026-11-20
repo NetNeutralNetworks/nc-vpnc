@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from pyroute2.netlink.exceptions import NetlinkError
 
 import vpnc
-from vpnc import config, eventlog, helpers
+from vpnc import config, eventlog, helpers, shared
 from vpnc.api import config_files, diagnostics
 from vpnc.models import enums
 from vpnc.network import nftables, state, traffic
@@ -360,15 +360,23 @@ _SEEN: dict[str, _Seen] = {}
 _SEEN_LOCK = threading.Lock()
 
 
-def _track(name: str, current: OperStatus, *, enabled: bool) -> tuple[str, int]:
+def _track(
+    name: str,
+    current: OperStatus,
+    *,
+    enabled: bool,
+    up_since: float | None = None,
+) -> tuple[str, int]:
     """Return when a connection's oper_status last changed, and how often.
 
-    Records the changes as events.
+    Records the changes as events. up_since: when the tunnel of a VPN connection
+    that's up was set up, if known.
     """
     now = time.time()
     with _SEEN_LOCK:
         if (seen := _SEEN.get(name)) is None:
             seen = _SEEN[name] = _Seen(current, enabled, _timestamp(now), now)
+            _first_seen(name, seen, up_since)
         if seen.enabled != enabled:
             seen.enabled = enabled
             eventlog.record(
@@ -394,11 +402,44 @@ def _track(name: str, current: OperStatus, *, enabled: bool) -> tuple[str, int]:
         return seen.last_change, seen.transitions
 
 
+def _first_seen(name: str, seen: _Seen, up_since: float | None) -> None:
+    """Record a VPN connection that came up before vpnc first looked.
+
+    It was set up since vpnc started, unless its tunnel is older.
+    """
+    if seen.status != "UP" or up_since is None or up_since < shared.STARTED:
+        return
+    lasted = eventlog.duration(up_since - shared.STARTED)
+    eventlog.record(
+        "OPER_UP",
+        f"oper status UP, was DOWN for {lasted}",
+        connection=name,
+    )
+    seen.since = up_since
+    seen.last_change = _timestamp(up_since)
+    seen.transitions = 1
+
+
 def down_since(name: str) -> float | None:
     """Return since when (Unix time) a connection isn't UP; None if it is."""
     with _SEEN_LOCK:
         seen = _SEEN.get(name)
         return seen.since if seen and seen.status != "UP" else None
+
+
+def _up_since(ctype: enums.ConnectionType, tunnel: Tunnel | None) -> float | None:
+    """Return when a VPN connection's tunnel was set up (Unix time), if known.
+
+    A WireGuard interface is set up by vpnc: when it was isn't known, so since
+    vpnc started. Physical interfaces aren't set up by vpnc.
+    """
+    if ctype == enums.ConnectionType.PHYSICAL:
+        return None
+    if ctype == enums.ConnectionType.WIREGUARD:
+        return time.time()
+    if tunnel is None or tunnel.established is None:
+        return None
+    return dt.datetime.fromisoformat(tunnel.established).timestamp()
 
 
 def _endpoint(address: Any, port: Any) -> str | None:  # noqa: ANN401
@@ -649,6 +690,7 @@ def connection_states(
                 name,
                 current,
                 enabled=connection.enabled,
+                up_since=_up_since(ctype, tunnel),
             )
             counters = snapshot.counters.get(ifname or "")
             rates = traffic.rates(ni.id, ifname) if counters else None
