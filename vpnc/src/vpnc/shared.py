@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import threading
+import time
 
 # Define a global stop event
 STOP_EVENT = threading.Event()
+# When vpnc started (Unix time): what's set up since is an event when first seen.
+# Less a second: peers and FRR give times in whole seconds.
+STARTED = time.time() - 1
 
 # Lock to update/reload the vpncmangle configuration.
 VPNCMANGLE_LOCK = threading.Lock()

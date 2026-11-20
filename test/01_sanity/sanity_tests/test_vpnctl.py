@@ -514,6 +514,8 @@ VPN_CONNECTIONS = sorted(
 )
 # A peer counts as heard once two samples (full checks) saw its packets.
 PEER_SEEN_TIMEOUT = 100
+# BGP sessions are noted by vpnc's full check (every 30 s).
+FULL_CHECK_TIMEOUT = 40
 
 
 class TestVpnctlEvents:
@@ -532,11 +534,18 @@ class TestVpnctlEvents:
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_bgp_events(self, host: str) -> None:
         """A hub's BGP sessions becoming established are events of CORE."""
-        events = vpnctl(host, "ni events CORE --event BGP_ESTABLISHED -n 1000")
-        established = {event["details"]["neighbor_address"] for event in events}
         neighbors = {n["neighbor_address"] for n in vpnctl(host, "bgp neighbors")}
         assert neighbors
-        assert established >= neighbors
+
+        def established() -> bool:
+            events = vpnctl(host, "ni events CORE --event BGP_ESTABLISHED -n 1000")
+            return {e["details"]["neighbor_address"] for e in events} >= neighbors
+
+        conftest.wait_until(
+            established,
+            timeout=FULL_CHECK_TIMEOUT,
+            message="an event per established BGP session",
+        )
 
     def test_events_of_subject(self) -> None:
         """A tenant's events include its network instances' and connections'."""
