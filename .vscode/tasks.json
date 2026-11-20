@@ -1,0 +1,32 @@
+{
+    // Deploy a lab with an image tag, e.g. main, or one built with build-image.sh.
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Deploy base lab",
+            "type": "shell",
+            "command": "sudo test/00_base/deploy-base.sh ${input:image} && sudo test/00_base/healthcheck.sh",
+            "problemMatcher": []
+        },
+        {
+            "label": "Deploy scale lab",
+            "type": "shell",
+            "command": "sudo test/00_scale/deploy-scale.sh ${input:image}",
+            "problemMatcher": []
+        },
+        {
+            "label": "Deploy fuzz lab",
+            "type": "shell",
+            "command": "sudo test/00_fuzz/deploy-fuzz.sh ${input:image} && sudo test/00_base/healthcheck.sh vpnc-fuzz",
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "image",
+            "type": "promptString",
+            "description": "Image tag (nc-vpnc:<tag>)",
+            "default": "main"
+        }
+    ]
+}
