@@ -104,7 +104,8 @@ def _check(keys: set[str] | None) -> None:
         except Exception:
             logger.exception("Reconciling network instance %s failed.", ni_id)
 
-    for tenant_id in updated_tenants:
+    # With what vpnc assigned or learned: NPTv6 prefixes, SSH host keys.
+    for tenant_id in updated_tenants | ssh.adopt_host_keys():
         configuration.write_tenant(tenant_id)
     remove_unconfigured(helpers.network_instances(), keys)
     ssh.delete_unconfigured_keys()

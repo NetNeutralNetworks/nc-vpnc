@@ -170,6 +170,23 @@ class TestVpnctl:
         assert tunnel["encryption"]
         assert tunnel["key_exchange"] == ["mlkem768x25519-sha256"]
 
+    @pytest.mark.parametrize("host", ["hub00", "hub01"])
+    def test_ssh_host_key_configured(self, host: str) -> None:
+        """The key the server presented first is the connection's host_key."""
+        public = conftest.run_cmd("cli00", "cat /etc/ssh/ssh_host_ed25519_key.pub")
+        path = "network_instances.00.connections.1.config.host_key"
+
+        conftest.wait_until(
+            lambda: (
+                vpnctl(host, f"config show C0001 {path}")
+                == " ".join(public.split()[:2])
+            ),
+            timeout=60,
+            message="the server's host key to be configured",
+        )
+        staged = {c["id"]: c["status"] for c in vpnctl(host, "config list")}
+        assert staged["C0001"] == "UNCHANGED"
+
     def test_session_fields(self) -> None:
         """IPsec, SSH and WireGuard connections show the same session fields."""
         common = [

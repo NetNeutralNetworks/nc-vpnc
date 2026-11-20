@@ -241,16 +241,28 @@ class TestDiagnosis:
             assert "ssh-setup" in denied["hint"]
 
     def test_ssh_host_key(self) -> None:
-        """Only the configured host key is accepted of the server."""
+        """Only the configured host key is accepted; without one, the next is."""
+        host, target, path = SSH_CONFIG
+        path = f"{path}.host_key"
         public = conftest.run_cmd(SSH_SERVER, "cat /etc/ssh/ssh_host_ed25519_key.pub")
         host_key = " ".join(public.split()[:2])
 
-        with changed(SSH_CONFIG, "host_key", host_key, sides=(SSH,)):
-            diagnosed(SSH, *WORKS)
-            with changed(SSH_CONFIG, "host_key", OTHER_HOST_KEY, sides=()):
-                mismatch = diagnosed(SSH, "HOST_KEY_MISMATCH")
-                assert "host_key" in mismatch["hint"]
-            diagnosed(SSH, *WORKS)
+        def configured() -> bool:
+            return vpnctl(host, f"config show {target} {path}") == host_key
+
+        assert configured()
+        with changed(SSH_CONFIG, "host_key", OTHER_HOST_KEY, sides=()):
+            mismatch = diagnosed(SSH, "HOST_KEY_MISMATCH")
+            assert "host_key" in mismatch["hint"]
+            conftest.run_cmd(host, f"{VPNCTL} config delete {target} {path}")
+            commit(host, target)
+            conftest.wait_until(
+                configured,
+                timeout=UP_TIMEOUT,
+                interval=3,
+                message="the server's key to be accepted and configured",
+            )
+        diagnosed(SSH, *WORKS)
 
     def test_wireguard_key(self) -> None:
         """A wrong public key: the peer's packets arrive, no handshake completes."""

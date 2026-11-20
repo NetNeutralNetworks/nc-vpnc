@@ -43,9 +43,9 @@ class ConnectionConfigSSH(BaseModel):
         pattern=INTERFACE_PATTERN,
     )
     username: str = Field(pattern=USERNAME_PATTERN)
-    # Optional: the server's public host key (a line of its
-    # /etc/ssh/ssh_host_*_key.pub). Without it, the key the server presents
-    # when first connecting is accepted, and only that one after.
+    # The server's public host key (a line of its /etc/ssh/ssh_host_*_key.pub),
+    # the only one accepted. Not set, vpnc sets it to the key the server
+    # presents when first connecting; delete it to accept a new one.
     host_key: str | None = Field(default=None, pattern=HOST_KEY_PATTERN)
     post_quantum: PostQuantumSSH = Field(default_factory=PostQuantumSSH)
 

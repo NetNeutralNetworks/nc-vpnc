@@ -127,8 +127,8 @@ HINTS = {
     "public key with what the peer has",
     "PERMISSION_DENIED": "install this side's key on the server: vpnctl connections "
     "ssh-setup {name}",
-    "HOST_KEY_MISMATCH": "if the server was replaced, set its new key as host_key, "
-    "or delete the connection's file in known_hosts to accept it",
+    "HOST_KEY_MISMATCH": "if the server was replaced, delete host_key from the "
+    "connection's configuration to accept its new key, or set it",
     "REFUSED": "check that sshd runs on the server and listens on the port",
     "NEGOTIATION_FAILED": "the server's OpenSSH may be too old for post_quantum",
     "TUNNEL_REFUSED": "set up the server: vpnctl connections ssh-setup {name}",
