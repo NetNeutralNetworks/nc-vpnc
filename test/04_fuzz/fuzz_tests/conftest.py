@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 # test/ holds lab_helpers.py. Add it explicitly so the suite also works when
 # pytest is started from inside the suite directory.
 TEST_DIR = str(Path(__file__).resolve().parents[2])
@@ -175,13 +177,67 @@ def stable(host: str = HOST, interval: float = 3) -> dict[str, Any]:
     return wait_until(same, timeout=120, interval=interval, message="a stable state")
 
 
+CONFIG_DIR = "/opt/ncubed/config/vpnc"
+# Restoring the deployed configuration: back to the same state within this time.
+RESET_TIMEOUT = 300
+
+
+class Deployed:
+    """A node's configuration files and state as deployed."""
+
+    def __init__(self, host: str = HOST) -> None:
+        """Read them once the state is stable."""
+        self.host = host
+        self.state = stable(host)
+        self.files = subprocess.run(  # noqa: S603
+            [  # noqa: S607
+                "docker", "exec", f"{CONTAINER_PREFIX}{host}",
+                "tar", "-C", CONFIG_DIR, "-cf", "-", "active", "candidate",
+            ],
+            capture_output=True,
+            check=True,
+        ).stdout  # fmt: skip
+
+    def reset(self) -> None:
+        """Put the configuration files back; the state must follow."""
+        container = f"{CONTAINER_PREFIX}{self.host}"
+        script = (
+            f"rm -f {ACTIVE_DIR}/*.yaml {CANDIDATE_DIR}/*.yaml"
+            f" && tar -C {CONFIG_DIR} -xf -"
+        )
+        subprocess.run(  # noqa: S603
+            ["docker", "exec", "-i", container, "bash", "-c", script],  # noqa: S607
+            input=self.files,
+            check=True,
+        )
+        try:
+            wait_until(
+                lambda: snapshot(self.host) == self.state,
+                timeout=RESET_TIMEOUT,
+                interval=3,
+                message="the deployed state",
+            )
+        except TimeoutError:
+            changes = diff(self.state, snapshot(self.host))
+            msg = "\n".join(["not as deployed after restoring the files:", *changes])
+            raise AssertionError(msg) from None
+
+
+@pytest.fixture(scope="session")
+def deployed() -> Deployed:
+    """Return hub00 as deployed, to reset it to."""
+    return Deployed()
+
+
 __all__ = [
     "ACTIVE_DIR",
     "CANDIDATE_DIR",
+    "CONFIG_DIR",
     "FUZZ_LAB",
     "HISTORY_DIR",
     "HOST",
     "ApiError",
+    "Deployed",
     "api",
     "diff",
     "restarts",
