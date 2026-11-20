@@ -21,7 +21,7 @@ from vpnc.models import enums
 from vpnc.models.ipsec import Initiation
 from vpnc.network import namespace
 from vpnc.services import charon, failures, peers, probes
-from vpnc.services.strongswan import strongswan
+from vpnc.services.strongswan import identity, strongswan
 
 if TYPE_CHECKING:
     from vpnc.models.connections import Connection
@@ -75,7 +75,12 @@ LOCAL = (
 )
 WHILE_UP = ("PROBES_FAILING", "ONE_WAY_TRAFFIC", "FLAPPING")
 # What's configured that a problem is about, shown next to what the peer sent.
-_IDS = ("configured_local_id", "configured_remote_id")
+_IDS = (
+    "configured_local_id",
+    "configured_remote_id",
+    "configured_local_id_type",
+    "configured_remote_id_type",
+)
 CONFIGURED = {
     "AUTH_FAILED_REMOTE": _IDS,
     "AUTH_FAILED_LOCAL": _IDS,
@@ -85,6 +90,11 @@ CONFIGURED = {
     "CHILD_PROPOSAL_MISMATCH": ("configured_ipsec_proposal",),
     "TS_MISMATCH": ("configured_local_ts", "configured_remote_ts"),
 }
+# An ID_MISMATCH where the peer's id has the configured value, so its type differs.
+ID_TYPE_HINT = (
+    "the peer uses {id} with another type than the configured {type}: set "
+    "{side}_id's type as the peer has it, e.g. with a prefix such as fqdn:"
+)
 # What to do about a problem; {name} is the connection.
 HINTS = {
     "ADMIN_DOWN": "vpnctl connections start {name}",
@@ -195,6 +205,13 @@ def _route(address: str) -> str | None:
         return None
     gateway = f"via {route['gateway']} " if route.get("gateway") else ""
     return f"{gateway}dev {route['dev']}"
+
+
+def _id(tunnel: status.Tunnel, side: str, configured: str) -> str:
+    """Return a session's id, with its type if known and the configured one."""
+    kind = getattr(tunnel, f"{side}_identity_type")
+    known = f"{kind}, " if kind else ""
+    return f"{getattr(tunnel, f'{side}_identity')} ({known}configured {configured})"
 
 
 def _within(selectors: list[str], configured: list[str]) -> bool:
@@ -339,6 +356,8 @@ class _Diagnoser:
         self.details.update(
             configured_local_id=local_id,
             configured_remote_id=remote_id,
+            configured_local_id_type=identity.parse(local_id)[0],
+            configured_remote_id_type=identity.parse(remote_id)[0],
             configured_ike_proposal=conn[0]["proposals"][0],
             configured_ipsec_proposal=child["esp_proposals"][0],
             configured_local_ts=child["local_ts"],
@@ -350,9 +369,8 @@ class _Diagnoser:
             return
         self.check(
             "IKE SA",
-            f"{tunnel.state}, local id {tunnel.local_identity} (configured "
-            f"{local_id}), remote id {tunnel.remote_identity} (configured "
-            f"{remote_id})",
+            f"{tunnel.state}, local id {_id(tunnel, 'local', local_id)}, "
+            f"remote id {_id(tunnel, 'remote', remote_id)}",
             ok=tunnel.state == "ESTABLISHED",
             problem="CONNECTING",
         )
@@ -467,6 +485,17 @@ class _Diagnoser:
         keys = CONFIGURED.get(problem or "", ())
         return {**details, **{k: self.details[k] for k in keys if k in self.details}}
 
+    def id_type_mismatch(self, details: dict[str, Any]) -> dict[str, str] | None:
+        """Return the id the peer uses with the configured value, if any."""
+        for received, side in (
+            ("received_remote_id", "remote"),
+            ("requested_local_id", "local"),
+        ):
+            kind, value = identity.parse(self.details.get(f"configured_{side}_id", ""))
+            if kind and details.get(received) == value:
+                return {"id": value, "type": kind, "side": side}
+        return None
+
     def run(self) -> Diagnosis:
         """Check the connection and return what's wrong with it."""
         self.local()
@@ -490,7 +519,11 @@ class _Diagnoser:
         summary = "nothing wrong was found"
         if problem is not None:
             summary = {**failures.REASONS, **PROBLEMS}.get(problem, problem)
+        details = self.relevant(problem, failure)
         hint = HINTS.get(problem or "")
+        hint = hint.format(name=self.name) if hint else None
+        if problem == "ID_MISMATCH" and (same := self.id_type_mismatch(details)):
+            hint = ID_TYPE_HINT.format(**same)
         return Diagnosis(
             id=self.name,
             type=self.cfg.type,
@@ -499,8 +532,8 @@ class _Diagnoser:
             last_change=self.state.last_change,
             problem=problem,
             summary=summary,
-            hint=hint.format(name=self.name) if hint else None,
-            details=self.relevant(problem, failure),
+            hint=hint,
+            details=details,
             first_seen=_timestamp(failure.first) if failure else None,
             last_seen=_timestamp(failure.last) if failure else None,
             count=failure.count if failure else None,

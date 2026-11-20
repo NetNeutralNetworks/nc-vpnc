@@ -33,6 +33,7 @@ from vpnc.services import (
     vpncmangle,
     wireguard,
 )
+from vpnc.services.strongswan import identity, strongswan
 
 if TYPE_CHECKING:
     from vpnc.models.connections import Connection
@@ -141,6 +142,9 @@ class Tunnel(BaseModel):
     # IKE ids; WireGuard public keys; SSH username and the server's host key.
     local_identity: str | None = None
     remote_identity: str | None = None
+    # IPsec: the ids' type, e.g. IPV4_ADDR or FQDN; None if unknown.
+    local_identity_type: str | None = None
+    remote_identity_type: str | None = None
     # As negotiated; WireGuard: fixed by the protocol.
     encryption: str | None = None
     # None with an AEAD cipher.
@@ -471,6 +475,11 @@ def _ipsec(
         return "DOWN", str(connection.config.remote_addrs[0]), None
     sa = charon.decode(sa)
     established = sa.get("established")
+    local_id, remote_id = strongswan.ids(connection.config)
+    # With %any charon sends its address.
+    local_type = (
+        identity.parse(local_id)[0] or identity.parse(sa.get("local-id", ""))[0]
+    )
     tunnel = Tunnel(
         state=sa.get("state"),
         session_id=int(sa.get("uniqueid", 0)) or None,
@@ -478,6 +487,8 @@ def _ipsec(
         remote=_endpoint(sa.get("remote-host"), sa.get("remote-port")),
         local_identity=sa.get("local-id"),
         remote_identity=sa.get("remote-id"),
+        local_identity_type=local_type,
+        remote_identity_type=identity.parse(remote_id)[0],
         encryption=_algorithm(sa, "encr"),
         integrity=_algorithm(sa, "integ"),
         prf=sa.get("prf-alg"),

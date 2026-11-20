@@ -651,6 +651,14 @@ def key_exchange_text(tunnel: dict[str, Any]) -> str | None:
     return " + ".join(methods) or None
 
 
+def identity_text(tunnel: dict[str, Any], side: str) -> str | None:
+    """Return a session's id, with its type if known."""
+    text = tunnel.get(f"{side}_identity")
+    if text is not None and (kind := tunnel.get(f"{side}_identity_type")):
+        return f"{text} ({kind})"
+    return text
+
+
 def tunnel_items(ctype: str, tunnel: dict[str, Any]) -> list[tuple[str, Any]]:
     """Return a VPN connection's session fields, the same for each type."""
     if ctype == "PHYSICAL":
@@ -662,8 +670,8 @@ def tunnel_items(ctype: str, tunnel: dict[str, Any]) -> list[tuple[str, Any]]:
         ("Session state", tunnel.get("state")),
         ("Session id", tunnel.get("session_id")),
         ("Local", tunnel.get("local")),
-        ("Local identity", tunnel.get("local_identity")),
-        ("Remote identity", tunnel.get("remote_identity")),
+        ("Local identity", identity_text(tunnel, "local")),
+        ("Remote identity", identity_text(tunnel, "remote")),
         ("Encryption", tunnel.get("encryption")),
         ("Integrity", tunnel.get("integrity")),
         ("Key exchange", key_exchange_text(tunnel)),

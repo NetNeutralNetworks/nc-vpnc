@@ -574,7 +574,7 @@ class TestVpnctlEvents:
 
         found = checks()
         ike = found["IKE SA"][0]["detail"]
-        assert "remote id 192.0.2.7 (configured 192.0.2.7)" in ike
+        assert "remote id 192.0.2.7 (IPV4_ADDR, configured 192.0.2.7)" in ike
         assert found["child SA"][0]["detail"].endswith("(as configured)")
         assert all(check["result"] == "OK" for check in found["route to peer"])
         # EXTERNAL counts what the peer sends, from the address it uses.
