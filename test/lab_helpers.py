@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import ipaddress
 import itertools
+import os
 import re
 import subprocess
 import time
@@ -18,7 +19,9 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
-CONTAINER_PREFIX = "clab-vpnc-"
+# The lab the tests run in: vpnc (the base lab) or vpnc-fuzz.
+LAB = os.environ.get("VPNC_LAB", "vpnc")
+CONTAINER_PREFIX = f"clab-{LAB}-"
 
 # Server of the hubs' SSH tunnels.
 SSH_SERVER = "cli00"

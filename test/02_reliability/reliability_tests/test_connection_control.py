@@ -242,8 +242,9 @@ class TestConnectionLogs:
                 return output.read().splitlines()
 
             command = f"{VPNCTL} connections logs {name} -n 1 -f"
+            container = f"{conftest.CONTAINER_PREFIX}{host}"
             follower = subprocess.Popen(  # noqa: S603
-                ["docker", "exec", f"clab-vpnc-{host}", *command.split()],  # noqa: S607
+                ["docker", "exec", container, *command.split()],  # noqa: S607
                 stdout=output,
             )
             try:
