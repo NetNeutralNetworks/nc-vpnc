@@ -439,7 +439,7 @@ class TestVpnctlLogsAndCounters:
             [  # noqa: S607
                 "docker",
                 "exec",
-                "clab-vpnc-hub00",
+                f"{conftest.CONTAINER_PREFIX}hub00",
                 "timeout",
                 "3",
                 VPNCTL,

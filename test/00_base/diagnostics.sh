@@ -1,16 +1,17 @@
 #! /bin/bash
 # Print the state of the containerlab lab to diagnose failures, e.g. in CI.
-# Usage: sudo test/00_setup/diagnostics.sh
+# Usage: sudo test/00_base/diagnostics.sh [vpnc|vpnc-fuzz]  (the lab, default the base lab)
+LAB="${1:-vpnc}"
 
 section() { echo "::group::$*"; }
 endsection() { echo "::endgroup::"; }
-in_node() { docker exec "clab-vpnc-$1" bash -c "$2" 2>&1; }
+in_node() { docker exec "clab-${LAB}-$1" bash -c "$2" 2>&1; }
 
 uname -a
 lsmod | grep -E '^(jool|xfrm|wireguard)' || true
-docker ps -a
+docker ps -a --filter "label=containerlab=${LAB}"
 
-for c in $(docker ps -a --format '{{.Names}}' | grep '^clab-vpnc-' | sort); do
+for c in $(docker ps -a --filter "label=containerlab=${LAB}" --format '{{.Names}}' | sort); do
   section "${c} logs"
   docker inspect --format 'restarts={{.RestartCount}} state={{.State.Status}} exit={{.State.ExitCode}}' "${c}"
   docker logs --tail 300 "${c}" 2>&1
@@ -19,7 +20,7 @@ for c in $(docker ps -a --format '{{.Names}}' | grep '^clab-vpnc-' | sort); do
 done
 
 for h in hub00 hub01; do
-  docker inspect "clab-vpnc-${h}" &> /dev/null || continue
+  docker inspect "clab-${LAB}-${h}" &> /dev/null || continue
   section "${h} state"
   in_node "${h}" 'swanctl --list-sas 2>/dev/null | grep -E "^[A-Za-z0-9-]+: #"'
   for ni in CORE C0001-00 C0001-01; do
