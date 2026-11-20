@@ -1,4 +1,6 @@
 #! /bin/bash
+# Install what the labs need on the host (as root): Docker, containerlab, the
+# Jool module, the bridge of the base lab and the test tools.
 SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 
 apt-get update
@@ -6,7 +8,8 @@ apt-get update
 if [[ -z "${GITHUB_ACTIONS}" ]]; then
 apt-get upgrade -y
 fi
-apt-get install -y bridge-utils python3-pytest python3-yaml
+# python3-hypothesis: the fuzz tests (04_fuzz).
+apt-get install -y bridge-utils python3-pytest python3-yaml python3-hypothesis
 # jool-tools
 
 if [[ -z "${GITHUB_ACTIONS}" ]]; then
