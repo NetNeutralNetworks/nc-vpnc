@@ -32,9 +32,10 @@ CHECKS = [
     "not_a_server_error",
     "response_schema_conformance",
     "negative_data_rejection",
-    "use_after_free",
     "ensure_resource_availability",
 ]
+# Not use_after_free: DELETE of a configuration stages its removal, which a
+# commit applies and a discard drops.
 EXCLUDED = (
     # What would change the service or vpnc itself.
     r"^/v1/(config/commit|config/service/commit|service/)"

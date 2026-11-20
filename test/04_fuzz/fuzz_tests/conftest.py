@@ -143,6 +143,13 @@ def snapshot(host: str = HOST) -> dict[str, Any]:
             },
             "routes": _routes(json.loads(routes_4) + json.loads(routes_6)),
         }
+    # Not a network instance: what vpnc says of its connections.
+    state["(vpnc)"] = {
+        "admin_status": {
+            (c["id"], c["admin_status"])
+            for c in api("GET", "/v1/connections", host=host)[1]
+        },
+    }
     return state
 
 
@@ -156,10 +163,52 @@ def diff(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
         if ns not in before:
             lines.append(f"+ netns {ns}")
             continue
-        for what in ("links", "addresses", "routes"):
+        for what in before[ns]:
             lines += [f"- {ns} {what} {x}" for x in before[ns][what] - after[ns][what]]
             lines += [f"+ {ns} {what} {x}" for x in after[ns][what] - before[ns][what]]
     return lines
+
+
+def not_loaded(host: str = HOST) -> list[str]:
+    """Return what vpnc applied only partly: charon or nftables refused it.
+
+    Each enabled IPsec connection is loaded in charon, and each network instance
+    but DEFAULT has vpnc's nftables table.
+    """
+    container = f"{CONTAINER_PREFIX}{host}"
+    conns = subprocess.run(  # noqa: S603
+        ["docker", "exec", container, "swanctl", "--list-conns"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    loaded = {line.split(":")[0] for line in conns.splitlines() if line[:1].strip()}
+    problems = [
+        f"IPsec connection {c['id']} isn't loaded in charon"
+        for c in api("GET", "/v1/connections", host=host)[1]
+        if c["type"] == "IPSEC" and c["admin_status"] == "UP" and c["id"] not in loaded
+    ]
+    for ni in api("GET", "/v1/network-instances", host=host)[1]:
+        if ni["id"] == "DEFAULT":
+            continue
+        tables = subprocess.run(  # noqa: S603
+            [  # noqa: S607
+                "docker", "exec", container,
+                "ip", "netns", "exec", ni["id"], "nft", "list", "tables",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout  # fmt: skip
+        if "table inet vpnc" not in tables:
+            problems.append(f"network instance {ni['id']} has no nftables table")
+    return problems
+
+
+def check_loaded(host: str = HOST) -> None:
+    """Check that what vpnc applied, charon and nftables took."""
+    problems = not_loaded(host)
+    assert not problems, "\n".join(["applied only partly:", *problems])
 
 
 def stable(host: str = HOST, interval: float = 3) -> dict[str, Any]:
@@ -180,36 +229,65 @@ def stable(host: str = HOST, interval: float = 3) -> dict[str, Any]:
 CONFIG_DIR = "/opt/ncubed/config/vpnc"
 # Restoring the deployed configuration: back to the same state within this time.
 RESET_TIMEOUT = 300
+# What a reset puts back: configuration, history (and pending confirms), and the
+# SSH connections' keys and servers' host keys.
+DEPLOYED_DIRS = [
+    f"{CONFIG_DIR}/active",
+    f"{CONFIG_DIR}/candidate",
+    f"{CONFIG_DIR}/history",
+    f"{CONFIG_DIR}/known_hosts",
+    "/var/lib/vpnc-ssh/.ssh",
+]
+# Unpacks the saved directories over the node's, and removes what wasn't saved;
+# a tenant that's in both isn't removed in between.
+RESET_SCRIPT = """
+set -e
+saved=$(mktemp -d)
+tar -C "$saved" -xpf -
+for dir in "$@"; do
+    mkdir -p "$dir"
+    for path in "$dir"/* "$dir"/.[!.]*; do
+        [ -e "$path" ] && [ ! -e "$saved$path" ] && rm -rf "$path"
+    done
+    cp -a "$saved$dir"/. "$dir"/
+done
+rm -rf "$saved"
+"""
 
 
 class Deployed:
     """A node's configuration files and state as deployed."""
 
     def __init__(self, host: str = HOST) -> None:
-        """Read them once the state is stable."""
+        """Read them once the state is stable; the lab must be sound."""
         self.host = host
         self.state = stable(host)
+        disabled = sorted(
+            c for c, admin in self.state["(vpnc)"]["admin_status"] if admin != "UP"
+        )
+        assert not disabled, f"redeploy the fuzz lab: {', '.join(disabled)} disabled"
+        check_loaded(host)
         self.files = subprocess.run(  # noqa: S603
             [  # noqa: S607
                 "docker", "exec", f"{CONTAINER_PREFIX}{host}",
-                "tar", "-C", CONFIG_DIR, "-cf", "-", "active", "candidate",
+                "tar", "-C", "/", "-cpf", "-",
+                *(directory.lstrip("/") for directory in DEPLOYED_DIRS),
             ],
             capture_output=True,
             check=True,
         ).stdout  # fmt: skip
 
     def reset(self) -> None:
-        """Put the configuration files back; the state must follow."""
+        """Put the deployed files back; the state must follow."""
         container = f"{CONTAINER_PREFIX}{self.host}"
-        script = (
-            f"rm -f {ACTIVE_DIR}/*.yaml {CANDIDATE_DIR}/*.yaml"
-            f" && tar -C {CONFIG_DIR} -xf -"
-        )
         subprocess.run(  # noqa: S603
-            ["docker", "exec", "-i", container, "bash", "-c", script],  # noqa: S607
+            [  # noqa: S607
+                "docker", "exec", "-i", container,
+                "bash", "-c", RESET_SCRIPT, "reset", *DEPLOYED_DIRS,
+            ],
             input=self.files,
             check=True,
-        )
+        )  # fmt: skip
         try:
             wait_until(
                 lambda: snapshot(self.host) == self.state,
@@ -221,6 +299,7 @@ class Deployed:
             changes = diff(self.state, snapshot(self.host))
             msg = "\n".join(["not as deployed after restoring the files:", *changes])
             raise AssertionError(msg) from None
+        check_loaded(self.host)
 
 
 @pytest.fixture(scope="session")
@@ -239,7 +318,9 @@ __all__ = [
     "ApiError",
     "Deployed",
     "api",
+    "check_loaded",
     "diff",
+    "not_loaded",
     "restarts",
     "run_cmd",
     "run_cmd_shell",

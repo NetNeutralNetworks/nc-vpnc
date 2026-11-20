@@ -187,6 +187,7 @@ def test_tenant_api(baseline: Baseline, request: tuple[str, dict[str, Any]]) -> 
         event("applied")
         conftest.stable()
         check_running()
+        conftest.check_loaded()
         restore(baseline, "not as before after restoring the configuration:")
 
 
@@ -224,4 +225,5 @@ def test_active_file(baseline: Baseline, text: str) -> None:
         event("applied")
         conftest.stable()
         check_running()
+        conftest.check_loaded()
         restore(baseline, "not as before after restoring the configuration:")
