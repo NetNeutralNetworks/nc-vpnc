@@ -17,7 +17,7 @@ from vpnc.models import enums
 from vpnc.models.ipsec import Initiation
 from vpnc.models.post_quantum import STRONGSWAN_KE, ppk_bytes
 from vpnc.network import namespace
-from vpnc.services import charon
+from vpnc.services import charon, failures
 
 if TYPE_CHECKING:
     import pathlib
@@ -268,6 +268,8 @@ def _load(
         if len(keys) == 1 and _ppk_id(name) in LOADED.get(name, ""):
             _unload_key(vcs, _ppk_id(name))
         LOADED[name] = fingerprint
+        # Failures of what was configured before are no repeats.
+        failures.clear(name)
         logger.info("Loaded IPsec connection %s.", name)
     return stale
 
@@ -325,6 +327,7 @@ def _unload(vcs: vici.Session, names: set[str]) -> None:
         _unload_key(vcs, _key_id(name))
         _unload_key(vcs, _ppk_id(name))
         LOADED.pop(name, None)
+        failures.clear(name)
         logger.info("Unloaded IPsec connection %s.", name)
 
 
