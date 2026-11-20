@@ -770,6 +770,16 @@ class TestReconfiguration:
         vpnctl("config set C0002 name Renamed")
         assert vpnctl("config commit C0002") == "Committed.\n"
 
+    def test_proposal_charon_refuses(self) -> None:
+        """A commit with a proposal charon doesn't accept is refused."""
+        proposal = f"network_instances.{NI_KEY}.connections.0.config.ike_proposal"
+        vpnctl(f"config set C0002 {proposal} aes257-sha256-ecp384")
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            vpnctl("config commit C0002")
+
+        assert "charon doesn't accept ike_proposal aes257" in err.value.stderr
+        assert connection_applied(BASE_CONNECTION)
+
     def test_generated_psk_is_committed(self) -> None:
         """A generated PSK is committed as it is."""
         path = f"network_instances.{NI_KEY}.connections.0.config.psk"
