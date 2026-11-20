@@ -96,9 +96,7 @@ def charon_up(names: list[str]) -> set[str]:
         return {
             name
             for name in names
-            if any(
-                charon.sa_up(sa.get(name, {})) for sa in vcs.list_sas({"ike": name})
-            )
+            if any(charon.sa_up(sa.get(name, {})) for sa in vcs.list_sas({"ike": name}))
         }
 
 
