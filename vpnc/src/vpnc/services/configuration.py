@@ -222,10 +222,9 @@ def write_tenant(tenant_id: str) -> None:
             return
         if files.ensure_file(path, output, secret=True):
             logger.info("Updated configuration file %s.", path)
-        _add_nptv6_prefixes_to_candidate(
-            tenant,
-            path.parent.parent / "candidate" / path.name,
-        )
+        candidate = path.parent.parent / "candidate" / path.name
+        _add_nptv6_prefixes_to_candidate(tenant, candidate)
+        _add_host_keys_to_candidate(tenant, candidate)
 
 
 def _add_nptv6_prefixes_to_candidate(
@@ -265,6 +264,47 @@ def _add_nptv6_prefixes_to_candidate(
     if changed:
         files.ensure_file(path, files.to_yaml(candidate), secret=True)
         logger.info("Added NPTv6 prefixes to the candidate %s.", path)
+
+
+def _add_host_keys_to_candidate(
+    tenant: vpnc.models.tenant.Tenant,
+    path: pathlib.Path,
+) -> None:
+    """Add accepted SSH host keys to the staged connections of the same server.
+
+    So a commit of other staged changes doesn't remove them.
+    """
+    accepted = {
+        (key, str(connection.id)): connection.config
+        for key, ni in tenant.network_instances.items()
+        for connection in ni.connections.values()
+        if connection.config.type == enums.ConnectionType.SSH
+        and connection.config.host_key
+    }
+    try:
+        candidate = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return
+    if not accepted or not isinstance(candidate, dict):
+        return
+    changed = False
+    for key, ni in (candidate.get("network_instances") or {}).items():
+        ni_key = vpnc.models.tenant.network_instance_key(key)
+        for connection_id, connection in (ni.get("connections") or {}).items():
+            staged = connection.get("config") or {}
+            active = accepted.get((ni_key, str(connection_id)))
+            if (
+                active is None
+                or str(staged.get("type", "")).upper() != "SSH"
+                or staged.get("host_key")
+                or staged.get("remote_addrs") != [str(a) for a in active.remote_addrs]
+            ):
+                continue
+            staged["host_key"] = active.host_key
+            changed = True
+    if changed:
+        files.ensure_file(path, files.to_yaml(candidate), secret=True)
+        logger.info("Added SSH host keys to the candidate %s.", path)
 
 
 def delete_tenant(path: pathlib.Path) -> None:

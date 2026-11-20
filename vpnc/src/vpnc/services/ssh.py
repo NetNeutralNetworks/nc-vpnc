@@ -18,7 +18,7 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
-from vpnc import accounts, config, files, helpers
+from vpnc import accounts, config, eventlog, files, helpers
 from vpnc.models import enums
 from vpnc.models.post_quantum import OPENSSH_KEX
 from vpnc.services import failures
@@ -195,6 +195,8 @@ class SshTunnel(threading.Thread):
 
 SSH_CONNECTIONS: dict[str, vpnc.models.connections.Connection] = {}
 SSH_TUNNELS: dict[str, SshTunnel] = {}
+# The connections whose known_hosts file holds their configured host_key.
+CONFIGURED_HOST_KEYS: set[str] = set()
 # The reconciler and the API start and stop tunnels.
 LOCK = threading.RLock()
 
@@ -370,14 +372,73 @@ def _pin_host_key(
     connection_name: str,
     config: vpnc.models.ssh.ConnectionConfigSSH,
 ) -> bool:
-    """Make a configured host key the only one known of the server; return if any."""
-    if config.host_key is None:
-        return False
+    """Make a configured host key the only one known of the server; return if any.
+
+    Without one, the key ssh accepted before stays the only one, until it's
+    configured (adopt_host_keys); host_key removed, the next key is accepted.
+    """
     path = known_hosts(connection_name)
+    if config.host_key is None:
+        if connection_name in CONFIGURED_HOST_KEYS:
+            CONFIGURED_HOST_KEYS.discard(connection_name)
+            path.unlink(missing_ok=True)
+        return False
     files.ensure_file(path, f"{config.remote_addrs[0]} {config.host_key}\n")
     user = accounts.user(accounts.SSH)
     os.chown(path, user.pw_uid, user.pw_gid)
+    CONFIGURED_HOST_KEYS.add(connection_name)
     return True
+
+
+def _note_adopted_host_key(
+    connection_name: str,
+    connection: vpnc.models.connections.Connection,
+) -> None:
+    """Take a host_key that's the key ssh accepted as nothing new for its ssh."""
+    applied = SSH_CONNECTIONS.get(connection_name)
+    configured = connection.config.host_key
+    if (
+        applied is None
+        or applied.config.host_key is not None
+        or configured is None
+        or configured != known_key(connection_name)
+    ):
+        return
+    cfg = applied.config.model_copy(update={"host_key": configured})
+    SSH_CONNECTIONS[connection_name] = applied.model_copy(update={"config": cfg})
+    CONFIGURED_HOST_KEYS.add(connection_name)
+
+
+def adopt_host_keys() -> set[str]:
+    """Make the key a server first presented its connection's host_key.
+
+    Returns the tenants whose configuration it changed, to write. The key is
+    the only one accepted after; deleting host_key accepts the next one.
+    """
+    tenants: set[str] = set()
+    with LOCK:
+        for network_instance in helpers.network_instances().values():
+            for connection in network_instance.connections.values():
+                cfg = connection.config
+                if cfg.type != enums.ConnectionType.SSH or cfg.host_key is not None:
+                    continue
+                name = connection.name(network_instance)
+                applied = SSH_CONNECTIONS.get(name)
+                # Not while its ssh runs with another configuration (e.g. a
+                # host_key that was just removed): the file is that one's.
+                if applied is None or applied.config.host_key is not None:
+                    continue
+                if (key := known_key(name)) is None:
+                    continue
+                cfg.host_key = key
+                eventlog.record(
+                    "HOST_KEY_ACCEPTED",
+                    f"accepted the server's host key {host_key(name)}",
+                    connection=name,
+                    host_key=host_key(name),
+                )
+                tenants.add(network_instance.tenant_id)
+    return tenants
 
 
 def session(connection_name: str) -> Session | None:
@@ -394,11 +455,8 @@ def session(connection_name: str) -> Session | None:
     )
 
 
-def host_key(connection_name: str) -> str | None:
-    """Return the type and fingerprint of the accepted host key of a server.
-
-    E.g. ssh-ed25519 SHA256:abc..., as ssh-keygen -l shows it.
-    """
+def known_key(connection_name: str) -> str | None:
+    """Return the host key ssh knows of a server, e.g. ssh-ed25519 AAAA..."""
     try:
         lines = known_hosts(connection_name).read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -411,12 +469,25 @@ def host_key(connection_name: str) -> str | None:
         if len(fields) < 3:  # noqa: PLR2004
             continue
         try:
-            blob = base64.b64decode(fields[2], validate=True)
+            base64.b64decode(fields[2], validate=True)
         except binascii.Error:
             continue
-        digest = base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
-        return f"{fields[1]} SHA256:{digest}"
+        key = f"{fields[1]} {fields[2]}"
+        if PUBLIC_KEY_RE.fullmatch(key):
+            return key
     return None
+
+
+def host_key(connection_name: str) -> str | None:
+    """Return the type and fingerprint of the accepted host key of a server.
+
+    E.g. ssh-ed25519 SHA256:abc..., as ssh-keygen -l shows it.
+    """
+    if (key := known_key(connection_name)) is None:
+        return None
+    kind, encoded = key.split()
+    digest = hashlib.sha256(base64.b64decode(encoded)).digest()
+    return f"{kind} SHA256:{base64.b64encode(digest).decode().rstrip('=')}"
 
 
 def _prepare_directories() -> None:
@@ -456,6 +527,7 @@ def _start(
 
     # Probes don't concern ssh: changing them doesn't restart it.
     connection = connection.model_copy(update={"probes": []})
+    _note_adopted_host_key(connection_name, connection)
     tunnel = SSH_TUNNELS.get(connection_name)
     if (
         connection == SSH_CONNECTIONS.get(connection_name)

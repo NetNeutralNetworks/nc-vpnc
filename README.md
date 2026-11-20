@@ -156,7 +156,7 @@ network_instances:
 |---|---|
 | `IPSEC` | `remote_addrs`, `psk`, `local_id`, `remote_id`, `ike_version` (2), `ike_proposal` (`aes256gcm16-prfsha384-ecp384`), `ipsec_proposal` (`aes256gcm16-ecp384`), `ike_lifetime` (86400), `ipsec_lifetime` (3600), `initiation` (`START`: initiate and respond; `NONE`: respond only), `traffic_selectors` (`local`, `remote`; empty means route based), `post_quantum` (see below) |
 | `WIREGUARD` | `remote_addrs`, `private_key`, `public_key`, `local_port` and `remote_port` (51820) |
-| `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config_interface` (masquerade out of it on the server, in its setup script), `host_key` (the only host key accepted of the server), `post_quantum` (see below) |
+| `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config_interface` (masquerade out of it on the server, in its setup script), `host_key` (the only host key accepted of the server; set by vpnc when first connecting), `post_quantum` (see below) |
 | `PHYSICAL` | `interface_name` |
 
 An SSH connection logs in as `username` and only opens the tunnel: vpnc doesn't configure the server. Set up the server (Ubuntu) once, as root, with the script `vpnctl` makes for the connection:
@@ -165,7 +165,7 @@ An SSH connection logs in as `username` and only opens the tunnel: vpnc doesn't 
 ~$ sudo vpnctl connections ssh-setup C0001-00-1 [--username vpnc] [--interface eth0] | ssh root@server sh
 ```
 
-The key the server presents when vpnc first connects is accepted, and only that one after. To leave nothing to that first connection, set the server's public host key (a line of its `/etc/ssh/ssh_host_*_key.pub`, without the comment) as `host_key`: the script prints the command for it.
+The key the server presents when vpnc first connects is accepted and written to the connection's `host_key` (event `HOST_KEY_ACCEPTED`); only that key is accepted after. Delete `host_key` to accept a new one, e.g. of a replaced server. To leave nothing to the first connection, set it beforehand to the server's public host key (a line of its `/etc/ssh/ssh_host_*_key.pub`, without the comment): the script prints the command for it.
 
 It adds the account with the connection's key, the tunnel's interface and routes, the firewall rules (masquerading out of `--interface`, by default `remote_config_interface`) and an sshd configuration in which the account can only open the tunnel. The script isn't for root: give another account with `--username` and make it the connection's `username`.
 
@@ -251,7 +251,7 @@ State, read live:
 
 `connections show` has the same session fields for each VPN type, `-` where the type lacks one or it isn't known: session state and id, local address, identities (IKE ids; WireGuard public keys; the SSH username and the server's host key), encryption, integrity (`-` with an AEAD cipher), key exchange (with ML-KEM and PPK), when it was established and rekeys. Algorithms are as negotiated; WireGuard's are fixed by the protocol. Fields of one type only are shown for that type: PRF and NAT (IPsec), the last handshake and allowed IPs (WireGuard). IPsec adds its child SAs: algorithms, PFS, SPIs, traffic selectors, traffic and rekey time.
 
-Events are what happened to a connection, network instance, tenant or the service: a connection going up or down (`OPER_UP`, `OPER_DOWN`), being enabled, disabled or reset (`ADMIN_UP`, `ADMIN_DOWN`, `RESET` by an administrator, `AUTO_RESET` when stuck, `CONFIG_RESET` for a changed key or traffic selectors), its probes (`PROBES_FAILING`, `PROBES_ANSWERED`), why it failed (see below), a tenant's commits (`CONFIG_COMMITTED`, `CONFIG_CONFIRMED`, `CONFIG_ROLLED_BACK`), a removed network instance (`REMOVED`), a hub's BGP sessions (`BGP_ESTABLISHED`, `BGP_DOWN`, of CORE; noted every full check) and vpnc starting and stopping (`STARTED`, `STOPPED`, of the service). A tenant's events include its network instances', theirs their connections'. They're kept in the journal (also across restarts, as long as the journal keeps them) and show in vpnc's log too.
+Events are what happened to a connection, network instance, tenant or the service: a connection going up or down (`OPER_UP`, `OPER_DOWN`), being enabled, disabled or reset (`ADMIN_UP`, `ADMIN_DOWN`, `RESET` by an administrator, `AUTO_RESET` when stuck, `CONFIG_RESET` for a changed key or traffic selectors), its probes (`PROBES_FAILING`, `PROBES_ANSWERED`), why it failed (see below), the host key accepted of an SSH server (`HOST_KEY_ACCEPTED`), a tenant's commits (`CONFIG_COMMITTED`, `CONFIG_CONFIRMED`, `CONFIG_ROLLED_BACK`), a removed network instance (`REMOVED`), a hub's BGP sessions (`BGP_ESTABLISHED`, `BGP_DOWN`, of CORE; noted every full check) and vpnc starting and stopping (`STARTED`, `STOPPED`, of the service). A tenant's events include its network instances', theirs their connections'. They're kept in the journal (also across restarts, as long as the journal keeps them) and show in vpnc's log too.
 
 `connections diagnose` names the problem of a connection, with what's configured next to what the peer sent, what was checked and what charon or ssh reported. Why a connection fails is noted as it happens, from charon's log and ssh's output, and is an event when the reason changes:
 
@@ -365,7 +365,7 @@ LibreNMS reads BGP4V2-MIB only for VyOS; for Linux it reads BGP4-MIB, so it show
 |---|---|
 | `/opt/ncubed/vpnc/` | The installation (virtualenv); `vpnctl` is linked to `/usr/local/bin` |
 | `/opt/ncubed/config/vpnc/` | Configuration: `active`, `candidate` (staged) and `history` |
-| `/opt/ncubed/config/vpnc/known_hosts/` | The host key of each SSH connection's server: its `host_key`, or else the one accepted when first connecting. Delete a connection's file to accept a new key. |
+| `/opt/ncubed/config/vpnc/known_hosts/` | ssh's copy of each SSH connection's `host_key`. |
 | `/var/lib/vpnc-ssh/.ssh/` | The key of each SSH connection, named like it |
 | `/run/vpnc/api.sock` | The API |
 
