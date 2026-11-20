@@ -104,6 +104,11 @@ class AppliedFirewall:
 FIREWALL_APPLIED: dict[str, AppliedFirewall] = {}
 
 
+def forget_firewall(ni_id: str) -> None:
+    """Forget a deleted namespace's table: a new one may get its identity (inode)."""
+    FIREWALL_APPLIED.pop(ni_id, None)
+
+
 # Per network instance, the routes logged as without NPTv6 prefix.
 _NPTV6_UNASSIGNED: dict[str, set[str]] = {}
 
@@ -472,6 +477,7 @@ class NetworkInstance(BaseModel):
             conn.delete(self)
 
         namespace.delete(self.id)
+        forget_firewall(self.id)
 
     def _get_connections(self) -> set[str]:
         """Get all configured connections (interfaces)."""

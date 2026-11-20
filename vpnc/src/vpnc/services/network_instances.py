@@ -14,7 +14,11 @@ from pyroute2 import netns
 
 from vpnc import config, eventlog, helpers
 from vpnc.models import enums
-from vpnc.models.network_instance import jool_instances, open_external
+from vpnc.models.network_instance import (
+    forget_firewall,
+    jool_instances,
+    open_external,
+)
 from vpnc.network import events, namespace, state
 from vpnc.services import configuration, frr, ssh, strongswan
 from vpnc.services.reconciler import RECONCILER
@@ -136,6 +140,7 @@ def remove_unconfigured(
             logger.warning("Removing unknown network instance %s.", name)
             unwatch(name)
             namespace.delete(name)
+            forget_firewall(name)
             # The kernel deleted its link to CORE.
             state.changed(config.CORE_NI)
     delete_stale_core_routes(list(configured.values()))

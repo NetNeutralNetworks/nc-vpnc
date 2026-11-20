@@ -534,6 +534,28 @@ class TestReconfiguration:
             message="tenant C0002 to be removed",
         )
 
+    def test_added_again_with_firewall(self) -> None:
+        """A network instance removed and added again gets its firewall right away.
+
+        Not after the drift check (5 minutes): its namespace may reuse the inode.
+        """
+        conftest.run_cmd(HOST, f"rm -f {TENANT_FILE}")
+        conftest.wait_until(
+            tenant_removed,
+            timeout=APPLY_TIMEOUT,
+            message="tenant C0002 to be removed",
+        )
+        write_tenant([BASE_CONNECTION])
+        tables = f"ip netns exec {NI} nft list tables"
+        conftest.wait_until(
+            lambda: (
+                connection_applied(BASE_CONNECTION)
+                and "table inet vpnc" in conftest.run_cmd(HOST, tables)
+            ),
+            timeout=APPLY_TIMEOUT,
+            message=f"{NI} to be applied with its firewall",
+        )
+
     def test_broken_active_file(self) -> None:
         """An active file that can't be loaded is reported; the tenant keeps running.
 
