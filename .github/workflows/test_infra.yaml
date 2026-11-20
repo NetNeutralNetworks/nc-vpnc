@@ -45,7 +45,8 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  # Each shard deploys its own lab, as the reliability tests disrupt it.
+  # Each shard deploys its own lab, as the reliability tests disrupt it. The
+  # reliability shards take about 10 minutes each; a lab takes 4 to set up.
   test:
     needs: build
     name: test (${{ matrix.shard.name }})
@@ -59,11 +60,32 @@ jobs:
           - name: vpn-recovery
             lab: base
             tests: test/02_reliability/reliability_tests/test_vpn_recovery.py
-          - name: reliability
+          - name: stuck-recovery
+            lab: base
+            tests: >-
+              test/02_reliability/reliability_tests/test_stuck_recovery.py
+              test/02_reliability/reliability_tests/test_tunnel_recovery.py
+              test/02_reliability/reliability_tests/test_route_recovery.py
+          - name: connections
+            lab: base
+            tests: >-
+              test/02_reliability/reliability_tests/test_probe_recovery.py
+              test/02_reliability/reliability_tests/test_ssh_recovery.py
+              test/02_reliability/reliability_tests/test_diagnosis.py
+              test/02_reliability/reliability_tests/test_connection_control.py
+          # The other reliability tests, also ones added later.
+          - name: reconfiguration
             lab: base
             tests: >-
               test/02_reliability
               --ignore=test/02_reliability/reliability_tests/test_vpn_recovery.py
+              --ignore=test/02_reliability/reliability_tests/test_stuck_recovery.py
+              --ignore=test/02_reliability/reliability_tests/test_tunnel_recovery.py
+              --ignore=test/02_reliability/reliability_tests/test_route_recovery.py
+              --ignore=test/02_reliability/reliability_tests/test_probe_recovery.py
+              --ignore=test/02_reliability/reliability_tests/test_ssh_recovery.py
+              --ignore=test/02_reliability/reliability_tests/test_diagnosis.py
+              --ignore=test/02_reliability/reliability_tests/test_connection_control.py
           - name: performance
             lab: scale
             tests: test/03_performance
