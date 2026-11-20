@@ -31,7 +31,6 @@ from pydantic_core import PydanticCustomError
 from vpnc import config, helpers, migration
 from vpnc.models import enums
 from vpnc.models.enums import ServiceMode
-from vpnc.models.secret import Secret
 
 # Needed for pydantim ports and type checking
 from vpnc.models.network_instance import (
@@ -40,6 +39,7 @@ from vpnc.models.network_instance import (
     NetworkInstanceEndpoint,
     NetworkInstanceExternal,
 )
+from vpnc.models.secret import Secret
 
 if TYPE_CHECKING:
     import pathlib

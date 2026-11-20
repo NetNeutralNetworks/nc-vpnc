@@ -19,7 +19,10 @@ def _load_limits() -> config.Limits | None:
     try:
         return config.Limits.model_validate_json(text)
     except pydantic_core.ValidationError:
-        logger.exception("The limits in '%s' aren't valid. Skipping", config.LIMITS_PATH)
+        logger.exception(
+            "The limits in '%s' aren't valid. Skipping",
+            config.LIMITS_PATH,
+        )
         return None
 
 
