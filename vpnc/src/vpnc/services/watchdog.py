@@ -10,6 +10,7 @@ while the connection its server is routed via is down.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import time
 from dataclasses import dataclass
@@ -165,6 +166,16 @@ def check(
 
 # Per BGP neighbor: whether its session is established, and since when.
 BGP: dict[str, tuple[bool, float]] = {}
+# When vpnc started: a session established since is an event when first seen.
+STARTED = time.time()
+
+
+def _established_at(text: str | None) -> float | None:
+    """Return a session's last_established as Unix time, if known."""
+    try:
+        return dt.datetime.fromisoformat(text).timestamp() if text else None
+    except ValueError:
+        return None
 
 
 def note_bgp() -> None:
@@ -182,12 +193,18 @@ def note_bgp() -> None:
         was, since = BGP.get(address, (None, now))
         if was is not None and was == established:
             continue
-        BGP[address] = (established, now)
+        changed = now
         if was is None:
-            # The first time it's seen: nothing changed.
-            continue
+            # The first time it's seen: a change only if it was established since
+            # vpnc started (before the first full check).
+            up = _established_at(neighbor.last_established) if established else None
+            if up is None or up < STARTED:
+                BGP[address] = (established, up or now)
+                continue
+            since, changed = STARTED, up
+        BGP[address] = (established, changed)
         name = f"{address} ({neighbor.hostname})" if neighbor.hostname else address
-        lasted = eventlog.duration(now - since)
+        lasted = eventlog.duration(changed - since)
         if established:
             message = f"BGP session with {name} established, was down for {lasted}"
         else:
