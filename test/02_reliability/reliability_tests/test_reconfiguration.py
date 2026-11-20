@@ -669,6 +669,37 @@ class TestReconfiguration:
                 f"{HISTORY_DIR.replace('C0002', 'C0003')}",
             )
 
+    def test_config_add_tenant(self) -> None:
+        """A tenant is added with a name; set needs a tenant that exists."""
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            vpnctl("config set C0003 name Set")
+        assert "add the tenant first" in err.value.stderr
+        try:
+            vpnctl("config add C0003 Added")
+            with pytest.raises(subprocess.CalledProcessError) as err:
+                vpnctl("config add C0003 Again")
+            assert "has configuration already" in err.value.stderr
+
+            vpnctl("config commit C0003")
+            conftest.wait_until(
+                lambda: "C0003" in tenant_ids(),
+                timeout=APPLY_TIMEOUT,
+                message="tenant C0003 to be created",
+            )
+            assert vpnctl_json("tenants show C0003")["name"] == "Added"
+        finally:
+            conftest.run_cmd(
+                HOST,
+                f"rm -rf {TENANT_FILE.replace('C0002', 'C0003')} "
+                f"{CANDIDATE_FILE.replace('C0002', 'C0003')} "
+                f"{HISTORY_DIR.replace('C0002', 'C0003')}",
+            )
+            conftest.wait_until(
+                lambda: "C0003" not in tenant_ids(),
+                timeout=APPLY_TIMEOUT,
+                message="tenant C0003 to be removed",
+            )
+
     def test_staged_changes_survive_nptv6_assignment(self) -> None:
         """Assigning NPTv6 prefixes doesn't overwrite staged changes.
 
