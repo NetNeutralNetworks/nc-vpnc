@@ -93,9 +93,29 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+      - name: Get the kernel version
+        id: kernel
+        run: echo "release=$(uname -r)" >> "$GITHUB_OUTPUT"
+      # Jool's module built for this kernel, so it isn't built again.
+      - name: Restore the Jool module
+        id: jool
+        uses: actions/cache/restore@v6
+        with:
+          path: jool-modules
+          key: jool-${{ steps.kernel.outputs.release }}-${{ hashFiles('test/00_setup/install.sh') }}
       - name: Install runner dependencies (Jool, containerlab)
         # sudo drops the environment; install.sh skips the upgrade in Actions.
-        run: sudo --preserve-env=GITHUB_ACTIONS test/00_setup/install.sh
+        run: sudo --preserve-env=GITHUB_ACTIONS,JOOL_MODULES test/00_setup/install.sh
+        env:
+          JOOL_MODULES: ${{ github.workspace }}/jool-modules
+      - name: Save the Jool module
+        if: steps.jool.outputs.cache-hit != 'true'
+        # Saved by one shard; the others' tries fail harmlessly.
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: jool-modules
+          key: ${{ steps.jool.outputs.cache-primary-key }}
       - uses: actions/download-artifact@v8
         with:
           name: images
