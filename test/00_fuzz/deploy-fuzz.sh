@@ -9,4 +9,5 @@ if ! ip link show br-vpnc-fuzz &> /dev/null; then
     ip link add br-vpnc-fuzz type bridge
     ip link set br-vpnc-fuzz up
 fi
+mkdir -p /run/vpnc-fuzz-hub00
 containerlab deploy -t fuzz.clab.yaml --reconfigure
