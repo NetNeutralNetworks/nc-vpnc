@@ -152,11 +152,36 @@ def record(draw: st.DrawFn) -> bytes:
 
 
 @st.composite
+def sound_record(draw: st.DrawFn) -> bytes:
+    """Return a well-formed A, AAAA or CNAME record of the question's name."""
+    rtype = draw(st.sampled_from([A, AAAA, CNAME]))
+    data = {
+        A: st.binary(min_size=4, max_size=4),
+        AAAA: st.binary(min_size=16, max_size=16),
+        CNAME: st.from_regex(rb"[a-z0-9]{1,20}", fullmatch=True).map(
+            lambda n: bytes([len(n)]) + n + struct.pack(">H", 0xC000 | QUESTION)
+        ),
+    }[rtype]
+    value = draw(data)
+    pointer = struct.pack(">H", 0xC000 | QUESTION)
+    ttl = draw(st.integers(0, 0xFFFFFFFF))
+    return pointer + struct.pack(">HHIH", rtype, 1, ttl, len(value)) + value
+
+
+@st.composite
 def answer(draw: st.DrawFn, qtype: int) -> tuple[bool, bytes]:
     """Return whether to take the query's id, and a generated answer."""
-    if draw(st.integers(0, 9)) == 0:
+    kind = draw(st.integers(0, 9))
+    if kind == 0:
         # Anything at all.
         return draw(st.booleans()), draw(st.binary(max_size=600))
+    if kind <= 3:  # noqa: PLR2004
+        # Well-formed, so that vpncmangle translates it.
+        records = draw(st.lists(sound_record(), min_size=1, max_size=8))
+        question = b"".join(bytes([len(p)]) + p.encode() for p in QNAME.split("."))
+        question += b"\0" + struct.pack(">HH", qtype, 1)
+        header = struct.pack(">HH4H", 0, 0x8180, 1, len(records), 0, 0)
+        return True, header + question + b"".join(records)
     question = draw(
         st.one_of(
             st.just(
@@ -170,8 +195,18 @@ def answer(draw: st.DrawFn, qtype: int) -> tuple[bool, bytes]:
     )
     sections = [draw(st.lists(record(), max_size=n)) for n in (12, 4, 4)]
     true_counts = [1 if question else 0, *(len(s) for s in sections)]
+    # True mostly, else a little or far off: over vpncmangle's limit (100
+    # records) it drops the answer unparsed.
     counts = [
-        draw(st.one_of(st.just(count), st.integers(0, 0xFFFF))) for count in true_counts
+        draw(
+            st.one_of(
+                st.just(count),
+                st.just(count),
+                st.integers(0, count + 3),
+                st.integers(0, 0xFFFF),
+            )
+        )
+        for count in true_counts
     ]
     # A response (QR) mostly; any opcode, flags and return code.
     flags = draw(st.one_of(st.just(0x8180), st.integers(0, 0xFFFF)))
