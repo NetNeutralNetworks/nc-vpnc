@@ -31,6 +31,9 @@ UDP_HEADER = 8
 DNS_HEADER = 12
 # The QR bit in the header's third byte: a response.
 RESPONSE = 0x80
+# A name's compression pointer: its first byte's top two bits.
+POINTER = 0xC0
+MAX_NAME = 255
 
 
 def _journal_handler() -> logging.Handler:
@@ -88,6 +91,45 @@ def too_costly(packet: bytes, offset: int) -> str | None:
     if sum(struct.unpack_from("!3H", packet, offset + 6)) > limits.max_records:
         return stats.TOO_MANY_RECORDS
     return None
+
+
+def _name_end(packet: bytes, pos: int) -> int | None:
+    """Return where a name ends; None if it breaks RFC 1035 or the packet ends."""
+    length = 0
+    while pos < len(packet):
+        byte = packet[pos]
+        if byte == 0:
+            return pos + 1
+        if byte & POINTER == POINTER:
+            return pos + 2 if pos + 2 <= len(packet) else None
+        # 0x40 and 0x80: reserved label types, read as lengths by some clients.
+        if byte & POINTER:
+            return None
+        pos += 1 + byte
+        length += 1 + byte
+        if length > MAX_NAME:
+            return None
+    return None
+
+
+def well_formed(packet: bytes, offset: int) -> bool:
+    """Return whether a DNS message's question and records fill it as RFC 1035 has.
+
+    Otherwise clients may read other records from it than vpncmangle does.
+    """
+    questions, *records = struct.unpack_from("!4H", packet, offset + 4)
+    pos: int | None = offset + DNS_HEADER
+    for _ in range(questions):
+        pos = _name_end(packet, pos)
+        if pos is None or pos + 4 > len(packet):
+            return False
+        pos += 4
+    for _ in range(sum(records)):
+        pos = _name_end(packet, pos)
+        if pos is None or pos + 10 > len(packet):
+            return False
+        pos += 10 + struct.unpack_from("!H", packet, pos + 8)[0]
+    return pos == len(packet)
 
 
 def translate(
@@ -177,6 +219,11 @@ def _mangle_dns(pkt: Packet) -> None:  # noqa: C901, PLR0911, PLR0912, PLR0915 (
         stats.dropped(reason, network_instance(IPv6Address(payload[8:24])))
         pkt.drop()
         return
+    if not well_formed(payload, offset):
+        logger.debug("Dropping a DNS packet that doesn't follow RFC 1035.")
+        stats.dropped(stats.NOT_DNS, network_instance(IPv6Address(payload[8:24])))
+        pkt.drop()
+        return
     pkt_sc = sc.IPv6(payload)
 
     # Unparsable: a client may still read addresses from it.
@@ -185,8 +232,8 @@ def _mangle_dns(pkt: Packet) -> None:  # noqa: C901, PLR0911, PLR0912, PLR0915 (
         stats.dropped(stats.NOT_DNS)
         pkt.drop()
         return
-    # Addresses in any section, whatever the return code: a client may use them.
     dns = pkt_sc[sc.DNS]
+    # Addresses in any section, whatever the return code: a client may use them.
     has_addresses = any(
         record.type in (QUERY_A, QUERY_AAAA)
         for section, _ in SECTIONS
