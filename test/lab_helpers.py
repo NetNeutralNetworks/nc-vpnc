@@ -365,7 +365,7 @@ sock.sendto(struct.pack("!BBHI", 2, 0, 0, int(mtu)) + quoted + esp, (source, 0))
 """
 
 
-def packet_too_big(  # noqa: PLR0913
+def packet_too_big(  # noqa: PLR0913, PLR0917
     host: str,
     netns: str,
     source: str,

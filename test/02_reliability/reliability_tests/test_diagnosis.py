@@ -31,9 +31,12 @@ WIREGUARD_CONFIG = ("hub00", "C0001", "network_instances.01.connections.0.config
 OTHER_PUBLIC_KEY = "6NwLHrFvVqz0dvuWUXKQMo1tUUHEaYuWbpWhw4qDGWM="
 # The SSH server, and an Ed25519 host key that isn't its.
 SSH_SERVER = "cli00"
-OTHER_HOST_KEY = "ssh-ed25519 " + base64.b64encode(
-    struct.pack(">I11sI32s", 11, b"ssh-ed25519", 32, bytes(32)),
-).decode()
+OTHER_HOST_KEY = (
+    "ssh-ed25519 "
+    + base64.b64encode(
+        struct.pack(">I11sI32s", 11, b"ssh-ed25519", 32, bytes(32)),
+    ).decode()
+)
 # What a connection that works has: nothing, or it went down often (these tests).
 WORKS = (None, "FLAPPING")
 # Narrowed traffic selectors don't carry the hub's probes.

@@ -87,7 +87,7 @@ _LOCK = threading.Lock()
 
 
 def _keep(name: str, failure: Failure) -> bool:
-    """Make a failure the connection's last (lock held); return whether it's an event."""
+    """Make a failure the connection's last (lock held); return if it's an event."""
     current = CURRENT.get(name)
     if current and current.reason == failure.reason:
         # The latest details: what diagnose shows.

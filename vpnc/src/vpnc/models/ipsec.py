@@ -124,8 +124,10 @@ class ConnectionConfigIPsec(BaseModel):
         psk = self.psk.get_secret_value()
         if len(psk) < PSK_MIN_LENGTH:
             found["SHORT_PSK"] = (
-                f"the PSK has fewer than {PSK_MIN_LENGTH} characters"
-                " (vpnctl generate psk makes one)",
+                (
+                    f"the PSK has fewer than {PSK_MIN_LENGTH} characters"
+                    " (vpnctl generate psk makes one)"
+                ),
                 psk,
             )
         if self.ike_version == 1:

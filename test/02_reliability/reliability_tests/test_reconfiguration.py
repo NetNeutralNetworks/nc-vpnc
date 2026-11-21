@@ -743,7 +743,6 @@ class TestReconfiguration:
         shown = vpnctl_json(f"config show C0002 {psk} --candidate --reveal-secrets")
         assert shown == secret
 
-
     @pytest.mark.parametrize(
         ("key", "value"),
         [
@@ -763,7 +762,9 @@ class TestReconfiguration:
         assert "--allow-weak" in err.value.stderr
         assert vpnctl_json(f"config show C0002 {path} --reveal-secrets") != value
 
-        assert f"Weak cryptography: {NI}-0" in vpnctl("config commit C0002 --allow-weak")
+        assert f"Weak cryptography: {NI}-0" in vpnctl(
+            "config commit C0002 --allow-weak"
+        )
         assert str(vpnctl_json(f"config show C0002 {path} --reveal-secrets")) == value
         # What it has stays, without asking again.
         vpnctl("config set C0002 name Renamed")
@@ -858,7 +859,7 @@ class TestDnsLimits:
     """The service's dns settings limit what a network instance's answers cost."""
 
     def test_rate_limit(self) -> None:
-        """Answers over the rate limit are dropped; another network instance's aren't."""
+        """Answers over the rate limit are dropped; other network instances' aren't."""
         queries = 60
         dropped = dns_dropped("RATE_LIMITED")
         assert dns_answers(DNS_SERVER, count=queries) == queries
@@ -886,7 +887,7 @@ class TestDnsLimits:
             ("max_records", 1, 100, DNS_NAME, "AAAA", "TOO_MANY_RECORDS"),
         ],
     )
-    def test_costly_answer_dropped(  # noqa: PLR0913
+    def test_costly_answer_dropped(  # noqa: PLR0913, PLR0917
         self,
         limit: str,
         value: int,

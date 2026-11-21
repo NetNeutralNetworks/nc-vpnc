@@ -156,7 +156,7 @@ def mangle_dns(pkt: Packet) -> None:
             pkt.drop()
 
 
-def _mangle_dns(pkt: Packet) -> None:
+def _mangle_dns(pkt: Packet) -> None:  # noqa: C901, PLR0911, PLR0915 (one pass)
     """Translate the addresses in a DNS response to ones reachable from CORE."""
     payload = pkt.get_payload()
     # Before parsing, which costs most.
