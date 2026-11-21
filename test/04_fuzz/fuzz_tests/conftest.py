@@ -86,6 +86,58 @@ def api(
     return int(status), answer
 
 
+# The fuzz lab's bridge (fuzz.clab.yaml): a node's uplink is fuzz-<node> on it.
+BRIDGE = "br-vpnc-fuzz"
+
+
+def started(host: str = HOST) -> str:
+    """Return when a node's container started."""
+    return subprocess.run(  # noqa: S603
+        [  # noqa: S607
+            "docker", "inspect", "--format", "{{.State.StartedAt}}",
+            f"{CONTAINER_PREFIX}{host}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()  # fmt: skip
+
+
+def restarted_node(host: str = HOST, *, before: str | None = None) -> None:
+    """Restart a node (or, after before, wait until it restarted); link it again.
+
+    A container's links go with it: containerlab only adds them at a deploy.
+    The node's script waits for them before it starts vpnc.
+    """
+    container = f"{CONTAINER_PREFIX}{host}"
+    if before is None:
+        subprocess.run(  # noqa: S603
+            ["docker", "restart", container],  # noqa: S607
+            capture_output=True,
+            check=True,
+        )
+    else:
+        wait_until(
+            lambda: started(host) != before,
+            timeout=RESET_TIMEOUT,
+            message=f"{host} to restart",
+        )
+    subprocess.run(  # noqa: S603
+        [  # noqa: S607
+            "containerlab", "tools", "veth", "create",
+            "-a", f"{container}:eth1", "-b", f"bridge:{BRIDGE}:fuzz-{host}",
+        ],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+    wait_until(
+        lambda: api("GET", "/v1/status", host=host)[0] == 200,  # noqa: PLR2004
+        timeout=RESET_TIMEOUT,
+        interval=3,
+        message=f"vpnc's API on {host}",
+    )
+
+
 # Restarts the tests caused on purpose (killing vpnc), by node.
 EXPECTED_RESTARTS: dict[str, int] = {}
 
@@ -172,11 +224,16 @@ def snapshot(host: str = HOST) -> dict[str, Any]:
 
 
 def _nftables(ruleset: dict[str, Any]) -> set[str]:
-    """Return the tables, chains, sets and rules, without their handles."""
+    """Return the tables, chains, sets and rules, without their handles.
+
+    Leaves out the rules of Docker's DNS: their ports are new with every start.
+    """
     items = set()
     for item in ruleset.get("nftables", []):
         for kind, value in item.items():
-            if kind != "metainfo":
+            if kind != "metainfo" and not (
+                kind == "rule" and value.get("chain", "").startswith("DOCKER_")
+            ):
                 fields = {k: v for k, v in value.items() if k != "handle"}
                 items.add(f"{kind} {json.dumps(fields, sort_keys=True)}")
     return items
@@ -478,11 +535,13 @@ __all__ = [
     "diff",
     "expect_restart",
     "not_loaded",
+    "restarted_node",
     "restarts",
     "run_cmd",
     "run_cmd_shell",
     "snapshot",
     "stable",
+    "started",
     "wait_until",
     "write_file",
 ]
