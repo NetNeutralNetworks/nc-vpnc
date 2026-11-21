@@ -294,6 +294,8 @@ class ConfigStates(RuleBasedStateMachine):
     def teardown(self) -> None:
         """Restart hub00: from its files it must get back to the same state."""
         if self.created:
+            # A fault may have left a connection down, or BGP: as deployed first.
+            self.deployed.healthy()
             before = conftest.stable()
             restart(self.deployed)
             try:
