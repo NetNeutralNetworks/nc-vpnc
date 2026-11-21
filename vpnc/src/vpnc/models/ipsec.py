@@ -84,7 +84,7 @@ class ConnectionConfigIPsec(BaseModel):
     @classmethod
     def coerce_ike_version(cls, v: str | int) -> int | str:
         """Coerces strings to integers."""
-        if isinstance(v, str) and v.isdigit():
+        if isinstance(v, str) and v.isascii() and v.isdigit():
             return int(v)
         return v
 

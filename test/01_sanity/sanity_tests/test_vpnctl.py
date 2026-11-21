@@ -271,6 +271,20 @@ class TestVpnctl:
 
         assert "path.tenant_id: String should match pattern" in err.value.stderr
 
+    # Superscript two: str.isdigit() is true for it, but int() refuses it.
+    def test_connection_number_digits_are_ascii(self) -> None:
+        """A connection number with other digits than 0-9 isn't one."""
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            conftest.run_cmd("hub00", f"{VPNCTL} connections show C0001-00-\u00b2")
+        assert "No connection 'C0001-00-\u00b2'" in err.value.stderr
+
+        path = "network_instances.00.connections.\u00b2.enabled"
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            conftest.run_cmd("hub00", f"{VPNCTL} config set C0001 {path} true")
+        assert "Invalid configuration" in err.value.stderr
+        diff = conftest.run_cmd("hub00", f"{VPNCTL} config diff C0001")
+        assert diff == "No changes.\n"
+
     def test_config_completion(self) -> None:
         """Completion offers a configuration's keys level by level, and values."""
         path = "network_instances.00.connections."

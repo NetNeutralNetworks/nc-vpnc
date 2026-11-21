@@ -167,7 +167,9 @@ def _plain(value: Any) -> Any:  # noqa: ANN401
     """Return data with keys as YAML reads them unquoted: 00 as 0."""
     if isinstance(value, dict):
         return {
-            int(k) if isinstance(k, str) and k.isdigit() else k: _plain(v)
+            int(k) if isinstance(k, str) and k.isascii() and k.isdigit() else k: _plain(
+                v
+            )
             for k, v in value.items()
         }
     if isinstance(value, list):
