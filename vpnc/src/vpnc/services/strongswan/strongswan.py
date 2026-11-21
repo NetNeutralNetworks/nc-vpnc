@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import json
 import logging
+import pathlib
 import sys
 import time
 from typing import TYPE_CHECKING, Any
@@ -20,8 +21,6 @@ from vpnc.network import namespace
 from vpnc.services import charon, failures
 
 if TYPE_CHECKING:
-    import pathlib
-
     from vpnc.models.ipsec import ConnectionConfigIPsec
     from vpnc.models.network_instance import NetworkInstance
 
@@ -457,6 +456,25 @@ def stop() -> None:
     namespace.run(config.EXTERNAL_NI, ["/usr/sbin/ipsec", "stop"])
 
 
+# The starter doesn't start while a process has the PID in its file. Left from an
+# unclean stop, that may be another process now: in a restarted container even
+# the new starter itself.
+STARTER_PID = pathlib.Path("/var/run/starter.charon.pid")
+
+
+def _remove_stale_starter_pid() -> None:
+    """Remove the starter's PID file if no starter runs with that PID."""
+    try:
+        pid = STARTER_PID.read_text().strip()
+        if pathlib.Path(f"/proc/{pid}/comm").read_text().strip() == "starter":
+            return
+    except OSError:
+        if not STARTER_PID.exists():
+            return
+    logger.warning("Removing %s: the starter doesn't run.", STARTER_PID)
+    STARTER_PID.unlink(missing_ok=True)
+
+
 def start() -> None:
     """Start the IPSec service in the EXTERNAL network instance."""
     # Remove old strongswan/swanctl config files
@@ -465,6 +483,7 @@ def start() -> None:
         logger.debug("Unlinking swanctl config file %s at startup", file)
         file.unlink(missing_ok=True)
 
+    _remove_stale_starter_pid()
     logger.info("Starting Strongswan in network instance %s.", config.EXTERNAL_NI)
     result = namespace.run(config.EXTERNAL_NI, ["/usr/sbin/ipsec", "start"])
     if result.returncode != 0:
