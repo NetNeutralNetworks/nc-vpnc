@@ -9,6 +9,23 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  # Next to the build: the tests wait for both.
+  lint:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # The version of the VS Code extension: the editor and CI agree.
+      - name: Ruff check
+        uses: astral-sh/ruff-action@v4.1.0
+        with:
+          version: "0.17.6"
+      - name: Ruff format
+        uses: astral-sh/ruff-action@v4.1.0
+        with:
+          version: "0.17.6"
+          args: format --check --diff
+
   # Build the images once; the test jobs load them.
   build:
     runs-on: ubuntu-26.04
@@ -48,7 +65,7 @@ jobs:
   # Each shard deploys its own lab, as the reliability tests disrupt it. The
   # reliability shards take about 10 minutes each; a lab takes 4 to set up.
   test:
-    needs: build
+    needs: [lint, build]
     name: test (${{ matrix.shard.name }})
     strategy:
       fail-fast: false
