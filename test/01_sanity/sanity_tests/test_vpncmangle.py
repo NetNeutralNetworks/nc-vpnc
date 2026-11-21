@@ -1,11 +1,14 @@
 """vpncmangle translates DNS answers from tenants."""
 
+import json
 import re
 import subprocess
 
 import pytest
 
 from . import conftest
+
+VPNCTL = "/opt/ncubed/vpnc/bin/vpnctl"
 
 
 class TestVpncmangle:
@@ -25,6 +28,14 @@ class TestVpncmangle:
 
         assert user == ["vpnc-mangle"]
         assert conftest.capabilities(host, "vpncmangle") == {"cap_net_admin"}
+
+    @pytest.mark.parametrize("host", ["hub00", "hub01"])
+    def test_translations_loaded(self, host: str) -> None:
+        """Vpncmangle loaded the translations as vpnc wrote them."""
+        status = json.loads(conftest.run_cmd(host, f"{VPNCTL} -o json status"))
+
+        assert status["vpncmangle"]["translations_loaded"] is True
+        assert status["vpncmangle"]["translations_error"] is None
 
     @pytest.mark.parametrize("host", ["end00", "end01"])
     def test_vpncmangle_is_not_running_endpoint(self, host: str) -> None:

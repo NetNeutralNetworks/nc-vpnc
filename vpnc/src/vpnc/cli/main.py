@@ -280,6 +280,9 @@ def vpncmangle_text(state: dict[str, Any]) -> str:
     """Return vpncmangle's state, e.g. running, 12 translations, 3 answers ..."""
     running = "running" if state["running"] else "not running"
     text = f"{running}, {state['translations']} translations"
+    if state.get("translations_loaded") is False:
+        why = state.get("translations_error") or "not yet"
+        text += f" (not loaded: {why})"
     if state.get("answers_translated") is not None:
         text += (
             f"; answers {state['answers_translated']} translated,"
