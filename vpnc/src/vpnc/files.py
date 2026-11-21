@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import stat
@@ -11,6 +12,8 @@ from typing import Any
 
 import yaml
 from jinja2 import Environment, FileSystemLoader
+
+logger = logging.getLogger("vpnc")
 
 # Held while reading and then writing a tenant's configuration files (the API
 # and the reconciler's NPTv6 prefixes), so no change is lost.
@@ -79,3 +82,24 @@ def secure_tree(directory: Path) -> None:
             continue
         os.chown(path, 0, 0)
         path.chmod(SECRET_DIR_MODE if path.is_dir() else SECRET_FILE_MODE)
+
+
+def remove_stale_pid_files(*paths: Path) -> None:
+    """Remove PID files whose process doesn't run: one named as the file.
+
+    E.g. charon for charon.pid, starter for starter.charon.pid. Left from an
+    unclean stop, the PID may be another process's now; in a restarted container
+    even a new daemon's. Init scripts then don't start the daemon, or stop the
+    other process.
+    """
+    for path in paths:
+        name = path.name.split(".", 1)[0]
+        try:
+            pid = path.read_text().strip()
+            if Path(f"/proc/{pid}/comm").read_text().strip() == name:
+                continue
+        except OSError:
+            if not path.exists():
+                continue
+        logger.warning("Removing %s: %s doesn't run.", path, name)
+        path.unlink(missing_ok=True)

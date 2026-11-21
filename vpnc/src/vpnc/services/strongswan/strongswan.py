@@ -456,23 +456,11 @@ def stop() -> None:
     namespace.run(config.EXTERNAL_NI, ["/usr/sbin/ipsec", "stop"])
 
 
-# The starter doesn't start while a process has the PID in its file. Left from an
-# unclean stop, that may be another process now: in a restarted container even
-# the new starter itself.
-STARTER_PID = pathlib.Path("/var/run/starter.charon.pid")
-
-
-def _remove_stale_starter_pid() -> None:
-    """Remove the starter's PID file if no starter runs with that PID."""
-    try:
-        pid = STARTER_PID.read_text().strip()
-        if pathlib.Path(f"/proc/{pid}/comm").read_text().strip() == "starter":
-            return
-    except OSError:
-        if not STARTER_PID.exists():
-            return
-    logger.warning("Removing %s: the starter doesn't run.", STARTER_PID)
-    STARTER_PID.unlink(missing_ok=True)
+# Left from an unclean stop, the starter wouldn't start, or not start charon.
+PID_FILES = (
+    pathlib.Path("/var/run/starter.charon.pid"),
+    pathlib.Path("/var/run/charon.pid"),
+)
 
 
 def start() -> None:
@@ -483,7 +471,7 @@ def start() -> None:
         logger.debug("Unlinking swanctl config file %s at startup", file)
         file.unlink(missing_ok=True)
 
-    _remove_stale_starter_pid()
+    files.remove_stale_pid_files(*PID_FILES)
     logger.info("Starting Strongswan in network instance %s.", config.EXTERNAL_NI)
     result = namespace.run(config.EXTERNAL_NI, ["/usr/sbin/ipsec", "start"])
     if result.returncode != 0:

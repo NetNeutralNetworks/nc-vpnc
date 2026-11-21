@@ -2,6 +2,7 @@
 
 import atexit
 import logging
+import pathlib
 import re
 import subprocess
 import threading
@@ -161,6 +162,7 @@ def generate_config() -> None:
 
 
 FRRINIT_TIMEOUT = 120
+FRR_RUN_DIR = pathlib.Path("/var/run/frr")
 
 
 def _frrinit(action: str) -> None:
@@ -194,6 +196,9 @@ def start() -> None:
     config.FRR_CONFIG_PATH.unlink(missing_ok=True)
 
     logger.info("Starting FRR process.")
+    # Left from an unclean stop, watchfrr would stop the processes that have
+    # their PIDs now.
+    files.remove_stale_pid_files(*FRR_RUN_DIR.glob("*.pid"))
     # Also stops a partly started FRR if starting fails.
     atexit.register(stop)
     _frrinit("start")
