@@ -218,7 +218,7 @@ def snapshot(host: str = HOST) -> dict[str, Any]:
             for c in api("GET", "/v1/connections", host=host)[1]
         },
     }
-    state["(daemons)"] = {"processes": _daemons(host)}
+    state["(daemons)"] = {"processes": daemons(host)}
     state["(frr)"] = {"bgp": _bgp(host)}
     return state
 
@@ -239,7 +239,7 @@ def _nftables(ruleset: dict[str, Any]) -> set[str]:
     return items
 
 
-def _daemons(host: str) -> set[tuple[str, int]]:
+def daemons(host: str = HOST) -> set[tuple[str, int]]:
     """Return the daemons' names and process ids."""
     lines = subprocess.run(  # noqa: S603
         ["docker", "exec", f"{CONTAINER_PREFIX}{host}", "pgrep", "-l", "-x", DAEMONS],  # noqa: S607
@@ -500,7 +500,7 @@ class Deployed:
         names = set(DAEMONS.split("|"))
 
         def processes() -> set[tuple[str, int]] | None:
-            found = _daemons(self.host)
+            found = daemons(self.host)
             return found if {name for name, _ in found} == names else None
 
         self.state["(daemons)"] = {
@@ -555,6 +555,7 @@ __all__ = [
     "check_answering",
     "check_bgp",
     "check_loaded",
+    "daemons",
     "diff",
     "expect_restart",
     "not_loaded",
