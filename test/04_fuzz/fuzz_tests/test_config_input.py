@@ -101,6 +101,8 @@ def check_running() -> None:
         conftest.api("GET", path)
     # One file can't break the list of all.
     assert conftest.api("GET", "/v1/config/tenants")[0] == 200  # noqa: PLR2004
+    # Nor what runs next to vpnc.
+    conftest.check_answering()
 
 
 def check_unchanged(base: Baseline) -> None:
