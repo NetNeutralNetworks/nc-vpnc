@@ -182,7 +182,11 @@ def list_connections(
 def _connection(connection_id: str) -> tuple[NetworkInstance, Connection]:
     ni_id, conn = helpers.split_connection_name(connection_id)
     ni = helpers.network_instances().get(ni_id)
-    if ni is None or not conn.isdigit() or int(conn) not in ni.connections:
+    if (
+        ni is None
+        or not (conn.isascii() and conn.isdigit())
+        or int(conn) not in ni.connections
+    ):
         _not_found("connection", connection_id)
     return ni, ni.connections[int(conn)]
 

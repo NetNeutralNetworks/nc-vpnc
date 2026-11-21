@@ -333,9 +333,14 @@ def merge_patch(target: Any, patch: Any) -> Any:  # noqa: ANN401
         return patch
     result = dict(target) if isinstance(target, dict) else {}
     for key, value in patch.items():
-        # Connections have integer keys.
+        # Connections have integer keys; isdigit() alone is true for e.g. "²".
         existing = key
-        if key not in result and isinstance(key, str) and key.isdigit():
+        if (
+            key not in result
+            and isinstance(key, str)
+            and key.isascii()
+            and key.isdigit()
+        ):
             existing = int(key) if int(key) in result else key
         if value is None:
             result.pop(existing, None)
