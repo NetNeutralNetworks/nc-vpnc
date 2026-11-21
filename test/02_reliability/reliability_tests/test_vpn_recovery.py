@@ -25,6 +25,9 @@ END00_ADDRESSES = ("192.0.2.7", "2001:db8::7")
 FULL_CHECK_INTERVAL = 30
 # Peers retry with backoff.
 PEER_RETRY_TIMEOUT = 240
+# After a start BGP is up within this time after its tunnels.
+BGP_AFTER_TUNNELS = 10
+
 # Killed vpnc on this node; in the lab its container restarts, and its uplink is
 # linked to the bridge again.
 KILLED = "hub01"
@@ -195,10 +198,12 @@ class TestVpnRecovery:
         wait_for_healthy(HOST, connections, PEER_RETRY_TIMEOUT)
 
     def test_vpnc_killed(self) -> None:
-        """After vpnc is killed it starts again, with strongSwan and all connections.
+        """After vpnc is killed it starts again, with its daemons and all connections.
 
         The kill leaves the PID files of strongSwan and FRR. After a restart
         another process may have their PIDs: here 1, which a container always has.
+        BGP's first connection attempts fail before the tunnels are up; it's up
+        within seconds after them.
         """
         connections = get_connections(KILLED)
         assert connections, f"No connections loaded on {KILLED}"
@@ -235,4 +240,19 @@ class TestVpnRecovery:
             capture_output=True,
             check=True,
         )  # fmt: skip
+        conftest.wait_until(
+            lambda: is_established(KILLED, UPLINK_UNREACHABLE, UPLINK_REACHABLE),
+            timeout=PEER_RETRY_TIMEOUT,
+            interval=0.5,
+            message=f"the uplinks of {KILLED} to be established",
+        )
+        tunnels_up = time.monotonic()
+        conftest.wait_until(
+            lambda: bgp_all_established(KILLED),
+            timeout=BGP_AFTER_TUNNELS + 60,
+            interval=0.5,
+            message=f"BGP on {KILLED} to be established",
+        )
+        took = time.monotonic() - tunnels_up
+        assert took < BGP_AFTER_TUNNELS, f"BGP took {took:.0f} s after the tunnels"
         wait_for_healthy(KILLED, connections, PEER_RETRY_TIMEOUT)
