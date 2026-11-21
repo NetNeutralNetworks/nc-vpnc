@@ -1186,10 +1186,15 @@ def split(path: str | None) -> list[str]:
     return [k for k in (path or "").split(".") if k]
 
 
+def number(key: str) -> bool:
+    """Return whether a key is a number (0-9 only: isdigit() is true for "²")."""
+    return key.isascii() and key.isdigit()
+
+
 def walk(data: Any, keys: list[str], target: str) -> Any:  # noqa: ANN401
     """Return the value at the keys; list items by index."""
     for i, key in enumerate(keys):
-        if isinstance(data, list) and key.isdigit() and int(key) < len(data):
+        if isinstance(data, list) and number(key) and int(key) < len(data):
             data = data[int(key)]
         elif isinstance(data, dict) and key in data:
             data = data[key]
@@ -1212,7 +1217,7 @@ def assign(data: Any, keys: list[str], value: Any, target: str) -> None:  # noqa
         if not isinstance(data, dict | list):
             fail(f"{'.'.join(keys[: i + 1])} isn't a mapping or list.")
     if isinstance(data, list):
-        if not last.isdigit() or int(last) > len(data):
+        if not number(last) or int(last) > len(data):
             fail(f"{'.'.join(keys)}: use an index up to {len(data)} (appends).")
         index = int(last)
         if value is DELETE:
@@ -1840,7 +1845,7 @@ class Node:
         data = self.data
         if isinstance(data, dict) and key in data:
             return True, data[key]
-        if isinstance(data, list) and key.isdigit() and int(key) < len(data):
+        if isinstance(data, list) and number(key) and int(key) < len(data):
             return True, data[int(key)]
         return False, None
 
@@ -1942,7 +1947,7 @@ class Node:
 
 def next_key(keys: list[str]) -> list[str]:
     """Return the key after numbered ones (e.g. 01 after 00), to add an item."""
-    if not keys or not all(key.isdigit() for key in keys):
+    if not keys or not all(number(key) for key in keys):
         return []
     return [f"{max(map(int, keys)) + 1:0{len(keys[0])}d}"]
 

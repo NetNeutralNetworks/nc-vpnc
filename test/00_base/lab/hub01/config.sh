@@ -15,6 +15,12 @@ install -m 600 -o vpnc-ssh -g vpnc-ssh ${SCRIPTDIR}/id_ed25519 /var/lib/vpnc-ssh
 ${SCRIPTDIR}/../snmpd.sh
 ${SCRIPTDIR}/../journald.sh
 
+# containerlab adds the links after the container starts, also after a
+# restart: vpnc takes them over when it starts.
+for link in eth1; do
+    until ip link show "${link}" &> /dev/null; do sleep 0.2; done
+done
+
 # If systemd is NOT the init system
 if [ "$(ps -p 1 -o comm=)" != "systemd" ]; then
     # Replaces the shell: the init process (tini) signals vpnc itself.

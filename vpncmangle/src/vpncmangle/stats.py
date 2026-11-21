@@ -23,6 +23,7 @@ NOT_DNS = "NOT_DNS"
 NO_TRANSLATIONS = "NO_TRANSLATIONS"
 UNKNOWN_SOURCE = "UNKNOWN_SOURCE"
 ERROR = "ERROR"
+QUERY_WITH_ADDRESSES = "QUERY_WITH_ADDRESSES"
 # Over the service's dns limits: max_size, max_records, and rate_limit (which
 # nftables counts, before the queue).
 OVERSIZED = "OVERSIZED"

@@ -534,6 +534,28 @@ class TestReconfiguration:
             message="tenant C0002 to be removed",
         )
 
+    def test_added_again_with_firewall(self) -> None:
+        """A network instance removed and added again gets its firewall right away.
+
+        Not after the drift check (5 minutes): its namespace may reuse the inode.
+        """
+        conftest.run_cmd(HOST, f"rm -f {TENANT_FILE}")
+        conftest.wait_until(
+            tenant_removed,
+            timeout=APPLY_TIMEOUT,
+            message="tenant C0002 to be removed",
+        )
+        write_tenant([BASE_CONNECTION])
+        tables = f"ip netns exec {NI} nft list tables"
+        conftest.wait_until(
+            lambda: (
+                connection_applied(BASE_CONNECTION)
+                and "table inet vpnc" in conftest.run_cmd(HOST, tables)
+            ),
+            timeout=APPLY_TIMEOUT,
+            message=f"{NI} to be applied with its firewall",
+        )
+
     def test_broken_active_file(self) -> None:
         """An active file that can't be loaded is reported; the tenant keeps running.
 
@@ -575,6 +597,18 @@ class TestReconfiguration:
             timeout=APPLY_TIMEOUT,
             message="the file to be loaded",
         )
+
+    def test_file_removed_right_away(self) -> None:
+        """A file removed right after it's written isn't reported as not loaded."""
+        path = "/opt/ncubed/config/vpnc/active/C0009.yaml"
+        before = vpnctl_json("events --event CONFIG_NOT_LOADED --since 1h C0009")
+        conftest.run_cmd_shell(HOST, f"bash -c 'echo {{}} > {path} && rm {path}'")
+        # The watcher handles each event 0.1 s after it.
+        time.sleep(2)
+
+        assert not any(c["id"] == "C0009" for c in vpnctl_json("config list"))
+        after = vpnctl_json("events --event CONFIG_NOT_LOADED --since 1h C0009")
+        assert after == before
 
     def test_delete_tenant_with_broken_file(self) -> None:
         """A tenant whose active file is broken is deleted like any other."""
@@ -769,6 +803,16 @@ class TestReconfiguration:
         # What it has stays, without asking again.
         vpnctl("config set C0002 name Renamed")
         assert vpnctl("config commit C0002") == "Committed.\n"
+
+    def test_proposal_charon_refuses(self) -> None:
+        """A commit with a proposal charon doesn't accept is refused."""
+        proposal = f"network_instances.{NI_KEY}.connections.0.config.ike_proposal"
+        vpnctl(f"config set C0002 {proposal} aes257-sha256-ecp384")
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            vpnctl("config commit C0002")
+
+        assert "charon doesn't accept ike_proposal aes257" in err.value.stderr
+        assert connection_applied(BASE_CONNECTION)
 
     def test_generated_psk_is_committed(self) -> None:
         """A generated PSK is committed as it is."""
@@ -1263,8 +1307,93 @@ class TestDrift:
         )
 
 
+# A one-shot DNS server on cli00: it replies with the query's id and the rest
+# given (hex). It binds before its address exists (freebind), as named takes any
+# new address.
+RESPONDER = """
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.setsockopt(socket.IPPROTO_IP, 15, 1)
+s.bind((sys.argv[1], 53))
+s.settimeout(30)
+query, peer = s.recvfrom(512)
+s.sendto(query[:2] + bytes.fromhex(sys.argv[2]), peer)
+"""
+RESPONDER_ADDRESS = "172.16.31.55"
+# mgt00 asks it, through hub00's C0001-00, and prints the reply (hex) or none.
+CLIENT = """
+import socket, sys
+s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+s.settimeout(3)
+s.sendto(bytes.fromhex(sys.argv[2]), (sys.argv[1], 53))
+try:
+    print(s.recvfrom(512)[0].hex())
+except TimeoutError:
+    print("none")
+"""
+# qr.example.com, A.
+QUESTION = (b"\x02qr\x07example\x03com\x00" + b"\x00\x01\x00\x01").hex()
+QUERY = f"1234 0100 0001000000000000 {QUESTION}"
+# An A record of the question's name (a pointer to it).
+A_RECORD = "c00c000100010000003c00040a000001"
+# Replies after the id: flags, counts, question and records.
+REPLIES = {
+    # A query (QR 0) with an address, and one without.
+    "query with an address": f"0000 0001000100000000 {QUESTION} {A_RECORD}",
+    "query": f"0000 0001000000000000 {QUESTION}",
+    # A response with a label over 63 bytes, which a lenient client reads as one,
+    # with an A record behind it.
+    "long label": f"8180 0001000000000001 {QUESTION} 40{'00' * 65}"
+    " 000100010000003c00040a000001",
+}
+
+
+def dns_reply(reply: str) -> str:
+    """Return what mgt00 gets (hex, or none) from a DNS server that replies so."""
+    container = f"{conftest.CONTAINER_PREFIX}cli00"
+    subprocess.run(  # noqa: S603
+        ["docker", "exec", "-d", container, "python3", "-c", RESPONDER,  # noqa: S607
+         RESPONDER_ADDRESS, reply.replace(" ", "")],
+        check=True,
+    )  # fmt: skip
+    address = f"{RESPONDER_ADDRESS}/32 dev lo"
+    time.sleep(1)
+    conftest.run_cmd("cli00", f"ip address add {address}")
+    try:
+        return subprocess.run(  # noqa: S603
+            ["docker", "exec", f"{conftest.CONTAINER_PREFIX}mgt00", "python3", "-c",  # noqa: S607
+             CLIENT, f"fdcc:0:c:1::{RESPONDER_ADDRESS}", QUERY.replace(" ", "")],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()  # fmt: skip
+    finally:
+        conftest.run_cmd("cli00", f"ip address del {address}")
+
+
 class TestDnsTranslation:
     """DNS answers follow the configuration."""
+
+    @pytest.mark.parametrize(
+        ("reply", "reason"),
+        [("query with an address", "QUERY_WITH_ADDRESSES"), ("long label", "NOT_DNS")],
+    )
+    def test_reply_with_untranslated_address_dropped(
+        self, reply: str, reason: str
+    ) -> None:
+        """A reply a client may read an untranslated address from is dropped."""
+        dropped = dns_dropped(reason)
+        assert dns_reply(REPLIES[reply]) == "none"
+        conftest.wait_until(
+            lambda: dns_dropped(reason) > dropped,
+            timeout=COUNTERS_TIMEOUT,
+            message="the dropped reply to be counted",
+        )
+
+    def test_query_from_dns_server(self) -> None:
+        """A query from port 53 (e.g. of a forwarder) passes as it is."""
+        expected = "1234" + REPLIES["query"].replace(" ", "")
+        assert dns_reply(REPLIES["query"]) == expected
 
     def test_follows_nptv6_setting(self) -> None:
         """Without NPTv6 for a route, its addresses are answered untranslated."""

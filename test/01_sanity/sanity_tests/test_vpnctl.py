@@ -260,6 +260,31 @@ class TestVpnctl:
         assert complete("vpnctl connections show C0001-01") == ["C0001-01-0"]
         assert sorted(complete("vpnctl config show ")) == ["C0001", "service"]
 
+    # Arabic-Indic and fullwidth digits.
+    @pytest.mark.parametrize(
+        "tenant_id", ["A\u0661\u0662\u0663\u0664", "C\uff10\uff10\uff10\uff11"]
+    )
+    def test_tenant_id_digits_are_ascii(self, tenant_id: str) -> None:
+        """A tenant id with other digits than 0-9 isn't one."""
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            conftest.run_cmd("hub00", f"{VPNCTL} config show {tenant_id}")
+
+        assert "path.tenant_id: String should match pattern" in err.value.stderr
+
+    # Superscript two: str.isdigit() is true for it, but int() refuses it.
+    def test_connection_number_digits_are_ascii(self) -> None:
+        """A connection number with other digits than 0-9 isn't one."""
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            conftest.run_cmd("hub00", f"{VPNCTL} connections show C0001-00-\u00b2")
+        assert "No connection 'C0001-00-\u00b2'" in err.value.stderr
+
+        path = "network_instances.00.connections.\u00b2.enabled"
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            conftest.run_cmd("hub00", f"{VPNCTL} config set C0001 {path} true")
+        assert "Invalid configuration" in err.value.stderr
+        diff = conftest.run_cmd("hub00", f"{VPNCTL} config diff C0001")
+        assert diff == "No changes.\n"
+
     def test_config_completion(self) -> None:
         """Completion offers a configuration's keys level by level, and values."""
         path = "network_instances.00.connections."
@@ -503,6 +528,8 @@ VPN_CONNECTIONS = sorted(
 )
 # A peer counts as heard once two samples (full checks) saw its packets.
 PEER_SEEN_TIMEOUT = 100
+# BGP sessions are noted by vpnc's full check (every 30 s).
+FULL_CHECK_TIMEOUT = 40
 
 
 class TestVpnctlEvents:
@@ -521,11 +548,18 @@ class TestVpnctlEvents:
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_bgp_events(self, host: str) -> None:
         """A hub's BGP sessions becoming established are events of CORE."""
-        events = vpnctl(host, "ni events CORE --event BGP_ESTABLISHED -n 1000")
-        established = {event["details"]["neighbor_address"] for event in events}
         neighbors = {n["neighbor_address"] for n in vpnctl(host, "bgp neighbors")}
         assert neighbors
-        assert established >= neighbors
+
+        def established() -> bool:
+            events = vpnctl(host, "ni events CORE --event BGP_ESTABLISHED -n 1000")
+            return {e["details"]["neighbor_address"] for e in events} >= neighbors
+
+        conftest.wait_until(
+            established,
+            timeout=FULL_CHECK_TIMEOUT,
+            message="an event per established BGP session",
+        )
 
     def test_events_of_subject(self) -> None:
         """A tenant's events include its network instances' and connections'."""

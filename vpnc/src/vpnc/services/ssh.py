@@ -273,7 +273,8 @@ def delete_unconfigured_keys() -> None:
             for path in directory.iterdir()
         }
         for name in sorted(found - configured):
-            if not helpers.split_connection_name(name)[1].isdigit():
+            index = helpers.split_connection_name(name)[1]
+            if not (index.isascii() and index.isdigit()):
                 continue  # Not a connection's.
             tenant_id = helpers.downlink_tenant(name) or config.DEFAULT_TENANT
             if (

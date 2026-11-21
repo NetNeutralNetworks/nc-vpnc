@@ -166,8 +166,6 @@ def check(
 
 # Per BGP neighbor: whether its session is established, and since when.
 BGP: dict[str, tuple[bool, float]] = {}
-# When vpnc started: a session established since is an event when first seen.
-STARTED = time.time()
 
 
 def _established_at(text: str | None) -> float | None:
@@ -193,15 +191,16 @@ def note_bgp() -> None:
         was, since = BGP.get(address, (None, now))
         if was is not None and was == established:
             continue
-        changed = now
+        up = _established_at(neighbor.last_established) if established else None
         if was is None:
             # The first time it's seen: a change only if it was established since
             # vpnc started (before the first full check).
-            up = _established_at(neighbor.last_established) if established else None
-            if up is None or up < STARTED:
+            if up is None or up < shared.STARTED:
                 BGP[address] = (established, up or now)
                 continue
-            since, changed = STARTED, up
+            since = shared.STARTED
+        # When it was established, rather than noticed (by a full check).
+        changed = up if up is not None and up >= since else now
         BGP[address] = (established, changed)
         name = f"{address} ({neighbor.hostname})" if neighbor.hostname else address
         lasted = eventlog.duration(changed - since)

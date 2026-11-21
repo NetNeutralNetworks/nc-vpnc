@@ -148,6 +148,12 @@ def validate(tenant_id: str, data: Any) -> Model:  # noqa: ANN401
     """Return the validated configuration (ValidationError if invalid)."""
     if not isinstance(data, dict):
         raise ConfigError(422, "Invalid configuration", "Expected a mapping.")
+    try:
+        # JSON allows lone surrogates (e.g. "\ud800"); the files are UTF-8.
+        json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
+    except UnicodeEncodeError:
+        detail = "Text should be valid Unicode (no lone surrogates)."
+        raise ConfigError(422, "Invalid configuration", detail) from None
     data = migration.upgrade(data)
     model = (
         tenant.Service(config=data).config
@@ -327,9 +333,14 @@ def merge_patch(target: Any, patch: Any) -> Any:  # noqa: ANN401
         return patch
     result = dict(target) if isinstance(target, dict) else {}
     for key, value in patch.items():
-        # Connections have integer keys.
+        # Connections have integer keys; isdigit() alone is true for e.g. "²".
         existing = key
-        if key not in result and isinstance(key, str) and key.isdigit():
+        if (
+            key not in result
+            and isinstance(key, str)
+            and key.isascii()
+            and key.isdigit()
+        ):
             existing = int(key) if int(key) in result else key
         if value is None:
             result.pop(existing, None)
@@ -560,6 +571,31 @@ def check_conflicts(candidates: dict[str, Model | None]) -> None:
     for model in candidates.values():
         if model is not None:
             _check_post_quantum(model)
+            _check_proposals(model)
+
+
+def _check_proposals(model: Model) -> None:
+    """Refuse IPsec proposals charon doesn't accept."""
+    for ni in model.network_instances.values():
+        for connection in ni.connections.values():
+            if connection.config.type != enums.ConnectionType.IPSEC:
+                continue
+            name = connection.name(ni)
+            try:
+                refused = strongswan.refused_proposals(connection.config)
+            except strongswan.VICI_ERRORS:
+                raise ConfigError(
+                    503,
+                    "charon unavailable",
+                    f"Can't check the proposals of {name} with charon.",
+                ) from None
+            if refused:
+                value = getattr(connection.config, refused)
+                raise ConfigError(
+                    422,
+                    "Invalid configuration",
+                    f"{name}: charon doesn't accept {refused} {value}.",
+                )
 
 
 def _added_weaknesses(tenant_id: str, candidate: Model | None) -> list[str]:

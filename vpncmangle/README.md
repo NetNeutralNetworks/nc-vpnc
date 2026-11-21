@@ -29,6 +29,6 @@ An answer of one address takes about 0.4 ms to translate, one of 100 about 9 ms:
 
 Logs go to the journal (`journalctl -t vpncmangle`), or `vpnctl logs --source vpncmangle`. `vpnctl status` shows whether it runs and how many answers it translated and dropped since it started, and why; `vpnctl ni show` the same per network instance. vpncmangle writes these counters to `/run/vpncmangle/stats.json` every 30 seconds.
 
-Dropped as well: a packet from port 53 that isn't DNS (`NOT_DNS`), an answer from an address of no network instance (`UNKNOWN_SOURCE`), an answer while no translations are loaded (`NO_TRANSLATIONS`), an answer that fails to translate (`ERROR`), and answers the kernel couldn't queue because vpncmangle didn't keep up (`QUEUE_FULL`).
+Dropped as well: a packet from port 53 that isn't DNS as RFC 1035 has it, e.g. with a label over 63 bytes or bytes after its records (`NOT_DNS`), a query (not a response) from port 53 with addresses in it (`QUERY_WITH_ADDRESSES`), an answer from an address of no network instance (`UNKNOWN_SOURCE`), an answer while no translations are loaded (`NO_TRANSLATIONS`), an answer that fails to translate (`ERROR`), and answers the kernel couldn't queue because vpncmangle didn't keep up (`QUEUE_FULL`).
 
 DNS over TCP isn't translated: `CORE` refuses it, so a tenant can't answer with other addresses.

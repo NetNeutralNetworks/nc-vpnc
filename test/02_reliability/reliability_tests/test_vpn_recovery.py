@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import time
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,10 @@ END00_ADDRESSES = ("192.0.2.7", "2001:db8::7")
 FULL_CHECK_INTERVAL = 30
 # Peers retry with backoff.
 PEER_RETRY_TIMEOUT = 240
+# Killed vpnc on this node; in the lab its container restarts, and its uplink is
+# linked to the bridge again.
+KILLED = "hub01"
+KILLED_UPLINK = ("eth1", "br-nc-vpnc:eth4")
 
 # "<name>: #<id>, <state>, " in swanctl --list-sas.
 SA_RE = re.compile(r"^(\S+): #\d+, (\w+), ")
@@ -188,3 +193,46 @@ class TestVpnRecovery:
             assert not is_established(HOST, RESPONDER_CONNECTION)
 
         wait_for_healthy(HOST, connections, PEER_RETRY_TIMEOUT)
+
+    def test_vpnc_killed(self) -> None:
+        """After vpnc is killed it starts again, with strongSwan and all connections.
+
+        The kill leaves the PID files of strongSwan and FRR. After a restart
+        another process may have their PIDs: here 1, which a container always has.
+        """
+        connections = get_connections(KILLED)
+        assert connections, f"No connections loaded on {KILLED}"
+        container = f"{conftest.CONTAINER_PREFIX}{KILLED}"
+
+        def started() -> str:
+            return subprocess.run(  # noqa: S603
+                ["docker", "inspect", "-f", "{{.State.StartedAt}}", container],  # noqa: S607
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+
+        before = started()
+        for pid_file in ("starter.charon.pid", "charon.pid", "frr/bgpd.pid"):
+            conftest.run_cmd_shell(KILLED, f"bash -c 'echo 1 > /var/run/{pid_file}'")
+        # The container exits with vpnc, so the command may fail.
+        subprocess.run(  # noqa: S603
+            ["docker", "exec", container, "pkill", "-KILL", "-x", "vpnc"],  # noqa: S607
+            capture_output=True,
+            check=False,
+        )
+        conftest.wait_until(
+            lambda: started() != before,
+            timeout=60,
+            message=f"{KILLED} to restart",
+        )
+        link, bridge = KILLED_UPLINK
+        subprocess.run(  # noqa: S603
+            [  # noqa: S607
+                "containerlab", "tools", "veth", "create",
+                "-a", f"{container}:{link}", "-b", f"bridge:{bridge}",
+            ],
+            capture_output=True,
+            check=True,
+        )  # fmt: skip
+        wait_for_healthy(KILLED, connections, PEER_RETRY_TIMEOUT)
