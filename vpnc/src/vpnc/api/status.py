@@ -245,8 +245,9 @@ class VpncmangleState(BaseModel):
     # DNS answers since vpncmangle started; None if it hasn't counted (yet).
     answers_translated: int | None
     answers_dropped: int | None
-    # By reason: NOT_DNS, NO_TRANSLATIONS, UNKNOWN_SOURCE, ERROR; over the dns
-    # limits OVERSIZED, TOO_MANY_RECORDS, RATE_LIMITED; QUEUE_FULL (the kernel's).
+    # By reason: NOT_DNS, QUERY_WITH_ADDRESSES, NO_TRANSLATIONS, UNKNOWN_SOURCE,
+    # ERROR; over the dns limits OVERSIZED, TOO_MANY_RECORDS, RATE_LIMITED;
+    # QUEUE_FULL (the kernel's).
     drop_reasons: dict[str, int]
 
 
