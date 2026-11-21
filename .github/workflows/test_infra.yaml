@@ -148,3 +148,18 @@ jobs:
       - name: Show lab diagnostics
         if: failure()
         run: sudo test/00_setup/diagnostics.sh ${{ matrix.shard.lab == 'base' && 'vpnc' || 'vpnc-scale' }}
+      # The whole journals (vpnc, charon): the diagnostics show their ends.
+      - name: Save the nodes' journals
+        if: failure()
+        run: |
+          mkdir journals
+          lab=${{ matrix.shard.lab == 'base' && 'vpnc' || 'vpnc-scale' }}
+          for c in $(sudo docker ps -a --filter "label=containerlab=${lab}" --format '{{.Names}}'); do
+            sudo docker exec "${c}" journalctl --no-pager -o short-iso > "journals/${c}.log" 2>&1 || true
+          done
+      - name: Upload the nodes' journals
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: journals-${{ matrix.shard.name }}
+          path: journals
