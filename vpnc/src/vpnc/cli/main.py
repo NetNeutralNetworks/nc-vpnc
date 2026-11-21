@@ -2004,8 +2004,36 @@ def config_candidates(action: str, arguments: list[str], current: str) -> list[s
     if len(arguments) == 1:
         return path_candidates(arguments[0], current, new=new)
     if len(arguments) == 2 and new:  # noqa: PLR2004
-        return value_candidates(*arguments)
+        values = value_candidates(*arguments)
+        if arguments[1].endswith("_proposal"):
+            values += proposal_candidates(arguments[1], current)
+        return values
     return []
+
+
+def proposal_candidates(path: str, current: str) -> list[str]:
+    """Return the proposal typed so far with a keyword more that charon has.
+
+    Not ML-KEM: post_quantum sets it.
+    """
+    esp = path.endswith("ipsec_proposal")
+    prefix = current[: current.rfind("-") + 1]
+    used = set(prefix.split("-"))
+    skip = "PRF" if esp else "ESN"
+    return described(
+        [
+            (
+                f"{prefix}{k['keyword']}",
+                k["keyword"],
+                f"{k['type'].lower()} {k['algorithm'] or ''}",
+            )
+            for k in request("GET", "/v1/ipsec/proposal-keywords")
+            if k["available"] is not False
+            and k["type"] != skip
+            and not k["keyword"].startswith("mlkem")
+            and k["keyword"] not in used
+        ],
+    )
 
 
 def cmd_completion(args: argparse.Namespace) -> None:

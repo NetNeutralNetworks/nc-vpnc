@@ -32,7 +32,7 @@ from vpnc.models.post_quantum import PostQuantumPresharedKey
 from vpnc.models.secret import REVEAL
 from vpnc.models.wireguard import wireguard_port_users
 from vpnc.services import configuration, ssh
-from vpnc.services.strongswan import strongswan
+from vpnc.services.strongswan import proposals, strongswan
 
 if TYPE_CHECKING:
     import pathlib
@@ -175,7 +175,31 @@ def validate(tenant_id: str, data: Any) -> Model:  # noqa: ANN401
             "Invalid configuration",
             f"The id '{model.id}' doesn't match '{tenant_id}'.",
         )
+    _check_algorithms(model)
     return model
+
+
+def _check_algorithms(model: Model) -> None:
+    """Refuse IPsec proposals charon refuses, or with algorithms it doesn't have.
+
+    Without asking charon to load them; what it has only if it can be asked.
+    """
+    available = strongswan.supported_algorithms()
+    for ni in model.network_instances.values():
+        for connection in ni.connections.values():
+            cfg = connection.config
+            if cfg.type != enums.ConnectionType.IPSEC:
+                continue
+            for field, esp in (("ike_proposal", False), ("ipsec_proposal", True)):
+                value = getattr(cfg, field)
+                reason = proposals.problem(value, esp=esp)
+                if reason is None and available:
+                    missing = proposals.unavailable(value, available, esp=esp)
+                    if missing:
+                        reason = f"charon doesn't have {', '.join(missing)}"
+                if reason:
+                    detail = f"{connection.name(ni)}: {field} {value}: {reason}."
+                    raise ConfigError(422, "Invalid configuration", detail)
 
 
 def _running(tenant_id: str) -> Model | None:
@@ -602,6 +626,7 @@ def check_conflicts(candidates: dict[str, Model | None]) -> None:
 
 def _check_proposals(model: Model) -> None:
     """Refuse IPsec proposals charon doesn't accept."""
+    _check_algorithms(model)
     for ni in model.network_instances.values():
         for connection in ni.connections.values():
             if connection.config.type != enums.ConnectionType.IPSEC:

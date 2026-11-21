@@ -146,6 +146,11 @@ def terminate(  # noqa: PLR0913
             logger.warning("Terminating SA %s failed: %s", described, err)
 
 
+def algorithms(vcs: vici.Session) -> dict[str, frozenset[str]]:
+    """Return the algorithms charon has by group, e.g. aead: AES_GCM_16."""
+    return {group: frozenset(names) for group, names in vcs.get_algorithms().items()}
+
+
 def key_exchanges(vcs: vici.Session) -> frozenset[str]:
     """Return the key exchange methods charon supports, e.g. ML_KEM_768."""
     algorithms = vcs.get_algorithms()
