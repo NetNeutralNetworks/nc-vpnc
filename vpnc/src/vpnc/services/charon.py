@@ -21,6 +21,8 @@ VICI_SOCKET = "/var/run/charon.vici"
 VICI_TIMEOUT = 10
 # Seconds between tries to connect.
 RETRY_DELAY = 2
+# charon's answer when there's nothing to terminate.
+NO_SA = "no matching SAs to terminate found"
 
 
 def _connect(timeout: float | None, tries: int) -> socket.socket:
@@ -136,10 +138,12 @@ def terminate(  # noqa: PLR0913
             pass
     except vici.exception.SessionException:
         logger.warning("Terminating SA %s may have failed.", described, exc_info=True)
-    except vici.exception.CommandException:
-        # Also when there's no SA, or the peer doesn't confirm in time.
-        if warn:
-            logger.warning("Terminating SA %s failed.", described, exc_info=True)
+    except vici.exception.CommandException as err:
+        if NO_SA in str(err):
+            logger.debug("No SA %s to terminate.", described)
+        elif warn:
+            # E.g. the peer doesn't confirm in time.
+            logger.warning("Terminating SA %s failed: %s", described, err)
 
 
 def key_exchanges(vcs: vici.Session) -> frozenset[str]:
