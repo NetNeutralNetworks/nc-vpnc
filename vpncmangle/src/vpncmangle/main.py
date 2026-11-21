@@ -156,7 +156,7 @@ def mangle_dns(pkt: Packet) -> None:
             pkt.drop()
 
 
-def _mangle_dns(pkt: Packet) -> None:  # noqa: C901, PLR0911, PLR0915 (one pass)
+def _mangle_dns(pkt: Packet) -> None:  # noqa: C901, PLR0911, PLR0912, PLR0915 (one pass)
     """Translate the addresses in a DNS response to ones reachable from CORE."""
     payload = pkt.get_payload()
     # Before parsing, which costs most.
@@ -165,8 +165,11 @@ def _mangle_dns(pkt: Packet) -> None:  # noqa: C901, PLR0911, PLR0915 (one pass)
         stats.dropped(stats.NOT_DNS)
         pkt.drop()
         return
-    if not payload[offset + 2] & RESPONSE:
-        logger.debug("Packet is not of type response.")
+    # A query (e.g. of a forwarder) passes; with records it's looked into.
+    if not payload[offset + 2] & RESPONSE and not any(
+        payload[offset + 6 : offset + 12]
+    ):
+        logger.debug("Packet is a query without records.")
         pkt.accept()
         return
     if reason := too_costly(payload, offset):
@@ -182,18 +185,28 @@ def _mangle_dns(pkt: Packet) -> None:  # noqa: C901, PLR0911, PLR0915 (one pass)
         stats.dropped(stats.NOT_DNS)
         pkt.drop()
         return
-    # If not a response (QR field, query is 0, response 1).
-    if pkt_sc[sc.DNS].qr != 1:
-        logger.debug("Packet is not of type response.")
-        pkt.accept()
-        return
     # Addresses in any section, whatever the return code: a client may use them.
     dns = pkt_sc[sc.DNS]
-    if not any(
+    has_addresses = any(
         record.type in (QUERY_A, QUERY_AAAA)
         for section, _ in SECTIONS
         for record in getattr(dns, section) or []
-    ):
+    )
+    # Not a response (QR 0): it passes, but not with addresses, which a client
+    # that doesn't look at QR could use untranslated.
+    if dns.qr != 1:
+        if has_addresses:
+            logger.debug("Dropping a query with addresses from port 53.")
+            stats.dropped(
+                stats.QUERY_WITH_ADDRESSES,
+                network_instance(IPv6Address(pkt_sc.src)),
+            )
+            pkt.drop()
+            return
+        logger.debug("Packet is a query without addresses.")
+        pkt.accept()
+        return
+    if not has_addresses:
         logger.debug("Packet response contains no addresses.")
         pkt.accept()
         return

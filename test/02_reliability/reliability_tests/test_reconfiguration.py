@@ -1307,8 +1307,77 @@ class TestDrift:
         )
 
 
+# A one-shot DNS server on cli00 that answers with a query (QR 0): the query
+# back, with an A record if asked. It binds before its address exists
+# (freebind), as named takes any new address.
+QUERY_RESPONDER = """
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.setsockopt(socket.IPPROTO_IP, 15, 1)
+s.bind((sys.argv[1], 53))
+s.settimeout(30)
+query, peer = s.recvfrom(512)
+record = bytes.fromhex("c00c000100010000003c00040a000001")
+answer = record if sys.argv[2] == "1" else b""
+counts = query[4:6] + (1 if answer else 0).to_bytes(2, "big") + bytes(4)
+s.sendto(query[:2] + bytes(2) + counts + query[12:] + answer, peer)
+"""
+QUERY_RESPONDER_ADDRESS = "172.16.31.55"
+# mgt00 asks it, through hub00's C0001-00, and prints the reply (hex) or none.
+QUERY_CLIENT = """
+import socket, sys
+s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+s.settimeout(3)
+question = b"\\x02qr\\x07example\\x03com\\x00\\x00\\x01\\x00\\x01"
+s.sendto(bytes.fromhex("123401000001000000000000") + question, (sys.argv[1], 53))
+try:
+    print(s.recvfrom(512)[0].hex())
+except TimeoutError:
+    print("none")
+"""
+
+
+def query_reply(*, addresses: bool) -> str:
+    """Return the reply (hex) mgt00 gets from a DNS server answering with a query."""
+    responder = ["docker", "exec", f"{conftest.CONTAINER_PREFIX}cli00"]
+    subprocess.run(  # noqa: S603
+        [*responder[:2], "-d", *responder[2:], "python3", "-c", QUERY_RESPONDER,
+         QUERY_RESPONDER_ADDRESS, "1" if addresses else "0"],
+        check=True,
+    )  # fmt: skip
+    address = f"{QUERY_RESPONDER_ADDRESS}/32 dev lo"
+    time.sleep(1)
+    conftest.run_cmd("cli00", f"ip address add {address}")
+    try:
+        return subprocess.run(  # noqa: S603
+            ["docker", "exec", f"{conftest.CONTAINER_PREFIX}mgt00", "python3", "-c",  # noqa: S607
+             QUERY_CLIENT, f"fdcc:0:c:1::{QUERY_RESPONDER_ADDRESS}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()  # fmt: skip
+    finally:
+        conftest.run_cmd("cli00", f"ip address del {address}")
+
+
 class TestDnsTranslation:
     """DNS answers follow the configuration."""
+
+    @pytest.mark.parametrize("addresses", [True, False])
+    def test_query_from_dns_server(self, *, addresses: bool) -> None:
+        """A query from port 53 passes vpncmangle, but not with addresses in it."""
+        dropped = dns_dropped("QUERY_WITH_ADDRESSES")
+        reply = query_reply(addresses=addresses)
+
+        if addresses:
+            assert reply == "none"
+            conftest.wait_until(
+                lambda: dns_dropped("QUERY_WITH_ADDRESSES") > dropped,
+                timeout=COUNTERS_TIMEOUT,
+                message="the dropped query to be counted",
+            )
+        else:
+            assert reply.startswith("12340000"), reply
 
     def test_follows_nptv6_setting(self) -> None:
         """Without NPTv6 for a route, its addresses are answered untranslated."""
