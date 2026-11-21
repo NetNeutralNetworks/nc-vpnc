@@ -20,16 +20,32 @@ node_kind() {
     fi'
 }
 
-# Links, addresses, routes, WireGuard and nftables of every network namespace.
+# Above this many network instances (the scale lab has 200) only the service's
+# are shown, and up to MAX_SHOWN with a connection that isn't UP.
+MAX_ALL=20
+MAX_SHOWN=10
+
+# Links, addresses, routes, WireGuard and nftables of the network namespaces.
 namespaces() {
-  in_node "$1" '
-    for ns in $(ip netns list | cut -d" " -f1 | sort); do
-      echo "--- ${ns}"
-      ip -n "${ns}" -br link; ip -n "${ns}" -br addr
-      ip -n "${ns}" route; ip -n "${ns}" -6 route
-      ip netns exec "${ns}" wg show 2> /dev/null
-      ip netns exec "${ns}" nft list ruleset
-    done'
+  local all down shown
+  all="$(in_node "$1" 'ip netns list' | cut -d' ' -f1 | sort)"
+  shown="${all}"
+  if (( $(wc -l <<< "${all}") > MAX_ALL )); then
+    down="$(in_node "$1" 'vpnctl connections list' |
+      awk 'NR > 1 && $4 != "UP" {print $1}' | sed -E 's/-[0-9]+$//' | sort -u)"
+    echo "$(wc -l <<< "${all}") network instances, $(grep -c . <<< "${down}") with" \
+      "a connection that isn't UP; showing the service's and up to ${MAX_SHOWN} of those"
+    shown="$({ grep -x -E 'DEFAULT|EXTERNAL|CORE|ENDPOINT' <<< "${all}"
+      grep -v -x -E 'CORE|ENDPOINT' <<< "${down}" | head -n "${MAX_SHOWN}"; })"
+  fi
+  in_node "$1" "
+    for ns in $(tr '\n' ' ' <<< "${shown}"); do
+      echo \"--- \${ns}\"
+      ip -n \${ns} -br link; ip -n \${ns} -br addr
+      ip -n \${ns} route; ip -n \${ns} -6 route
+      ip netns exec \${ns} wg show 2> /dev/null
+      ip netns exec \${ns} nft list ruleset
+    done"
 }
 
 hub() {

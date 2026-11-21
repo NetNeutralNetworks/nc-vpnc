@@ -147,4 +147,4 @@ jobs:
         run: sudo python3 -m pytest -v ${{ matrix.shard.tests }}
       - name: Show lab diagnostics
         if: failure()
-        run: sudo test/00_setup/diagnostics.sh
+        run: sudo test/00_setup/diagnostics.sh ${{ matrix.shard.lab == 'base' && 'vpnc' || 'vpnc-scale' }}
