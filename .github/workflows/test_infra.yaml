@@ -119,10 +119,10 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: jool-modules
-          key: jool-${{ steps.kernel.outputs.release }}-${{ hashFiles('test/00_base/install.sh') }}
+          key: jool-${{ steps.kernel.outputs.release }}-${{ hashFiles('test/00_setup/install.sh') }}
       - name: Install runner dependencies (Jool, containerlab)
         # sudo drops the environment; install.sh skips the upgrade in Actions.
-        run: sudo --preserve-env=GITHUB_ACTIONS,JOOL_MODULES test/00_base/install.sh
+        run: sudo --preserve-env=GITHUB_ACTIONS,JOOL_MODULES test/00_setup/install.sh
         env:
           JOOL_MODULES: ${{ github.workspace }}/jool-modules
       - name: Save the Jool module
@@ -147,4 +147,4 @@ jobs:
         run: sudo python3 -m pytest -v ${{ matrix.shard.tests }}
       - name: Show lab diagnostics
         if: failure()
-        run: sudo test/00_base/diagnostics.sh
+        run: sudo test/00_setup/diagnostics.sh ${{ matrix.shard.lab == 'base' && 'vpnc' || 'vpnc-scale' }}

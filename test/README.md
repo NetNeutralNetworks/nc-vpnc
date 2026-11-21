@@ -4,22 +4,36 @@ The tests run against containerlab labs and check end results in the lab.
 
 | Directory | What | Time |
 |---|---|---|
-| `00_base/` | The base lab: topology, node configuration and lab scripts; images and host setup | |
+| `00_setup/` | The host's prerequisites (Docker, containerlab, Jool, test tools) and the images | |
+| `00_base/` | The base lab: topology, node configuration and lab scripts | |
 | `00_scale/` | The scale lab | |
 | `00_fuzz/` | The fuzz lab: the base lab's nodes, for tests that wreck it | |
 | `01_sanity/` | The freshly deployed lab is configured and working. Read-only. | seconds |
 | `02_reliability/` | Configuration changes, drift and failures (outages, restarts, lost sessions) are handled. Disrupts the lab and restores it. | ~20 min |
 | `03_performance/` | 200 network instances and 300 connections, in the scale lab. | ~10 min |
 
+## Setup
+
+Once per host (Ubuntu 26.04), then log in again for the docker group:
+
+```sh
+sudo test/00_setup/install.sh
+```
+
+Then build the images, after each change to vpnc:
+
+```sh
+sudo test/00_setup/build-image.sh 26.04
+```
+
 ## Base lab
 
 ```sh
-sudo test/00_base/build-image.sh 26.04
 sudo test/00_base/deploy-base.sh 26.04
 sudo test/00_base/healthcheck.sh
 sudo python3 -m pytest test/01_sanity        # quick check
 sudo python3 -m pytest test/02_reliability   # full check
-sudo test/00_base/diagnostics.sh            # when something fails
+sudo test/00_setup/diagnostics.sh            # when something fails
 ```
 
 Run the sanity tests on a fresh lab, before the reliability tests.
@@ -61,7 +75,7 @@ lab in an unknown state run here, so other runs keep a working base lab.
 sudo test/00_fuzz/deploy-fuzz.sh 26.04
 sudo test/00_base/healthcheck.sh vpnc-fuzz
 sudo VPNC_LAB=vpnc-fuzz python3 -m pytest test/01_sanity
-sudo test/00_base/diagnostics.sh vpnc-fuzz
+sudo test/00_setup/diagnostics.sh vpnc-fuzz
 ```
 
 `VPNC_LAB` selects the lab the tests run in; without it, the base lab.
