@@ -28,6 +28,9 @@ topology:
       kind: linux
       image: nc-vpnc:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_base/lab/hub00/config.sh
+      # The API socket, for tools next to the lab (socat for Schemathesis).
+      binds:
+        - /run/vpnc-fuzz-hub00:/run/vpnc
     hub01:
       kind: linux
       image: nc-vpnc:${VPNC_VERSION:=latest}

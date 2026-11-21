@@ -11,6 +11,7 @@ The tests run against containerlab labs and check end results in the lab.
 | `01_sanity/` | The freshly deployed lab is configured and working. Read-only. | seconds |
 | `02_reliability/` | Configuration changes, drift and failures (outages, restarts, lost sessions) are handled. Disrupts the lab and restores it. | ~20 min |
 | `03_performance/` | 200 network instances and 300 connections, in the scale lab. | ~10 min |
+| `04_fuzz/` | Generated configuration, API requests, DNS answers, IKE packets, faults and crashes (Hypothesis, Schemathesis), in the fuzz lab. May leave it broken. | ~40 min with `FUZZ_EXAMPLES=25` |
 
 ## Setup
 
@@ -79,5 +80,32 @@ sudo test/00_setup/diagnostics.sh vpnc-fuzz
 ```
 
 `VPNC_LAB` selects the lab the tests run in; without it, the base lab.
+
+```sh
+python3 -m pytest test/04_fuzz                         # on its own: skipped next to other suites
+FUZZ_EXAMPLES=25 python3 -m pytest test/04_fuzz        # examples per test, default 100 (hours)
+python3 -m pytest test/04_fuzz --hypothesis-show-statistics
+```
+
+The fuzz tests need `python3-hypothesis`. A failure prints the smallest input that
+fails; it's kept in `test/04_fuzz/.hypothesis` and tried first in the next run.
+
+| Test | Generates |
+|---|---|
+| `test_config_input` | Configuration files and API requests, valid or not |
+| `test_api_schema` | API requests from the OpenAPI schema (Schemathesis) |
+| `test_dns_answers` | DNS answers that vpncmangle translates |
+| `test_config_states` | Sequences of valid changes to a tenant; hub00 restarts after each sequence |
+| `test_network_faults` | The same, with hub00's uplink down, flapping, losing or delaying packets |
+| `test_restarts` | The same, with charon, vpncmangle, an FRR daemon or vpnc killed, or hub00 restarted right after a commit |
+| `test_concurrency` | API calls and hand edits at the same time |
+| `test_ike_packets` | IKE messages to charon from a peer's address |
+
+Besides vpnc's own state, the tests check that charon, FRR and vpncmangle run,
+answer and took the configuration, that the nftables tables exist, and that BGP
+is up. The state machines run a tenth of the examples (sequences), the
+concurrency test half, the IKE test four times as many. A test that restarts
+hub00 links its uplink to the bridge again: containerlab only adds links at
+deploy.
 
 Without a version, the deploy scripts use the last built image (`latest`), as in CI.
