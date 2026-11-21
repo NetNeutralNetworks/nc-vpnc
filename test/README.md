@@ -100,12 +100,14 @@ fails; it's kept in `test/04_fuzz/.hypothesis` and tried first in the next run.
 | `test_restarts` | The same, with charon, vpncmangle, an FRR daemon or vpnc killed, or hub00 restarted right after a commit |
 | `test_concurrency` | API calls and hand edits at the same time |
 | `test_ike_packets` | IKE messages to charon from a peer's address |
+| `test_tenant_traffic` | Packets from tenants through their tunnels (any range, protocol, ICMP type, options, fragments), and spoofed DNS answers |
 
 Besides vpnc's own state, the tests check that charon, FRR and vpncmangle run,
 answer and took the configuration, that the nftables tables exist, and that BGP
-is up. The state machines run a tenth of the examples (sequences), the
-concurrency test half, the IKE test four times as many. A test that restarts
-hub00 links its uplink to the bridge again: containerlab only adds links at
-deploy.
+is up. The tenant traffic test checks, with sniffers in all of hub00's network
+instances, that nothing a tenant sends leaves its network instance. The state
+machines run a tenth of the examples (sequences), the concurrency test half, the
+IKE test four times as many. A test that restarts hub00 links its uplink to the
+bridge again: containerlab only adds links at deploy.
 
 Without a version, the deploy scripts use the last built image (`latest`), as in CI.
