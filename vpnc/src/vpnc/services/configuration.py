@@ -182,6 +182,9 @@ def _warn_weak(tenant: Any) -> None:  # noqa: ANN401
 
 
 def _manage_tenant(path: pathlib.Path, *, check: bool) -> None:
+    if not path.exists():
+        # Removed since the event: its own event removes the tenant.
+        return
     hub = helpers.is_hub()
     migration.migrate_file(path)
     # Before reading: a later change is seen as one.
@@ -190,7 +193,8 @@ def _manage_tenant(path: pathlib.Path, *, check: bool) -> None:
     tenant_id = path.stem
     tenant, error = vpnc.models.tenant.load(path)
     if tenant is None:
-        _not_loaded(tenant_id, error or "")
+        if path.exists():
+            _not_loaded(tenant_id, error or "")
         return
 
     if _unsupported(tenant, hub=hub):
