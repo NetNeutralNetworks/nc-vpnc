@@ -38,6 +38,8 @@ _DROPPED: collections.Counter[str] = collections.Counter()
 # By reason, and by network instance and reason.
 _REASONS: collections.Counter[str] = collections.Counter()
 _NI_REASONS: collections.Counter[tuple[str, str]] = collections.Counter()
+# The translations file: the SHA-256 of what's loaded, and why it last wasn't.
+_CONFIG: dict[str, str | None] = {"loaded": None, "error": None}
 
 
 def translated(ni_id: str) -> None:
@@ -55,6 +57,18 @@ def dropped(reason: str, ni_id: str | None = None) -> None:
             _NI_REASONS[ni_id, reason] += 1
 
 
+def config(*, loaded: str | None = None, error: str | None = None) -> None:
+    """Note the translations file as loaded (its SHA-256), or why it isn't.
+
+    Written right away, for vpnc to see.
+    """
+    with _LOCK:
+        if loaded is not None:
+            _CONFIG["loaded"] = loaded
+        _CONFIG["error"] = error
+    write()
+
+
 def write() -> None:
     """Write the counters (since vpncmangle started) atomically."""
     limited = nftables.rate_limited()
@@ -67,6 +81,7 @@ def write() -> None:
         data = {
             "started": _STARTED,
             "written": time.time(),
+            "config": dict(_CONFIG),
             "translated": sum(_TRANSLATED.values()),
             "dropped": reasons,
             "network_instances": {
