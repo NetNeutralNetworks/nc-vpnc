@@ -197,8 +197,8 @@ class TestVpnRecovery:
     def test_vpnc_killed(self) -> None:
         """After vpnc is killed it starts again, with strongSwan and all connections.
 
-        The kill leaves the starter's PID file. After a restart another process
-        may have that PID: here 1, which a container always has.
+        The kill leaves the PID files of strongSwan and FRR. After a restart
+        another process may have their PIDs: here 1, which a container always has.
         """
         connections = get_connections(KILLED)
         assert connections, f"No connections loaded on {KILLED}"
@@ -213,7 +213,8 @@ class TestVpnRecovery:
             ).stdout.strip()
 
         before = started()
-        conftest.run_cmd_shell(KILLED, "bash -c 'echo 1 > /var/run/starter.charon.pid'")
+        for pid_file in ("starter.charon.pid", "charon.pid", "frr/bgpd.pid"):
+            conftest.run_cmd_shell(KILLED, f"bash -c 'echo 1 > /var/run/{pid_file}'")
         # The container exits with vpnc, so the command may fail.
         subprocess.run(  # noqa: S603
             ["docker", "exec", container, "pkill", "-KILL", "-x", "vpnc"],  # noqa: S607
