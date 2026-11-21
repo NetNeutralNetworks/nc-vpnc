@@ -42,6 +42,8 @@ LOADED: dict[str, str] = {}
 TERMINATE_TIMEOUT = 5
 # The key exchange methods charon supports; read once it's running.
 KEY_EXCHANGES: frozenset[str] | None = None
+# The algorithms charon has (by get-algorithms group); read once it's running.
+ALGORITHMS: dict[str, frozenset[str]] | None = None
 # Connections refused for a missing ML-KEM, logged once.
 REFUSED: set[str] = set()
 
@@ -66,6 +68,18 @@ def supported_key_exchanges() -> frozenset[str] | None:
         except VICI_ERRORS:
             logger.warning("Reading charon's key exchanges failed.", exc_info=True)
     return KEY_EXCHANGES
+
+
+def supported_algorithms() -> dict[str, frozenset[str]] | None:
+    """Return the algorithms charon has by group, None if unknown."""
+    global ALGORITHMS  # noqa: PLW0603
+    if ALGORITHMS is None:
+        try:
+            with charon.session() as vcs:
+                ALGORITHMS = charon.algorithms(vcs)
+        except VICI_ERRORS:
+            logger.warning("Reading charon's algorithms failed.", exc_info=True)
+    return ALGORITHMS
 
 
 def _path(ni_id: str) -> pathlib.Path:

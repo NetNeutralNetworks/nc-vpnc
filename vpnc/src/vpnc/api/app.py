@@ -42,6 +42,7 @@ from vpnc.models.connections import Connection
 from vpnc.models.network_instance import NetworkInstance
 from vpnc.models.ssh import INTERFACE_PATTERN, USERNAME_PATTERN
 from vpnc.services import control, ssh
+from vpnc.services.strongswan import proposals, strongswan
 
 logger = logging.getLogger("vpnc")
 
@@ -491,6 +492,37 @@ def list_sessions(
 def list_firewall(ni_id: str) -> list[diagnostics.FirewallRule]:
     """Return the rules of a network instance's firewall with their counters."""
     return diagnostics.firewall(_network_instance(ni_id).id)
+
+
+class ProposalKeyword(BaseModel):
+    """A keyword of IPsec proposals (ike_proposal, ipsec_proposal)."""
+
+    keyword: str
+    # ENCRYPTION, INTEGRITY, PRF, KE or ESN.
+    type: str
+    # As charon names it, e.g. AES_GCM_16; None: none (e.g. esn).
+    algorithm: str | None
+    # Whether charon has it; None if charon can't be asked.
+    available: bool | None
+
+
+@app.get("/v1/ipsec/proposal-keywords")
+def proposal_keywords() -> list[ProposalKeyword]:
+    """Return the keywords of IPsec proposals, and whether charon has them."""
+    available = strongswan.supported_algorithms()
+    return [
+        ProposalKeyword(
+            keyword=keyword,
+            type=kind,
+            algorithm=algorithm,
+            available=(
+                None
+                if available is None
+                else not proposals.unavailable(keyword, available, esp=True)
+            ),
+        )
+        for keyword, (kind, algorithm) in proposals.KEYWORDS.items()
+    ]
 
 
 @app.get("/v1/translate")

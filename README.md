@@ -286,7 +286,7 @@ Connections can be stopped and started: this sets `enabled` in their configurati
 ~$ sudo vpnctl service restart|stop                                            # vpnc itself (systemd)
 ```
 
-Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes are staged in the candidate configuration; a commit makes them active, and vpnc applies them. Service changes may need a restart. Paths are dotted, with list items by index; values are YAML. Tab completes a path a level at a time (for `set`, also the next item to add) and a value's choices; zsh also shows each key's value, type and default.
+Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes are staged in the candidate configuration; a commit makes them active, and vpnc applies them. Service changes may need a restart. Paths are dotted, with list items by index; values are YAML. Tab completes a path a level at a time (for `set`, also the next item to add), a value's choices and a proposal's next keyword (of the algorithms charon has); proposals are checked as strongSwan does when they're staged; zsh also shows each key's value, type and default.
 
 ```bash
 ~$ sudo vpnctl config list                   # tenants and their staged changes
