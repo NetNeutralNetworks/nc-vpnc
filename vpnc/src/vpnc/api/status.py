@@ -6,6 +6,7 @@ import collections
 import contextlib
 import dataclasses
 import datetime as dt
+import hashlib
 import json
 import logging
 import os
@@ -242,6 +243,10 @@ class VpncmangleState(BaseModel):
     running: bool
     # DNS64 and DNS66 translations over all network instances.
     translations: int
+    # Whether vpncmangle loaded the translations file as it is; None if unknown.
+    translations_loaded: bool | None = None
+    # Why it didn't load the file, e.g. it isn't valid JSON.
+    translations_error: str | None = None
     # DNS answers since vpncmangle started; None if it hasn't counted (yet).
     answers_translated: int | None
     answers_dropped: int | None
@@ -852,17 +857,25 @@ def _vpncmangle() -> VpncmangleState | None:
         return None
     process = vpncmangle.PROCESS
     try:
-        translations = json.loads(vpncmangle.CONFIG_PATH.read_text(encoding="utf-8"))
+        text = vpncmangle.CONFIG_PATH.read_bytes()
+        translations = json.loads(text)
     except (FileNotFoundError, json.JSONDecodeError):
-        translations = {}
+        text, translations = None, {}
     counters = vpncmangle.stats()
     reasons = counters.get("dropped", {})
+    loaded = counters.get("config")
     return VpncmangleState(
         running=process is not None and process.poll() is None,
         translations=sum(
             len(ni.get("dns64", [])) + len(ni.get("dns66", []))
             for ni in translations.values()
         ),
+        translations_loaded=(
+            None
+            if loaded is None or text is None
+            else loaded.get("loaded") == hashlib.sha256(text).hexdigest()
+        ),
+        translations_error=loaded.get("error") if loaded else None,
         answers_translated=counters.get("translated"),
         answers_dropped=sum(reasons.values()) if counters else None,
         drop_reasons=reasons,

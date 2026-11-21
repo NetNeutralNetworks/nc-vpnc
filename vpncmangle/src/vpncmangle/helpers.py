@@ -1,11 +1,12 @@
 """Helper functions providing functions used throughout the application."""
 
+import hashlib
 import json
 import logging
 
 import pydantic_core
 
-from . import config, nftables
+from . import config, nftables, stats
 
 logger = logging.getLogger("vpncmangle")
 
@@ -29,21 +30,23 @@ def _load_limits() -> config.Limits | None:
 def load_config() -> None:
     """Load the global configuration."""
     try:
-        with config.CONFIG_PATH.open(encoding="utf-8") as f:
-            try:
-                new_cfg_dict = json.load(f)
-            except (json.JSONDecodeError, TypeError):
-                logger.critical(
-                    "Configuration is not valid '%s'.",
-                    config.CONFIG_PATH,
-                    exc_info=True,
-                )
-                return
+        text = config.CONFIG_PATH.read_bytes()
     except FileNotFoundError:
         logger.warning(
             "Configuration file could not be found at '%s'. Skipping",
             config.CONFIG_PATH,
         )
+        stats.config(error="the file doesn't exist")
+        return
+    try:
+        new_cfg_dict = json.loads(text)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        logger.critical(
+            "Configuration is not valid '%s'.",
+            config.CONFIG_PATH,
+            exc_info=True,
+        )
+        stats.config(error="it isn't valid JSON")
         return
 
     try:
@@ -53,6 +56,7 @@ def load_config() -> None:
             "Configuration '%s' doesn't adhere to the schema. Skipping",
             config.CONFIG_PATH,
         )
+        stats.config(error="it doesn't adhere to the schema")
         return
 
     acl_match = [
@@ -67,8 +71,12 @@ def load_config() -> None:
         config.LIMITS = limits
 
     logger.info("Loaded new configuration.")
+    digest = hashlib.sha256(text).hexdigest()
     # The rate limits are per network instance.
     try:
         nftables.apply()
     except (nftables.NftablesError, OSError):
         logger.exception("Updating the nftables table failed.")
+        stats.config(loaded=digest, error="its nftables table isn't updated")
+        return
+    stats.config(loaded=digest)

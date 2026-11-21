@@ -324,6 +324,17 @@ class TestVpnctl:
         # Not a secret's value.
         assert complete(f"vpnctl config set C0001 {path}0.config.psk ") == []
 
+    def test_proposal_completion(self) -> None:
+        """A proposal completes a keyword at a time: those charon has."""
+        path = "network_instances.00.connections.0.config."
+        ike = complete(f"vpnctl config set C0001 {path}ike_proposal aes256gcm16-prf")
+        assert "aes256gcm16-prfsha384" in ike
+        esp = complete(f"vpnctl config set C0001 {path}ipsec_proposal aes256gcm16-")
+        assert "aes256gcm16-ecp384" in esp
+        assert "aes256gcm16-esn" in esp
+        # Not a PRF in ESP, nor ML-KEM (post_quantum), nor what charon lacks.
+        assert not [c for c in esp if "-prf" in c or "-mlkem" in c or "serpent" in c]
+
 
 def neighbor_address(host: str, hostname: str) -> str:
     """Return the address of a BGP neighbor."""

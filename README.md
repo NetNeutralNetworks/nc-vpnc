@@ -286,10 +286,11 @@ Connections can be stopped and started: this sets `enabled` in their configurati
 ~$ sudo vpnctl service restart|stop                                            # vpnc itself (systemd)
 ```
 
-Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes are staged in the candidate configuration; a commit makes them active, and vpnc applies them. Service changes may need a restart. Paths are dotted, with list items by index; values are YAML. Tab completes a path a level at a time (for `set`, also the next item to add) and a value's choices; zsh also shows each key's value, type and default.
+Configuration, per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes are staged in the candidate configuration; a commit makes them active, and vpnc applies them. Service changes may need a restart. Paths are dotted, with list items by index; values are YAML. Tab completes a path a level at a time (for `set`, also the next item to add), a value's choices and a proposal's next keyword (of the algorithms charon has); proposals are checked as strongSwan does when they're staged; zsh also shows each key's value, type and default.
 
 ```bash
 ~$ sudo vpnctl config list                   # tenants and their staged changes
+~$ sudo vpnctl config add C0002 "Customer name"   # a new tenant; set the rest, then commit
 ~$ sudo vpnctl config show C0001 [PATH] [--candidate] [--reveal-secrets]
 ~$ sudo vpnctl config edit C0001 [PATH]      # in $EDITOR, validated; a new id creates a tenant
 ~$ sudo vpnctl config set C0001 network_instances.00.connections.0.routes.ipv4.0.to 10.0.0.0/24
@@ -334,7 +335,8 @@ vpnctl uses vpnc's local REST API on the Unix socket `/run/vpnc/api.sock` (root 
 | `/v1/status`, `/v1/version` | State and versions |
 | `/v1/tenants`, `/v1/network-instances`, `/v1/connections` | Live state; connections also `stop`, `start`, `reset`, `probes`, `diagnosis`, `logs` and `ssh-setup` |
 | `/v1/events` | The event history, optionally of a `tenant`, `network_instance` or `connection`; `event`, `since` (seconds), `limit`, `follow` |
-| `/v1/config/tenants/{id}`, `/v1/config/service` | Configuration: `GET`, `PUT`, `PATCH` (merge patch), `DELETE`, `diff`, `schema` (JSON Schema), `commit`, `confirm`, `discard`, `history` |
+| `/v1/config/tenants` | `GET`: the tenants with configuration; `POST` (`id`, `name`): add a tenant |
+| `/v1/config/tenants/{id}`, `/v1/config/service` | Configuration: `GET`, `PUT`, `PATCH` (merge patch, of a tenant that has configuration), `DELETE`, `diff`, `schema` (JSON Schema), `commit`, `confirm`, `discard`, `history` |
 | `/v1/bgp/...` | Neighbors and routes |
 | `/v1/network-instances/{id}/routes`, `ping`, `traceroute`, `tcp` | Troubleshooting |
 | `/v1/logs` | Logs; with `follow=true` a stream of new lines (JSON lines) |

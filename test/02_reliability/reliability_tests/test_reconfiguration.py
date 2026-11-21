@@ -669,6 +669,37 @@ class TestReconfiguration:
                 f"{HISTORY_DIR.replace('C0002', 'C0003')}",
             )
 
+    def test_config_add_tenant(self) -> None:
+        """A tenant is added with a name; set needs a tenant that exists."""
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            vpnctl("config set C0003 name Set")
+        assert "add the tenant first" in err.value.stderr
+        try:
+            vpnctl("config add C0003 Added")
+            with pytest.raises(subprocess.CalledProcessError) as err:
+                vpnctl("config add C0003 Again")
+            assert "has configuration already" in err.value.stderr
+
+            vpnctl("config commit C0003")
+            conftest.wait_until(
+                lambda: "C0003" in tenant_ids(),
+                timeout=APPLY_TIMEOUT,
+                message="tenant C0003 to be created",
+            )
+            assert vpnctl_json("tenants show C0003")["name"] == "Added"
+        finally:
+            conftest.run_cmd(
+                HOST,
+                f"rm -rf {TENANT_FILE.replace('C0002', 'C0003')} "
+                f"{CANDIDATE_FILE.replace('C0002', 'C0003')} "
+                f"{HISTORY_DIR.replace('C0002', 'C0003')}",
+            )
+            conftest.wait_until(
+                lambda: "C0003" not in tenant_ids(),
+                timeout=APPLY_TIMEOUT,
+                message="tenant C0003 to be removed",
+            )
+
     def test_staged_changes_survive_nptv6_assignment(self) -> None:
         """Assigning NPTv6 prefixes doesn't overwrite staged changes.
 
@@ -804,15 +835,33 @@ class TestReconfiguration:
         vpnctl("config set C0002 name Renamed")
         assert vpnctl("config commit C0002") == "Committed.\n"
 
-    def test_proposal_charon_refuses(self) -> None:
-        """A commit with a proposal charon doesn't accept is refused."""
-        proposal = f"network_instances.{NI_KEY}.connections.0.config.ike_proposal"
-        vpnctl(f"config set C0002 {proposal} aes257-sha256-ecp384")
+    @pytest.mark.parametrize(
+        ("key", "value", "reason"),
+        [
+            (
+                "ike_proposal",
+                "aes257-sha256-ecp384",
+                "algorithm 'aes257' isn't known (did you mean aes256",
+            ),
+            ("ike_proposal", "aes256-sha256", "an IKE proposal needs a key exchange"),
+            ("ipsec_proposal", "sha256-ecp384", "a proposal needs an encryption"),
+            # The lab's charon has no Serpent (strongSwan's serpent plugin).
+            ("ipsec_proposal", "serpent256-sha256", "charon doesn't have serpent256"),
+        ],
+    )
+    def test_proposal_refused_when_staged(
+        self,
+        key: str,
+        value: str,
+        reason: str,
+    ) -> None:
+        """A proposal charon would refuse, or can't use, isn't staged."""
+        path = f"network_instances.{NI_KEY}.connections.0.config.{key}"
         with pytest.raises(subprocess.CalledProcessError) as err:
-            vpnctl("config commit C0002")
+            vpnctl(f"config set C0002 {path} {value}")
 
-        assert "charon doesn't accept ike_proposal aes257" in err.value.stderr
-        assert connection_applied(BASE_CONNECTION)
+        assert f"{NI}-0: {key} {value}: {reason}" in err.value.stderr
+        assert vpnctl("config diff C0002") == "No changes.\n"
 
     def test_generated_psk_is_committed(self) -> None:
         """A generated PSK is committed as it is."""

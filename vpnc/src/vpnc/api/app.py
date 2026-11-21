@@ -7,6 +7,7 @@ import logging
 import pathlib
 import subprocess
 from collections.abc import AsyncIterator, Callable, Sequence
+from http import HTTPStatus
 from typing import Annotated, Any, Literal, NoReturn
 
 from fastapi import (
@@ -20,8 +21,12 @@ from fastapi import (
     Request,
 )
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
-from pydantic import BeforeValidator, ValidationError
+from fastapi.routing import APIRoute
+from pydantic import BaseModel, BeforeValidator, TypeAdapter, ValidationError
+from starlette.exceptions import HTTPException
+from starlette.routing import Match
 
 from vpnc import config, eventlog, helpers
 from vpnc.api import config_files, diagnosis, diagnostics, events, logs, status
@@ -32,13 +37,36 @@ from vpnc.api.config_files import (
     HistoryEntry,
     Revision,
 )
-from vpnc.models import enums
+from vpnc.models import enums, tenant
 from vpnc.models.connections import Connection
 from vpnc.models.network_instance import NetworkInstance
 from vpnc.models.ssh import INTERFACE_PATTERN, USERNAME_PATTERN
 from vpnc.services import control, ssh
+from vpnc.services.strongswan import proposals, strongswan
 
 logger = logging.getLogger("vpnc")
+
+PROBLEM = "application/problem+json"
+
+
+class Problem(BaseModel):
+    """An RFC 9457 problem: what went wrong."""
+
+    type: str = "about:blank"
+    title: str
+    status: int
+    # A message, or per invalid value where (loc) and what (msg).
+    detail: str | list[dict[str, str]] | None = None
+
+
+# What any route may answer besides its result.
+ERRORS = {
+    400: "Bad request: the body can't be read",
+    404: "Not found: no such tenant, network instance, connection, ...",
+    409: "Conflict: e.g. nothing to confirm, or a resource in use",
+    422: "Invalid request or configuration",
+    503: "A service vpnc needs (e.g. charon) didn't answer",
+}
 
 app = FastAPI(
     title="vpnc",
@@ -46,15 +74,26 @@ app = FastAPI(
     version="1",
     docs_url=None,
     redoc_url=None,
+    responses={
+        status: {
+            "description": description,
+            "content": {PROBLEM: {"schema": Problem.model_json_schema()}},
+        }
+        for status, description in ERRORS.items()
+    },
 )
 
-PROBLEM = "application/problem+json"
 # Values are upper case; lower case is accepted.
 Upper = BeforeValidator(lambda v: v.upper() if isinstance(v, str) else v)
 ConfigBody = Annotated[dict[str, Any], Body()]
 
 
-def problem(status_code: int, title: str, detail: Any) -> JSONResponse:  # noqa: ANN401
+def problem(
+    status_code: int,
+    title: str,
+    detail: Any,  # noqa: ANN401
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     """Return an RFC 9457 problem response."""
     return JSONResponse(
         {
@@ -65,6 +104,7 @@ def problem(status_code: int, title: str, detail: Any) -> JSONResponse:  # noqa:
         },
         status_code=status_code,
         media_type=PROBLEM,
+        headers=headers,
     )
 
 
@@ -88,6 +128,24 @@ async def _validation_error(_: Request, err: ValidationError) -> JSONResponse:
 @app.exception_handler(RequestValidationError)
 async def _request_error(_: Request, err: RequestValidationError) -> JSONResponse:
     return problem(422, "Invalid request", _errors(err))
+
+
+@app.exception_handler(HTTPException)
+async def _http_error(request: Request, err: HTTPException) -> JSONResponse:
+    """Answer e.g. an unknown path or method as a problem too."""
+    headers = dict(err.headers or {})
+    if err.status_code == 405:  # noqa: PLR2004
+        # Each method is a route of its own: Starlette names only the first's.
+        methods = {
+            method
+            for route in app.routes
+            if isinstance(route, APIRoute)
+            and route.matches(request.scope)[0] != Match.NONE
+            for method in route.methods
+        }
+        headers["Allow"] = ", ".join(sorted(methods))
+    title = HTTPStatus(err.status_code).phrase
+    return problem(err.status_code, title, err.detail, headers)
 
 
 def _not_found(kind: str, item_id: str) -> NoReturn:
@@ -215,7 +273,10 @@ def get_connection_probes(connection_id: str) -> list[status.ProbeDetail]:
     return status.probe_details(*_connection(connection_id))
 
 
-@app.get("/v1/connections/{connection_id}/ssh-setup")
+@app.get(
+    "/v1/connections/{connection_id}/ssh-setup",
+    response_class=PlainTextResponse,
+)
 def get_connection_ssh_setup(
     connection_id: str,
     username: Annotated[str | None, Query(pattern=USERNAME_PATTERN)] = None,
@@ -433,10 +494,44 @@ def list_firewall(ni_id: str) -> list[diagnostics.FirewallRule]:
     return diagnostics.firewall(_network_instance(ni_id).id)
 
 
+class ProposalKeyword(BaseModel):
+    """A keyword of IPsec proposals (ike_proposal, ipsec_proposal)."""
+
+    keyword: str
+    # ENCRYPTION, INTEGRITY, PRF, KE or ESN.
+    type: str
+    # As charon names it, e.g. AES_GCM_16; None: none (e.g. esn).
+    algorithm: str | None
+    # Whether charon has it; None if charon can't be asked.
+    available: bool | None
+
+
+@app.get("/v1/ipsec/proposal-keywords")
+def proposal_keywords() -> list[ProposalKeyword]:
+    """Return the keywords of IPsec proposals, and whether charon has them."""
+    available = strongswan.supported_algorithms()
+    return [
+        ProposalKeyword(
+            keyword=keyword,
+            type=kind,
+            algorithm=algorithm,
+            available=(
+                None
+                if available is None
+                else not proposals.unavailable(keyword, available, esp=True)
+            ),
+        )
+        for keyword, (kind, algorithm) in proposals.KEYWORDS.items()
+    ]
+
+
 @app.get("/v1/translate")
 def translate(
     address: Annotated[diagnostics.IPAddress, Query()],
-    network_instance: Annotated[str | None, Query()] = None,
+    network_instance: Annotated[
+        str | None,
+        Query(description="Required for an IPv4 address: it's a tenant's."),
+    ] = None,
 ) -> list[diagnostics.AddressTranslation]:
     """Return an address as admins reach it and in the tenant, from either side.
 
@@ -557,8 +652,17 @@ def list_configs() -> list[ConfigSummary]:
     return config_files.summaries()
 
 
+@app.post("/v1/config/tenants", status_code=201)
+def add_config(body: config_files.NewTenant) -> dict[str, Any]:
+    """Stage a new tenant with only its name; set the rest, then commit."""
+    return config_files.add_candidate(body)
+
+
 def tenant_id_path(
-    tenant_id: Annotated[str, Path(pattern=config.TENANT_ID_PATTERN)],
+    tenant_id: Annotated[
+        str,
+        Path(pattern=config.TENANT_ID_PATTERN, min_length=5, max_length=5),
+    ],
 ) -> str:
     """Return the tenant id from the path."""
     return tenant_id
@@ -595,7 +699,10 @@ def config_routes(  # noqa: C901 (a nested function per route)
 
     @router.patch("", summary=f"Stage changes to the {what} configuration")
     def patch_config(target_id: Target, body: ConfigBody) -> dict[str, Any]:
-        """Merge an RFC 7386 patch into the candidate: null removes."""
+        """Merge an RFC 7386 patch into the candidate: null removes.
+
+        A tenant without configuration is added first (POST /v1/config/tenants).
+        """
         return config_files.patch_candidate(target_id, body)
 
     @router.get("/diff", response_class=PlainTextResponse, summary="Staged changes")
@@ -671,3 +778,33 @@ def delete_tenant_config(
 
 app.include_router(tenant_routes)
 app.include_router(config_routes("/v1/config/service", service_id, "service"))
+
+# The models of the configurations PUT accepts. The body is read as any
+# object: older versions are converted before the model checks them.
+CONFIG_MODELS = {
+    "/v1/config/tenants/{tenant_id}": TypeAdapter(tenant.Tenant),
+    "/v1/config/service": TypeAdapter(tenant.ServiceHub | tenant.ServiceEndpoint),
+}
+
+
+def openapi() -> dict[str, Any]:
+    """Return the OpenAPI schema, with the configuration models PUT accepts."""
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    components = schema.setdefault("components", {}).setdefault("schemas", {})
+    for path, adapter in CONFIG_MODELS.items():
+        body = adapter.json_schema(ref_template="#/components/schemas/{model}")
+        components.update(body.pop("$defs", {}))
+        content = schema["paths"][path]["put"]["requestBody"]["content"]
+        content["application/json"]["schema"] = body
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = openapi  # type: ignore[method-assign]

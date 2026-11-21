@@ -280,6 +280,9 @@ def vpncmangle_text(state: dict[str, Any]) -> str:
     """Return vpncmangle's state, e.g. running, 12 translations, 3 answers ..."""
     running = "running" if state["running"] else "not running"
     text = f"{running}, {state['translations']} translations"
+    if state.get("translations_loaded") is False:
+        why = state.get("translations_error") or "not yet"
+        text += f" (not loaded: {why})"
     if state.get("answers_translated") is not None:
         text += (
             f"; answers {state['answers_translated']} translated,"
@@ -1370,6 +1373,12 @@ def cmd_generate_psk(_: argparse.Namespace) -> None:
     print(secrets.token_urlsafe(32))
 
 
+def cmd_config_add(args: argparse.Namespace) -> None:
+    """Stage a new tenant with a name; set the rest, then commit."""
+    request("POST", "/v1/config/tenants", body={"id": args.tenant, "name": args.name})
+    staged_message(args.tenant)
+
+
 def cmd_config_set(args: argparse.Namespace) -> None:
     """Set a value at a path, creating missing parts; without one, prompt for it."""
     import yaml  # noqa: PLC0415
@@ -1626,6 +1635,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "service": {"restart": None, "stop": None},
     "config": {
         "list": None,
+        "add": None,
         "show": "target",
         "edit": "target",
         "set": "target",
@@ -1997,8 +2007,36 @@ def config_candidates(action: str, arguments: list[str], current: str) -> list[s
     if len(arguments) == 1:
         return path_candidates(arguments[0], current, new=new)
     if len(arguments) == 2 and new:  # noqa: PLR2004
-        return value_candidates(*arguments)
+        values = value_candidates(*arguments)
+        if arguments[1].endswith("_proposal"):
+            values += proposal_candidates(arguments[1], current)
+        return values
     return []
+
+
+def proposal_candidates(path: str, current: str) -> list[str]:
+    """Return the proposal typed so far with a keyword more that charon has.
+
+    Not ML-KEM: post_quantum sets it.
+    """
+    esp = path.endswith("ipsec_proposal")
+    prefix = current[: current.rfind("-") + 1]
+    used = set(prefix.split("-"))
+    skip = "PRF" if esp else "ESN"
+    return described(
+        [
+            (
+                f"{prefix}{k['keyword']}",
+                k["keyword"],
+                f"{k['type'].lower()} {k['algorithm'] or ''}",
+            )
+            for k in request("GET", "/v1/ipsec/proposal-keywords")
+            if k["available"] is not False
+            and k["type"] != skip
+            and not k["keyword"].startswith("mlkem")
+            and k["keyword"] not in used
+        ],
+    )
 
 
 def cmd_completion(args: argparse.Namespace) -> None:
@@ -2214,6 +2252,9 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
     p.add_argument("path", nargs="?", **path)
     p.add_argument("--candidate", action="store_true", help="with staged changes")
     p.add_argument("--reveal-secrets", action="store_true")
+    p = add(cfg, "add", cmd_config_add)
+    p.add_argument("tenant", help="the new tenant's id, e.g. C0002")
+    p.add_argument("name")
     p = add(cfg, "edit", cmd_config_edit)
     p.add_argument("target", **target)
     p.add_argument("path", nargs="?", **path)

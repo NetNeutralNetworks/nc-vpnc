@@ -23,7 +23,7 @@ import threading
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from vpnc import config, eventlog, files, helpers, migration
 from vpnc.models import enums, tenant
@@ -32,7 +32,7 @@ from vpnc.models.post_quantum import PostQuantumPresharedKey
 from vpnc.models.secret import REVEAL
 from vpnc.models.wireguard import wireguard_port_users
 from vpnc.services import configuration, ssh
-from vpnc.services.strongswan import strongswan
+from vpnc.services.strongswan import proposals, strongswan
 
 if TYPE_CHECKING:
     import pathlib
@@ -75,6 +75,15 @@ class ConfigSummary(BaseModel):
     confirm_by: str | None = None
     # Why the active file isn't running, or the candidate file can't be read.
     error: str | None = None
+
+
+class NewTenant(BaseModel):
+    """A tenant to add: its id and name; the rest is set after."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=config.TENANT_ID_PATTERN)
+    name: str = Field(min_length=1)
 
 
 class CommitResult(BaseModel):
@@ -166,7 +175,31 @@ def validate(tenant_id: str, data: Any) -> Model:  # noqa: ANN401
             "Invalid configuration",
             f"The id '{model.id}' doesn't match '{tenant_id}'.",
         )
+    _check_algorithms(model)
     return model
+
+
+def _check_algorithms(model: Model) -> None:
+    """Refuse IPsec proposals charon refuses, or with algorithms it doesn't have.
+
+    Without asking charon to load them; what it has only if it can be asked.
+    """
+    available = strongswan.supported_algorithms()
+    for ni in model.network_instances.values():
+        for connection in ni.connections.values():
+            cfg = connection.config
+            if cfg.type != enums.ConnectionType.IPSEC:
+                continue
+            for field, esp in (("ike_proposal", False), ("ipsec_proposal", True)):
+                value = getattr(cfg, field)
+                reason = proposals.problem(value, esp=esp)
+                if reason is None and available:
+                    missing = proposals.unavailable(value, available, esp=esp)
+                    if missing:
+                        reason = f"charon doesn't have {', '.join(missing)}"
+                if reason:
+                    detail = f"{connection.name(ni)}: {field} {value}: {reason}."
+                    raise ConfigError(422, "Invalid configuration", detail)
 
 
 def _running(tenant_id: str) -> Model | None:
@@ -349,16 +382,33 @@ def merge_patch(target: Any, patch: Any) -> Any:  # noqa: ANN401
     return result
 
 
+def add_candidate(new: NewTenant) -> dict[str, Any]:
+    """Stage a new tenant with only its name; return it as stored."""
+    with LOCK:
+        if _exists(new.id) or _text(new.id, "candidate") is not None:
+            detail = f"{new.id} has configuration already (active or staged)."
+            raise ConfigError(409, "Conflict", detail)
+        data = {"version": VERSION, "id": new.id, "name": new.name}
+        return write_candidate(new.id, data)
+
+
 def patch_candidate(tenant_id: str, patch: Any) -> dict[str, Any]:  # noqa: ANN401
     """Stage changes (a merge patch) on top of the staged configuration.
 
-    A tenant without configuration starts empty.
+    A tenant without one is added first, or staged whole (PUT).
     """
     check_id(tenant_id)
     with LOCK:
         base = _dump(_load(tenant_id, "candidate"), reveal=True)
         if base is None:
-            base = {"version": VERSION, "id": tenant_id}
+            if _text(tenant_id, "candidate") is not None:
+                detail = f"Removing {tenant_id} is staged: discard that first."
+                raise ConfigError(409, "Conflict", detail)
+            if _exists(tenant_id):
+                detail = f"{tenant_id}'s active file isn't loaded: stage it whole."
+                raise ConfigError(409, "Conflict", detail)
+            detail = f"No configuration of {tenant_id}: add the tenant first."
+            raise ConfigError(404, "Not found", detail)
         return write_candidate(tenant_id, merge_patch(base, patch))
 
 
@@ -576,6 +626,7 @@ def check_conflicts(candidates: dict[str, Model | None]) -> None:
 
 def _check_proposals(model: Model) -> None:
     """Refuse IPsec proposals charon doesn't accept."""
+    _check_algorithms(model)
     for ni in model.network_instances.values():
         for connection in ni.connections.values():
             if connection.config.type != enums.ConnectionType.IPSEC:
