@@ -598,6 +598,18 @@ class TestReconfiguration:
             message="the file to be loaded",
         )
 
+    def test_file_removed_right_away(self) -> None:
+        """A file removed right after it's written isn't reported as not loaded."""
+        path = "/opt/ncubed/config/vpnc/active/C0009.yaml"
+        before = vpnctl_json("events --event CONFIG_NOT_LOADED --since 1h C0009")
+        conftest.run_cmd_shell(HOST, f"bash -c 'echo {{}} > {path} && rm {path}'")
+        # The watcher handles each event 0.1 s after it.
+        time.sleep(2)
+
+        assert not any(c["id"] == "C0009" for c in vpnctl_json("config list"))
+        after = vpnctl_json("events --event CONFIG_NOT_LOADED --since 1h C0009")
+        assert after == before
+
     def test_delete_tenant_with_broken_file(self) -> None:
         """A tenant whose active file is broken is deleted like any other."""
         conftest.write_file(HOST, TENANT_FILE, "{")
