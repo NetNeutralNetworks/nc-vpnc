@@ -20,7 +20,6 @@ from hypothesis import event, given, settings
 from hypothesis import strategies as st
 
 from . import conftest
-from .test_network_faults import up_connections
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -222,7 +221,7 @@ def peer(deployed: conftest.Deployed) -> Iterator[set[str]]:
         )
         conftest.stable()
         conftest.check_loaded()
-        yield up_connections()
+        yield conftest.up_connections()
     finally:
         conftest.run_cmd(conftest.HOST, f"rm -f {conftest.ACTIVE_DIR}/{TENANT}.yaml")
         in_sender(f"ip address del {PEER_4}/24 dev eth1; true")
@@ -260,7 +259,7 @@ def test_ike_packets(
 
     assert charon() == before, "charon exited"
     conftest.check_answering()
-    down = peer - up_connections()
+    down = peer - conftest.up_connections()
     assert not down, f"went down: {', '.join(sorted(down))}"
     assert not conftest.bgp_down(), f"BGP went down: {conftest.bgp_down()}"
     assert conftest.restarts() == 0, "vpnc exited"

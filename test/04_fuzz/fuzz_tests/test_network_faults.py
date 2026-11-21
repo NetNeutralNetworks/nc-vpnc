@@ -30,23 +30,12 @@ FAULTS = settings(
     deadline=None,
 )
 UPLINK = "eth1"
-# Connections that were up are up again within this time after a fault.
-RECOVER_TIMEOUT = 360
 SECONDS = st.integers(1, 30)
 
 
 def in_external(command: str) -> None:
     """Run a command in hub00's EXTERNAL network instance."""
     conftest.run_cmd_shell(conftest.HOST, f"ip netns exec EXTERNAL {command}")
-
-
-def up_connections() -> set[str]:
-    """Return the connections that are up."""
-    return {
-        c["id"]
-        for c in conftest.api("GET", "/v1/connections")[1]
-        if c["oper_status"] == "UP"
-    }
 
 
 class NetworkFaults(ConfigStates):
@@ -78,7 +67,7 @@ class NetworkFaults(ConfigStates):
     ) -> None:
         """Break the uplink for a while, perhaps change the configuration."""
         event(f"fault: {fault}")
-        before = up_connections()
+        before = conftest.up_connections()
         if fault == "down":
             in_external(f"ip link set {UPLINK} down")
         elif fault == "loss":
@@ -101,17 +90,7 @@ class NetworkFaults(ConfigStates):
             in_external(f"ip link set {UPLINK} up")
             in_external(f"tc qdisc del dev {UPLINK} root 2> /dev/null || true")
         after = f"after the uplink {fault} for {seconds} s ({done})"
-        try:
-            conftest.wait_until(
-                lambda: up_connections() >= before,
-                timeout=RECOVER_TIMEOUT,
-                interval=3,
-                message="the connections to be up again",
-            )
-        except TimeoutError:
-            down = sorted(before - up_connections())
-            msg = f"{after}: still down: {', '.join(down)}"
-            raise AssertionError(msg) from None
+        self.deployed.healthy(before, after)
         self.check(after)
 
 

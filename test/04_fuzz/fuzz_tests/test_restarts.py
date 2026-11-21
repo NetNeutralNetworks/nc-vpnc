@@ -18,7 +18,6 @@ from hypothesis.stateful import precondition, rule, run_state_machine_as_test
 
 from . import conftest
 from .test_config_states import ConfigStates, remove_tenant, restart
-from .test_network_faults import RECOVER_TIMEOUT, up_connections
 
 pytestmark = pytest.mark.skipif(
     not conftest.FUZZ_LAB,
@@ -56,17 +55,7 @@ class Restarts(ConfigStates):
     def recovered(self, after: str, before: set[str]) -> None:
         """Wait until what was up is up again; check the config is applied."""
         self.deployed.restarted()
-        try:
-            conftest.wait_until(
-                lambda: up_connections() >= before,
-                timeout=RECOVER_TIMEOUT,
-                interval=3,
-                message="the connections to be up again",
-            )
-        except TimeoutError:
-            down = sorted(before - up_connections())
-            msg = f"{after}: still down: {', '.join(down)}"
-            raise AssertionError(msg) from None
+        self.deployed.healthy(before, after)
         self.check(after)
 
     # A rule per daemon, so most steps are crashes, not only changes.
@@ -102,7 +91,7 @@ class Restarts(ConfigStates):
         """Kill a daemon next to vpnc."""
         event(f"killed: {daemon}")
         self.frr_killed |= daemon in FRR_DAEMONS
-        before = up_connections()
+        before = conftest.up_connections()
         killed = {pid for name, pid in conftest.daemons() if name == daemon}
         conftest.run_cmd(conftest.HOST, f"pkill -KILL -x {daemon}")
 
@@ -122,7 +111,7 @@ class Restarts(ConfigStates):
     def kill_vpnc(self) -> None:
         """Kill vpnc: its container restarts, with a fresh start."""
         event("killed: vpnc")
-        before = up_connections()
+        before = conftest.up_connections()
         started = conftest.started()
         conftest.expect_restart()
         conftest.run_cmd(conftest.HOST, "pkill -KILL -x vpnc")
@@ -133,7 +122,7 @@ class Restarts(ConfigStates):
     @rule(data=st.data(), delay=st.floats(0, 3))
     def restart_after_commit(self, data: st.DataObject, delay: float) -> None:
         """Commit a change and restart hub00 right after: the commit holds."""
-        before = up_connections()
+        before = conftest.up_connections()
         done = self.change_unchecked(data)
         time.sleep(delay)
         conftest.restarted_node()

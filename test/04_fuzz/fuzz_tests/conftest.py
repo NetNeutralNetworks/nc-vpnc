@@ -116,6 +116,8 @@ def restarted_node(host: str = HOST, *, before: str | None = None) -> None:
             capture_output=True,
             check=True,
         )
+        # It sets the restart count to 0; the invariants checked the count before.
+        EXPECTED_RESTARTS[host] = 0
     else:
         wait_until(
             lambda: started(host) != before,
@@ -394,16 +396,46 @@ def not_answering(host: str = HOST) -> list[str]:
         capture_output=True,
         text=True,
         check=False,
-    ).stdout.strip()  # fmt: skip
+    ).stdout  # fmt: skip
+    # Without the timeouts of tries before the answer (";; communications error").
+    answer = "\n".join(
+        line for line in answer.splitlines() if line and not line.startswith(";;")
+    )
     if answer != DNS_ANSWER:
         problems.append(f"vpncmangle answered {name} with {answer!r}, not {DNS_ANSWER}")
     return problems
 
 
+def up_connections(host: str = HOST) -> set[str]:
+    """Return the connections that are up."""
+    return {
+        c["id"]
+        for c in api("GET", "/v1/connections", host=host)[1]
+        if c["oper_status"] == "UP"
+    }
+
+
+# Connections that were up are up again within this time after a fault or crash.
+RECOVER_TIMEOUT = 360
+
+
+# Right after a recovery a query may be lost, e.g. while mgt00's routes through
+# hub00 come back: the daemons answer within this time.
+ANSWER_TIMEOUT = 30
+
+
 def check_answering(host: str = HOST) -> None:
     """Check that charon, FRR and vpncmangle answer."""
-    problems = not_answering(host)
-    assert not problems, "\n".join(problems)
+    try:
+        wait_until(
+            lambda: not not_answering(host),
+            timeout=ANSWER_TIMEOUT,
+            interval=2,
+            message="the daemons to answer",
+        )
+    except TimeoutError:
+        problems = not_answering(host)
+        assert not problems, "\n".join(problems)
 
 
 # After a restart or an outage BGP is up again within this time: FRR tries to
@@ -485,6 +517,7 @@ class Deployed:
         assert not disabled, f"redeploy the fuzz lab: {', '.join(disabled)} disabled"
         check_loaded(host)
         check_answering(host)
+        self.up = up_connections(host)
         self.files = subprocess.run(  # noqa: S603
             [  # noqa: S607
                 "docker", "exec", f"{CONTAINER_PREFIX}{host}",
@@ -508,6 +541,22 @@ class Deployed:
                 processes, timeout=RESET_TIMEOUT, message="daemons"
             ),
         }
+
+    def healthy(self, also: set[str] = frozenset(), after: str = "") -> None:
+        """Wait until what was up as deployed (and also) is up again, BGP too."""
+        expected = self.up | also
+        try:
+            wait_until(
+                lambda: up_connections(self.host) >= expected,
+                timeout=RECOVER_TIMEOUT,
+                interval=3,
+                message="the connections to be up again",
+            )
+        except TimeoutError:
+            down = sorted(expected - up_connections(self.host))
+            msg = f"{after or 'now'}: still down: {', '.join(down)}"
+            raise AssertionError(msg) from None
+        check_bgp(self.host)
 
     def reset(self) -> None:
         """Put the deployed files back; the state must follow."""
@@ -548,6 +597,7 @@ __all__ = [
     "FUZZ_LAB",
     "HISTORY_DIR",
     "HOST",
+    "RECOVER_TIMEOUT",
     "ApiError",
     "Deployed",
     "api",
@@ -566,6 +616,7 @@ __all__ = [
     "snapshot",
     "stable",
     "started",
+    "up_connections",
     "wait_until",
     "write_file",
 ]
