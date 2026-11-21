@@ -184,6 +184,7 @@ class ConfigStates(RuleBasedStateMachine):
             raise AssertionError(
                 "\n".join([f"{change}: not applied", *problems])
             ) from None
+        conftest.check_bgp()
         conftest.stable()
         conftest.check_loaded()
         conftest.check_answering()

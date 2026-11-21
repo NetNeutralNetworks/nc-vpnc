@@ -406,6 +406,27 @@ def check_answering(host: str = HOST) -> None:
     assert not problems, "\n".join(problems)
 
 
+# After a restart or an outage BGP is up again within this time: FRR tries to
+# connect every 30 s.
+BGP_TIMEOUT = 180
+
+
+def bgp_down(host: str = HOST) -> list[str]:
+    """Return CORE's BGP sessions that aren't established."""
+    return sorted(
+        f"{peer} {state}" for peer, state, _ in _bgp(host) if state != "Established"
+    )
+
+
+def check_bgp(host: str = HOST, timeout: float = BGP_TIMEOUT) -> None:
+    """Check that CORE's BGP sessions are established, or get so in time."""
+    try:
+        wait_until(lambda: not bgp_down(host), timeout=timeout, message="BGP")
+    except TimeoutError:
+        msg = f"BGP sessions down: {', '.join(bgp_down(host))}"
+        raise AssertionError(msg) from None
+
+
 def stable(host: str = HOST, interval: float = 3) -> dict[str, Any]:
     """Return a node's snapshot once two in a row, interval apart, are the same."""
     previous: dict[str, Any] = {}
@@ -530,7 +551,9 @@ __all__ = [
     "ApiError",
     "Deployed",
     "api",
+    "bgp_down",
     "check_answering",
+    "check_bgp",
     "check_loaded",
     "diff",
     "expect_restart",
