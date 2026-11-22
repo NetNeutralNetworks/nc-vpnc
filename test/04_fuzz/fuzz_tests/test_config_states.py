@@ -17,6 +17,7 @@ import os
 from typing import Any
 
 import pytest
+from fuzz_common import policy_oracle
 from hypothesis import settings
 from hypothesis import strategies as st
 from hypothesis.stateful import (
@@ -29,6 +30,7 @@ from hypothesis.stateful import (
 )
 
 from . import conftest
+from . import test_firewall_policy as firewall
 
 pytestmark = pytest.mark.skipif(
     not conftest.FUZZ_LAB,
@@ -240,6 +242,8 @@ class ConfigStates(RuleBasedStateMachine):
     deployed: conftest.Deployed
     # How long a change may take to be applied.
     apply_timeout = APPLY_TIMEOUT
+    # Whether a sequence may send packets throughout (not while hub00 crashes).
+    watching = True
 
     def __init__(self) -> None:
         """Start without the tenant."""
@@ -257,11 +261,18 @@ class ConfigStates(RuleBasedStateMachine):
         self.disturbed = False
         # Whether hub00 restarts at the end.
         self.restart = True
+        # Packets that hub00 must stop, throughout a sequence.
+        self.watch: firewall.Watch | None = None
 
-    @initialize(restart=st.booleans())
-    def with_or_without_restart(self, restart: bool) -> None:  # noqa: FBT001
-        """Restart hub00 at the end of this sequence, or not: it takes as long."""
+    @initialize(restart=st.booleans(), watch=st.integers(0, 3))
+    def with_or_without_restart(self, restart: bool, watch: int) -> None:  # noqa: FBT001
+        """Restart hub00 at the end of this sequence, or not: it takes as long.
+
+        In one of four, send packets that hub00 must stop while it commits.
+        """
         self.restart = restart
+        if watch == 0 and self.watching:
+            self.watch = firewall.Watch()
 
     @property
     def nis(self) -> dict[str, Any]:
@@ -397,7 +408,35 @@ class ConfigStates(RuleBasedStateMachine):
             f"{name} isn't configured, but loaded in charon"
             for name in set(loaded) - names
         ]
+        for ni in self.nis:
+            if f"{TENANT}-{ni}" in state:
+                problems += policy_oracle.tenant(
+                    state[f"{TENANT}-{ni}"]["nftables"], f"{TENANT}-{ni}"
+                )
+        problems += policy_oracle.external(
+            state.get("EXTERNAL", {}).get("nftables", set()), *self.peers()
+        )
         return problems
+
+    def peers(self) -> tuple[set[str], set[tuple[str, int]], set[str]]:
+        """Return the peers EXTERNAL must let in, and those it mustn't.
+
+        IPsec peers; WireGuard peers with their local port; the addresses of
+        disabled connections.
+        """
+        ipsec: set[str] = set()
+        wireguard: set[tuple[str, int]] = set()
+        absent: set[str] = set()
+        for cfg in self.nis.values():
+            for c in cfg["connections"].values():
+                remotes = c["config"]["remote_addrs"]
+                if not c["enabled"]:
+                    absent.update(remotes)
+                elif c["config"]["type"] == "IPSEC":
+                    ipsec.update(remotes)
+                else:
+                    wireguard.add((remotes[0], c["config"]["local_port"]))
+        return ipsec, wireguard, absent
 
     @precondition(lambda self: len(self.nis) < len(NI_KEYS))
     @rule(data=st.data())
@@ -474,6 +513,10 @@ class ConfigStates(RuleBasedStateMachine):
 
     def teardown(self) -> None:
         """Restart hub00: from its files it must get back to the same state."""
+        if self.watch is not None:
+            leaks = self.watch.finish()
+            assert self.watch.sent, "no packets sent to CORE throughout"
+            assert not leaks, "\n".join(["left C0001-00 during commits:", *leaks])
         self.settled()
         if self.created and self.restart:
             restarted_the_same(self.deployed, "not the same after a restart:")
