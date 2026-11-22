@@ -26,6 +26,7 @@ classifiers = [
     "Topic :: System :: Networking",
 ]
 dependencies = [
+    "dnspython~=2.9.2",
     "NetfilterQueue~=1.1.0",
     # The answer sections are lists since 2.6.
     "scapy~=2.8.0",
