@@ -93,6 +93,10 @@ class ConnectionConfigSSH(BaseModel):
         ssh.known_hosts(name).unlink(missing_ok=True)
         ssh.delete_key(name)
 
+    def unset_secrets(self) -> list[str]:
+        """Return the secrets that aren't set: None: vpnc makes its key."""
+        return []
+
     def intf_name(
         self,
         _: vpnc.models.network_instance.NetworkInstance,

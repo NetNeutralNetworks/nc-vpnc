@@ -13,7 +13,6 @@ from pydantic import (
     Field,
     SecretStr,
     field_validator,
-    model_validator,
 )
 
 from vpnc import helpers
@@ -71,7 +70,8 @@ class PostQuantumPresharedKey(BaseModel):
         default=None,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9@._:+-]{0,63}$",
     )
-    key: PpkSecret
+    # Generated on commit when not set.
+    key: PpkSecret | None = None
 
     @field_validator("key", mode="before")
     @classmethod
@@ -139,6 +139,7 @@ class PostQuantumWireGuard(BaseModel):
     """A PPK mixed into WireGuard's handshake (its preshared key)."""
 
     enabled: bool = False
+    # Generated on commit when enabled and not set.
     ppk: WireGuardPpk | None = None
 
     @field_validator("ppk", mode="before")
@@ -146,14 +147,6 @@ class PostQuantumWireGuard(BaseModel):
     def not_a_number(cls, v: object) -> object:
         """YAML reads an unquoted 0x value as a number."""
         return PostQuantumPresharedKey.not_a_number(v)
-
-    @model_validator(mode="after")
-    def ppk_when_enabled(self) -> PostQuantumWireGuard:
-        """WireGuard's only post-quantum protection is the PPK."""
-        if self.enabled and self.ppk is None:
-            msg = "post_quantum needs a ppk for WireGuard"
-            raise ValueError(msg)
-        return self
 
     def key(self) -> str | None:
         """Return the PPK in use, in base64 as WireGuard takes it; None if disabled."""

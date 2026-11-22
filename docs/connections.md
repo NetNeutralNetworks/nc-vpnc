@@ -35,6 +35,17 @@ Routes over a connection that doesn't pass traffic are blackholes, so traffic is
 
 `psk`, `private_key` and the PPKs are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
 
+A commit generates the secrets that aren't set, and says which (`Generated C0001-00-0 psk`):
+
+| Secret | Generated |
+|---|---|
+| IPsec `psk` | 64 letters and digits |
+| IPsec `post_quantum.ppk.key` | 64 letters and digits, when `ppk` is set without a `key` (e.g. `ppk: {}`) |
+| WireGuard `private_key` | a new key, as `wg genkey` makes it |
+| WireGuard `post_quantum.ppk` | 32 bytes in base64, when `enabled` is true |
+
+A PSK or PPK has to be the same on the peer: read it with `vpnctl config show ... --reveal-secrets`. An active file edited by hand without one isn't loaded until a commit.
+
 ### IPsec
 
 charon (strongSwan) with XFRM interfaces: route based, so traffic selectors are `0.0.0.0/0, ::/0` unless `traffic_selectors` are set (for peers that need policy-based selectors).
@@ -47,7 +58,7 @@ The peer side needs matching proposals, lifetimes of its own choice, and the sam
 
 ### WireGuard
 
-`private_key` is this side's key, `public_key` the peer's. `EXTERNAL` only accepts WireGuard from the `remote_addrs`, on `local_port`; a peer that moves to another address isn't accepted.
+`private_key` is this side's key (generated on commit when not set), `public_key` the peer's. The peer needs this side's public key: `vpnctl connections show` shows it as the local identity. `EXTERNAL` only accepts WireGuard from the `remote_addrs`, on `local_port`; a peer that moves to another address isn't accepted.
 
 ### SSH
 
@@ -134,7 +145,7 @@ post_quantum:
                             # vpnctl generate ppk base64|hex
 ```
 
-* The PPK is WireGuard's preshared key (`PresharedKey` on other implementations), so any WireGuard peer can use it: give other implementations the base64 form. It's required when `enabled` is true.
+* The PPK is WireGuard's preshared key (`PresharedKey` on other implementations), so any WireGuard peer can use it: give other implementations the base64 form. A commit generates it when `enabled` is true and it isn't set.
 * A changed PPK drops the session (`CONFIG_RESET`), so a wrong one shows right away: no handshake completes (`KEY_MISMATCH`).
 * It protects as long as the PPK stays secret: there's no post-quantum forward secrecy. Use a PPK per connection.
 * `vpnctl connections show` shows the key exchange as `CURVE_25519 + PPK`.

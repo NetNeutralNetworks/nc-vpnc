@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import datetime as dt
 import json
 import re
@@ -576,6 +577,23 @@ class TestReconfiguration:
         assert listed("C0002")["error"] is None
         assert connection_applied(BASE_CONNECTION)
 
+    def test_active_file_without_secret(self) -> None:
+        """An active file without a PSK isn't loaded; a commit replaces it."""
+        without_psk = copy.deepcopy(BASE_CONNECTION)
+        del without_psk["config"]["psk"]
+        write_tenant([without_psk])
+        conftest.wait_until(
+            lambda: listed("C0002")["error"],
+            timeout=APPLY_TIMEOUT,
+            message="the file without a PSK to be reported",
+        )
+
+        assert f"{NI}-0 psk not set: commit to generate" in listed("C0002")["error"]
+        assert connection_applied(BASE_CONNECTION)
+
+        assert vpnctl("config commit C0002") == "Committed.\n"
+        assert listed("C0002")["error"] is None
+
     def test_refused_active_file(self) -> None:
         """An active file a commit would refuse isn't applied, and is reported."""
         refused = ipsec_connection(0, ("10.200.0.9/30", "fdcc:200:0:2::1/64"), [], [])
@@ -871,6 +889,58 @@ class TestReconfiguration:
         vpnctl(f"config set C0002 {path} {psk}")
         assert vpnctl("config commit C0002") == "Committed.\n"
         assert vpnctl_json(f"config show C0002 {path} --reveal-secrets") == psk
+
+    def test_unset_psk_generated(self) -> None:
+        """A commit generates a PSK that isn't set, and says so."""
+        path = f"network_instances.{NI_KEY}.connections.0.config.psk"
+        vpnctl(f"config delete C0002 {path}")
+
+        assert f"Generated {NI}-0 psk" in vpnctl("config commit C0002")
+        psk = vpnctl_json(f"config show C0002 {path} --reveal-secrets")
+        assert re.fullmatch(r"[A-Za-z0-9]{64}", psk)
+        assert vpnctl("config diff C0002") == "No changes.\n"
+
+    def test_unset_wireguard_keys_generated(self) -> None:
+        """A commit generates a WireGuard connection's private key and PPK."""
+        path = f"network_instances.{NI_KEY}.connections.1"
+        connection = {
+            "interface": {"ipv4": ["10.200.0.9/30"], "ipv6": ["fdcc:200:0:3::1/64"]},
+            "routes": {"ipv4": [], "ipv6": []},
+            "config": {
+                "type": "wireguard",
+                "remote_addrs": ["192.0.2.99"],
+                "local_port": 51830,
+                "public_key": "CwrBqabA9BrZMF6n6+H3d+lOfvorO6QrjZEX1KBWmk0=",
+                "post_quantum": {"enabled": True},
+            },
+        }
+        vpnctl(
+            f"config set C0002 {path} {json.dumps(connection, separators=(',', ':'))}"
+        )
+        try:
+            output = vpnctl("config commit C0002")
+            assert f"Generated {NI}-1 private_key" in output
+            assert f"Generated {NI}-1 post_quantum.ppk" in output
+            private = vpnctl_json(
+                f"config show C0002 {path}.config.private_key --reveal-secrets",
+            )
+            public = conftest.run_cmd_shell(
+                HOST,
+                f"bash -c 'echo {private} | wg pubkey'",
+            ).strip()
+
+            def generated_keys_used() -> bool:
+                tunnel = vpnctl_json(f"connections show {NI}-1")["tunnel"] or {}
+                return tunnel.get("local_identity") == public and tunnel.get("ppk")
+
+            conftest.wait_until(
+                generated_keys_used,
+                timeout=APPLY_TIMEOUT,
+                message="the generated keys to be used",
+            )
+        finally:
+            vpnctl(f"config delete C0002 {path}")
+            vpnctl("config commit C0002")
 
 
 class TestRestartNotice:

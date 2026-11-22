@@ -209,6 +209,9 @@ def _manage_tenant(path: pathlib.Path, *, check: bool) -> None:
         # E.g. written by a commit, which applied it already.
         _loaded(tenant_id)
         return
+    if error := _unset(tenant):
+        _not_loaded(tenant_id, error)
+        return
     if check and (error := _refused(tenant_id, tenant)):
         _not_loaded(tenant_id, error)
         return
@@ -219,6 +222,23 @@ def _same(first: Any, second: Any) -> bool:  # noqa: ANN401
     """Return whether two configurations are the same, secrets included."""
     dumps = [model.model_dump(mode="json", context=REVEAL) for model in (first, second)]
     return dumps[0] == dumps[1]
+
+
+def unset_secrets(tenant: Any) -> list[str]:  # noqa: ANN401
+    """Return the secrets a configuration lacks, e.g. C0001-00-0 psk."""
+    return [
+        f"{connection.name(ni)} {path}"
+        for ni in tenant.network_instances.values()
+        for connection in ni.connections.values()
+        for path in connection.config.unset_secrets()
+    ]
+
+
+def _unset(tenant: Any) -> str | None:  # noqa: ANN401
+    """Return which secrets an active file lacks: a commit generates them."""
+    if unset := unset_secrets(tenant):
+        return f"{', '.join(unset)} not set: commit to generate"
+    return None
 
 
 def _refused(tenant_id: str, tenant: Any) -> str | None:  # noqa: ANN401

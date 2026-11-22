@@ -11,6 +11,7 @@ from logging.handlers import SysLogHandler
 
 from vpnc import accounts, config, core, eventlog, files, migration, shared
 from vpnc.models import enums, tenant
+from vpnc.services import configuration
 
 # LOGGER
 # Get logger
@@ -78,6 +79,12 @@ def _check_system_requirements() -> None:
     try:
         tenant_config = tenant.load_default()
     except config.ConfigurationError:
+        sys.exit(1)
+    if unset := configuration.unset_secrets(tenant_config):
+        logger.critical(
+            "Service isn't configured: %s not set; commit to generate.",
+            ", ".join(unset),
+        )
         sys.exit(1)
 
     if tenant_config.mode == enums.ServiceMode.HUB:

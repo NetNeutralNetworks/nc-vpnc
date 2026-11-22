@@ -296,6 +296,10 @@ class ConnectionConfig(Protocol):
         """Delete a connection."""
         ...
 
+    def unset_secrets(self) -> list[str]:
+        """Return the secrets that aren't set: a commit generates them."""
+        ...
+
     def intf_name(
         self,
         network_instance: network_instance.NetworkInstance,
