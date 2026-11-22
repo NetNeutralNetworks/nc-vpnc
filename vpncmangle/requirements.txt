@@ -11,10 +11,6 @@ dnspython==2.9.2 \
 netfilterqueue==1.1.0 \
     --hash=sha256:e30eff999325617f54bd95b3d8d3353214cc77b5e3188f90ec3a6f6288888d72
     # via vpncmangle (pyproject.toml)
-scapy==2.8.0 \
-    --hash=sha256:0eacd1f940d115611c1b8a4696f315b4b80caf2951e546893a3d0cd7f6bfd6fd \
-    --hash=sha256:abf855145ee829a42b2eb28983cd6a0a52b12a31d3f861cb7be36791195ed9aa
-    # via vpncmangle (pyproject.toml)
 watchdog==7.1.0 \
     --hash=sha256:0cfc5a6b3d4e76fc3e18fd371ee79d57945004da4105b589f71bb16966fd3e67 \
     --hash=sha256:16a5ba8694587cdbeae4ab8e6434cece994f9cce4e5bab03e61e6d1a0a93a643 \

@@ -8,10 +8,8 @@ time, and waits poll fast at first.
 from __future__ import annotations
 
 import atexit
-import ipaddress
 import json
 import os
-import struct
 import subprocess
 import sys
 import threading
@@ -33,6 +31,7 @@ if TEST_DIR not in sys.path:
 # the tests are skipped (see FUZZ_LAB).
 os.environ["VPNC_LAB"] = "vpnc-fuzz"
 
+from fuzz_common.dns_wire import addresses  # noqa: E402
 from lab_helpers import CONTAINER_PREFIX  # noqa: E402
 
 if TYPE_CHECKING:
@@ -813,48 +812,7 @@ def dns_drain(server: str) -> list[bytes]:
     ]
 
 
-DNS_A, DNS_AAAA = 1, 28
-DNS_QUESTION = 12
-
-
-def dns_name_end(data: bytes, offset: int) -> int:
-    """Return the offset after an encoded name (pointers end it)."""
-    while offset < len(data):
-        size = data[offset]
-        if size & 0xC0 == 0xC0:  # noqa: PLR2004
-            return offset + 2
-        if size == 0:
-            return offset + 1
-        offset += 1 + size
-    raise ValueError
-
-
-def dns_addresses(data: bytes, *, answers_only: bool = False) -> list[tuple[str, str]]:
-    """Return the A and AAAA records a lenient client reads from an answer.
-
-    It follows the counts and reads every section (or only the answers), as far
-    as the data goes.
-    """
-    found: list[tuple[str, str]] = []
-    if len(data) < DNS_QUESTION:
-        return found
-    questions, *records = struct.unpack(">4H", data[4:12])
-    offset = DNS_QUESTION
-    try:
-        for _ in range(questions):
-            offset = dns_name_end(data, offset) + 4
-        for _ in range(records[0] if answers_only else sum(records)):
-            offset = dns_name_end(data, offset)
-            rtype, _, _, length = struct.unpack(">HHIH", data[offset : offset + 10])
-            value = data[offset + 10 : offset + 10 + length]
-            offset += 10 + length
-            if rtype == DNS_A and len(value) == 4:  # noqa: PLR2004
-                found.append(("A", str(ipaddress.IPv4Address(value))))
-            elif rtype == DNS_AAAA and len(value) == 16:  # noqa: PLR2004
-                found.append(("AAAA", str(ipaddress.IPv6Address(value))))
-    except (ValueError, struct.error):
-        pass
-    return found
+DNS_A = 1
 
 
 # A tenant's DNS server through hub00 (C0001-00's NAT64), from mgt00: vpncmangle
@@ -888,7 +846,10 @@ def not_answering(host: str = HOST, *, dns: bool = True) -> list[str]:
         problems.append(f"mgt00 reaches {DNS_SERVER} not through {host}: {route!r}")
         return problems
     answers, _ = dns_ask(DNS_SERVER, DNS_NAME, DNS_A)
-    found = [dns_addresses(answer, answers_only=True) for answer in answers]
+    found = [
+        [(a.source, str(a.address)) for a in addresses(answer, answers_only=True)]
+        for answer in answers
+    ]
     if found != [DNS_ANSWER]:
         problems.append(f"vpncmangle answered {DNS_NAME} with {found}")
     return problems
@@ -1241,10 +1202,8 @@ __all__ = [
     "command",
     "daemons",
     "diff",
-    "dns_addresses",
     "dns_ask",
     "dns_drain",
-    "dns_name_end",
     "dns_observe",
     "docker_exec",
     "expect_restart",
