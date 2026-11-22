@@ -230,18 +230,20 @@ def check_exact(
     if not received:
         assert expect.may_drop, "vpncmangle dropped an answer it must pass"
         return what
-    if len(received) != 1:
-        return what
-    if expect.unchanged:
-        assert what == "as it came", "vpncmangle changed an answer it must pass as is"
-    elif expect.records is not None:
-        read = dns_wire.records(received[0])
-        assert read.flags == expect.flags, (
-            f"flags {read.flags:#x}, not {expect.flags:#x}"
-        )
-        assert read.questions == original.questions, "other questions"
-        got = dns_oracle.comparable(read.records, expect.records)
-        assert got == expect.records, f"records\n{got}\nnot\n{expect.records}"
+    # Every answer that came, not only the first: a second may differ.
+    for answer in received:
+        if expect.unchanged:
+            assert answer[2:] == generated[2:], (
+                "vpncmangle changed an answer it must pass as is"
+            )
+        elif expect.records is not None:
+            read = dns_wire.records(answer)
+            assert read.flags == expect.flags, (
+                f"flags {read.flags:#x}, not {expect.flags:#x}"
+            )
+            assert read.questions == original.questions, "other questions"
+            got = dns_oracle.comparable(read.records, expect.records)
+            assert got == expect.records, f"records\n{got}\nnot\n{expect.records}"
     return what
 
 
