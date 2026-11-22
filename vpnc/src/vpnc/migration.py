@@ -64,6 +64,9 @@ def _data_0_1_3(data: dict[str, Any]) -> dict[str, Any]:
     And write the mode, types and initiation in upper case.
     """
     prefix = f"{data.get('id')}-"
+    if not isinstance(data.get("network_instances") or {}, dict):
+        # Not network instances: the model refuses it.
+        return _upper(data, "mode")
     network_instances = {}
     for key, value in (data.get("network_instances") or {}).items():
         network_instance = value
