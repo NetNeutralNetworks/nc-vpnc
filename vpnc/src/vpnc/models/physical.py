@@ -60,6 +60,10 @@ class ConnectionConfigPhysical(BaseModel):
             dl.ipr.link("set", index=indexes[0], net_ns_pid=1)
             dl.invalidate()
 
+    def unset_secrets(self) -> list[str]:
+        """Return the secrets that aren't set: None."""
+        return []
+
     def intf_name(
         self,
         _: vpnc.models.network_instance.NetworkInstance,

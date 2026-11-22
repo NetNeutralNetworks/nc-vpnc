@@ -76,7 +76,8 @@ class ConnectionConfigIPsec(BaseModel):
     ipsec_proposal: str = "aes256gcm16-ecp384"
     ipsec_lifetime: Int = 3600
     initiation: Initiation = Initiation.INITIATOR
-    psk: Secret
+    # Generated on commit when not set.
+    psk: Secret | None = None
     post_quantum: PostQuantumIPsec = Field(default_factory=PostQuantumIPsec)
     traffic_selectors: TrafficSelectors = Field(default_factory=TrafficSelectors)
 
@@ -114,6 +115,14 @@ class ConnectionConfigIPsec(BaseModel):
     _none_as_default = helpers.none_as_default("traffic_selectors", "post_quantum")
     _upper = helpers.upper("type", "initiation")
 
+    def unset_secrets(self) -> list[str]:
+        """Return the secrets that aren't set, e.g. psk: a commit generates them."""
+        unset = [] if self.psk else ["psk"]
+        ppk = self.post_quantum.ppk
+        if self.post_quantum.enabled and ppk is not None and ppk.key is None:
+            unset.append("post_quantum.ppk.key")
+        return unset
+
     def weaknesses(self) -> dict[str, tuple[str, object]]:
         """Return what's weak about the connection's cryptography.
 
@@ -121,8 +130,8 @@ class ConnectionConfigIPsec(BaseModel):
         A commit that adds one, or changes its setting, must allow it.
         """
         found: dict[str, tuple[str, object]] = {}
-        psk = self.psk.get_secret_value()
-        if len(psk) < PSK_MIN_LENGTH:
+        psk = self.psk.get_secret_value() if self.psk else None
+        if psk is not None and len(psk) < PSK_MIN_LENGTH:
             found["SHORT_PSK"] = (
                 (
                     f"the PSK has fewer than {PSK_MIN_LENGTH} characters"

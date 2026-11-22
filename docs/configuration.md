@@ -17,6 +17,7 @@ What runs is in `/opt/ncubed/config/vpnc/active/`, loaded at startup:
 * **Restart needed:** service settings `mode` and `prefix_downlink_*`. Everything else applies on commit. `vpnctl status` says when a restart is needed.
 * **Hand edits:** an active file changed otherwise (e.g. by hand) runs if a commit would accept it. If it can't be loaded, or a commit would refuse it, the tenant keeps running what it ran; `vpnctl config list` and the event `CONFIG_NOT_LOADED` say why. A commit (also without changes) replaces such a file.
 * **IPsec resets:** an IPsec connection whose `psk`, PPK or `traffic_selectors` changed is reset (event `CONFIG_RESET`): its SAs would keep the old values, and a wrong value would only show at the next outage. Wider `traffic_selectors` of a responder apply once the initiator is reset too: until then it proposes the ones it had.
+* **Secrets** that aren't set (a PSK, a WireGuard private key, a PPK) are generated on commit; see [Connections](connections.md#types).
 * **Weak cryptography** is refused unless committed with `--allow-weak`; see [Security](security.md#weak-cryptography).
 
 Values like `HUB` and `IPSEC` are upper case; lower case is still read. Files have a `version`, currently 0.1.4 (see [upgrade notes](installation.md#upgrade-notes)).
@@ -100,14 +101,15 @@ network_instances:
         config:
           type: IPSEC
           remote_addrs: [192.0.2.7]
-          psk: "..."            # vpnctl generate psk text
+          # psk: not set, so the commit generates one
 ```
 
 Commit it with a rollback timer, check that it works, then confirm:
 
 ```bash
 ~$ sudo vpnctl config diff C0002
-~$ sudo vpnctl config commit C0002 --confirm 5m
+~$ sudo vpnctl config commit C0002 --confirm 5m    # Generated C0002-00-0 psk
+~$ sudo vpnctl config show C0002 network_instances.00.connections.0.config.psk --reveal-secrets   # for the peer
 ~$ sudo vpnctl connections show C0002-00-0       # oper_status UP?
 ~$ sudo vpnctl translate C0002-00 10.0.0.10      # the address admins use
 ~$ sudo vpnctl ping C0002-00 10.0.0.10

@@ -1366,35 +1366,17 @@ def prompt(path: str) -> str:
     return value
 
 
-# How vpnctl generate writes 256 bits or more of randomness.
-SECRET_FORMATS = ("text", "hex", "base64")
-
-
-def random_secret(fmt: str, *, prefix: bool) -> str:
-    """Return a random secret: text is 64 letters and digits (about 381 bits).
-
-    hex and base64 are 256 bits; with prefix, hex is 0x... as strongSwan reads
-    a PPK.
-    """
-    import base64  # noqa: PLC0415
-    import secrets  # noqa: PLC0415
-    import string  # noqa: PLC0415
-
-    if fmt == "text":
-        alphabet = string.ascii_letters + string.digits
-        return "".join(secrets.choice(alphabet) for _ in range(64))
-    if fmt == "hex":
-        return ("0x" if prefix else "") + secrets.token_hex(32)
-    return base64.b64encode(secrets.token_bytes(32)).decode()
-
-
 def cmd_generate_psk(args: argparse.Namespace) -> None:
     """Print a new random PSK, for IPsec."""
-    print(random_secret(args.format, prefix=False))
+    from vpnc.keys import random_secret  # noqa: PLC0415
+
+    print(random_secret(args.format))
 
 
 def cmd_generate_ppk(args: argparse.Namespace) -> None:
     """Print a new random PPK: text or hex for IPsec, hex or base64 for both."""
+    from vpnc.keys import random_secret  # noqa: PLC0415
+
     print(random_secret(args.format, prefix=True))
 
 
@@ -1507,9 +1489,13 @@ def cmd_config_commit(args: argparse.Namespace) -> None:
 
 
 def commit_notices(result: dict[str, Any]) -> None:
-    """Say what was committed weak, and which service settings need a restart."""
+    """Say what was committed weak or generated, and what needs a restart."""
     for warning in result.get("warnings") or []:
         print(f"Weak cryptography: {warning}")
+    for secret in result.get("generated") or []:
+        print(
+            f"Generated {secret}: show it with --reveal-secrets to give it to the peer"
+        )
     if fields_ := result.get("restart_needed"):
         print(
             f"Restart vpnc to apply {', '.join(fields_)}: vpnctl service restart",
@@ -1616,6 +1602,8 @@ ADMIN_STATUSES = ["UP", "DOWN"]
 OPER_STATUSES = ["UP", "DOWN", "DORMANT"]
 TYPES = ["IPSEC", "WIREGUARD", "SSH", "PHYSICAL"]
 OUTPUTS = ["table", "wide", "json", "yaml"]
+# vpnctl generate's formats (vpnc.keys.FORMATS).
+SECRET_FORMATS = ("text", "hex", "base64")
 SOURCES = ["vpnc", "vpncmangle", "charon"]
 PROTOCOLS = ["TCP", "UDP", "ICMP", "ICMPV6"]
 LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]

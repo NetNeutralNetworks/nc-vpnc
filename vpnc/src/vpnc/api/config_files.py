@@ -23,9 +23,16 @@ import threading
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    TypeAdapter,
+    ValidationError,
+)
 
-from vpnc import config, eventlog, files, helpers, migration
+from vpnc import config, eventlog, files, helpers, keys, migration
 from vpnc.models import enums, tenant
 from vpnc.models.ipsec import ppk_id_users
 from vpnc.models.post_quantum import PostQuantumPresharedKey
@@ -96,6 +103,8 @@ class CommitResult(BaseModel):
     restart_needed: list[str] = []
     # Weak cryptography the commit added, per connection (allow_weak).
     warnings: list[str] = []
+    # Secrets the commit generated, e.g. C0001-00-0 psk.
+    generated: list[str] = []
 
 
 # Service settings read at startup only. The downlink prefixes are partly
@@ -723,6 +732,31 @@ def _check_post_quantum(model: Model) -> None:
                 )
 
 
+# How a commit makes a secret that isn't set, by its path in a connection's config.
+SECRET_MAKERS = {
+    "psk": lambda: keys.random_secret("text"),
+    "post_quantum.ppk.key": lambda: keys.random_secret("text"),
+    "private_key": keys.wireguard_private_key,
+    "post_quantum.ppk": lambda: keys.random_secret("base64"),
+}
+
+
+def _fill_secrets(model: Model) -> list[str]:
+    """Generate the secrets a configuration lacks; return which."""
+    generated = []
+    for ni in model.network_instances.values():
+        for connection in ni.connections.values():
+            cfg = connection.config
+            for path in cfg.unset_secrets():
+                *parents, field = path.split(".")
+                target = cfg
+                for parent in parents:
+                    target = getattr(target, parent)
+                setattr(target, field, SecretStr(SECRET_MAKERS[path]()))
+                generated.append(f"{connection.name(ni)} {path}")
+    return generated
+
+
 def _fill_ppk_ids(model: Model) -> bool:
     """Write the default PPK ids into a configuration; return whether any.
 
@@ -771,6 +805,7 @@ def commit(
         previous = _yaml(_dump(running, reveal=True)) or None
         changed = False
         warnings: list[str] = []
+        generated: list[str] = []
         not_loaded = tenant_id in configuration.NOT_LOADED
         # Also when nothing is staged, the active file that isn't loaded of a
         # tenant that runs is replaced by what runs.
@@ -782,13 +817,15 @@ def commit(
                 _keep_service(tenant_id)
             if check_node:
                 check_conflicts({tenant_id: candidate})
+            generated = _fill_secrets(candidate) if candidate is not None else []
             warnings = _check_weak({tenant_id: candidate}, allow=allow_weak)
-            filled = candidate is not None and _fill_ppk_ids(candidate)
+            ids_filled = candidate is not None and _fill_ppk_ids(candidate)
+            filled = ids_filled or bool(generated)
             if not _same(candidate, running) or not_loaded:
                 _activate(tenant_id, candidate)
                 changed = True
                 if filled:
-                    # So the filled-in ids don't show as staged changes.
+                    # So what's filled in doesn't show as staged changes.
                     text = _yaml(_dump(candidate, reveal=True))
                     files.ensure_file(_path(tenant_id, "candidate"), text, secret=True)
             if candidate is None:
@@ -807,6 +844,7 @@ def commit(
                 changed=changed,
                 restart_needed=restart,
                 warnings=warnings,
+                generated=generated,
             )
         # A new confirmed commit rolls back to before the first.
         confirm_by = (_now() + dt.timedelta(seconds=confirm)).isoformat(
@@ -825,6 +863,7 @@ def commit(
             confirm_by=confirm_by,
             restart_needed=restart,
             warnings=warnings,
+            generated=generated,
         )
 
 

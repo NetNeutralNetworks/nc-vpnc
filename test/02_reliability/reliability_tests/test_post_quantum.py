@@ -193,7 +193,6 @@ class TestPostQuantum:
     @pytest.mark.parametrize(
         ("value", "error"),
         [
-            ({"enabled": True}, "needs a ppk"),
             ({"enabled": True, "ppk": "x" * 44}, "32 bytes in base64"),
             (
                 {"enabled": True, "ppk": base64.b64encode(bytes(31)).decode()},
@@ -202,7 +201,7 @@ class TestPostQuantum:
         ],
     )
     def test_wireguard_ppk_refused(self, value: dict[str, object], error: str) -> None:
-        """A WireGuard PPK that isn't 32 bytes of base64, or none, is refused."""
+        """A WireGuard PPK that isn't 32 bytes of base64 or hex is refused."""
         path = "network_instances.01.connections.0.config.post_quantum"
         with pytest.raises(subprocess.CalledProcessError) as err:
             vpnctl("hub01", f"config set C0001 {path} {compact(value)}")

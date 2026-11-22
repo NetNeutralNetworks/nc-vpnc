@@ -33,11 +33,19 @@ class ConnectionConfigWireGuard(BaseModel):
     local_port: Int = Field(default=51820, ge=1, le=65535)
     remote_addrs: list[Address] = Field(min_length=1)
     remote_port: Int = Field(default=51820, ge=1, le=65535)
-    private_key: Secret
+    # Generated on commit when not set.
+    private_key: Secret | None = None
     public_key: str
     post_quantum: PostQuantumWireGuard = Field(default_factory=PostQuantumWireGuard)
 
     _none_as_default = helpers.none_as_default("post_quantum")
+
+    def unset_secrets(self) -> list[str]:
+        """Return the secrets that aren't set: a commit generates them."""
+        unset = [] if self.private_key else ["private_key"]
+        if self.post_quantum.enabled and self.post_quantum.ppk is None:
+            unset.append("post_quantum.ppk")
+        return unset
 
     def add(
         self,
