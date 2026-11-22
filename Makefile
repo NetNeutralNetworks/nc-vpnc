@@ -218,13 +218,14 @@ PIP := $(VENV)/bin/python3 -m pip install
 pip-vpnc: $(STAMP)/vpnc
 pip-vpncmangle: $(STAMP)/vpncmangle
 
-# Built with Ubuntu's setuptools.
-$(STAMP)/vpnc: $(VPNC_SRC) | $(VENV)/pyvenv.cfg
+# Built with Ubuntu's setuptools. A normal prerequisite: a recreated venv (--clear
+# removes the stamps) must reinstall them, which an order-only one may skip.
+$(STAMP)/vpnc: $(VPNC_SRC) $(VENV)/pyvenv.cfg
 	$(PIP) --require-hashes --no-build-isolation -r vpnc/requirements.txt
 	$(PIP) --upgrade --no-deps --no-build-isolation ./vpnc
 	mkdir -p $(@D) && touch $@
 
-$(STAMP)/vpncmangle: $(VPNCMANGLE_SRC) | $(VENV)/pyvenv.cfg
+$(STAMP)/vpncmangle: $(VPNCMANGLE_SRC) $(VENV)/pyvenv.cfg
 	$(PIP) --require-hashes --no-build-isolation -r vpncmangle/requirements.txt
 	$(PIP) --upgrade --no-deps --no-build-isolation ./vpncmangle
 	mkdir -p $(@D) && touch $@
