@@ -7,7 +7,6 @@ name = "vpncmangle"
 description = "Runs vpncmangle to edit DNS responses"
 readme = "README.md"
 authors = [{ name="Tony Fortes Ramos", email="tony.fortesramos@ncubed.nl" }]
-# watchdog 7 needs 3.11.
 requires-python = ">=3.11"
 keywords = ["ncubed", "vpncmangle", "mangle"]
 classifiers = [
@@ -27,8 +26,9 @@ classifiers = [
 ]
 dependencies = [
     "dnspython~=2.9.2",
-    "NetfilterQueue~=1.1.0",
-    "watchdog~=7.1.0",
+    "NetfilterQueue~=1.1",
+    "pydantic~=2.12",
+    "watchdog~=6.0",
 ]
 dynamic = ["version"]
 

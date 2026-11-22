@@ -3,9 +3,9 @@ FROM ubuntu:resolute-20261024.1 AS build
 SHELL ["/bin/bash", "-c"]
 
 RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
-    echo "Install APT build packages and the venv"                      && \
+    echo "Install Python packages and the venv"                         && \
     apt-get update && apt-get install -y make                           && \
-    make -C /tmp/repo build-packages venv
+    make -C /tmp/repo python-packages venv
 
 COPY ./ /tmp/repo/
 
@@ -26,7 +26,7 @@ RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
     --mount=type=bind,source=./config/,target=/tmp/repo/config/            \
     echo "Install APT packages"                                         && \
     apt-get update && apt-get install -y make tini                      && \
-    make -C /tmp/repo MODE=hub packages account-vpnc-mangle account-vpnc-ssh hub-packages frr snmpd misc-config config && \
+    make -C /tmp/repo MODE=hub packages python-packages account-vpnc-mangle account-vpnc-ssh hub-packages frr snmpd misc-config config && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /opt/ncubed/ /opt/ncubed/
