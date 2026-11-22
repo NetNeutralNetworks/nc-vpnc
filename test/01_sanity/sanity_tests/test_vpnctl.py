@@ -16,7 +16,7 @@ VPNCTL = "/opt/ncubed/vpnc/bin/vpnctl"
 HUB_CONNECTIONS = {
     "C0001-00-0": ("IPSEC", "xfrm0"),
     "C0001-00-1": ("SSH", "tun1"),
-    "C0001-01-0": ("WIREGUARD", "wg-C0001-01-0"),
+    "C0001-01-0": ("WIREGUARD", "wg0"),
     "CORE-0": ("IPSEC", "xfrm0"),
     "CORE-1": ("IPSEC", "xfrm1"),
     "EXTERNAL-0": ("PHYSICAL", "eth1"),
@@ -31,8 +31,8 @@ CONNECTIONS = {
         "EXTERNAL-0": ("PHYSICAL", "eth1"),
     },
     "end01": {
-        "CORE-0": ("WIREGUARD", "wg-CORE-0"),
-        "CORE-1": ("WIREGUARD", "wg-CORE-1"),
+        "CORE-0": ("WIREGUARD", "wg0"),
+        "CORE-1": ("WIREGUARD", "wg1"),
         "ENDPOINT-0": ("PHYSICAL", "eth2"),
         "EXTERNAL-0": ("PHYSICAL", "eth1"),
     },

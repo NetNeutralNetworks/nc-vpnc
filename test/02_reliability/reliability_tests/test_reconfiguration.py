@@ -1302,15 +1302,15 @@ class TestDrift:
         self,
         drift_baseline: dict[str, Any],
     ) -> None:
-        """The same for a WireGuard interface, which has the same name there."""
-        wg = "wg-C0001-01-0"
+        """The same for a WireGuard interface, named after its connection there."""
+        leftover = "wg-C0001-01-0"
         assert_drift_corrected(
-            f"bash -c 'ip --netns EXTERNAL link add {wg} type wireguard && "
-            f"ip --netns C0001-01 link del {wg}'",
+            f"bash -c 'ip --netns EXTERNAL link add {leftover} type wireguard && "
+            "ip --netns C0001-01 link del wg0'",
             drift_baseline,
-            recreated=("C0001-01", wg),
+            recreated=("C0001-01", "wg0"),
         )
-        assert wg not in links("EXTERNAL")
+        assert leftover not in links("EXTERNAL")
 
     def test_deleted_core_link(self, drift_baseline: dict[str, Any]) -> None:
         """A deleted link between CORE and a network instance is recreated."""
@@ -1321,12 +1321,12 @@ class TestDrift:
 
     def test_removed_wireguard_peer(self) -> None:
         """A WireGuard peer removed by hand is restored."""
-        wg = "ip netns exec C0001-01 wg show wg-C0001-01-0 peers"
+        wg = "ip netns exec C0001-01 wg show wg0 peers"
         peer = conftest.run_cmd_shell(HOST, wg).strip()
         assert peer, "No WireGuard peer before the test"
         conftest.run_cmd_shell(
             HOST,
-            f"ip netns exec C0001-01 wg set wg-C0001-01-0 peer {peer} remove",
+            f"ip netns exec C0001-01 wg set wg0 peer {peer} remove",
         )
         assert not conftest.run_cmd_shell(HOST, wg).strip()
         conftest.wait_until(
@@ -1532,7 +1532,7 @@ def listen_port(tenant_id: str) -> int | None:
     try:
         output = conftest.run_cmd(
             HOST,
-            f"ip netns exec {ni} wg show wg-{ni}-0 listen-port",
+            f"ip netns exec {ni} wg show wg0 listen-port",
         )
     except subprocess.CalledProcessError:
         return None

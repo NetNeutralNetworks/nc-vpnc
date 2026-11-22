@@ -72,8 +72,13 @@ def xfrm_interface_name(number: int | str) -> str:
     return f"xfrm{number}"
 
 
-def wireguard_interface_name(connection_name: str) -> str:
-    """Return the name of the WireGuard interface of a connection's name."""
+def wireguard_interface_name(number: int | str) -> str:
+    """Return the name of the WireGuard interface of a connection's number."""
+    return f"wg{number}"
+
+
+def wireguard_unique_name(connection_name: str) -> str:
+    """Return a WireGuard interface's name in EXTERNAL, unique there."""
     return f"wg-{connection_name}"
 
 

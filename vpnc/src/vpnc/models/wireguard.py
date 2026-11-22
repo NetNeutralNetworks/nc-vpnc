@@ -50,7 +50,9 @@ class ConnectionConfigWireGuard(BaseModel):
                 for user in users
                 if wireguard.listen_port(
                     helpers.split_connection_name(user)[0],
-                    helpers.wireguard_interface_name(user),
+                    helpers.wireguard_interface_name(
+                        helpers.split_connection_name(user)[1],
+                    ),
                 )
                 == self.local_port
             ]
@@ -67,7 +69,13 @@ class ConnectionConfigWireGuard(BaseModel):
             state.netns(network_instance.id) as dl,
             state.netns(config.EXTERNAL_NI) as ext,
         ):
-            state.ensure_wireguard(dl.ipr, ext.ipr, dl.state, wg)
+            state.ensure_wireguard(
+                dl.ipr,
+                ext.ipr,
+                dl.state,
+                wg,
+                helpers.wireguard_unique_name(name),
+            )
             state.ensure_link_state(dl.ipr, dl.state, wg, up=connection.enabled)
             connection.ensure_mtu_and_addresses(network_instance, dl)
 
@@ -83,16 +91,15 @@ class ConnectionConfigWireGuard(BaseModel):
     ) -> None:
         """Delete a connection."""
         connection.delete_interface(network_instance)
-        interface_name = self.intf_name(network_instance, connection)
-        wireguard.config_path(interface_name).unlink(missing_ok=True)
+        wireguard.config_path(connection.name(network_instance)).unlink(missing_ok=True)
 
     def intf_name(
         self,
-        network_instance: vpnc.models.network_instance.NetworkInstance,
+        _: vpnc.models.network_instance.NetworkInstance,
         connection: connections.Connection,
     ) -> str:
         """Return the name of the connection interface."""
-        return helpers.wireguard_interface_name(connection.name(network_instance))
+        return helpers.wireguard_interface_name(connection.id)
 
 
 def wireguard_port_users(

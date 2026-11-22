@@ -8,10 +8,10 @@ from . import conftest
 
 # (host, network instance, interface): local port.
 PORTS = {
-    ("hub00", "C0001-01", "wg-C0001-01-0"): 51820,
-    ("hub01", "C0001-01", "wg-C0001-01-0"): 51820,
-    ("end01", "CORE", "wg-CORE-0"): 51820,
-    ("end01", "CORE", "wg-CORE-1"): 51821,
+    ("hub00", "C0001-01", "wg0"): 51820,
+    ("hub01", "C0001-01", "wg0"): 51820,
+    ("end01", "CORE", "wg0"): 51820,
+    ("end01", "CORE", "wg1"): 51821,
 }
 
 

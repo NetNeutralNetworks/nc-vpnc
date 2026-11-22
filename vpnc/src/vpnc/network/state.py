@@ -611,15 +611,20 @@ def ensure_wireguard(
     ipr_external: pyroute2.IPRoute,
     state: NetnsState,
     name: str,
+    unique: str,
 ) -> bool:
-    """Ensure a WireGuard interface, created in EXTERNAL (its socket stays there)."""
+    """Ensure a WireGuard interface, created in EXTERNAL (its socket stays there).
+
+    unique is its name in EXTERNAL; name is unique only in state's namespace.
+    """
     link = state.links.get(name)
     if link and link.kind == "wireguard":
         return False
     delete_link(ipr, state, name)
-    logger.info("Creating WireGuard interface %s in %s.", name, state.name)
-    # Already unique: it has the connection's name.
-    _move_from(ipr_external, ipr, state, name, name, kind="wireguard")
+    # Earlier versions kept the unique name; that interface holds the port.
+    delete_link(ipr, state, unique)
+    logger.info("Creating WireGuard interface %s (%s) in %s.", name, unique, state.name)
+    _move_from(ipr_external, ipr, state, name, unique, kind="wireguard")
     return True
 
 

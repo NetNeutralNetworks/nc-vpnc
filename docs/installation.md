@@ -57,6 +57,7 @@ vpnc uses Ubuntu's FRR, Jinja2, packaging, pydantic, PyYAML, watchdog and Netfil
 
 * **FRR:** a full install removes FRR's own apt repository, which older installs added, and downgrades its FRR to Ubuntu's.
 * **Configuration version:** files have a `version`, currently 0.1.4. vpnc converts files of version 0.1.3 at startup and when they are put in `active/`; the originals are kept in `/opt/ncubed/config/vpnc/backup/`. Other versions are refused.
+* **WireGuard:** interfaces are named `wg<n>` in their network instance, and their files in `/etc/wireguard/` after the connection (`C0001-01-0.conf`). vpnc empties `/etc/wireguard/` when it starts, so keep no other files there. The upgrade recreates every WireGuard interface: those tunnels go down briefly.
 * **SSH keys:** earlier versions of `make` copied root's keys to `/var/lib/vpnc-ssh/.ssh/id_*` and used them for every SSH connection. Now each connection has its own key: run the server setup script again on servers set up before that (see [Connections](connections.md#ssh)). Then the `id_*` files can be deleted.
 
 ## Files
@@ -68,6 +69,7 @@ vpnc uses Ubuntu's FRR, Jinja2, packaging, pydantic, PyYAML, watchdog and Netfil
 | `/opt/ncubed/config/vpnc/known_hosts/` | ssh's copy of each SSH connection's `host_key` |
 | `/opt/ncubed/config/vpncmangle/` | vpncmangle's translations and limits, written by vpnc |
 | `/var/lib/vpnc-ssh/.ssh/` | The key of each SSH connection, named like it |
+| `/etc/wireguard/` | Each WireGuard connection's settings (`C0001-01-0.conf`), for operators; emptied when vpnc starts |
 | `/etc/strongswan.d/vpnc.conf` | The charon plugins vpnc loads |
 | `/run/vpnc/api.sock` | The API |
 

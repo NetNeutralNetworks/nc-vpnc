@@ -221,7 +221,7 @@ def wireguard_problems(
 ) -> list[str]:
     """Return how WireGuard's interface differs from a connection's settings."""
     settings_ = c["config"]
-    interface = f"wg-{name}"
+    interface = f"wg{name[-1]}"
     problems = []
     port = str(settings_["local_port"])
     if not any(e[:2] == (interface, "interface") and e[3] == port for e in wireguard):
@@ -423,7 +423,7 @@ class ConfigStates(RuleBasedStateMachine):
                 name = f"{TENANT}-{ni}-{key}"
                 names.add(name)
                 ipsec = c["config"]["type"] == "IPSEC"
-                interface = f"xfrm{key}" if ipsec else f"wg-{name}"
+                interface = f"xfrm{key}" if ipsec else f"wg{key}"
                 # An enabled connection's interface is up once its peer is.
                 if interface not in links:
                     problems.append(f"{name}: no interface {interface}")

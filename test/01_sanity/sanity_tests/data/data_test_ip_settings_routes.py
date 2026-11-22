@@ -59,13 +59,13 @@ TESTDATA_ROUTES = [
             ("fd00::/16", "fe80::", "C0001-01_D", "vpnc"),
             ("fd01::/16", "fe80::", "C0001-01_D", "vpnc"),
             # IPv4 routes
-            ("default", None, "wg-C0001-01-0", "vpnc"),
+            ("default", None, "wg0", "vpnc"),
             # IPv6 routes
-            ("2001:db8:c58::/48", None, "wg-C0001-01-0", "vpnc"),
-            ("fdff:db8:c58::/52", None, "wg-C0001-01-0", "vpnc"),
-            ("fdff:db8:c58:2000::/56", None, "wg-C0001-01-0", "vpnc"),
-            ("fdff:db8:c58:1000::/52", None, "wg-C0001-01-0", "vpnc"),
-            ("fdff:db8:c58:3000::/52", None, "wg-C0001-01-0", "vpnc"),
+            ("2001:db8:c58::/48", None, "wg0", "vpnc"),
+            ("fdff:db8:c58::/52", None, "wg0", "vpnc"),
+            ("fdff:db8:c58:2000::/56", None, "wg0", "vpnc"),
+            ("fdff:db8:c58:1000::/52", None, "wg0", "vpnc"),
+            ("fdff:db8:c58:3000::/52", None, "wg0", "vpnc"),
         },
     ),
     (
@@ -126,13 +126,13 @@ TESTDATA_ROUTES = [
             ("fd00::/16", "fe80::", "C0001-01_D", "vpnc"),
             ("fd01::/16", "fe80::", "C0001-01_D", "vpnc"),
             # IPv4 routes
-            ("default", None, "wg-C0001-01-0", "vpnc"),
+            ("default", None, "wg0", "vpnc"),
             # IPv6 routes
-            ("2001:db8:c58::/48", None, "wg-C0001-01-0", "vpnc"),
-            ("fdff:db8:c58::/52", None, "wg-C0001-01-0", "vpnc"),
-            ("fdff:db8:c58:2000::/56", None, "wg-C0001-01-0", "vpnc"),
-            ("fdff:db8:c58:1000::/52", None, "wg-C0001-01-0", "vpnc"),
-            ("fdff:db8:c58:3000::/52", None, "wg-C0001-01-0", "vpnc"),
+            ("2001:db8:c58::/48", None, "wg0", "vpnc"),
+            ("fdff:db8:c58::/52", None, "wg0", "vpnc"),
+            ("fdff:db8:c58:2000::/56", None, "wg0", "vpnc"),
+            ("fdff:db8:c58:1000::/52", None, "wg0", "vpnc"),
+            ("fdff:db8:c58:3000::/52", None, "wg0", "vpnc"),
         },
     ),
     (
@@ -187,11 +187,11 @@ TESTDATA_ROUTES = [
         "CORE",
         {
             # Uplink IPv4 routes
-            ("100.99.1.0/28", None, "wg-CORE-0", "vpnc"),
-            ("100.100.1.0/28", None, "wg-CORE-1", "vpnc"),
+            ("100.99.1.0/28", None, "wg0", "vpnc"),
+            ("100.100.1.0/28", None, "wg1", "vpnc"),
             # Uplink IPv6 routes
-            ("fdcc:cbf:1::/64", None, "wg-CORE-1", "vpnc"),
-            ("fdcc:cbe:1::/64", None, "wg-CORE-0", "vpnc"),
+            ("fdcc:cbf:1::/64", None, "wg1", "vpnc"),
+            ("fdcc:cbe:1::/64", None, "wg0", "vpnc"),
             # Downlink routes
             ("default", "169.254.0.2", "ENDPOINT_C", "vpnc"),
             ("default", "fe80::1", "ENDPOINT_C", "vpnc"),
