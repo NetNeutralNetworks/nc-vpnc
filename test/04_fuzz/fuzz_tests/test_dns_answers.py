@@ -20,10 +20,11 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from fuzz_common import dns_strategies, dns_wire
+from fuzz_common import dns_oracle, dns_strategies, dns_wire
 from hypothesis import event, given, settings
 from hypothesis import strategies as st
 
@@ -37,7 +38,7 @@ pytestmark = pytest.mark.skipif(
     reason="runs in the fuzz lab: run test/04_fuzz on its own",
 )
 
-# An example takes about 50 ms.
+# An example takes about 80 ms.
 FUZZ = settings(
     max_examples=10 * int(os.environ.get("FUZZ_EXAMPLES", "100")),
     deadline=None,
@@ -52,6 +53,8 @@ TARGETS = {
     "DNS66": RESPONDER_6,
 }
 QNAME = dns_strategies.QNAME
+# How long after the sentinel an answer sent before it may still come.
+GRACE = float(os.environ.get("FUZZ_DNS_GRACE", "0.03"))
 QTYPES = {"A": 1, "AAAA": 28}
 # The sentinel's A record, and as vpncmangle translates it (NAT64).
 SENTINEL_4 = "172.16.31.4"
@@ -114,13 +117,18 @@ def within_rate(sent: collections.deque[tuple[float, int]], size: int) -> None:
     sent.append((now, size + 100))
 
 
-def translated_prefixes() -> list[ipaddress.IPv6Network]:
-    """Return the prefixes vpncmangle translates C0001-00's addresses into."""
+def translations() -> dict:
+    """Return C0001-00's translations, as vpncmangle has them."""
     text = conftest.run_cmd(
         conftest.HOST,
         "cat /opt/ncubed/config/vpncmangle/translations.json",
     )
-    ni = json.loads(text)[NI]
+    return json.loads(text)[NI]
+
+
+def translated_prefixes() -> list[ipaddress.IPv6Network]:
+    """Return the prefixes vpncmangle translates C0001-00's addresses into."""
+    ni = translations()
     return [ipaddress.IPv6Network(local) for local, _ in ni["dns64"] + ni["dns66"]]
 
 
@@ -157,18 +165,104 @@ def errors() -> int:
     return status["vpncmangle"]["drop_reasons"].get("ERROR", 0)
 
 
+def vpncmangle_pid() -> str:
+    """Return vpncmangle's process id."""
+    return conftest.run_cmd(conftest.HOST, "pgrep -x vpncmangle").strip()
+
+
+@dataclass
+class Errors:
+    """vpncmangle's ERROR counter and process when a test started."""
+
+    count: int
+    pid: str
+
+    @classmethod
+    def now(cls) -> Errors:
+        """Return the counter (once written) and the process id."""
+        return cls(errors(), vpncmangle_pid())
+
+    def check(self) -> None:
+        """Assert that the counter didn't rise in the same process."""
+        assert vpncmangle_pid() == self.pid, "vpncmangle was restarted"
+        failed = errors() - self.count
+        assert not failed, f"vpncmangle failed on {failed} answers (ERROR counter)"
+
+
+# The run's generated answers (hex), written out when an end check fails.
+ANSWERS: list[str] = []
+ANSWERS_DIR = Path(conftest.TEST_DIR) / "04_fuzz"
+
+
+def save_answers() -> Path:
+    """Write the run's answers, one per line, for replay_dns_answers.py."""
+    path = ANSWERS_DIR / f".dns-answers-{time.strftime('%Y%m%d-%H%M%S')}.txt"
+    path.write_text("".join(f"{answer}\n" for answer in ANSWERS), encoding="utf-8")
+    return path
+
+
+def check_late(late: list[bytes], prefixes: list[ipaddress.IPv6Network]) -> None:
+    """Check datagrams of earlier examples: leaks only, they're no one's now."""
+    leaked = dns_wire.untranslated(late, prefixes)
+    assert not leaked, f"untranslated tenant addresses came late: {leaked}"
+
+
+def check_exact(
+    generated: bytes,
+    received: list[bytes],
+    sentinel: bool,  # noqa: FBT001
+    expected: dns_oracle.Translations,
+) -> str:
+    """Check an answer against the oracle where it tells; return what happened."""
+    if not received:
+        what = "dropped"
+    elif received[0][2:] == generated[2:]:
+        what = "as it came"
+    else:
+        what = "translated"
+    original = dns_wire.readable(generated)
+    if original is None or not original.flags & dns_oracle.QR or not sentinel:
+        return what
+    expect = dns_oracle.expected(original, expected)
+    if expect.drop:
+        assert not received, "an answer vpncmangle must drop came"
+        return what
+    if not received:
+        assert expect.may_drop, "vpncmangle dropped an answer it must pass"
+        return what
+    if len(received) != 1:
+        return what
+    if expect.unchanged:
+        assert what == "as it came", "vpncmangle changed an answer it must pass as is"
+    elif expect.records is not None:
+        read = dns_wire.records(received[0])
+        assert read.flags == expect.flags, (
+            f"flags {read.flags:#x}, not {expect.flags:#x}"
+        )
+        assert read.questions == original.questions, "other questions"
+        got = dns_oracle.comparable(read.records, expect.records)
+        assert got == expect.records, f"records\n{got}\nnot\n{expect.records}"
+    return what
+
+
 @dataclass
 class Responder:
     """What the examples check against."""
 
     # The prefixes answers may hold.
     prefixes: list[ipaddress.IPv6Network]
+    # The translations vpncmangle has, as the oracle takes them.
+    translations: dns_oracle.Translations
     # The sentinel as mgt00 gets it, per path and query type.
     sentinels: dict[tuple[str, int], str]
     vitals: conftest.Vitals
+    errors: Errors
     agent: conftest.Agent
     # When the last answers were sent, and their sizes.
     sent: collections.deque[tuple[float, int]]
+    # Of the examples whose answer records() reads: how many, how many translated.
+    readable: int = 0
+    translated: int = 0
 
 
 @pytest.fixture(scope="module")
@@ -190,12 +284,14 @@ def responder(deployed: conftest.Deployed) -> Iterator[Responder]:  # noqa: ARG0
             )
         yield Responder(
             translated_prefixes(),
+            dns_oracle.Translations.from_json(translations()),
             {
                 (path, qtype): translated_sentinel(target, qtype)
                 for path, target in TARGETS.items()
                 for qtype in QTYPES.values()
             },
             conftest.vitals(),
+            Errors.now(),
             agent,
             collections.deque(),
         )
@@ -215,29 +311,47 @@ def test_dns_answers(responder: Responder, data: st.DataObject) -> None:
     path = data.draw(st.sampled_from(sorted(TARGETS)), label="path")
     qtype = QTYPES[data.draw(st.sampled_from(sorted(QTYPES)), label="qtype")]
     keep_id, generated = data.draw(dns_strategies.answer(qtype), label="answer")
+    ANSWERS.append(generated.hex())
     responder.agent.run("ANSWER = args", [keep_id, generated.hex()])
     within_rate(responder.sent, len(generated))
 
     # The answer and the sentinel take the same way, in order.
-    received, sentinel = conftest.dns_ask(
+    received, sentinel, late = conftest.dns_observe(
         TARGETS[path],
         QNAME,
         qtype,
         responder.sentinels[path, qtype],
-        grace=0.005,
+        grace=GRACE,
     )
-    event(f"{path}: {'answered' if received else 'dropped'}")
-
+    if late:
+        event("late")
+    check_late(late, responder.prefixes)
     leaked = dns_wire.untranslated(received, responder.prefixes)
     assert not leaked, f"untranslated tenant addresses reached mgt00: {leaked}"
+    what = check_exact(generated, received, sentinel, responder.translations)
+    event(f"{path}: {what}")
+    if dns_wire.readable(generated) is not None:
+        responder.readable += 1
+        responder.translated += what == "translated"
     responder.vitals.check()
     assert sentinel, "vpncmangle didn't translate the answer after it"
 
 
 def test_dns_answers_end(responder: Responder) -> None:
-    """Vpncmangle translated what it could, and all still answer."""
+    """Nothing came late, vpncmangle translated, failed on none, all still answer."""
     responder.agent.run("ANSWER = None")
+    try:
+        time.sleep(1)
+        for target in TARGETS.values():
+            check_late(conftest.dns_drain(target), responder.prefixes)
+        # Evidence that the answers took vpncmangle's path.
+        assert responder.translated * 10 >= responder.readable > 0, (
+            f"{responder.translated} of {responder.readable} readable answers"
+            " came back translated"
+        )
+        responder.errors.check()
+    except AssertionError:
+        print(f"The run's answers: {save_answers()}")
+        raise
     conftest.check_answering()
     assert not conftest.bgp_down(), f"BGP went down: {conftest.bgp_down()}"
-    failed = errors()
-    assert not failed, f"vpncmangle failed on {failed} answers (its ERROR counter)"

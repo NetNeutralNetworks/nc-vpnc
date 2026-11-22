@@ -55,6 +55,12 @@ class Translations:
     # (local, remote) networks.
     dns66: tuple[tuple[ipaddress.IPv6Network, ipaddress.IPv6Network], ...]
 
+    @classmethod
+    def from_json(cls, ni: dict[str, list[list[str]]]) -> Translations:
+        """Return a network instance's translations as translations.json has them."""
+        nat64 = ipaddress.IPv6Network(ni["dns64"][0][0]) if ni["dns64"] else None
+        return cls(nat64, _networks(*((a, b) for a, b in ni["dns66"])))
+
 
 def _networks(*pairs: tuple[str, str]) -> tuple:
     return tuple((ipaddress.IPv6Network(a), ipaddress.IPv6Network(b)) for a, b in pairs)

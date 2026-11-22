@@ -53,6 +53,8 @@ coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
+# Answers of a failed lab DNS fuzz run, for test/00_unit/replay_dns_answers.py.
+test/04_fuzz/.dns-answers-*.txt
 .pytest_cache/
 
 # Translations
