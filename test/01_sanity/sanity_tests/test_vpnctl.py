@@ -170,6 +170,15 @@ class TestVpnctl:
         assert tunnel["encryption"]
         assert tunnel["key_exchange"] == ["mlkem768x25519-sha256"]
 
+    @pytest.mark.parametrize(("host", "ppk"), [("hub00", True), ("hub01", False)])
+    def test_wireguard_connection(self, host: str, ppk: bool) -> None:  # noqa: FBT001
+        """A WireGuard connection shows its handshake, and the PPK where set."""
+        tunnel = vpnctl(host, "connections show C0001-01-0")["tunnel"]
+
+        assert tunnel["last_handshake"]
+        assert tunnel["key_exchange"] == ["CURVE_25519"]
+        assert tunnel["ppk"] is ppk
+
     @pytest.mark.parametrize("host", ["hub00", "hub01"])
     def test_ssh_host_key_configured(self, host: str) -> None:
         """The key the server presented first is the connection's host_key."""

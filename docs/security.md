@@ -21,7 +21,7 @@ charon only loads the plugins that connections with a PSK need (`/etc/strongswan
 
 ## Secrets
 
-`psk`, `private_key` and the PPK `key` are hidden in output unless asked for (`--reveal-secrets`); `vpnctl config set` without a value prompts for them. They're stored in the configuration files under `/opt/ncubed/config/vpnc/`.
+`psk`, `private_key` and the PPKs are hidden in output unless asked for (`--reveal-secrets`); `vpnctl config set` without a value prompts for them. They're stored in the configuration files under `/opt/ncubed/config/vpnc/`.
 
 Every SSH connection has its own key (`/var/lib/vpnc-ssh/.ssh/<connection>`), and only accepts the server host key in its `host_key`; see [SSH](connections.md#ssh).
 

@@ -67,6 +67,10 @@ network_instances:
           # remote_port: 51820
           private_key: wDce0Xch/bwiMMbnhDvZaiaOCE/K/ERTXMvHTXQRFWw=
           public_key: rKdmw6z5GSWnOK3k+LN4Wc2jxH17TYzIlRI5gPiiv2U=
+          # WireGuard's preshared key: vpnctl generate ppk
+          post_quantum:
+            enabled: true
+            ppk: V5HhdwA/P7bDd3RvkazgnH2VclClins63VDQhx1I5LQ=
       1:
         metadata: {}
         interface:

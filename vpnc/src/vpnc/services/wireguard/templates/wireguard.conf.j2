@@ -4,6 +4,9 @@ ListenPort = {{ local_port }}
 
 [Peer]
 PublicKey = {{ public_key }}
+{%- if preshared_key %}
+PresharedKey = {{ preshared_key }}
+{%- endif %}
 Endpoint = {{ remote_addrs }}
 AllowedIPs = {{ routes }}
 PersistentKeepalive = 25

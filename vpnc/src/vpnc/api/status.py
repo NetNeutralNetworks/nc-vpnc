@@ -573,6 +573,7 @@ def _wireguard(
         key_exchange=[WIREGUARD_KEY_EXCHANGE],
         last_handshake=_timestamp(handshake) if handshake else None,
         allowed_ips=peer["allowed_ips"],
+        ppk=peer["ppk"],
     )
     recent = handshake and time.time() - handshake < WIREGUARD_TIMEOUT
     return ("UP" if recent else "DOWN"), peer["endpoint"], tunnel

@@ -29,11 +29,11 @@ Routes over a connection that doesn't pass traffic are blackholes, so traffic is
 | `type` | Settings (defaults) |
 |---|---|
 | `IPSEC` | `remote_addrs`, `psk`, `local_id`, `remote_id`, `ike_version` (2), `ike_proposal` (`aes256gcm16-prfsha384-ecp384`), `ipsec_proposal` (`aes256gcm16-ecp384`), `ike_lifetime` (86400), `ipsec_lifetime` (3600), `initiation` (`START`: initiate and respond; `NONE`: respond only), `traffic_selectors` (`local`, `remote`; empty means route based), `post_quantum` |
-| `WIREGUARD` | `remote_addrs`, `private_key`, `public_key`, `local_port` and `remote_port` (51820) |
+| `WIREGUARD` | `remote_addrs`, `private_key`, `public_key`, `local_port` and `remote_port` (51820), `post_quantum` |
 | `SSH` | `remote_addrs`, `username`, `remote_tunnel_id`, `remote_config_interface`, `host_key`, `post_quantum` |
 | `PHYSICAL` | `interface_name` |
 
-`psk`, `private_key` and the PPK `key` are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
+`psk`, `private_key` and the PPKs are secrets: hidden in output unless asked for (`--reveal-secrets`), and `vpnctl config set` without a value prompts for them.
 
 ### IPsec
 
@@ -106,7 +106,9 @@ probes:                       # 8 at most
 
 ## Post-quantum cryptography
 
-`post_quantum` adds a hybrid ML-KEM key exchange to the classical one, against traffic recorded now and decrypted later with a quantum computer. It requires Ubuntu 26.04 (strongSwan 6, OpenSSH 10): vpnc refuses it, and doesn't set up the connection, where charon or OpenSSH lacks ML-KEM.
+`post_quantum` protects against traffic recorded now and decrypted later with a quantum computer. IPsec and SSH add a hybrid ML-KEM key exchange to the classical one; WireGuard mixes a PPK into its handshake. ML-KEM requires Ubuntu 26.04 (strongSwan 6, OpenSSH 10): vpnc refuses it, and doesn't set up the connection, where charon or OpenSSH lacks it.
+
+IPsec and SSH:
 
 ```yaml
 post_quantum:
@@ -121,3 +123,16 @@ post_quantum:
 
 * **IPsec:** ML-KEM is added to `ike_proposal` and `ipsec_proposal` as an additional key exchange (RFC 9370, e.g. `ke1_mlkem768`), so they need a classical one (e.g. `ecp384`); ML-KEM in the proposals themselves is refused. The optional PPK (RFC 8784) is mixed into the keys and required by both sides.
 * **SSH:** only the hybrid `mlkem768x25519-sha256` key exchange is allowed, so a server without it is refused instead of falling back to a classical one.
+
+WireGuard:
+
+```yaml
+post_quantum:
+  enabled: true             # default false
+  ppk: "..."                # 32 bytes in base64, the same on both sides: vpnctl generate ppk
+```
+
+* The PPK is WireGuard's preshared key (`PresharedKey` on other implementations), so any WireGuard peer can use it. It's required when `enabled` is true.
+* A changed PPK drops the session (`CONFIG_RESET`), so a wrong one shows right away: no handshake completes (`KEY_MISMATCH`).
+* It protects as long as the PPK stays secret: there's no post-quantum forward secrecy. Use a PPK per connection.
+* `vpnctl connections show` shows the key exchange as `CURVE_25519 + PPK`.

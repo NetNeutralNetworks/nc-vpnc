@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import subprocess
 import time
 
@@ -14,6 +16,9 @@ VPNCTL = "/opt/ncubed/vpnc/bin/vpnctl"
 # end00's CORE-0 to hub00: ML-KEM-768 with a PPK; CORE-1 to hub01: classical.
 END = "end00"
 PPK_PATH = "network_instances.CORE.connections.0.config.post_quantum.ppk.key"
+# end01's CORE-0 to hub00: WireGuard with a PPK; CORE-1 to hub01: without.
+WG_END = "end01"
+WG_PPK_PATH = "network_instances.CORE.connections.0.config.post_quantum.ppk"
 # hub00's PPK id of its connection to end00.
 HUB_PPK_ID = "C0001-00-0-hub00"
 CANDIDATE_DIR = "/opt/ncubed/config/vpnc/candidate"
@@ -37,6 +42,17 @@ def vpnctl(host: str, args: str) -> str:
 def ike_key_exchanges(host: str, connection: str) -> set[str]:
     """Return the key exchanges of a connection's established IKE SAs."""
     return conftest.key_exchanges(host).get(connection, {}).get("ike", set())
+
+
+def compact(value: object) -> str:
+    """Return a value as YAML without spaces, for vpnctl."""
+    return json.dumps(value, separators=(",", ":"))
+
+
+def wireguard_handshake() -> bool:
+    """Return whether end01's WireGuard connection to hub00 had a handshake."""
+    tunnel = json.loads(vpnctl(WG_END, "connections show CORE-0 -o json"))["tunnel"]
+    return bool(tunnel and tunnel["last_handshake"])
 
 
 def reload_sshd() -> None:
@@ -146,6 +162,49 @@ class TestPostQuantum:
         with pytest.raises(subprocess.CalledProcessError) as err:
             vpnctl("hub00", f'config set C0001 {path} "0x{"ab" * 31}"')
         assert "at least 32 bytes" in err.value.stderr
+
+    def test_wireguard_ppk_mismatch(self) -> None:
+        """A WireGuard handshake only completes with the right PPK."""
+        other = base64.b64encode(bytes(range(32))).decode()
+        vpnctl(WG_END, f"config set DEFAULT {WG_PPK_PATH} {other}")
+        vpnctl(WG_END, "config commit DEFAULT")
+        try:
+            # A changed PPK drops the session.
+            conftest.wait_until(
+                lambda: not wireguard_handshake(),
+                timeout=REKEY_TIMEOUT,
+                message="CORE-0's WireGuard session to be dropped",
+            )
+            deadline = time.monotonic() + DOWN_TIME
+            while time.monotonic() < deadline:
+                assert not wireguard_handshake(), "A handshake with the wrong PPK"
+                time.sleep(2)
+        finally:
+            vpnctl(WG_END, "config restore DEFAULT 1")
+            vpnctl(WG_END, "config commit DEFAULT")
+        conftest.wait_until(
+            wireguard_handshake,
+            timeout=APPLY_TIMEOUT,
+            message="CORE-0's WireGuard handshake with the right PPK",
+        )
+
+    @pytest.mark.parametrize(
+        ("value", "error"),
+        [
+            ({"enabled": True}, "needs a ppk"),
+            ({"enabled": True, "ppk": "x" * 44}, "32 bytes in base64"),
+            (
+                {"enabled": True, "ppk": base64.b64encode(bytes(31)).decode()},
+                "32 bytes in base64",
+            ),
+        ],
+    )
+    def test_wireguard_ppk_refused(self, value: dict[str, object], error: str) -> None:
+        """A WireGuard PPK that isn't 32 bytes of base64, or none, is refused."""
+        path = "network_instances.01.connections.0.config.post_quantum"
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            vpnctl("hub01", f"config set C0001 {path} {compact(value)}")
+        assert error in err.value.stderr
 
     def test_ssh_requires_ml_kem(self) -> None:
         """A classical SSH server only gets hub01's classical tunnel."""
