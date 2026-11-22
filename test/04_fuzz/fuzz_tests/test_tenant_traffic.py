@@ -1029,6 +1029,7 @@ class Lab:
         self.spoofer = conftest.Agent("cli00", setup=SPOOFER)
         self.spoofer.run("")
         self.sentinels: dict[tuple[str, int], str] = {}
+        self.errors: dns.Errors | None = None
         self.answered: collections.deque[tuple[float, int]] = collections.deque()
         self.vitals = conftest.vitals()
 
@@ -1168,6 +1169,7 @@ def lab(deployed: conftest.Deployed) -> Iterator[Lab]:
             )
             for qtype in dns.QTYPES.values():
                 lab.sentinels[path, qtype] = dns.translated_sentinel(target, qtype)
+        lab.errors = dns.Errors.now()
         # The checks' own packets aren't an example's.
         time.sleep(0.1)
         lab.sniffed()
@@ -1179,8 +1181,10 @@ def lab(deployed: conftest.Deployed) -> Iterator[Lab]:
 
 
 @st.composite
-def dns_answer(draw: st.DrawFn, path: str, qtype: int) -> tuple[bool, list[Fragment]]:
-    """Return a DNS answer as cli00 spoofs it: the query's id or not; fragments.
+def dns_answer(
+    draw: st.DrawFn, path: str, qtype: int
+) -> tuple[bool, bytes, list[Fragment]]:
+    """Return a DNS answer as cli00 spoofs it: the query's id or not; it; fragments.
 
     Its destination address and port are zero: the spoofer puts the query's in.
     """
@@ -1198,10 +1202,14 @@ def dns_answer(draw: st.DrawFn, path: str, qtype: int) -> tuple[bool, list[Fragm
     # The first fragment holds the UDP header and the DNS id, which get patched.
     pieces = draw(ip(src.version, src, dst, 17, data, first=16, honest=honest))
     # Through the SSH tunnel: the version a tun device takes (see the test).
-    return keep_id, [
-        p._replace(data=bytes([src.version << 4 | p.data[0] & 15]) + p.data[1:])
-        for p in pieces
-    ]
+    return (
+        keep_id,
+        message,
+        [
+            p._replace(data=bytes([src.version << 4 | p.data[0] & 15]) + p.data[1:])
+            for p in pieces
+        ],
+    )
 
 
 @FUZZ
@@ -1213,7 +1221,8 @@ def test_tenant_traffic(lab: Lab, data: st.DataObject) -> None:
         qtype = dns.QTYPES[
             data.draw(st.sampled_from(sorted(dns.QTYPES)), label="qtype")
         ]
-        keep_id, pieces = data.draw(dns_answer(path, qtype), label="answer")
+        keep_id, message, pieces = data.draw(dns_answer(path, qtype), label="answer")
+        dns.ANSWERS.append(message.hex())
         spec = {
             "keep_id": keep_id,
             "fragments": [
@@ -1222,13 +1231,15 @@ def test_tenant_traffic(lab: Lab, data: st.DataObject) -> None:
         }
         lab.spoofer.run("SPEC = args", spec)
         dns.within_rate(lab.answered, sum(len(p.data) for p in pieces))
-        received, sentinel = conftest.dns_ask(
+        received, sentinel, late = conftest.dns_observe(
             DNS_PATHS[path][0],
             dns.QNAME,
             qtype,
             lab.sentinels[path, qtype],
+            grace=dns.GRACE,
         )
         event(f"DNS answer through {path}: {'answered' if received else 'dropped'}")
+        dns.check_late(late, lab.prefixes)
         untranslated = dns_wire.untranslated(received, lab.prefixes)
         assert not untranslated, (
             f"untranslated tenant addresses reached mgt00: {untranslated}"
@@ -1265,6 +1276,12 @@ def test_tenant_traffic_end(lab: Lab) -> None:
     time.sleep(1)
     leaks = lab.leaks(lab.sniffed())
     assert not leaks, "\n".join(["left the tenant's network instance:", *leaks])
+    try:
+        for target, _ in DNS_PATHS.values():
+            dns.check_late(conftest.dns_drain(target), lab.prefixes)
+        assert lab.errors is not None
+        lab.errors.check()
+    except AssertionError:
+        print(f"The run's answers: {dns.save_answers()}")
+        raise
     conftest.check_answering()
-    failed = dns.errors()
-    assert not failed, f"vpncmangle failed on {failed} answers (its ERROR counter)"

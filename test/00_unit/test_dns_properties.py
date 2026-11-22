@@ -198,30 +198,35 @@ def test_any_packet(packet: bytes) -> None:
         check_sent(result, packet)
 
 
+def check_answer(data: bytes) -> str:
+    """Check vpncmangle with an answer, from a tenant and a stranger; return how."""
+    packet = wrap(data)
+    result = run(packet)
+    read = check_sent(result, packet) if result.action == ACCEPT else None
+    original = dns_wire.readable(data)
+    if original is None:
+        return f"{result.action}: {result.reason}"
+    expect = dns_oracle.expected(original, dns_oracle.LAB)
+    check_expected(result, expect, original, read)
+    if original.flags & dns_oracle.QR:
+        stranger = run(wrap(data, UNKNOWN))
+        assert stranger.action == DROP, "a stranger's answer passed"
+    if expect.drop:
+        return "oracle: drop"
+    if expect.unchanged:
+        return "oracle: as it came"
+    if expect.records is not None and result.action == ACCEPT:
+        return "oracle: compared"
+    return f"{result.action}: {result.reason}"
+
+
 @PROPERTIES
 @given(data=answers())
 def test_answers(data: bytes) -> None:
     """Answers: sound when passed, as the oracle has them, none from strangers."""
     note(f"answer: {data.hex()}")
-    packet = wrap(data)
-    result = run(packet)
-    note(f"sent: {(result.payload or b'').hex()}")
-    event(f"{result.action}: {result.reason}")
-    read = check_sent(result, packet) if result.action == ACCEPT else None
-    original = dns_wire.readable(data)
-    if original is None:
-        return
-    expect = dns_oracle.expected(original, dns_oracle.LAB)
-    if expect.drop:
-        event("oracle: drop")
-    elif expect.unchanged:
-        event("oracle: as it came")
-    elif expect.records is not None and result.action == ACCEPT:
-        event("oracle: compared")
-    check_expected(result, expect, original, read)
-    if original.flags & dns_oracle.QR:
-        stranger = run(wrap(data, UNKNOWN))
-        assert stranger.action == DROP, "a stranger's answer passed"
+    note(f"sent: {(run(wrap(data)).payload or b'').hex()}")
+    event(check_answer(data))
 
 
 PINNED = """

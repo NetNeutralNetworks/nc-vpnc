@@ -716,17 +716,25 @@ import os, select, socket, struct, time
 SOCKETS = {}
 
 
+def drain(server):
+    # Returns what came on a server's socket since it was last read (hex).
+    late = []
+    s = SOCKETS.get(server)
+    while s and select.select([s], [], [], 0)[0]:
+        try:
+            late.append(s.recvfrom(65535)[0].hex())
+        except OSError:
+            pass
+    return late
+
+
 def ask(server, name, qtype, sentinel=None, timeout=1.5, grace=0.03):
-    # Returns the answers (hex), and whether the sentinel came after them. An
-    # empty sentinel: any, returned as the answer.
+    # Returns the answers (hex), whether the sentinel came after them, and what
+    # came before the query (late). An empty sentinel: any, returned as answer.
     if server not in SOCKETS:
         SOCKETS[server] = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
     s = SOCKETS[server]
-    while select.select([s], [], [], 0)[0]:
-        try:
-            s.recvfrom(65535)
-        except OSError:
-            pass
+    late = drain(server)
     query = os.urandom(2) + struct.pack(">HHHHH", 0x0100, 1, 0, 0, 0)
     query += b"".join(bytes([len(p)]) + p.encode() for p in name.split("."))
     query += b"\0" + struct.pack(">HH", qtype, 1)
@@ -740,19 +748,44 @@ def ask(server, name, qtype, sentinel=None, timeout=1.5, grace=0.03):
             continue
         if sentinel is None:
             if data[:2] == query[:2]:
-                return [data.hex()], False
+                return [data.hex()], False, late
         elif not sentinel:
             if data[:2] == last:
-                return [data.hex()], True
+                return [data.hex()], True, late
         elif data == last + bytes.fromhex(sentinel) and not seen:
             # What was sent before it and comes later is close behind.
             seen, end = True, time.monotonic() + grace
         else:
             answers.append(data.hex())
-    return answers, seen
+    return answers, seen, late
 """
 DNS_CLIENT_HOST = "mgt00"
 _DNS_CLIENT: list[Agent] = []
+
+
+def _dns_client() -> Agent:
+    if not _DNS_CLIENT:
+        _DNS_CLIENT.append(Agent(DNS_CLIENT_HOST, setup=DNS_CLIENT))
+    return _DNS_CLIENT[0]
+
+
+def dns_observe(
+    server: str,
+    name: str,
+    qtype: int,
+    sentinel: str | None = None,
+    grace: float = 0.03,
+) -> tuple[list[bytes], bool, list[bytes]]:
+    """Return mgt00's answers to a query, whether the sentinel came after, and late.
+
+    grace: how long after the sentinel an answer sent before it may still come.
+    late: what came on the socket since the last query, i.e. of earlier ones.
+    """
+    answers, seen, late = _dns_client().run(
+        "result = ask(*args)",
+        [server, name, qtype, sentinel, 1.5, grace],
+    )
+    return [bytes.fromhex(a) for a in answers], seen, [bytes.fromhex(a) for a in late]
 
 
 def dns_ask(
@@ -762,17 +795,16 @@ def dns_ask(
     sentinel: str | None = None,
     grace: float = 0.03,
 ) -> tuple[list[bytes], bool]:
-    """Return mgt00's answers to a query, and whether the sentinel came after.
+    """Return mgt00's answers to a query, and whether the sentinel came after."""
+    answers, seen, _ = dns_observe(server, name, qtype, sentinel, grace)
+    return answers, seen
 
-    grace: how long after the sentinel an answer sent before it may still come.
-    """
-    if not _DNS_CLIENT:
-        _DNS_CLIENT.append(Agent(DNS_CLIENT_HOST, setup=DNS_CLIENT))
-    answers, seen = _DNS_CLIENT[0].run(
-        "result = ask(*args)",
-        [server, name, qtype, sentinel, 1.5, grace],
-    )
-    return [bytes.fromhex(answer) for answer in answers], seen
+
+def dns_drain(server: str) -> list[bytes]:
+    """Return what came on mgt00's socket of a server since it was last read."""
+    return [
+        bytes.fromhex(a) for a in _dns_client().run("result = drain(*args)", [server])
+    ]
 
 
 DNS_A, DNS_AAAA = 1, 28
@@ -1205,7 +1237,9 @@ __all__ = [
     "diff",
     "dns_addresses",
     "dns_ask",
+    "dns_drain",
     "dns_name_end",
+    "dns_observe",
     "docker_exec",
     "expect_restart",
     "gets",
