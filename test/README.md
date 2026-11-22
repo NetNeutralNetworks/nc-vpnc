@@ -16,11 +16,13 @@ The tests run against containerlab labs and check end results in the lab.
 
 ## In-process tests
 
-`00_unit/` needs no lab, only a venv with vpncmangle's locked requirements and its `dev` extra:
+`00_unit/` needs no lab, only a venv like the installs' (Ubuntu's packages, system site packages) with vpncmangle's locked requirements and its `dev` extra:
 
 ```sh
-python3 -m venv /tmp/vpncmangle && . /tmp/vpncmangle/bin/activate
-pip install -r vpncmangle/requirements.txt -e './vpncmangle[dev]'
+sudo apt-get install python3-venv python3-netfilterqueue python3-pydantic python3-watchdog
+python3 -m venv --system-site-packages /tmp/vpncmangle && . /tmp/vpncmangle/bin/activate
+pip install -r vpncmangle/requirements.txt
+pip install -e './vpncmangle[dev]'
 python3 -m pytest test/00_unit                    # DNS_EXAMPLES=30000 for a long run
 ```
 
