@@ -24,7 +24,16 @@ from hypothesis import strategies as st
 from hypothesis.database import DirectoryBasedExampleDatabase
 
 from . import conftest, strategies
-from .strategies import BASELINE, TENANT, changed, file_texts, mistyped, requests
+from .strategies import (
+    BASELINE,
+    TENANT,
+    Change,
+    Expected,
+    changed,
+    file_texts,
+    mistyped,
+    requests,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -210,15 +219,25 @@ def candidate(url: str) -> Any:  # noqa: ANN401
     return conftest.api("GET", f"{url}?revision=candidate&reveal_secrets=true")[1]
 
 
+# How many valid requests were accepted and applied.
+ACCEPTED: list[Change] = []
+
+
 @FUZZ
 @given(request=requests)
 def test_tenant_api(
-    baseline: Baseline, request: tuple[str, dict[str, Any], str | None]
+    baseline: Baseline,
+    request: tuple[str, dict[str, Any], Expected, Change | None],
 ) -> None:
-    """A staged configuration is refused, or committed or refused on commit."""
-    method, body, expected = request
+    """A valid request is applied; another is refused, or committed or refused."""
+    method, body, expected, change = request
+    event(f"{method} {expected.value}")
     with example(baseline):
-        status, _ = conftest.api(method, TENANT_URL, body)
+        status, detail = conftest.api(method, TENANT_URL, body)
+        if expected is Expected.ACCEPT:
+            assert change is not None
+            accepted(baseline, status, detail, change)
+            return
         if status != 200:  # noqa: PLR2004
             event(f"{method} refused ({status})")
             check_running(STAGED)
@@ -226,7 +245,7 @@ def test_tenant_api(
             check_unchanged(baseline)
             baseline.changed = False
             return
-        assert expected != "refused", MISTYPED
+        assert expected is not Expected.REJECT, MISTYPED
         check_running()
         status, result = conftest.api("POST", f"{TENANT_URL}/commit")
         if status != 200 or not result["changed"]:  # noqa: PLR2004
@@ -238,6 +257,24 @@ def test_tenant_api(
         event("applied")
         check_applied()
         baseline.restore("not as before after restoring the configuration:")
+
+
+def accepted(baseline: Baseline, status: int, detail: Any, change: Change) -> None:  # noqa: ANN401
+    """Check a valid change: staged, committed and running as it is."""
+    assert status == 200, f"a valid change refused ({status}): {detail}"  # noqa: PLR2004
+    assert change.held(candidate(TENANT_URL)), f"not staged: {change}"
+    status, result = conftest.api("POST", f"{TENANT_URL}/commit")
+    assert status == 200, f"a valid change's commit refused ({status}): {result}"  # noqa: PLR2004
+    assert result["changed"], f"a valid change committed as no change: {change}"
+    assert change.held(active()), f"committed, but not running: {change}"
+    check_applied()
+    ACCEPTED.append(change)
+    baseline.restore("not as before after restoring the configuration:")
+
+
+def test_tenant_api_accepted() -> None:
+    """Valid changes ran: the API isn't only refusing."""
+    assert ACCEPTED, "no valid change was applied"
 
 
 @FUZZ
