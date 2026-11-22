@@ -42,6 +42,7 @@ pytestmark = pytest.mark.skipif(
 FUZZ = settings(
     max_examples=10 * int(os.environ.get("FUZZ_EXAMPLES", "100")),
     deadline=None,
+    database=conftest.DATABASE,
 )
 SERVER = "cli00"
 NI = "C0001-00"

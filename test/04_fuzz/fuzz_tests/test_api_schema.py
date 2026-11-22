@@ -5,7 +5,8 @@ hangs; valid input accepted where the schema says what's valid: adding a tenant
 (not configurations, which have rules between their fields). Generated ids are
 of nothing that exists, so the routes of a connection, network instance or BGP
 neighbor are also run with the lab's. The runs go at the same time. Afterwards
-hub00 is reset to as deployed.
+hub00 is reset to as deployed. A network instance's ping, traceroute and TCP
+test run on their own (Hypothesis), with the smallest settings.
 """
 
 from __future__ import annotations
@@ -14,9 +15,11 @@ import concurrent.futures
 import os
 import subprocess
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from hypothesis import event, given, settings
+from hypothesis import strategies as st
 
 from . import conftest
 
@@ -156,3 +159,69 @@ def test_api_schema(deployed: conftest.Deployed, tmp_path: Path) -> None:
     # isn't the lab's any more, and nothing behind it was tested.
     if " WARNINGS " in results[1].stdout:
         warnings.warn(summary(results[1].stdout), stacklevel=1)
+
+
+# A network instance's ping, traceroute and TCP test, which the runs above leave
+# out with the lab's ids: with the smallest settings, to any destination.
+DIAGNOSTICS = settings(
+    max_examples=max(2, int(os.environ.get("FUZZ_EXAMPLES", "100")) // 2),
+    deadline=None,
+    database=conftest.DATABASE,
+)
+DIAGNOSTICS_URL = "/v1/network-instances/C0001-00"
+destinations = st.one_of(
+    st.ip_addresses().map(str),
+    st.sampled_from(["2001:db8:c57::1", "172.16.30.1", "fd00::3", "fdcc:cbe::"]),
+)
+NUMBER = (int, float, type(None))
+RESULTS = {
+    "ping": {
+        "destination": str,
+        "transmitted": int,
+        "received": int,
+        "rtt_min_ms": NUMBER,
+        "rtt_avg_ms": NUMBER,
+        "rtt_max_ms": NUMBER,
+        "output": str,
+    },
+    "traceroute": {"destination": str, "hops": list, "output": str},
+    "tcp": {
+        "address": str,
+        "port": int,
+        "connected": bool,
+        "time_ms": NUMBER,
+        "error": (str, type(None)),
+    },
+}
+
+
+def diagnosed(test: str, body: dict[str, Any]) -> None:
+    """Run a diagnostic: it answers 200, in its schema (unanswered is a result)."""
+    status, result = conftest.api("POST", f"{DIAGNOSTICS_URL}/{test}", body)
+    event(f"{test}: {status}")
+    assert status == 200, f"{test} {body}: {status} {result}"  # noqa: PLR2004
+    fields = RESULTS[test]
+    assert set(result) == set(fields), f"{test}: fields {sorted(result)}"
+    wrong = {k: v for k, v in result.items() if not isinstance(v, fields[k])}
+    assert not wrong, f"{test}: of the wrong type: {wrong}"
+
+
+@DIAGNOSTICS
+@given(destination=destinations)
+def test_ping(deployed: conftest.Deployed, destination: str) -> None:  # noqa: ARG001
+    """A ping from C0001-00 answers in its schema."""
+    diagnosed("ping", {"destination": destination, "count": 1, "timeout": 0.2})
+
+
+@DIAGNOSTICS
+@given(destination=destinations)
+def test_traceroute(deployed: conftest.Deployed, destination: str) -> None:  # noqa: ARG001
+    """A traceroute from C0001-00 answers in its schema."""
+    diagnosed("traceroute", {"destination": destination, "max_hops": 1})
+
+
+@DIAGNOSTICS
+@given(destination=destinations, port=st.integers(1, 65535))
+def test_tcp(deployed: conftest.Deployed, destination: str, port: int) -> None:  # noqa: ARG001
+    """A TCP test from C0001-00 answers in its schema."""
+    diagnosed("tcp", {"address": destination, "port": port, "timeout": 0.2})

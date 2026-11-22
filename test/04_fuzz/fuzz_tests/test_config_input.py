@@ -14,14 +14,12 @@ from __future__ import annotations
 
 import contextlib
 import os
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
 from hypothesis import HealthCheck, event, given, settings
 from hypothesis import strategies as st
-from hypothesis.database import DirectoryBasedExampleDatabase
 
 from . import conftest, strategies
 from .strategies import (
@@ -48,7 +46,7 @@ FUZZ = settings(
     max_examples=3 * int(os.environ.get("FUZZ_EXAMPLES", "100")),
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
-    database=DirectoryBasedExampleDatabase(Path(__file__).parents[1] / ".hypothesis"),
+    database=conftest.DATABASE,
 )
 
 TENANT_URL = f"/v1/config/tenants/{TENANT}"

@@ -43,6 +43,7 @@ pytestmark = pytest.mark.skipif(
 FUZZ = settings(
     max_examples=10 * int(os.environ.get("FUZZ_EXAMPLES", "100")),
     deadline=None,
+    database=conftest.DATABASE,
 )
 TENANT = "C0008"
 SENDER = "mgt01"
@@ -408,7 +409,8 @@ def first_2(draw: st.DrawFn, family: int) -> Message:
         )
     )
     payloads = [*payloads, *draw(extras())]
-    spis = draw(st.binary(min_size=8, max_size=8)) + bytes(8)
+    # Random: zeros or a repeat are read as a retransmit.
+    spis = os.urandom(8) + bytes(8)
     accepted = (
         whole
         and VERSIONS[family] == 2  # noqa: PLR2004
@@ -455,7 +457,8 @@ def first_1(draw: st.DrawFn, family: int) -> Message:
     whole, payloads = draw(reordered(payloads))
     vendors = draw(st.lists(st.sampled_from(VENDORS).map(bytes.fromhex), max_size=4))
     payloads = [*payloads, *((VID_1, vendor) for vendor in vendors)]
-    spis = draw(st.binary(min_size=8, max_size=8)) + bytes(8)
+    # Random: zeros or a repeat are read as a retransmit.
+    spis = os.urandom(8) + bytes(8)
     exchange = AGGRESSIVE if aggressive else MAIN
     accepted = (
         whole and not aggressive and VERSIONS[family] == 1 and TRANSFORM_1 in transforms
@@ -807,6 +810,9 @@ def test_ike_packets(peer: Peer, data: st.DataObject) -> None:
     peer.vitals.check()
 
 
-def test_ike_packets_end(peer: Peer) -> None:  # noqa: ARG001
-    """All still answer, also once charon dropped the half-open IKE SAs."""
+def test_ike_packets_end(peer: Peer) -> None:
+    """Charon accepted IPv4 and IPv6 first messages; all answer once it drops them."""
+    missing = {4, 6} - set(peer.accepted)
+    assert not missing, f"charon accepted no first message over IPv{missing}"
+    time.sleep(max(0, max(peer.accepted.values()) + HALF_OPEN - time.monotonic()))
     conftest.check_answering()

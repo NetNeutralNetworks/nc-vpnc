@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import pytest
+from hypothesis.database import DirectoryBasedExampleDatabase
 
 # test/ holds lab_helpers.py. Add it explicitly so the suite also works when
 # pytest is started from inside the suite directory.
@@ -40,6 +41,11 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 FUZZ_LAB = CONTAINER_PREFIX == "clab-vpnc-fuzz-"
+# Every suite's examples, failing ones first next time; Hypothesis keeps each
+# test's apart.
+DATABASE = DirectoryBasedExampleDatabase(
+    Path(__file__).resolve().parents[1] / ".hypothesis"
+)
 
 HOST = "hub00"
 API_SOCKET = "/run/vpnc/api.sock"

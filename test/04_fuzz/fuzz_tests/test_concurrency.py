@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import uuid
 from typing import Any
 
 import pytest
@@ -31,6 +32,7 @@ pytestmark = pytest.mark.skipif(
 CONCURRENCY = settings(
     max_examples=max(2, int(os.environ.get("FUZZ_EXAMPLES", "100"))),
     deadline=None,
+    database=conftest.DATABASE,
 )
 TENANTS = ("C0006", "C0007")
 THREADS = 3
@@ -108,10 +110,12 @@ def run(op: tuple[Any, ...]) -> None:
         conftest.api("GET", url(t))
         conftest.api("GET", "/v1/config/tenants")
     elif kind == "write":
+        # Moved into place: two writes in place leave a mix (see test_torn_writes).
         conftest.write_file(
             conftest.HOST,
             f"{conftest.ACTIVE_DIR}/{t}.yaml",
             yaml.safe_dump(variant(t, rest[0])),
+            via=f"{conftest.CONFIG_DIR}/.fuzz-{t}-{uuid.uuid4().hex}.yaml",
         )
     elif kind == "remove":
         conftest.run_cmd(conftest.HOST, f"rm -f {conftest.ACTIVE_DIR}/{t}.yaml")
@@ -257,6 +261,78 @@ def test_concurrency(
                 "not what the files say: different after a restart:",
             )
             conftest.check_bgp()
+    finally:
+        remove_tenants()
+
+
+def file_text(t: str) -> str:
+    """Return a tenant's active file as it is."""
+    return conftest.sh(conftest.HOST, ["cat", f"{conftest.ACTIVE_DIR}/{t}.yaml"])
+
+
+def follows(t: str, *before: tuple[Any, ...] | None) -> None:
+    """Check a tenant once vpnc handled its file: loaded, or reported and unchanged.
+
+    before: what it may run if the file isn't loaded (settings_of; None: nothing).
+    """
+    assert conftest.restarts() == 0, "vpnc exited"
+    error = file_errors().get(t)
+    if error is None:
+        on_disk = yaml.safe_load(file_text(t))
+        conftest.wait_until(
+            lambda: (
+                running()[t] is not None
+                and settings_of(running()[t]) == settings_of(on_disk)
+            ),
+            timeout=APPLY_TIMEOUT,
+            message=f"{t} to run its file",
+        )
+        return
+    now = running()[t]
+    assert (settings_of(now) if now else None) in before, (
+        f"{t}'s file isn't loaded ({error}), but what it runs changed"
+    )
+
+
+def test_torn_writes(deployed: conftest.Deployed, canary: conftest.Canary) -> None:  # noqa: ARG001
+    """A file written in place may be read half-written: reported, never applied."""
+    t = TENANTS[0]
+    path = f"{conftest.ACTIVE_DIR}/{t}.yaml"
+    via = f"{conftest.CONFIG_DIR}/.fuzz-{t}-torn.yaml"
+    try:
+        conftest.write_file(conftest.HOST, path, yaml.safe_dump(variant(t, 0)), via=via)
+        canary.settled()
+        follows(t, None)
+        before = settings_of(running()[t])
+
+        # Half of another variant, in place.
+        text = yaml.safe_dump(variant(t, 2))
+        conftest.write_file(conftest.HOST, path, text[: len(text) // 2])
+        canary.settled()
+        assert file_errors().get(t), "a half-written file isn't reported"
+        follows(t, before)
+
+        # Two variants in place at once: whatever the file ends as.
+        with concurrent.futures.ThreadPoolExecutor(2) as pool:
+            for future in [
+                pool.submit(
+                    conftest.write_file,
+                    conftest.HOST,
+                    path,
+                    yaml.safe_dump(variant(t, n)),
+                )
+                for n in (1, 2)
+            ]:
+                future.result()
+        canary.settled()
+        # vpnc may have loaded one of them whole before the other's write.
+        follows(t, before, *(settings_of(variant(t, n)) for n in (1, 2)))
+
+        # A whole file moved into place: loaded.
+        conftest.write_file(conftest.HOST, path, yaml.safe_dump(variant(t, 1)), via=via)
+        canary.settled()
+        assert not file_errors().get(t), f"not loaded: {file_errors().get(t)}"
+        follows(t, None)
     finally:
         remove_tenants()
 
