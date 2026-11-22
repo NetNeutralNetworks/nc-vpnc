@@ -1,30 +1,37 @@
 """Generated traffic from tenants into hub00, through their tunnels, from any range.
 
 Packets enter hub00 as a tenant's: through cli00's SSH tunnel and end00's IPsec
-tunnel (C0001-00), and end01's WireGuard tunnel (C0001-01; end01 only sends to
-hub00's link addresses through it). Their sources and destinations come from the
-tenant's routes and traffic selectors, the other tenant's, both NAT64 and NPTv6
-prefixes, the core, hub00's own addresses and odd ones (multicast, link-local,
-...). IPv4 and IPv6, with options, extension headers and fragments; ICMP and
-ICMPv6 of any type, with ND options and embedded packets; UDP (DNS answers among
-it), TCP and other protocols. A tenant starts nothing through hub00: no packet
-leaves its network instance, other than in hub00's own ICMP errors and echo
-replies. Sniffers in all of hub00's network instances see what does.
+tunnel (C0001-00), and end01's WireGuard tunnel (C0001-01; with any allowed IPs
+on end01: they're the tenant's to set). Their sources and destinations come from
+the tenant's routes and traffic selectors, the other tenant's, both NAT64 and
+NPTv6 prefixes, the core, hub00's own addresses and odd ones (multicast,
+link-local, ...). IPv4 and IPv6, with options, extension headers and fragments;
+ICMP and ICMPv6 of any type, with ND options and embedded packets; UDP (DNS
+answers among it), TCP and other protocols. A tenant starts nothing through
+hub00: no packet leaves its network instance, other than in hub00's own ICMP
+errors and echo replies. One sniffer in all of hub00's network instances sees
+what does.
 
 Also spoofed DNS answers to mgt00's queries (through NAT64, as is and NPTv6),
 with the same IP variations: vpncmangle lets no tenant address through that it
 didn't translate. Throughout, vpnc, its daemons, the connections and BGP keep
 running.
+
+After an example's packets a sentinel follows them through the tunnel (a ping
+of hub00, or a DNS answer that vpncmangle translates): once it's there, hub00
+has had the packets, and the tunnel still carries.
 """
 
 from __future__ import annotations
 
+import collections
 import ipaddress
 import itertools
 import json
 import os
 import struct
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
@@ -46,8 +53,9 @@ pytestmark = pytest.mark.skipif(
     reason="runs in the fuzz lab: run test/04_fuzz on its own",
 )
 
+# An example takes about 60 ms.
 FUZZ = settings(
-    max_examples=int(os.environ.get("FUZZ_EXAMPLES", "100")),
+    max_examples=10 * int(os.environ.get("FUZZ_EXAMPLES", "100")),
     deadline=None,
 )
 
@@ -59,7 +67,7 @@ class Link:
     node: str
     netns: str | None
     interface: str
-    # hub00's network instance it enters, and its address there (the probe's).
+    # hub00's network instance it enters, and its address there (the sentinel's).
     ni: str
     hub: str
     tenant: str
@@ -193,55 +201,82 @@ DNS_PATHS = {
     "DNS66": ("2001:db8:c57:31::153", "2001:db8:c57:31::153"),
     "NPTv6": ("fd6c:1:0:31::153", "fdff:db8:c57:31::153"),
 }
-DNS_SPEC = "/tmp/fuzz-traffic-dns.json"  # noqa: S108
-DNS_PID = "/tmp/fuzz-traffic-dns.pid"  # noqa: S108
-# Sniffed packets that hold the marker, per network instance of hub00.
-SNIFFED = "/tmp/fuzz-traffic-sniffed"  # noqa: S108
-# A packet's way through hub00 takes less than this.
-SETTLE = 0.5
-PROBE_TIMEOUT = 20
+# How long a sentinel may take.
+SENTINEL_TIMEOUT = 2
 # A link that works answers one of these pings (a second each).
 CARRY_TRIES = 5
 # Per run: in every packet, before the example's number.
 MAGIC = os.urandom(8)
 EXAMPLES = itertools.count(1)
+# An example's sentinel has its number with this.
+SENTINEL = 1 << 31
 # The versions a tun device takes.
 IP_VERSIONS = (4, 6)
 # Set by AF_PACKET on packets a host sends.
 OUTGOING = 4
 
-# Sends the packets (hex) on an interface, as its link layer has them.
+# Sends packets (hex) on an interface, as its link layer has them. On a
+# WireGuard interface with any allowed IPs for its peer, as a tenant can set
+# them: vpnc sets its own again.
 INJECTOR = """
-import socket, sys
-interface, *packets = sys.argv[1:]
-s = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM)
-for packet in packets:
-    data = bytes.fromhex(packet)
-    protocol = 0x86DD if data and data[0] >> 4 == 6 else 0x0800
-    try:
-        s.sendto(data, (interface, protocol))
-    except OSError:
-        pass
+import socket, subprocess
+
+SOCKET = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM)
+
+
+def inject(interface, packets):
+    if interface.startswith("wg"):
+        peers = subprocess.run(
+            ["wg", "show", interface, "peers"], capture_output=True, text=True
+        ).stdout.split()
+        for peer in peers:
+            subprocess.run(
+                ["wg", "set", interface, "peer", peer, "allowed-ips", "0.0.0.0/0,::/0"]
+            )
+    for packet in packets:
+        data = bytes.fromhex(packet)
+        protocol = 0x86DD if data and data[0] >> 4 == 6 else 0x0800
+        try:
+            SOCKET.sendto(data, (interface, protocol))
+        except OSError:
+            pass
 """
-# Notes the packets that hold the marker: interface, packet type, packet (hex).
+# Prints the packets that hold the marker (argv[1]) in the network instances
+# (the other arguments): network instance, interface, packet type, packet (hex).
+# Until its input closes.
 SNIFFER = """
-import os, socket, sys
-path, magic = sys.argv[1], bytes.fromhex(sys.argv[2])
-s = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(3))
-s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 24)
-out = open(path, "w", buffering=1)
-open(path + ".pid", "w").write(str(os.getpid()))
+import os, select, socket, sys
+
+magic = bytes.fromhex(sys.argv[1])
+own = os.open("/proc/self/ns/net", os.O_RDONLY)
+socks = {}
+for ni in sys.argv[2:]:
+    if ni != "root":
+        netns = os.open(f"/run/netns/{ni}", os.O_RDONLY)
+        os.setns(netns, os.CLONE_NEWNET)
+        os.close(netns)
+    s = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(3))
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 24)
+    socks[s] = ni
+    os.setns(own, os.CLONE_NEWNET)
+print("ready", flush=True)
 while True:
-    data, address = s.recvfrom(65535)
-    if magic in data:
-        out.write(f"{address[0]} {address[2]} {data.hex()}\\n")
+    for s in select.select([sys.stdin, *socks], [], [])[0]:
+        if s is sys.stdin:
+            # The test ended.
+            sys.exit()
+        data, address = s.recvfrom(65535)
+        if magic in data:
+            print(socks[s], address[0], address[2], data.hex(), flush=True)
 """
-# Answers each query to the addresses it holds with the spec's packets, sent on
+# Answers each query to the addresses it holds with SPEC's packets, sent on
 # tun0 (into hub00) to the query's sender: its address, port and id patched in,
-# their checksums adjusted. It binds before the addresses exist (freebind), so
-# that named doesn't take them.
+# their checksums adjusted. Then with the sentinel (see test_dns_answers.py). It
+# binds before the addresses exist (freebind), so that named doesn't take them.
 SPOOFER = f"""
-import json, os, select, socket, struct
+import select, socket, struct, threading
+{dns.SENTINEL}
+SPEC = None
 socks = []
 for family, level, option, address in (
     (socket.AF_INET, socket.IPPROTO_IP, 15, "{DNS_PATHS["NAT64"][1]}"),
@@ -253,7 +288,7 @@ for family, level, option, address in (
     s.bind((address, 53))
     socks.append(s)
 raw = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM)
-open("{DNS_PID}", "w").write(str(os.getpid()))
+
 
 def adjust(packet, at, old, new):
     total = ~struct.unpack_from("!H", packet, at)[0] & 0xFFFF
@@ -264,34 +299,41 @@ def adjust(packet, at, old, new):
         total = (total & 0xFFFF) + (total >> 16)
     struct.pack_into("!H", packet, at, ~total & 0xFFFF)
 
-while True:
-    for s in select.select(socks, [], [])[0]:
-        query, peer = s.recvfrom(4096)
+
+def spoof(s, query, peer, spec):
+    dst = socket.inet_pton(s.family, peer[0])
+    port = struct.pack("!H", peer[1])
+    for data, dst_at, l4_at, ipsum_at in spec["fragments"]:
+        packet = bytearray(bytes.fromhex(data))
+        old = bytes(packet[dst_at:dst_at + len(dst)])
+        packet[dst_at:dst_at + len(dst)] = dst
+        if ipsum_at is not None:
+            adjust(packet, ipsum_at, old, dst)
+        u = l4_at
+        if u is not None and len(packet) >= u + 10:
+            before = old + bytes(packet[u + 2:u + 4] + packet[u + 8:u + 10])
+            ident = query[:2] if spec["keep_id"] else bytes(packet[u + 8:u + 10])
+            packet[u + 2:u + 4] = port
+            packet[u + 8:u + 10] = ident
+            if s.family == socket.AF_INET6 or packet[u + 6:u + 8] != b"\\0\\0":
+                adjust(packet, u + 6, before, dst + port + ident)
+        protocol = 0x86DD if s.family == socket.AF_INET6 else 0x0800
         try:
-            spec = json.load(open("{DNS_SPEC}"))
-        except (OSError, ValueError):
-            continue
-        dst = socket.inet_pton(s.family, peer[0])
-        port = struct.pack("!H", peer[1])
-        for data, dst_at, l4_at, ipsum_at in spec["fragments"]:
-            packet = bytearray(bytes.fromhex(data))
-            old = bytes(packet[dst_at:dst_at + len(dst)])
-            packet[dst_at:dst_at + len(dst)] = dst
-            if ipsum_at is not None:
-                adjust(packet, ipsum_at, old, dst)
-            u = l4_at
-            if u is not None and len(packet) >= u + 10:
-                before = old + bytes(packet[u + 2:u + 4] + packet[u + 8:u + 10])
-                ident = query[:2] if spec["keep_id"] else bytes(packet[u + 8:u + 10])
-                packet[u + 2:u + 4] = port
-                packet[u + 8:u + 10] = ident
-                if s.family == socket.AF_INET6 or packet[u + 6:u + 8] != b"\\0\\0":
-                    adjust(packet, u + 6, before, dst + port + ident)
-            protocol = 0x86DD if s.family == socket.AF_INET6 else 0x0800
-            try:
-                raw.sendto(bytes(packet), ("tun0", protocol))
-            except OSError:
-                pass
+            raw.sendto(bytes(packet), ("tun0", protocol))
+        except OSError:
+            pass
+
+
+def serve():
+    while True:
+        for s in select.select(socks, [], [])[0]:
+            query, peer = s.recvfrom(4096)
+            if SPEC:
+                spoof(s, query, peer, SPEC)
+            s.sendto(sentinel(query), peer)
+
+
+threading.Thread(target=serve, daemon=True).start()
 """
 
 
@@ -894,7 +936,7 @@ class Sniffed(NamedTuple):
     data: bytes
 
     def example(self) -> int:
-        """Return the number of the example that sent it."""
+        """Return the number of the example that sent it (with SENTINEL: its last)."""
         at = self.data.index(MAGIC) + len(MAGIC)
         return int.from_bytes(self.data[at : at + 4].ljust(4, b"\0"))
 
@@ -940,201 +982,195 @@ def leaked(sniffed: Sniffed, ni: str, hub: set[str]) -> str | None:
     )
 
 
+def ping(link: Link, number: int, dst: str | None = None) -> bytes:
+    """Return an echo request through a link, to hub00's address on it or dst."""
+    src, to = ipaddress.ip_address(link.tenant), ipaddress.ip_address(dst or link.hub)
+    message = struct.pack("!BBHHH", 128, 0, 0, 1, 1) + MAGIC + number.to_bytes(4)
+    message = (
+        message[:2]
+        + struct.pack("!H", checksum(pseudo(src, to, 58, len(message)) + message))
+        + message[4:]
+    )
+    header = struct.pack(
+        "!IHBB16s16s", 6 << 28, len(message), 58, 64, src.packed, to.packed
+    )
+    return header + message
+
+
 class Lab:
-    """The sniffers in hub00 and the DNS spoofer on cli00."""
+    """The sniffer in hub00, the links' injectors and the DNS spoofer on cli00."""
 
     def __init__(self) -> None:
-        """Start without sniffers."""
-        self.processes: list[subprocess.Popen[bytes]] = []
-        self.read: dict[str, int] = {}
+        """Start the sniffer, the injectors and the spoofer."""
         self.sent: dict[int, str] = {}
         self.hub = hub_addresses()
         self.prefixes = dns.translated_prefixes()
         names = conftest.run_cmd(conftest.HOST, "ip netns list").splitlines()
-        self.instances = ["root", *(line.split()[0] for line in names if line.strip())]
+        instances = ["root", *(line.split()[0] for line in names if line.strip())]
+        self.packets: collections.deque[Sniffed] = collections.deque()
+        self.arrived = threading.Condition()
+        self.sniffer = subprocess.Popen(  # noqa: S603
+            [  # noqa: S607
+                "docker", "exec", "-i", f"{conftest.CONTAINER_PREFIX}{conftest.HOST}",
+                "python3", "-u", "-c", SNIFFER, MAGIC.hex(), *instances,
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )  # fmt: skip
+        assert self.sniffer.stdout is not None
+        assert self.sniffer.stdout.readline().strip() == "ready", "no sniffer"
+        threading.Thread(target=self.read, daemon=True).start()
+        self.injectors = {
+            name: conftest.Agent(link.node, netns=link.netns, setup=INJECTOR)
+            for name, link in LINKS.items()
+        }
+        self.spoofer = conftest.Agent("cli00", setup=SPOOFER)
+        self.spoofer.run("")
+        self.sentinels: dict[tuple[str, int], str] = {}
+        self.answered: collections.deque[tuple[float, int]] = collections.deque()
+        self.vitals = conftest.vitals()
 
-    def start(self, node: str, *command: str) -> None:
-        """Run a command in a node, in the background."""
-        container = f"{conftest.CONTAINER_PREFIX}{node}"
-        self.processes.append(subprocess.Popen(["docker", "exec", container, *command]))  # noqa: S603, S607
-
-    def sniff(self) -> None:
-        """Start a sniffer in each of hub00's network instances."""
-        for ni in self.instances:
-            netns = [] if ni == "root" else ["ip", "netns", "exec", ni]
-            self.start(
-                conftest.HOST,
-                *netns,
-                "python3",
-                "-c",
-                SNIFFER,
-                f"{SNIFFED}-{ni}",
-                MAGIC.hex(),
-            )
-        conftest.wait_until(
-            lambda: all(
-                conftest.run_cmd(conftest.HOST, f"cat {SNIFFED}-{ni}.pid").strip()
-                for ni in self.instances
-            ),
-            timeout=10,
-            message="the sniffers",
-        )
+    def read(self) -> None:
+        """Take the sniffer's packets as they come."""
+        assert self.sniffer.stdout is not None
+        for line in self.sniffer.stdout:
+            ni, interface, kind, data = line.split()
+            packet = Sniffed(ni, interface, int(kind) == OUTGOING, bytes.fromhex(data))
+            with self.arrived:
+                self.packets.append(packet)
+                self.arrived.notify_all()
 
     def sniffed(self) -> list[Sniffed]:
-        """Return the packets the sniffers noted since the last call."""
-        found = []
-        for ni in self.instances:
-            path = f"{SNIFFED}-{ni}"
-            text = conftest.run_cmd(conftest.HOST, f"cat {path}")
-            new, self.read[path] = text[self.read.get(path, 0) :], len(text)
-            for line in new.splitlines():
-                interface, kind, data = line.split()
-                found.append(
-                    Sniffed(ni, interface, int(kind) == OUTGOING, bytes.fromhex(data)),
-                )
+        """Return the packets the sniffer saw since the last call."""
+        with self.arrived:
+            found = list(self.packets)
+            self.packets.clear()
         return found
 
-    def send(self, link: str, packets: list[bytes], example: int) -> None:
-        """Send packets into hub00 through a link, as the example's."""
-        self.sent[example] = LINKS[link].ni
-        where = LINKS[link]
-        netns = ["ip", "netns", "exec", where.netns] if where.netns else []
-        subprocess.run(  # noqa: S603
-            [  # noqa: S607
-                "docker",
-                "exec",
-                f"{conftest.CONTAINER_PREFIX}{where.node}",
-                *netns,
-                "python3",
-                "-c",
-                INJECTOR,
-                where.interface,
-                *(p.hex() or "00" for p in packets),
+    def send(self, name: str, packets: list[bytes], example: int) -> list[Sniffed]:
+        """Send an example's packets into hub00 through a link, then its sentinel.
+
+        Return what the sniffer saw until the sentinel got to hub00: the tunnel
+        keeps their order, and hub00 forwards a packet before it reads the next.
+        """
+        link = LINKS[name]
+        self.sent[example] = link.ni
+        number = example | SENTINEL
+        self.injectors[name].run(
+            "inject(*args)",
+            [
+                link.interface,
+                [*(p.hex() or "00" for p in packets), ping(link, number).hex()],
             ],
-            capture_output=True,
-            check=True,
         )
 
-    def leaks(self) -> list[str]:
-        """Return how the packets sent since the last call left their tenant."""
-        time.sleep(SETTLE)
+        def there() -> bool:
+            return any(
+                p.ni == link.ni and not p.outgoing and p.example() == number
+                for p in self.packets
+            )
+
+        with self.arrived:
+            carried = self.arrived.wait_for(there, timeout=SENTINEL_TIMEOUT)
+        assert carried, f"packets through {name} don't get to hub00 any more"
+        # What hub00 did with it in another network instance may come a moment
+        # after: the sniffer reads them in turn.
+        time.sleep(0.005)
+        return self.sniffed()
+
+    def leaks(self, packets: list[Sniffed]) -> list[str]:
+        """Return how packets of the examples left their tenant."""
         found = []
-        for sniffed in self.sniffed():
+        for sniffed in packets:
             ni = self.sent.get(sniffed.example())
             if ni and (leak := leaked(sniffed, ni, self.hub)):
                 found.append(f"example {sniffed.example()}: {leak}")
         return found
 
-    def probe(self, link: str) -> bool:
-        """Return whether a ping through a link reaches hub00's network instance."""
-        where = LINKS[link]
-        src, dst = ipaddress.ip_address(where.tenant), ipaddress.ip_address(where.hub)
-        message = struct.pack("!BBHHH", 128, 0, 0, 1, 1) + MAGIC + bytes(4)
-        message = (
-            message[:2]
-            + struct.pack("!H", checksum(pseudo(src, dst, 58, len(message)) + message))
-            + message[4:]
-        )
-        header = struct.pack(
-            "!IHBB16s16s", 6 << 28, len(message), 58, 64, src.packed, dst.packed
-        )
-        self.send(link, [header + message], 0)
-        time.sleep(SETTLE)
-        return any(
-            s.ni == where.ni and not s.outgoing and s.example() == 0
-            for s in self.sniffed()
-        )
-
     @staticmethod
-    def carries(link: str) -> bool:
-        """Return whether hub00 pings the host behind a link: both ways work."""
-        where = LINKS[link]
+    def dead() -> list[str]:
+        """Return the links through which hub00's pings aren't answered: both ways."""
+        pings = [
+            conftest.command(
+                f"ip netns exec {link.ni} ping -c 1 -W 1 {link.host}".split(),
+            )
+            for link in LINKS.values()
+        ]
+        dead = list(LINKS)
         for _ in range(CARRY_TRIES):
-            answered = subprocess.run(  # noqa: S603
-                [  # noqa: S607
-                    "docker", "exec", f"{conftest.CONTAINER_PREFIX}{conftest.HOST}",
-                    "ip", "netns", "exec", where.ni, "ping", "-c", "1", "-W", "1",
-                    where.host,
-                ],
-                capture_output=True,
-                check=False,
-            )  # fmt: skip
-            if answered.returncode == 0:
-                return True
-        return False
+            answers = conftest.batch(conftest.HOST, pings)
+            dead = [
+                name
+                for name, answer in zip(LINKS, answers, strict=True)
+                if name in dead and answer.get("rc") != 0
+            ]
+            if not dead:
+                break
+        return dead
 
     def stop(self) -> None:
-        """Stop the sniffers and the spoofer, and remove their files."""
-        files = " ".join(f"{SNIFFED}-{ni}" for ni in self.instances)
-        pids = " ".join(f"{SNIFFED}-{ni}.pid" for ni in self.instances)
-        conftest.run_cmd_shell(
-            conftest.HOST, f"bash -c 'kill $(cat {pids}); rm -f {files} {pids}; true'"
-        )
-        in_cli00(
-            f"kill $(cat {DNS_PID}); rm -f {DNS_PID} {DNS_SPEC};"
-            + "".join(
+        """Stop the sniffer, the injectors and the spoofer."""
+        self.sniffer.kill()
+        for agent in (*self.injectors.values(), self.spoofer):
+            agent.stop()
+        conftest.sh(
+            "cli00",
+            "".join(
                 f" ip address del {held}/{128 if ':' in held else 32} dev lo;"
                 for _, held in DNS_PATHS.values()
             )
             + " true",
         )
-        for process in self.processes:
-            process.kill()
-
-
-def in_cli00(command: str) -> None:
-    """Run a shell command on cli00."""
-    conftest.run_cmd_shell("cli00", f"bash -c '{command}'")
-
-
-def ask(path: str, qtype: int) -> bytes:
-    """Return the answer mgt00 gets to its query through a path; empty: none."""
-    return bytes.fromhex(
-        subprocess.run(  # noqa: S603
-            [  # noqa: S607
-                "docker",
-                "exec",
-                f"{conftest.CONTAINER_PREFIX}{dns.CLIENT}",
-                "python3",
-                "-c",
-                dns.CLIENT_SCRIPT,
-                DNS_PATHS[path][0],
-                str(qtype),
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip(),
-    )
 
 
 @pytest.fixture(scope="module")
 def lab(deployed: conftest.Deployed) -> Iterator[Lab]:
-    """Run the sniffers and the spoofer; check that packets get through each link."""
+    """Run the sniffer and the spoofer; check that packets get through each link."""
     lab = Lab()
+    to_core = ipaddress.ip_address(CORE[2]).packed
     try:
-        lab.sniff()
-        in_cli00(f"rm -f {DNS_PID} {DNS_SPEC}")
-        lab.start("cli00", "python3", "-c", SPOOFER)
-        conftest.wait_until(
-            lambda: conftest.run_cmd("cli00", f"cat {DNS_PID}").strip(),
-            timeout=10,
-            message="the spoofer",
-        )
-        in_cli00(
+        conftest.sh(
+            "cli00",
             "".join(
                 f" ip address add {held}/{128 if ':' in held else 32} dev lo;"
                 for _, held in DNS_PATHS.values()
             ),
         )
-        for link in LINKS:
-            conftest.wait_until(
-                lambda link=link: lab.probe(link),
-                timeout=PROBE_TIMEOUT,
-                message=f"a ping through {link} to reach hub00",
+        seen: list[Sniffed] = []
+
+        def through(name: str, link: Link) -> bool:
+            # To any destination, not only hub00's own address.
+            lab.injectors[name].run(
+                "inject(*args)",
+                [link.interface, [ping(link, 0, CORE[2]).hex()]],
             )
-            assert lab.carries(link), f"hub00's pings through {link} aren't answered"
+            seen.extend(lab.send(name, [], 0))
+            return True
+
+        for name, link in LINKS.items():
+            conftest.wait_until(
+                lambda name=name, link=link: through(name, link),
+                timeout=30,
+                message=f"a ping through {name} to reach hub00",
+            )
+            assert any(
+                p.ni == link.ni and not p.outgoing and p.data[24:40] == to_core
+                for p in seen
+            ), f"a packet to the core through {name} doesn't get to hub00"
+        assert not lab.dead(), f"hub00's pings through {lab.dead()} aren't answered"
+        for path, (target, _) in DNS_PATHS.items():
+            conftest.wait_until(
+                lambda target=target: conftest.dns_ask(target, dns.QNAME, 1, "")[0],
+                timeout=30,
+                message=f"the spoofer's answer through {path}",
+            )
+            for qtype in dns.QTYPES.values():
+                lab.sentinels[path, qtype] = dns.translated_sentinel(target, qtype)
+        # The checks' own packets aren't an example's.
+        time.sleep(0.1)
         lab.sniffed()
+        lab.sent.clear()
         yield lab
     finally:
         lab.stop()
@@ -1167,40 +1203,36 @@ def dns_answer(draw: st.DrawFn, path: str, qtype: int) -> tuple[bool, list[Fragm
     ]
 
 
-@pytest.mark.usefixtures("deployed")
 @FUZZ
 @given(data=st.data())
 def test_tenant_traffic(lab: Lab, data: st.DataObject) -> None:
     """Nothing a tenant sends leaves its network instance; hub00 keeps running."""
-    before = conftest.daemons()
-    up = conftest.up_connections()
     if data.draw(st.integers(0, 3), label="DNS answer") == 0:
         path = data.draw(st.sampled_from(sorted(DNS_PATHS)), label="path")
-        qtype = data.draw(st.sampled_from(sorted(dns.QTYPES)), label="qtype")
-        keep_id, pieces = data.draw(dns_answer(path, dns.QTYPES[qtype]), label="answer")
-        conftest.write_file(
-            "cli00",
-            DNS_SPEC,
-            json.dumps(
-                {
-                    "keep_id": keep_id,
-                    "fragments": [
-                        [p.data.hex(), p.dst_at, p.l4_at, p.ipsum_at] for p in pieces
-                    ],
-                }
-            ),
-        )
-        received = ask(path, dns.QTYPES[qtype])
-        event(f"DNS answer through {path}: {'answered' if received else 'dropped'}")
-        untranslated = [
-            (kind, found)
-            for kind, found in dns.addresses(received)
-            if kind == "A"
-            or not any(ipaddress.IPv6Address(found) in p for p in lab.prefixes)
+        qtype = dns.QTYPES[
+            data.draw(st.sampled_from(sorted(dns.QTYPES)), label="qtype")
         ]
+        keep_id, pieces = data.draw(dns_answer(path, qtype), label="answer")
+        spec = {
+            "keep_id": keep_id,
+            "fragments": [
+                [p.data.hex(), p.dst_at, p.l4_at, p.ipsum_at] for p in pieces
+            ],
+        }
+        lab.spoofer.run("SPEC = args", spec)
+        dns.within_rate(lab.answered, sum(len(p.data) for p in pieces))
+        received, sentinel = conftest.dns_ask(
+            DNS_PATHS[path][0],
+            dns.QNAME,
+            qtype,
+            lab.sentinels[path, qtype],
+        )
+        event(f"DNS answer through {path}: {'answered' if received else 'dropped'}")
+        untranslated = dns.untranslated(received, lab.prefixes)
         assert not untranslated, (
             f"untranslated tenant addresses reached mgt00: {untranslated}"
         )
+        assert sentinel, "vpncmangle didn't translate the answer after it"
     else:
         link = data.draw(st.sampled_from(sorted(LINKS)), label="link")
         example = next(EXAMPLES)
@@ -1217,15 +1249,21 @@ def test_tenant_traffic(lab: Lab, data: st.DataObject) -> None:
             # Another version stops the tunnel: hub00's tun device refuses it,
             # and ssh stops writing to it.
             packets = [p for p in packets if p and p[0] >> 4 in IP_VERSIONS]
-        lab.send(link, packets, example)
-        leaks = lab.leaks()
+        leaks = lab.leaks(lab.send(link, packets, example))
         assert not leaks, "\n".join(["left the tenant's network instance:", *leaks])
 
-    dead = [link for link in LINKS if not lab.carries(link)]
+    dead = lab.dead()
     assert not dead, f"hub00's pings through {', '.join(dead)} aren't answered"
-    assert conftest.daemons() == before, "a daemon exited"
+    lab.vitals.check()
+
+
+def test_tenant_traffic_end(lab: Lab) -> None:
+    """Nothing left late, vpncmangle translated what it could, all still answer."""
+    lab.spoofer.run("SPEC = None")
+    # E.g. hub00's errors about fragments that never became a packet.
+    time.sleep(1)
+    leaks = lab.leaks(lab.sniffed())
+    assert not leaks, "\n".join(["left the tenant's network instance:", *leaks])
     conftest.check_answering()
-    down = up - conftest.up_connections()
-    assert not down, f"went down: {', '.join(sorted(down))}"
-    assert not conftest.bgp_down(), f"BGP went down: {conftest.bgp_down()}"
-    assert conftest.restarts() == 0, "vpnc exited"
+    failed = dns.errors()
+    assert not failed, f"vpncmangle failed on {failed} answers (its ERROR counter)"
