@@ -4,6 +4,7 @@ The tests run against containerlab labs and check end results in the lab.
 
 | Directory | What | Time |
 |---|---|---|
+| `00_unit/` | vpncmangle's DNS engine in-process, against the tests' own DNS reader and oracle (Hypothesis). No lab. | ~1 min |
 | `00_setup/` | The host's prerequisites (Docker, containerlab, Jool, test tools) and the images | |
 | `00_base/` | The base lab: topology, node configuration and lab scripts | |
 | `00_scale/` | The scale lab | |
@@ -12,6 +13,20 @@ The tests run against containerlab labs and check end results in the lab.
 | `02_reliability/` | Configuration changes, drift and failures (outages, restarts, lost sessions) are handled. Disrupts the lab and restores it. | ~20 min |
 | `03_performance/` | 200 network instances and 300 connections, in the scale lab. | ~10 min |
 | `04_fuzz/` | Generated configuration, API requests, DNS answers, IKE packets, tenant traffic, faults and crashes (Hypothesis, Schemathesis), in the fuzz lab. May leave it broken. | ~20 min with `FUZZ_EXAMPLES=25` |
+
+## In-process tests
+
+`00_unit/` needs no lab, only a venv with vpncmangle's locked requirements and its `dev` extra:
+
+```sh
+python3 -m venv /tmp/vpncmangle && . /tmp/vpncmangle/bin/activate
+pip install -r vpncmangle/requirements.txt -e './vpncmangle[dev]'
+python3 -m pytest test/00_unit                    # DNS_EXAMPLES=30000 for a long run
+```
+
+`test/fuzz_common/` holds what these tests share with the lab fuzz tests: the DNS
+answer generators, a strict and a lenient DNS reader, and the oracle of what an
+answer must hold after vpncmangle.
 
 ## Setup
 

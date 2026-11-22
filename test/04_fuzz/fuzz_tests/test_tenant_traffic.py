@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
+from fuzz_common import dns_strategies, dns_wire
 from hypothesis import event, given, settings
 from hypothesis import strategies as st
 
@@ -569,9 +570,9 @@ def udp(draw: st.DrawFn, src: Address, dst: Address, marker: bytes) -> bytes:
     sport = draw(port())
     dport = draw(port())
     if sport == 53 or draw(st.integers(0, 4)) == 0:  # noqa: PLR2004
-        payload = draw(dns.answer(draw(st.sampled_from(sorted(dns.QTYPES.values())))))[
-            1
-        ]
+        payload = draw(
+            dns_strategies.answer(draw(st.sampled_from(sorted(dns.QTYPES.values()))))
+        )[1]
     else:
         payload = draw(st.binary(max_size=200))
     payload += marker
@@ -1183,7 +1184,7 @@ def dns_answer(draw: st.DrawFn, path: str, qtype: int) -> tuple[bool, list[Fragm
 
     Its destination address and port are zero: the spoofer puts the query's in.
     """
-    keep_id, message = draw(dns.answer(qtype))
+    keep_id, message = draw(dns_strategies.answer(qtype))
     src = ipaddress.ip_address(DNS_PATHS[path][1])
     dst = ipaddress.ip_address(0) if src.version == 4 else ipaddress.IPv6Address(0)  # noqa: PLR2004
     # Mostly sound IP and UDP headers, so that the answer gets to vpncmangle.
@@ -1228,7 +1229,7 @@ def test_tenant_traffic(lab: Lab, data: st.DataObject) -> None:
             lab.sentinels[path, qtype],
         )
         event(f"DNS answer through {path}: {'answered' if received else 'dropped'}")
-        untranslated = dns.untranslated(received, lab.prefixes)
+        untranslated = dns_wire.untranslated(received, lab.prefixes)
         assert not untranslated, (
             f"untranslated tenant addresses reached mgt00: {untranslated}"
         )
