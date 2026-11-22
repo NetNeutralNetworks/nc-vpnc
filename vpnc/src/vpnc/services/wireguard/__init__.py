@@ -1,6 +1,6 @@
 """Configures WireGuard interfaces over netlink and writes their files.
 
-The files (wg-*.conf) are for operators; vpnc doesn't read them.
+The files (<connection>.conf) are for operators; vpnc doesn't read them.
 """
 
 from __future__ import annotations
@@ -26,9 +26,18 @@ logger = logging.getLogger("vpnc")
 TEMPLATES_ENV = files.templates(__file__)
 
 
-def config_path(ifname: str) -> pathlib.Path:
-    """Return the configuration file of an interface."""
-    return config.WIREGUARD_CONFIG_DIR.joinpath(f"{ifname}.conf")
+def config_path(connection_name: str) -> pathlib.Path:
+    """Return the configuration file of a connection, e.g. C0001-00-0.conf."""
+    return config.WIREGUARD_CONFIG_DIR.joinpath(f"{connection_name}.conf")
+
+
+def remove_files() -> None:
+    """Remove the files left from before vpnc started, like strongSwan's."""
+    if not config.WIREGUARD_CONFIG_DIR.is_dir():
+        return
+    for file in config.WIREGUARD_CONFIG_DIR.iterdir():
+        logger.debug("Unlinking WireGuard config file %s at startup", file)
+        file.unlink(missing_ok=True)
 
 
 def generate_config(network_instance: NetworkInstance, connection: Connection) -> None:
@@ -41,7 +50,7 @@ def generate_config(network_instance: NetworkInstance, connection: Connection) -
         private_key=cfg.private_key.get_secret_value(),
         public_key=cfg.public_key,
     )
-    wg_path = config_path(connection.intf_name(network_instance))
+    wg_path = config_path(connection.name(network_instance))
     if files.ensure_file(wg_path, wg_render, secret=True):
         logger.info(
             "Generated network instance %s connection %s WireGuard configuration.",
@@ -100,6 +109,7 @@ def sync(
     private_key = cfg.private_key.get_secret_value()
     desired = _peer(connection)
     stopped = not connection.enabled
+    name = connection.name(network_instance)
 
     def run() -> None:
         # The socket is opened in this thread's namespace.
@@ -119,10 +129,10 @@ def sync(
             elif current is None or _peer_differs(current, desired):
                 settings["peer"] = desired
             if settings:
-                logger.info("Configuring WireGuard interface %s.", ifname)
+                logger.info("Configuring WireGuard interface %s of %s.", ifname, name)
                 wg.set(ifname, **settings)
             for public_key in peers:
-                logger.info("Removing peer %s from %s.", public_key, ifname)
+                logger.info("Removing peer %s from %s.", public_key, name)
                 wg.set(ifname, peer={"public_key": public_key, "remove": True})
 
     namespace.call(network_instance.id, run)

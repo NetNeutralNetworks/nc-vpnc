@@ -338,7 +338,7 @@ def established() -> set[str]:
 def interface_name(name: str, conn: dict[str, Any]) -> str:
     """Return the interface name of a connection, e.g. of C0001-00-0."""
     if conn["config"]["type"] == "wireguard":
-        return f"wg-{name}"
+        return f"wg{name[-1]}"
     return f"xfrm{name[-1]}"
 
 

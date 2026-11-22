@@ -22,6 +22,7 @@ from vpnc.services import (
     strongswan,
     vpncmangle,
     watchdog,
+    wireguard,
 )
 from vpnc.services.reconciler import RECONCILER
 
@@ -102,6 +103,8 @@ def concentrator() -> None:  # noqa: PLR0915 (the start sequence)
     RECONCILER.register("routes", network_instances.check_routes)
 
     prepare_namespaces()
+    # Written again as the connections are set up.
+    wireguard.remove_files()
 
     # Create and mount the EXTERNAL network instance.
     # This provides VPN connectivity

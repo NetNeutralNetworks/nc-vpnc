@@ -25,11 +25,11 @@ Connections are numbered per network instance (0-9) and named `<network instance
 | Type | Interface |
 |---|---|
 | IPsec | `xfrm<n>` (XFRM interface, route-based) |
-| WireGuard | `wg-<connection>` |
+| WireGuard | `wg<n>` |
 | SSH | `tun<n>` |
 | Physical | the configured `interface_name` |
 
-XFRM and WireGuard interfaces are created in `EXTERNAL` and moved into the downlink namespace, so their outer packets use `EXTERNAL` (a WireGuard interface's UDP socket stays in the namespace it was created in). An XFRM interface is renamed to `xfrm<n>` as it moves; a WireGuard interface keeps its unique name.
+XFRM and WireGuard interfaces are created in `EXTERNAL` and moved into the downlink namespace, so their outer packets use `EXTERNAL` (a WireGuard interface's UDP socket stays in the namespace it was created in). In `EXTERNAL` they have unique names (`x<if_id>`, `wg-<connection>`); they are renamed to `xfrm<n>` and `wg<n>` as they move.
 
 To look around in a namespace:
 

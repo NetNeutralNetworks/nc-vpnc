@@ -107,7 +107,7 @@ LINKS = {
     "WIREGUARD": Link(
         "end01",
         "CORE",
-        "wg-CORE-0",
+        "wg0",
         "C0001-01",
         "fdcc:cbe:1::",
         "2001:db8:c58::1",
