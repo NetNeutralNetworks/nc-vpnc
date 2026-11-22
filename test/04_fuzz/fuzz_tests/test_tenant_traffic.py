@@ -19,12 +19,20 @@ running.
 
 After an example's packets a sentinel follows them through the tunnel (a ping
 of hub00, or a DNS answer that vpncmangle translates): once it's there, hub00
-has had the packets, and the tunnel still carries.
+has had the packets, and the tunnel still carries. Before it, a control packet
+to CORE that hub00 must stop: it shows that the injector and the sniffer work.
+
+The packets are generated as they are: no marker is added to fragments. What
+was seen of each one is noted (see fuzz_common/packet_observer.py), found by its
+marker, its bytes or its fragments' identity; a packet not seen coming in isn't
+tested. Counters in the tenants' network instances (table inet fuzz_observe)
+show how many were forwarded or received.
 """
 
 from __future__ import annotations
 
 import collections
+import inspect
 import ipaddress
 import itertools
 import json
@@ -37,7 +45,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
-from fuzz_common import dns_strategies, dns_wire
+from fuzz_common import dns_strategies, dns_wire, packet_observer
 from hypothesis import event, given, settings
 from hypothesis import strategies as st
 
@@ -209,14 +217,16 @@ CARRY_TRIES = 5
 # Per run: in every packet, before the example's number.
 MAGIC = os.urandom(8)
 EXAMPLES = itertools.count(1)
-# An example's sentinel has its number with this.
+# An example's sentinel has its number with this, its control this.
 SENTINEL = 1 << 31
+CONTROL = 1 << 30
 # The versions a tun device takes.
 IP_VERSIONS = (4, 6)
 # Set by AF_PACKET on packets a host sends.
 OUTGOING = 4
 
-# Sends packets (hex) on an interface, as its link layer has them. On a
+# Sends packets (hex) on an interface, as its link layer has them; returns each
+# one's errno (None: sent). On a
 # WireGuard interface with any allowed IPs for its peer, as a tenant can set
 # them: vpnc sets its own again.
 INJECTOR = """
@@ -234,21 +244,29 @@ def inject(interface, packets):
             subprocess.run(
                 ["wg", "set", interface, "peer", peer, "allowed-ips", "0.0.0.0/0,::/0"]
             )
+    errors = []
     for packet in packets:
         data = bytes.fromhex(packet)
         protocol = 0x86DD if data and data[0] >> 4 == 6 else 0x0800
         try:
             SOCKET.sendto(data, (interface, protocol))
-        except OSError:
-            pass
+            errors.append(None)
+        except OSError as error:
+            errors.append(error.errno)
+    return errors
 """
-# Prints the packets that hold the marker (argv[1]) in the network instances
-# (the other arguments): network instance, interface, packet type, packet (hex).
-# Until its input closes.
-SNIFFER = """
-import os, select, socket, sys
-
+# Prints the packets that hold the marker (argv[1]), or match an identity it was
+# given (or its addresses, for fragments), in the network instances (the other
+# arguments): network instance, interface, packet type, packet (hex). Each input
+# line (JSON) replaces the identities, and is acknowledged; it ends when its input
+# closes.
+SNIFFER = (
+    "import json, os, select, socket, sys\n"
+    + inspect.getsource(packet_observer.identity)
+    + inspect.getsource(packet_observer.fragmented)
+    + """
 magic = bytes.fromhex(sys.argv[1])
+identities, pairs = set(), set()
 own = os.open("/proc/self/ns/net", os.O_RDONLY)
 socks = {}
 for ni in sys.argv[2:]:
@@ -264,12 +282,22 @@ print("ready", flush=True)
 while True:
     for s in select.select([sys.stdin, *socks], [], [])[0]:
         if s is sys.stdin:
-            # The test ended.
-            sys.exit()
+            line = sys.stdin.readline()
+            if not line:
+                # The test ended.
+                sys.exit()
+            identities = {tuple(i) for i in json.loads(line)}
+            pairs = {i[:3] for i in identities}
+            print("ack", flush=True)
+            continue
         data, address = s.recvfrom(65535)
-        if magic in data:
+        known = identity(data) if identities else None
+        if magic in data or known in identities or (
+            known and known[:3] in pairs and fragmented(data)
+        ):
             print(socks[s], address[0], address[2], data.hex(), flush=True)
 """
+)
 # Answers each query to the addresses it holds with SPEC's packets, sent on
 # tun0 (into hub00) to the query's sender: its address, port and id patched in,
 # their checksums adjusted. Then with the sentinel (see test_dns_answers.py). It
@@ -936,10 +964,16 @@ class Sniffed(NamedTuple):
     outgoing: bool
     data: bytes
 
-    def example(self) -> int:
-        """Return the number of the example that sent it (with SENTINEL: its last)."""
-        at = self.data.index(MAGIC) + len(MAGIC)
-        return int.from_bytes(self.data[at : at + 4].ljust(4, b"\0"))
+    def example(self) -> int | None:
+        """Return the number of the example that sent it (with SENTINEL: its last).
+
+        None: it doesn't hold the whole marker and number.
+        """
+        at = self.data.find(MAGIC)
+        if at < 0 or at + len(MAGIC) + 4 > len(self.data):
+            return None
+        at += len(MAGIC)
+        return int.from_bytes(self.data[at : at + 4])
 
 
 def describe(data: bytes) -> tuple[int, str, int, int | None]:
@@ -998,6 +1032,56 @@ def ping(link: Link, number: int, dst: str | None = None) -> bytes:
     return header + message
 
 
+# A CORE address a tenant reaches only if hub00 forwards it there.
+CONTROL_TARGET = "fd00::3"
+
+
+def control(link: Link, number: int) -> bytes:
+    """Return a UDP packet from the tenant's host to CORE: hub00 must stop it."""
+    src, to = ipaddress.ip_address(link.tenant), ipaddress.ip_address(CONTROL_TARGET)
+    payload = MAGIC + number.to_bytes(4)
+    data = struct.pack("!HHHH", 40000, 9, 8 + len(payload), 0) + payload
+    value = checksum(pseudo(src, to, 17, len(data)) + data) or 0xFFFF
+    data = data[:6] + struct.pack("!H", value) + data[8:]
+    header = struct.pack(
+        "!IHBB16s16s", 6 << 28, len(data), 17, 64, src.packed, to.packed
+    )
+    return header + data
+
+
+# Counts, in each tenant network instance, what came in through its tunnels and
+# was forwarded or received (after reassembly: packets, not fragments).
+OBSERVE_TABLE = "inet fuzz_observe"
+# FUZZ_TRACE=1: trace them too (nft monitor trace), to look into an example.
+TRACE = os.environ.get("FUZZ_TRACE") == "1"
+
+
+def observe_table(interfaces: list[str]) -> str:
+    """Return the counters' table for a network instance's tunnel interfaces."""
+    names = ", ".join(f'"{name}"' for name in interfaces)
+    trace = " meta nftrace set 1" if TRACE else ""
+    chains = "".join(
+        f"chain {hook} {{ type filter hook {hook} priority -1; policy accept;"
+        f" iifname {{ {names} }}{trace} counter name {counter}; }}\n"
+        for hook, counter in (("forward", "forwarded"), ("input", "received"))
+    )
+    return (
+        f"table {OBSERVE_TABLE} {{\ncounter forwarded {{ }}\n"
+        f"counter received {{ }}\n{chains}}}\n"
+    )
+
+
+class Sent(NamedTuple):
+    """What an example's sending gave: what the sniffer saw, and the evidence."""
+
+    sniffed: list[Sniffed]
+    # How far the forward and input counters of its network instance rose.
+    forwarded: int
+    received: int
+    # The control's errno (None: sent).
+    control_error: int | None
+
+
 class Lab:
     """The sniffer in hub00, the links' injectors and the DNS spoofer on cli00."""
 
@@ -1010,6 +1094,23 @@ class Lab:
         instances = ["root", *(line.split()[0] for line in names if line.strip())]
         self.packets: collections.deque[Sniffed] = collections.deque()
         self.arrived = threading.Condition()
+        self.acks = 0
+        self.observer = packet_observer.Observer()
+        self.totals: collections.Counter[tuple[str, str]] = collections.Counter()
+        self.beyond_control = 0
+        self.observed = sorted({link.ni for link in LINKS.values()})
+        for ni in self.observed:
+            links = json.loads(conftest.run_cmd(conftest.HOST, f"ip -n {ni} -j link"))
+            tunnels = [
+                link["ifname"]
+                for link in links
+                if link["ifname"] not in ("lo", f"{ni}_D")
+            ]
+            conftest.sh(
+                conftest.HOST,
+                f"ip netns exec {ni} nft delete table {OBSERVE_TABLE} 2>/dev/null;"
+                f" ip netns exec {ni} nft -f - <<'EOF'\n{observe_table(tunnels)}EOF",
+            )
         self.sniffer = subprocess.Popen(  # noqa: S603
             [  # noqa: S607
                 "docker", "exec", "-i", f"{conftest.CONTAINER_PREFIX}{conftest.HOST}",
@@ -1037,6 +1138,11 @@ class Lab:
         """Take the sniffer's packets as they come."""
         assert self.sniffer.stdout is not None
         for line in self.sniffer.stdout:
+            if line.strip() == "ack":
+                with self.arrived:
+                    self.acks += 1
+                    self.arrived.notify_all()
+                continue
             ni, interface, kind, data = line.split()
             packet = Sniffed(ni, interface, int(kind) == OUTGOING, bytes.fromhex(data))
             with self.arrived:
@@ -1050,22 +1156,70 @@ class Lab:
             self.packets.clear()
         return found
 
-    def send(self, name: str, packets: list[bytes], example: int) -> list[Sniffed]:
-        """Send an example's packets into hub00 through a link, then its sentinel.
+    def register(self, identities: list[packet_observer.Identity]) -> None:
+        """Give the sniffer an example's identities; wait for its acknowledgement."""
+        assert self.sniffer.stdin is not None
+        with self.arrived:
+            acks = self.acks
+            self.sniffer.stdin.write(json.dumps(sorted(set(identities))) + "\n")
+            self.sniffer.stdin.flush()
+            acked = self.arrived.wait_for(
+                lambda: self.acks > acks, timeout=SENTINEL_TIMEOUT
+            )
+        assert acked, "the sniffer doesn't acknowledge"
 
-        Return what the sniffer saw until the sentinel got to hub00: the tunnel
-        keeps their order, and hub00 forwards a packet before it reads the next.
+    def counters(self) -> dict[str, dict[str, int]]:
+        """Return the forward and input counters per tenant network instance."""
+        answers = conftest.batch(
+            conftest.HOST,
+            [
+                conftest.command(
+                    [
+                        *("ip", "netns", "exec", ni, "nft", "-j", "list"),
+                        *("counters", "table", *OBSERVE_TABLE.split()),
+                    ]
+                )
+                for ni in self.observed
+            ],
+        )
+        return {
+            ni: {
+                item["counter"]["name"]: item["counter"]["packets"]
+                for item in json.loads(answer["out"])["nftables"]
+                if "counter" in item
+            }
+            for ni, answer in zip(self.observed, answers, strict=True)
+        }
+
+    def send(self, name: str, packets: list[list[bytes]], example: int) -> Sent:
+        """Send an example's packets into hub00 through a link, its control, sentinel.
+
+        Return what the sniffer saw until the sentinel got to hub00 (the tunnel
+        keeps their order, and hub00 forwards a packet before it reads the next),
+        and how far the counters rose.
         """
         link = LINKS[name]
         self.sent[example] = link.ni
+        self.register(self.observer.record(example, packets))
         number = example | SENTINEL
-        self.injectors[name].run(
-            "inject(*args)",
+        flat = [p for pieces in packets for p in pieces]
+        before = self.counters()[link.ni]
+        errors = self.injectors[name].run(
+            "result = inject(*args)",
             [
                 link.interface,
-                [*(p.hex() or "00" for p in packets), ping(link, number).hex()],
+                [
+                    *(p.hex() or "00" for p in flat),
+                    control(link, example | CONTROL).hex(),
+                    ping(link, number).hex(),
+                ],
             ],
         )
+        at = 0
+        for packet, pieces in enumerate(packets):
+            if any(error is not None for error in errors[at : at + len(pieces)]):
+                self.observer.failed(example, packet)
+            at += len(pieces)
 
         def there() -> bool:
             return any(
@@ -1079,16 +1233,39 @@ class Lab:
         # What hub00 did with it in another network instance may come a moment
         # after: the sniffer reads them in turn.
         time.sleep(0.005)
-        return self.sniffed()
+        sniffed = self.sniffed()
+        after = self.counters()[link.ni]
+        return Sent(
+            sniffed,
+            after.get("forwarded", 0) - before.get("forwarded", 0),
+            after.get("received", 0) - before.get("received", 0),
+            errors[-2],
+        )
+
+    def observe(self, packets: list[Sniffed]) -> list[str]:
+        """Note what was seen of the examples' packets; return how they leaked."""
+        found = []
+        for sniffed in packets:
+            number = sniffed.example()
+            keys = self.observer.attribute(sniffed.data, number)
+            examples = {example for example, _ in keys}
+            for example in sorted(examples):
+                ni = self.sent.get(example)
+                if ni is None:
+                    continue
+                mine = {key for key in keys if key[0] == example}
+                if sniffed.outgoing:
+                    self.observer.observe(mine, packet_observer.EGRESS_SEEN)
+                    if leak := leaked(sniffed, ni, self.hub):
+                        many = " (ambiguous)" if len(keys) > 1 else ""
+                        found.append(f"example {example}{many}: {leak}")
+                elif sniffed.ni == ni:
+                    self.observer.observe(mine, packet_observer.INGRESS_SEEN)
+        return found
 
     def leaks(self, packets: list[Sniffed]) -> list[str]:
         """Return how packets of the examples left their tenant."""
-        found = []
-        for sniffed in packets:
-            ni = self.sent.get(sniffed.example())
-            if ni and (leak := leaked(sniffed, ni, self.hub)):
-                found.append(f"example {sniffed.example()}: {leak}")
-        return found
+        return self.observe(packets)
 
     @staticmethod
     def dead() -> list[str]:
@@ -1112,8 +1289,17 @@ class Lab:
         return dead
 
     def stop(self) -> None:
-        """Stop the sniffer, the injectors and the spoofer."""
+        """Stop the sniffer, the injectors and the spoofer; remove the counters.
+
+        The other suites compare whole rulesets.
+        """
         self.sniffer.kill()
+        for ni in self.observed:
+            conftest.sh(
+                conftest.HOST,
+                f"ip netns exec {ni} nft delete table {OBSERVE_TABLE}",
+                check=False,
+            )
         for agent in (*self.injectors.values(), self.spoofer):
             agent.stop()
         conftest.sh(
@@ -1147,7 +1333,7 @@ def lab(deployed: conftest.Deployed) -> Iterator[Lab]:
                 "inject(*args)",
                 [link.interface, [ping(link, 0, CORE[2]).hex()]],
             )
-            seen.extend(lab.send(name, [], 0))
+            seen.extend(lab.send(name, [], 0).sniffed)
             return True
 
         for name, link in LINKS.items():
@@ -1255,22 +1441,91 @@ def test_tenant_traffic(lab: Lab, data: st.DataObject) -> None:
         )
         for what, _ in drawn:
             event(f"{link}: {what.rsplit(',', 1)[0]}")
-        packets = [p for _, pieces in drawn for p in pieces]
+        packets = [pieces for _, pieces in drawn]
         if link == "SSH":
             # The server's kernel only writes IP packets into its tun device.
             # Another version stops the tunnel: hub00's tun device refuses it,
             # and ssh stops writing to it.
-            packets = [p for p in packets if p and p[0] >> 4 in IP_VERSIONS]
-        leaks = lab.leaks(lab.send(link, packets, example))
+            packets = [
+                [p for p in ps if p and p[0] >> 4 in IP_VERSIONS] for ps in packets
+            ]
+        sent = lab.send(link, packets, example)
+        leaks = lab.observe(sent.sniffed)
         assert not leaks, "\n".join(["left the tenant's network instance:", *leaks])
+        check_control(link, example, sent)
+        totals = lab.observer.finish(example)
+        lab.totals.update({(link, what): n for what, n in totals.items()})
+        lab.beyond_control += sent.forwarded > 1
+        for what in totals:
+            event(f"{link}: {what}")
 
     dead = lab.dead()
     assert not dead, f"hub00's pings through {', '.join(dead)} aren't answered"
     lab.vitals.check()
 
 
+def split_marker(link: Link, example: int) -> list[bytes]:
+    """Return a UDP packet to CORE in two fragments, its marker split over both."""
+    src, dst = ipaddress.ip_address(link.tenant), ipaddress.ip_address(CONTROL_TARGET)
+    payload = bytes(12) + MAGIC + example.to_bytes(4) + bytes(20)
+    data = struct.pack("!HHHH", 40001, 9, 8 + len(payload), 0) + payload
+    value = checksum(pseudo(src, dst, 17, len(data)) + data) or 0xFFFF
+    data = data[:6] + struct.pack("!H", value) + data[8:]
+    ident = int.from_bytes(os.urandom(4))
+    pieces = []
+    # The marker starts 20 bytes into the datagram: the first fragment ends at 24.
+    for at, part, more in ((0, data[:24], 1), (24, data[24:], 0)):
+        rest = struct.pack("!BxHI", 17, at | more, ident) + part
+        header = struct.pack(
+            "!IHBB16s16s", 6 << 28, len(rest), 44, 64, src.packed, dst.packed
+        )
+        pieces.append(header + rest)
+    return pieces
+
+
+def test_split_marker(lab: Lab) -> None:
+    """A packet whose fragments each hold part of the marker is seen by identity."""
+    example = next(EXAMPLES)
+    sent = lab.send("IPSEC", [split_marker(LINKS["IPSEC"], example)], example)
+    leaks = lab.observe(sent.sniffed)
+    assert not leaks, "\n".join(["left the tenant's network instance:", *leaks])
+    check_control("IPSEC", example, sent)
+    lab.observer.finish(example)
+    seen = lab.observer.seen[example, 0]
+    assert packet_observer.INGRESS_SEEN in seen, f"not seen coming in: {seen}"
+
+
+def check_control(link: str, example: int, sent: Sent) -> None:
+    """Check the control: it came in, raised the forward counter, didn't leave."""
+    assert sent.control_error is None, f"the control wasn't sent: {sent.control_error}"
+    number = example | CONTROL
+    mine = [p for p in sent.sniffed if p.example() == number]
+    ni = LINKS[link].ni
+    assert any(p.ni == ni and not p.outgoing for p in mine), (
+        f"the control through {link} wasn't seen coming in"
+    )
+    assert sent.forwarded >= 1, f"the control through {link} wasn't counted forwarded"
+    out = [f"{p.ni} {p.interface}" for p in mine if p.outgoing]
+    assert not out, f"the control through {link} left: {out}"
+
+
+def report(lab: Lab) -> None:
+    """Print what was observed of the packets, per link."""
+    print("\nObserved packets, per link (not seen coming in: not tested):")
+    for link in sorted(LINKS):
+        line = ", ".join(
+            f"{what} {lab.totals[link, what]}" for what in packet_observer.OBSERVATIONS
+        )
+        print(f"  {link}: {line}")
+    print(
+        f"Examples that raised the forward counter beyond the control: "
+        f"{lab.beyond_control}"
+    )
+
+
 def test_tenant_traffic_end(lab: Lab) -> None:
     """Nothing left late, vpncmangle translated what it could, all still answer."""
+    report(lab)
     lab.spoofer.run("SPEC = None")
     # E.g. hub00's errors about fragments that never became a packet.
     time.sleep(1)
