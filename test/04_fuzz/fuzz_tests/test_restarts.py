@@ -29,6 +29,7 @@ RESTARTS = settings(
     max_examples=max(2, int(os.environ.get("FUZZ_EXAMPLES", "100")) // 10),
     stateful_step_count=6,
     deadline=None,
+    database=conftest.DATABASE,
 )
 CONTAINER = f"{conftest.CONTAINER_PREFIX}{conftest.HOST}"
 # A killed daemon runs again within this time: watchfrr waits up to 600 s before

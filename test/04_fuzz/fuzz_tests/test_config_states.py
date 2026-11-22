@@ -47,6 +47,7 @@ STATES = settings(
     max_examples=max(2, int(os.environ.get("FUZZ_EXAMPLES", "100")) // 5),
     stateful_step_count=STEPS,
     deadline=None,
+    database=conftest.DATABASE,
 )
 IKE_PROPOSALS = [
     "aes256gcm16-prfsha384-ecp384",

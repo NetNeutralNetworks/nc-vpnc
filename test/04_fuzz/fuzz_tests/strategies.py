@@ -138,7 +138,7 @@ def _paths(data: Any, prefix: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:  #
     return paths
 
 
-def _apply(data: Any, path: tuple[Any, ...], action: str, value: Any) -> None:  # noqa: ANN401
+def _apply(data: Any, path: tuple[Any, ...], action: str, value: Any) -> None:  # noqa: ANN401, C901
     """Change data at path; a path that's gone after an earlier change is skipped."""
     parent = data
     try:
@@ -160,14 +160,21 @@ def _apply(data: Any, path: tuple[Any, ...], action: str, value: Any) -> None:  
     elif action == "add" and isinstance(target, dict):
         target[f"unknown_{len(target)}"] = value
     elif action == "add" and isinstance(target, list):
-        target.append(value if value is not None else copy.deepcopy(target[:1]))
+        target.append(value)
+    elif action == "duplicate" and isinstance(target, list) and target:
+        target.append(copy.deepcopy(target[0]))
+    elif action == "nest" and isinstance(target, list):
+        # A list inside the list.
+        target.append(copy.deepcopy(target[:1]))
 
 
 def changed(base: dict[str, Any]) -> st.SearchStrategy[dict[str, Any]]:
     """Return a copy of base with one to three changes."""
     change = st.tuples(
         st.sampled_from(_paths(base)),
-        st.sampled_from(["delete", "replace", "replace", "wrap", "add"]),
+        st.sampled_from(
+            ["delete", "replace", "replace", "wrap", "add", "duplicate", "nest"]
+        ),
         values,
     )
 
@@ -202,6 +209,14 @@ def _is_list(data: Any, keys: list[Any]) -> bool:  # noqa: ANN401
     for key in keys:
         data = data[key]
     return isinstance(data, list)
+
+
+# IKE proposals other than the baseline's.
+PROPOSALS = [
+    "aes256gcm16-prfsha384-ecp384",
+    "aes128gcm16-prfsha256-x25519",
+    "chacha20poly1305-prfsha256-curve25519",
+]
 
 
 class Expected(enum.Enum):
@@ -247,7 +262,7 @@ class Change:
         return data == self.value or (self.value == GONE and data == [])
 
 
-def valid(base: dict[str, Any]) -> st.SearchStrategy[tuple[dict[str, Any], Change]]:
+def valid(base: dict[str, Any]) -> st.SearchStrategy[tuple[dict[str, Any], Change]]:  # noqa: C901
     """Return a copy of base (BASELINE) with a change that vpnc accepts, and it."""
 
     def build(change: tuple[str, Any]) -> tuple[dict[str, Any], Change]:  # noqa: PLR0911
@@ -276,12 +291,29 @@ def valid(base: dict[str, Any]) -> st.SearchStrategy[tuple[dict[str, Any], Chang
         if what == "probes":
             del connection["probes"]
             return data, Change((*at, "probes"), GONE)
+        if what == "psk":
+            connection["config"]["psk"] = f"fuzz-test-new-preshared-key-{value:08d}"
+            return data, Change((*at, "config", "psk"), connection["config"]["psk"])
+        if what == "selectors":
+            selectors = {
+                "local": [f"10.233.{value % 200}.0/24"],
+                "remote": ["10.231.0.0/24"],
+            }
+            connection["config"]["traffic_selectors"] = selectors
+            return data, Change((*at, "config", "traffic_selectors"), selectors)
+        if what == "proposal":
+            proposal = PROPOSALS[value % len(PROPOSALS)]
+            connection["config"]["ike_proposal"] = proposal
+            return data, Change((*at, "config", "ike_proposal"), proposal)
         del data["network_instances"]["01"]
         return data, Change(("network_instances", "01"), GONE)
 
     return st.tuples(
         st.sampled_from(
-            ["name", "metadata", "disable", "mtu", "route", "probes", "remove"],
+            [
+                *("name", "metadata", "disable", "mtu", "route", "probes", "remove"),
+                *("psk", "selectors", "proposal"),
+            ],
         ),
         st.integers(0, 10**6),
     ).map(build)

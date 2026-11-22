@@ -103,19 +103,24 @@ python3 -m pytest test/04_fuzz --hypothesis-show-statistics
 ```
 
 The fuzz tests need `python3-hypothesis`. A failure prints the smallest input that
-fails; it's kept in `test/04_fuzz/.hypothesis` and tried first in the next run.
+fails; every test keeps it in `test/04_fuzz/.hypothesis` and tries it first in the
+next run. A failed DNS end check writes the run's answers to
+`test/04_fuzz/.dns-answers-<time>.txt`, for `test/00_unit/replay_dns_answers.py`.
+`FUZZ_DNS_GRACE` sets how long after a DNS sentinel an answer may come (default
+0.03 s); `FUZZ_TRACE=1` traces tenant traffic in hub00 (`nft monitor trace`).
 
 | Test | Generates | Examples |
 |---|---|---|
 | `test_config_input` | Configuration files and API requests, valid or not; files written in place or moved into place; true, false or a number in place of a number or an address is refused | 3× |
-| `test_api_schema` | API requests from the OpenAPI schema (Schemathesis) | 1× per route |
+| `test_api_schema` | API requests from the OpenAPI schema (Schemathesis); a network instance's ping, traceroute and TCP test to any destination | 1× per route; ½× |
 | `test_dns_answers` | DNS answers that vpncmangle translates: well-formed with any records, broken in a place, or anything | 10× |
 | `test_config_states` | Sequences of 10 valid changes to a tenant; hub00 restarts after half of them | 1/5 |
 | `test_network_faults` | The same, with hub00's uplink down, flapping, losing or delaying packets | 1/10 |
 | `test_restarts` | The same, with charon, vpncmangle, an FRR daemon or vpnc killed or hanging, or hub00 restarted right after a commit | 1/10 |
-| `test_concurrency` | API calls and hand edits at the same time; hub00 restarts after a quarter of them | 1× |
+| `test_concurrency` | API calls and hand edits at the same time; hub00 restarts after a quarter of them; files torn by writes in place | 1× |
 | `test_ike_packets` | IKE messages to charon from a peer's address: first messages of IKEv2 and IKEv1 that charon answers, any payloads, later exchanges | 10× |
 | `test_tenant_traffic` | Packets from tenants through their tunnels (any range, protocol, ICMP type, options, fragments), and spoofed DNS answers | 10× |
+| `test_firewall_policy` | A packet per row of the firewall policy (`test/fuzz_common/policy_oracle.py`), and the rulesets' structure | fixed |
 
 Besides vpnc's own state, the tests check that charon, FRR and vpncmangle run,
 answer and took the configuration (charon and WireGuard: each connection's

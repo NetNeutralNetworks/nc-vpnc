@@ -30,6 +30,7 @@ FAULTS = settings(
     max_examples=max(2, int(os.environ.get("FUZZ_EXAMPLES", "100")) // 10),
     stateful_step_count=6,
     deadline=None,
+    database=conftest.DATABASE,
 )
 UPLINK = "eth1"
 # Short mostly: BFD and BGP notice within seconds. Up to half a minute, which
