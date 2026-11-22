@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import copy
+import ipaddress
 from typing import Any
 
 import yaml
@@ -69,6 +71,14 @@ BASELINE: dict[str, Any] = {
     },
 }
 
+# Words of IPsec proposals: algorithms charon knows, weak ones, and none.
+KEYWORDS = [
+    "aes256gcm16", "aes128gcm16", "aes256", "aes128", "chacha20poly1305", "3des",
+    "sha256", "sha384", "sha1", "md5", "prfsha256", "prfsha384", "prfsha1",
+    "ecp384", "ecp256", "x25519", "curve25519", "modp3072", "modp2048", "modp1024",
+    "mlkem768", "ke1_mlkem768", "esn", "noesn", "null", "aes256ccm", "",
+]  # fmt: skip
+
 # Values that are wrong, at a limit or used elsewhere in the lab.
 AWKWARD: list[Any] = [
     None, "", " ", "x" * 5000, "🙂", "a\nb", "\x00", "../../etc/passwd",
@@ -83,11 +93,33 @@ AWKWARD: list[Any] = [
     "eth0", "eth1", "lo", "0.1.4", "0.0.1", "99.0.0",
 ]  # fmt: skip
 
+# Random values of the kinds the settings take: any address or network, port,
+# lifetime, key or name.
+addresses = st.one_of(st.ip_addresses(v=4), st.ip_addresses(v=6)).map(str)
+networks = st.one_of(
+    st.tuples(st.ip_addresses(v=4), st.integers(0, 32)),
+    st.tuples(st.ip_addresses(v=6), st.integers(0, 128)),
+).map(lambda n: str(ipaddress.ip_network(f"{n[0]}/{n[1]}", strict=False)))
+typed = st.one_of(
+    addresses,
+    networks,
+    # An interface's address: a host in a network.
+    st.tuples(st.ip_addresses(v=4), st.integers(0, 32)).map(lambda n: f"{n[0]}/{n[1]}"),
+    st.tuples(st.ip_addresses(v=6), st.integers(0, 128)).map(
+        lambda n: f"{n[0]}/{n[1]}"
+    ),
+    st.integers(0, 70000),
+    st.binary(min_size=32, max_size=32).map(lambda key: base64.b64encode(key).decode()),
+    st.from_regex(r"[2-9A-F][0-9]{4}(-[0-9]{2}(-[0-9])?)?", fullmatch=True),
+    st.lists(st.sampled_from(KEYWORDS), min_size=1, max_size=5).map("-".join),
+)
+# A value: one that's listed as awkward, one of a setting's kind, or anything.
 values = st.one_of(
     st.sampled_from(AWKWARD),
+    typed,
     st.text(max_size=20),
     st.integers(),
-    st.lists(st.sampled_from(AWKWARD), max_size=3),
+    st.lists(st.one_of(st.sampled_from(AWKWARD), typed), max_size=3),
     st.dictionaries(st.text(max_size=8), st.sampled_from(AWKWARD), max_size=3),
 )
 
@@ -112,6 +144,9 @@ def _apply(data: Any, path: tuple[Any, ...], action: str, value: Any) -> None:  
             parent = parent[key]
         target = parent[path[-1]]
     except (KeyError, IndexError, TypeError):
+        return
+    if not isinstance(parent, (dict, list)):
+        # E.g. a character of text that replaced a list.
         return
     key = path[-1]
     if action == "delete":
@@ -167,6 +202,107 @@ def _is_list(data: Any, keys: list[Any]) -> bool:  # noqa: ANN401
     return isinstance(data, list)
 
 
+def valid(base: dict[str, Any]) -> st.SearchStrategy[dict[str, Any]]:
+    """Return a copy of base (BASELINE) with a change that vpnc accepts."""
+
+    def build(change: tuple[str, Any]) -> dict[str, Any]:
+        what, value = change
+        data = copy.deepcopy(base)
+        connections = data["network_instances"]["00"]["connections"]
+        # As configured (0), or as the API returns it ("0").
+        connection = connections[0] if 0 in connections else connections["0"]
+        if what == "name":
+            data["name"] = f"Changed {value}"
+        elif what == "metadata":
+            data["metadata"] = {"fuzz": value}
+        elif what == "disable":
+            connection["enabled"] = False
+        elif what == "mtu":
+            connection["mtu"] = 1280 + value % 221
+        elif what == "route":
+            connection["routes"]["ipv4"].append(
+                {"to": f"10.231.{1 + value % 200}.0/24"}
+            )
+        elif what == "probes":
+            del connection["probes"]
+        else:
+            del data["network_instances"]["01"]
+        return data
+
+    return st.tuples(
+        st.sampled_from(
+            ["name", "metadata", "disable", "mtu", "route", "probes", "remove"],
+        ),
+        st.integers(0, 10**6),
+    ).map(build)
+
+
+def _is_address(value: object) -> bool:
+    """Return whether a value is text that reads as an address or a network."""
+    if not isinstance(value, str):
+        return False
+    try:
+        ipaddress.ip_interface(value)
+    except ValueError:
+        return False
+    return True
+
+
+def mistyped(base: dict[str, Any]) -> st.SearchStrategy[dict[str, Any]]:
+    """Return a copy of base that vpnc refuses, for a value of another kind.
+
+    True or false as a number or an address, or a number as an address: read
+    as they are, true is 1 and 5 is 0.0.0.5.
+    """
+    numbers, addresses = [], []
+    for path in _paths(base):
+        value = base
+        for key in path:
+            value = value[key]
+        # Not metadata: that's anything.
+        if "metadata" in path or isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            numbers.append(path)
+        elif _is_address(value):
+            addresses.append(path)
+
+    def build(path: tuple[Any, ...], value: Any) -> dict[str, Any]:  # noqa: ANN401
+        data = copy.deepcopy(base)
+        _apply(data, path, "replace", value)
+        return data
+
+    return st.one_of(
+        st.builds(build, st.sampled_from(numbers), st.booleans()),
+        st.builds(
+            build,
+            st.sampled_from(addresses),
+            st.one_of(st.booleans(), st.integers(0, 2**128 - 1)),
+        ),
+    )
+
+
+@st.composite
+def written(draw: st.DrawFn, data: dict[str, Any]) -> str:
+    """Return a configuration as a hand-written file: its layout, with comments."""
+    text = yaml.safe_dump(
+        data,
+        indent=draw(st.sampled_from([2, 4])),
+        sort_keys=draw(st.booleans()),
+        default_style=draw(st.sampled_from([None, None, '"', "'"])),
+        explicit_start=draw(st.booleans()),
+    )
+    lines = text.splitlines()
+    comments = draw(st.lists(st.integers(0, len(lines)), max_size=4))
+    for at in sorted(comments, reverse=True):
+        indent = draw(st.sampled_from(["", "  ", "      "]))
+        lines.insert(at, f"{indent}# {draw(st.sampled_from(COMMENTS))}")
+    return "\n".join(lines) + draw(st.sampled_from(["\n", "\n", "", "\n\n"]))
+
+
+# Comments that look like configuration.
+COMMENTS = ["A comment", "type: ipsec", "id: C0003-00", "version: 0.0.1", "mode: hub:"]
+
 # Text that isn't (valid) YAML, or a configuration that's hard to read.
 RAW = [
     "",
@@ -175,7 +311,7 @@ RAW = [
     "{",
     "id: [unclosed\n",
     "\tid: C0003\n",
-    "﻿id: C0003\n",
+    "\ufeffid: C0003\n",
     "!!python/object/apply:os.system ['true']\n",
     "a: &a [*a]\n",
     "id: C0003\nid: C0001\n",
@@ -183,8 +319,35 @@ RAW = [
     "version: 0.1.4\nid: C0003\nnetwork_instances: &n {00: *n}\n",
 ]
 
+# The baseline as vpnc stores it, set by the test that applies it: with the
+# NPTv6 prefixes vpnc assigns. A file without them is the baseline too, but
+# vpnc assigns them again, which takes a moment.
+STORED: dict[str, Any] = {}
+
+
+def stored() -> dict[str, Any]:
+    """Return the baseline as vpnc stores it (before it's applied: as it is)."""
+    return copy.deepcopy(STORED or BASELINE)
+
+
+base = st.builds(stored)
+# A file's text, and what vpnc must do with it if that's known: "applied" (it's
+# valid and differs from the baseline), "same" (it's the baseline) or "refused".
 file_texts = st.one_of(
-    st.sampled_from(RAW),
-    st.text(st.characters(exclude_categories=("Cs",)), max_size=200),
-    changed(BASELINE).map(yaml.safe_dump),
+    st.sampled_from(RAW).map(lambda text: (text, None)),
+    st.text(st.characters(exclude_categories=("Cs",)), max_size=200).map(
+        lambda text: (text, None),
+    ),
+    base.flatmap(changed).map(yaml.safe_dump).map(lambda text: (text, None)),
+    base.flatmap(valid).flatmap(written).map(lambda text: (text, "applied")),
+    base.flatmap(written).map(lambda text: (text, "same")),
+    base.flatmap(mistyped).map(yaml.safe_dump).map(lambda text: (text, "refused")),
+)
+
+# A request, and "refused" if vpnc must refuse it.
+requests = st.one_of(
+    st.tuples(st.just("PUT"), base.flatmap(changed), st.none()),
+    st.tuples(st.just("PUT"), base.flatmap(valid), st.none()),
+    st.tuples(st.just("PATCH"), base.flatmap(patches), st.none()),
+    st.tuples(st.just("PUT"), base.flatmap(mistyped), st.just("refused")),
 )

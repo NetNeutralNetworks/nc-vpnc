@@ -3,8 +3,9 @@
 Threads run generated sequences of API calls (stage, patch, commit, discard,
 delete, read) and edits of the active files, on two tenants they share. No call
 may fail with a server error and vpnc must keep running. Afterwards what runs
-must be what the files say: applied in full, and the same after hub00 restarts
-from them.
+must be what the files say: the configuration vpnc reports and the state it
+applied (network instances, connections, routes, what charon has loaded), and
+for one example in four also the same after hub00 restarts from the files.
 """
 
 from __future__ import annotations
@@ -19,25 +20,22 @@ from hypothesis import event, given, settings
 from hypothesis import strategies as st
 
 from . import conftest
-from .test_config_states import RESTART_TIMEOUT, restart, same, without_processes
+from .test_config_states import charon_problems, restarted_the_same
 
 pytestmark = pytest.mark.skipif(
     not conftest.FUZZ_LAB,
     reason="runs in the fuzz lab: run test/04_fuzz on its own",
 )
 
-# Each example ends with a restart: about 25 s.
+# An example takes about 3 s, one that ends with a restart about 25 s.
 CONCURRENCY = settings(
-    max_examples=max(2, int(os.environ.get("FUZZ_EXAMPLES", "100")) // 2),
+    max_examples=max(2, int(os.environ.get("FUZZ_EXAMPLES", "100"))),
     deadline=None,
 )
 TENANTS = ("C0006", "C0007")
 THREADS = 3
 OK = 200
 APPLY_TIMEOUT = 120
-# The watcher handles each file event 0.1 s after it, and a file written by hand
-# may be read half-written: within this time its last event is handled.
-SETTLE_TIMEOUT = 10
 
 
 def variant(tenant: str, number: int) -> dict[str, Any]:
@@ -66,6 +64,7 @@ def variant(tenant: str, number: int) -> dict[str, Any]:
                                 "aes128gcm16-prfsha256-x25519",
                                 "aes256-sha256-modp3072",
                             ][number],
+                            "ike_lifetime": 3600 * (1 + number),
                             "psk": f"fuzz-concurrency-preshared-key-{t}{number}",
                         },
                     },
@@ -120,12 +119,14 @@ def run(op: tuple[Any, ...]) -> None:
 
 def remove_tenants() -> None:
     """Remove the tenants' files, and wait until they're gone."""
-    for t in TENANTS:
-        conftest.run_cmd(
-            conftest.HOST,
+    conftest.sh(
+        conftest.HOST,
+        " ".join(
             f"rm -rf {conftest.ACTIVE_DIR}/{t}.yaml {conftest.CANDIDATE_DIR}/{t}.yaml"
-            f" {conftest.HISTORY_DIR}/{t}",
-        )
+            f" {conftest.HISTORY_DIR}/{t};"
+            for t in TENANTS
+        ),
+    )
     conftest.wait_until(
         lambda: not any(ni.startswith(TENANTS) for ni in conftest.snapshot()),
         timeout=APPLY_TIMEOUT,
@@ -141,14 +142,75 @@ def file_errors() -> dict[str, str]:
 
 def files() -> dict[str, Any]:
     """Return the tenants' active files, parsed (None: there's none)."""
-    found = {}
-    for t in TENANTS:
-        text = conftest.run_cmd_shell(
-            conftest.HOST,
-            f"bash -c 'cat {conftest.ACTIVE_DIR}/{t}.yaml 2> /dev/null || true'",
-        )
-        found[t] = yaml.safe_load(text) if text.strip() else None
-    return found
+    texts = conftest.batch(
+        conftest.HOST,
+        [conftest.command(["cat", f"{conftest.ACTIVE_DIR}/{t}.yaml"]) for t in TENANTS],
+    )
+    return {
+        t: yaml.safe_load(text["out"]) if text.get("out", "").strip() else None
+        for t, text in zip(TENANTS, texts, strict=True)
+    }
+
+
+def settings_of(configuration: dict[str, Any]) -> tuple[Any, ...]:
+    """Return what a variant sets, from a file or as vpnc reports it."""
+    connections = configuration["network_instances"]["00"]["connections"]
+    connection = connections[0] if 0 in connections else connections["0"]
+    return (
+        configuration["name"],
+        connection.get("enabled", True),
+        connection["routes"]["ipv4"][0]["to"],
+        connection["config"]["ike_proposal"],
+        connection["config"]["ike_lifetime"],
+        connection["config"]["psk"],
+    )
+
+
+def running() -> dict[str, Any]:
+    """Return the configuration each tenant runs (None: it doesn't)."""
+    answers = conftest.gets([f"{url(t)}?reveal_secrets=true" for t in TENANTS])
+    return {
+        t: answer if status == OK else None
+        for t, (status, answer) in zip(TENANTS, answers, strict=True)
+    }
+
+
+def problems(on_disk: dict[str, Any]) -> list[str]:
+    """Return how what vpnc runs and applied differs from what the files say."""
+    found = []
+    state = conftest.snapshot()
+    loaded = {line[1:].split()[0]: line for line in state["(charon)"]["connections"]}
+    for t, configuration in running().items():
+        ni = f"{t}-00"
+        if on_disk[t] is None or configuration is None:
+            if (on_disk[t] is None) != (configuration is None):
+                found.append(f"{t} runs {configuration}, its file says {on_disk[t]}")
+            if configuration is None and ni in state:
+                found.append(f"{t} doesn't run, but has network instance {ni}")
+            continue
+        if settings_of(configuration) != settings_of(on_disk[t]):
+            found.append(
+                f"{t} runs {settings_of(configuration)},"
+                f" its file says {settings_of(on_disk[t])}",
+            )
+        connection = configuration["network_instances"]["00"]["connections"]["0"]
+        if ni not in state:
+            found.append(f"{t} runs, but has no network instance {ni}")
+            continue
+        admin = (f"{ni}-0", "UP" if connection["enabled"] else "DOWN")
+        if admin not in state["(vpnc)"]["admin_status"]:
+            found.append(f"{ni}-0 isn't {admin[1]}")
+        route = connection["routes"]["ipv4"][0]["to"]
+        if connection["enabled"] and route not in {r[2] for r in state[ni]["routes"]}:
+            found.append(f"{ni}-0 has no route to {route}")
+        found += charon_problems(f"{ni}-0", connection, loaded)
+    return found or conftest.unsound()
+
+
+@pytest.fixture(scope="module")
+def canary(deployed: conftest.Deployed) -> conftest.Canary:  # noqa: ARG001
+    """Return what tells that vpnc handled the files written so far."""
+    return conftest.Canary()
 
 
 @CONCURRENCY
@@ -158,8 +220,14 @@ def files() -> dict[str, Any]:
         min_size=THREADS,
         max_size=THREADS,
     ),
+    restart=st.sampled_from([True, False, False, False]),
 )
-def test_concurrency(deployed: conftest.Deployed, sequences: list[list[Any]]) -> None:
+def test_concurrency(
+    deployed: conftest.Deployed,
+    canary: conftest.Canary,
+    sequences: list[list[Any]],
+    restart: bool,  # noqa: FBT001
+) -> None:
     """Concurrent changes leave vpnc running what its files say."""
     try:
         with concurrent.futures.ThreadPoolExecutor(THREADS) as pool:
@@ -169,50 +237,34 @@ def test_concurrency(deployed: conftest.Deployed, sequences: list[list[Any]]) ->
                 future.result()
         assert conftest.restarts() == 0, "vpnc exited"
 
-        try:
-            conftest.wait_until(
-                lambda: not file_errors(),
-                timeout=SETTLE_TIMEOUT,
-                message="the files to be loaded",
-            )
-        except TimeoutError:
-            msg = f"files not loaded: {file_errors()}"
-            raise AssertionError(msg) from None
-        event(f"tenants with a file: {sum(f is not None for f in files().values())}")
-
-        before = conftest.stable()
-        conftest.check_loaded()
-        conftest.check_answering()
-        running = {t: conftest.api("GET", url(t))[0] == OK for t in TENANTS}
+        # A file written by hand may be read half-written: its last change counts.
+        canary.settled()
+        assert not file_errors(), f"files not loaded: {file_errors()}"
         on_disk = files()
-        for t in TENANTS:
-            assert running[t] == (on_disk[t] is not None), (
-                f"{t}: runs {running[t]}, has a file {on_disk[t] is not None}"
-            )
-
-        restart(deployed)
+        event(f"tenants with a file: {sum(f is not None for f in on_disk.values())}")
         try:
             conftest.wait_until(
-                lambda: same(before, conftest.snapshot()),
-                timeout=RESTART_TIMEOUT,
-                interval=3,
-                message="the state from before the restart",
+                lambda: not problems(on_disk),
+                timeout=APPLY_TIMEOUT,
+                message="what the files say",
             )
         except TimeoutError:
-            changes = conftest.diff(
-                without_processes(before),
-                without_processes(conftest.snapshot()),
+            raise AssertionError("\n".join(problems(on_disk))) from None
+
+        if restart:
+            restarted_the_same(
+                deployed,
+                "not what the files say: different after a restart:",
             )
-            msg = "\n".join(
-                ["not what the files say: different after a restart:", *changes]
-            )
-            raise AssertionError(msg) from None
-        conftest.check_bgp()
+            conftest.check_bgp()
     finally:
         remove_tenants()
 
 
-def test_concurrency_cleanup(deployed: conftest.Deployed) -> None:
+def test_concurrency_cleanup(
+    deployed: conftest.Deployed, canary: conftest.Canary
+) -> None:
     """Leave hub00 as deployed."""
+    canary.remove()
     remove_tenants()
     deployed.reset()
