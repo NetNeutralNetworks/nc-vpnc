@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -11,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 from vpnc import accounts, helpers
 from vpnc.models import enums
 from vpnc.models.post_quantum import PostQuantumSSH
+from vpnc.models.scalars import Address, Int
 from vpnc.network import state
 from vpnc.services import ssh
 
@@ -32,10 +32,10 @@ class ConnectionConfigSSH(BaseModel):
 
     type: Literal[enums.ConnectionType.SSH] = enums.ConnectionType.SSH
     _upper = helpers.upper("type")
-    remote_addrs: list[IPv4Address | IPv6Address] = Field(min_length=1)
+    remote_addrs: list[Address] = Field(min_length=1)
     # Required. Specifies the remote
     # tunnel identifier to avoid overlap.
-    remote_tunnel_id: int
+    remote_tunnel_id: Int
     # Optional interface on the remote side to masquerade out of. The remote
     # side isn't configured by vpnc: only in the script of remote_setup.
     remote_config_interface: str | None = Field(

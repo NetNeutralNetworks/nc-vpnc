@@ -16,6 +16,7 @@ from pyroute2 import Conntrack
 
 from vpnc import helpers
 from vpnc.models import enums
+from vpnc.models.scalars import Address, Float, Int
 from vpnc.network import namespace, nftables
 from vpnc.services import jool
 
@@ -23,8 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from vpnc.models.network_instance import NetworkInstance
-
-IPAddress = IPv4Address | IPv6Address
+IPAddress = Address
 
 PING_SUMMARY_RE = re.compile(r"(\d+) packets transmitted, (\d+) received")
 PING_RTT_RE = re.compile(r"= ([\d.]+)/([\d.]+)/([\d.]+)/")
@@ -48,10 +48,10 @@ class PingRequest(BaseModel):
     """A ping."""
 
     destination: IPAddress
-    count: int = Field(5, ge=1, le=100)
-    size: int = Field(56, ge=0, le=65500)
+    count: Int = Field(5, ge=1, le=100)
+    size: Int = Field(56, ge=0, le=65500)
     # Seconds to wait for each reply.
-    timeout: float = Field(1, gt=0, le=10)
+    timeout: Float = Field(1, gt=0, le=10)
 
 
 class PingResult(BaseModel):
@@ -70,7 +70,7 @@ class TracerouteRequest(BaseModel):
     """A traceroute."""
 
     destination: IPAddress
-    max_hops: int = Field(20, ge=1, le=64)
+    max_hops: Int = Field(20, ge=1, le=64)
 
 
 class Hop(BaseModel):
@@ -93,8 +93,8 @@ class TcpRequest(BaseModel):
     """A TCP connection test."""
 
     address: IPAddress
-    port: int = Field(ge=1, le=65535)
-    timeout: float = Field(3, gt=0, le=30)
+    port: Int = Field(ge=1, le=65535)
+    timeout: Float = Field(3, gt=0, le=30)
 
 
 class TcpResult(BaseModel):

@@ -26,6 +26,7 @@ from pydantic import (
 
 from vpnc import config, files, helpers
 from vpnc.models import connections, enums
+from vpnc.models.scalars import Int
 from vpnc.models.wireguard import wireguard_port_users
 from vpnc.network import namespace, nftables, state
 from vpnc.services import jool
@@ -215,7 +216,7 @@ class NetworkInstance(BaseModel):
     type: Any
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    connections: dict[int, connections.Connection]
+    connections: dict[Int, connections.Connection]
 
     # Not configured: the tenant sets them from its id and the key.
     _tenant_id: str = PrivateAttr()
