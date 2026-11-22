@@ -263,6 +263,8 @@ class ConfigStates(RuleBasedStateMachine):
         self.restart = True
         # Packets that hub00 must stop, throughout a sequence.
         self.watch: firewall.Watch | None = None
+        # Whether a change failed: then the sequence ends without its restart.
+        self.failed = False
 
     @initialize(restart=st.booleans(), watch=st.integers(0, 3))
     def with_or_without_restart(self, restart: bool, watch: int) -> None:  # noqa: FBT001
@@ -285,13 +287,53 @@ class ConfigStates(RuleBasedStateMachine):
 
     def commit(self, change: str) -> None:
         """Stage the configuration, commit it and (unless not) check it's applied."""
-        status, detail = conftest.api("PUT", URL, self.config)
-        assert status == 200, f"{change}: refused: {detail}"  # noqa: PLR2004
-        status, detail = conftest.api("POST", f"{URL}/commit")
-        assert status == 200, f"{change}: commit refused: {detail}"  # noqa: PLR2004
-        self.created = True
-        if self.checking:
-            self.check(change)
+        try:
+            status, detail = conftest.api("PUT", URL, self.config)
+            assert status == 200, f"{change}: refused: {detail}"  # noqa: PLR2004
+            status, detail = conftest.api("POST", f"{URL}/commit")
+            assert status == 200, f"{change}: commit refused: {detail}"  # noqa: PLR2004
+            self.created = True
+            if self.checking:
+                self.check(change)
+        except BaseException:
+            self.failed = True
+            raise
+
+    def ipsec(self) -> list[tuple[str, int]]:
+        """Return the tenant's IPsec connections by network instance and key."""
+        return [
+            (ni, key)
+            for ni, key in self.connections()
+            if self.nis[ni]["connections"][key]["config"]["type"] == "IPSEC"
+        ]
+
+    def committed_resets(
+        self, ni: str, key: int, change: str, expected: set[str]
+    ) -> None:
+        """Commit a change; check the connection's new CONFIG_RESET events.
+
+        expected: what one new event must name; none if empty.
+        """
+        before = resets(ni, key)
+        self.commit(change)
+        if not expected:
+            new = [e for e in resets(ni, key) if e not in before]
+            assert not new, f"{change}: reset {new}"
+            return
+        try:
+            conftest.wait_until(
+                lambda: [e for e in resets(ni, key) if e not in before],
+                timeout=10,
+                message=f"{change}: a CONFIG_RESET event",
+            )
+        except TimeoutError:
+            self.failed = True
+            missing = f"{change}: no CONFIG_RESET event"
+            raise AssertionError(missing) from None
+        new = [e for e in resets(ni, key) if e not in before]
+        assert len(new) == 1, f"{change}: {len(new)} resets: {new}"
+        named = set(new[0]["details"].get("changed", []))
+        assert named == expected, f"{change}: reset for {named}, not {expected}"
 
     def change_unchecked(self, data: st.DataObject) -> str:
         """Commit a change without checking it's applied (e.g. during a fault)."""
@@ -479,15 +521,21 @@ class ConfigStates(RuleBasedStateMachine):
             st.sampled_from([k for k in CONNECTION_KEYS if k not in connections])
         )
         connections[key] = data.draw(connection(ni, key))
-        self.commit(f"add {ni}-{key}")
+        # A reset is for a connection charon had.
+        self.committed_resets(ni, key, f"add {ni}-{key}", set())
 
     @precondition(lambda self: self.connections())
     @rule(data=st.data())
     def replace_connection(self, data: st.DataObject) -> None:
-        """Replace a connection with another (type, routes, addresses, keys)."""
+        """Replace a connection with another (type, routes, addresses, keys).
+
+        If it stays an enabled IPsec connection, a new id or selectors reset it.
+        """
         ni, key = data.draw(st.sampled_from(self.connections()))
-        self.nis[ni]["connections"][key] = data.draw(connection(ni, key))
-        self.commit(f"replace {ni}-{key}")
+        old = self.nis[ni]["connections"][key]
+        new = data.draw(connection(ni, key))
+        self.nis[ni]["connections"][key] = new
+        self.committed_resets(ni, key, f"replace {ni}-{key}", kept(old, new))
 
     @precondition(lambda self: self.connections())
     @rule(data=st.data())
@@ -497,6 +545,46 @@ class ConfigStates(RuleBasedStateMachine):
         c = self.nis[ni]["connections"][key]
         c["enabled"] = not c["enabled"]
         self.commit(f"{'enable' if c['enabled'] else 'disable'} {ni}-{key}")
+
+    @precondition(lambda self: self.ipsec())
+    @rule(data=st.data())
+    def rotate_psk(self, data: st.DataObject) -> None:
+        """Give an IPsec connection a new PSK: charon's SAs have the old one."""
+        ni, key = data.draw(st.sampled_from(self.ipsec()))
+        c = self.nis[ni]["connections"][key]
+        c["config"]["psk"] = (
+            f"rotated-{data.draw(st.binary(min_size=16, max_size=16)).hex()}"
+        )
+        expected = {"psk"} if c["enabled"] else set()
+        self.committed_resets(ni, key, f"rotate {ni}-{key}'s PSK", expected)
+
+    @precondition(lambda self: self.ipsec())
+    @rule(data=st.data())
+    def change_selectors(self, data: st.DataObject) -> None:
+        """Change only an IPsec connection's traffic selectors."""
+        ni, key = data.draw(st.sampled_from(self.ipsec()))
+        c = self.nis[ni]["connections"][key]
+        n = number(ni, key)
+        options = [
+            {"local": [], "remote": []},
+            {"local": [f"10.20.{n}.0/24"], "remote": [f"10.60.{n}.0/24"]},
+            {"local": [f"10.22.{n}.0/24"], "remote": [f"10.62.{n}.0/24"]},
+        ]
+        old = c["config"]["traffic_selectors"]
+        c["config"]["traffic_selectors"] = data.draw(
+            st.sampled_from([o for o in options if o != old])
+        )
+        expected = {"traffic_selectors"} if c["enabled"] else set()
+        self.committed_resets(ni, key, f"change {ni}-{key}'s selectors", expected)
+
+    @precondition(lambda self: self.ipsec())
+    @rule(data=st.data())
+    def change_metadata(self, data: st.DataObject) -> None:
+        """Change only an IPsec connection's metadata: no reset."""
+        ni, key = data.draw(st.sampled_from(self.ipsec()))
+        c = self.nis[ni]["connections"][key]
+        c["metadata"] = {"owner": f"fuzz-{data.draw(st.integers(0, 10**6))}"}
+        self.committed_resets(ni, key, f"change {ni}-{key}'s metadata", set())
 
     @precondition(lambda self: self.connections())
     @rule(data=st.data())
@@ -512,16 +600,57 @@ class ConfigStates(RuleBasedStateMachine):
         assert conftest.restarts() == 0, "vpnc exited"
 
     def teardown(self) -> None:
-        """Restart hub00: from its files it must get back to the same state."""
-        if self.watch is not None:
-            leaks = self.watch.finish()
-            assert self.watch.sent, "no packets sent to CORE throughout"
-            assert not leaks, "\n".join(["left C0001-00 during commits:", *leaks])
-        self.settled()
-        if self.created and self.restart:
-            restarted_the_same(self.deployed, "not the same after a restart:")
-            assert not self.pending(), "\n".join(self.pending())
-        remove_tenant()
+        """Restart hub00: from its files it must get back to the same state.
+
+        The tenant goes in any case: the next sequence starts without it.
+        """
+        try:
+            if self.watch is not None:
+                leaks = self.watch.finish()
+                assert self.watch.sent, "no packets sent to CORE throughout"
+                assert not leaks, "\n".join(["left C0001-00 during commits:", *leaks])
+            if self.failed:
+                return
+            self.settled()
+            if self.created and self.restart:
+                restarted_the_same(self.deployed, "not the same after a restart:")
+                assert not self.pending(), "\n".join(self.pending())
+        finally:
+            remove_tenant()
+
+
+def resets(ni: str, key: int) -> list[dict[str, Any]]:
+    """Return a connection's CONFIG_RESET events."""
+    status, found = conftest.api(
+        "GET", f"/v1/events?connection={TENANT}-{ni}-{key}&event=CONFIG_RESET"
+    )
+    assert status == 200, f"events: {status} {found}"  # noqa: PLR2004
+    return found
+
+
+def kept(old: dict[str, Any], new: dict[str, Any]) -> set[str]:
+    """Return what a replaced connection's SAs keep the old of, if charon had it.
+
+    Its PSK, ids and traffic selectors; an id not set is its default (the
+    first remote address for the remote id).
+    """
+    if not (old["enabled"] and new["enabled"]):
+        return set()
+    was, now = old["config"], new["config"]
+    if was["type"] != "IPSEC" or now["type"] != "IPSEC":
+        return set()
+    changed = set()
+    if was["psk"] != now["psk"]:
+        changed.add("psk")
+    if was["local_id"] != now["local_id"]:
+        changed.add("local_id")
+    if (was["remote_id"] or was["remote_addrs"][0]) != (
+        now["remote_id"] or now["remote_addrs"][0]
+    ):
+        changed.add("remote_id")
+    if was["traffic_selectors"] != now["traffic_selectors"]:
+        changed.add("traffic_selectors")
+    return changed
 
 
 def without_processes(state: dict[str, Any]) -> dict[str, Any]:

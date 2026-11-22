@@ -56,9 +56,11 @@ class Restarts(ConfigStates):
 
     def teardown(self) -> None:
         """Restart hub00 for a new watchfrr, if the sequence doesn't anyway."""
-        if self.frr_killed and not (self.created and self.restart):
-            restart(self.deployed)
-        super().teardown()
+        try:
+            if self.frr_killed and not (self.created and self.restart):
+                restart(self.deployed)
+        finally:
+            super().teardown()
 
     def recovered(self, after: str) -> None:
         """Wait until all run again and BGP is up; check the config is applied."""

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import copy
+import enum
 import ipaddress
+from dataclasses import dataclass
 from typing import Any
 
 import yaml
@@ -202,32 +204,80 @@ def _is_list(data: Any, keys: list[Any]) -> bool:  # noqa: ANN401
     return isinstance(data, list)
 
 
-def valid(base: dict[str, Any]) -> st.SearchStrategy[dict[str, Any]]:
-    """Return a copy of base (BASELINE) with a change that vpnc accepts."""
+class Expected(enum.Enum):
+    """What vpnc must do with a request."""
 
-    def build(change: tuple[str, Any]) -> dict[str, Any]:
+    ACCEPT = "ACCEPT"
+    REJECT = "REJECT"
+    EITHER = "EITHER"
+
+
+# A setting a change removed.
+GONE = "(gone)"
+
+
+@dataclass(frozen=True)
+class Change:
+    """The setting a valid change sets: its path, and its value (or GONE).
+
+    contains: the value is one item of the list at path.
+    """
+
+    path: tuple[Any, ...]
+    value: Any
+    contains: bool = False
+
+    def held(self, data: Any) -> bool:  # noqa: ANN401
+        """Return whether a configuration (as the API returns it) has the change."""
+        for key in self.path:
+            if not isinstance(data, dict):
+                return False
+            # Keys as configured (0), or as the API returns them ("0").
+            found = next((k for k in (key, str(key)) if k in data), None)
+            if found is None:
+                return self.value == GONE
+            data = data[found]
+        if self.contains:
+            # The API adds defaults to an item.
+            return any(
+                isinstance(item, dict) and self.value.items() <= item.items()
+                for item in data
+            )
+        # A list removed reads as empty.
+        return data == self.value or (self.value == GONE and data == [])
+
+
+def valid(base: dict[str, Any]) -> st.SearchStrategy[tuple[dict[str, Any], Change]]:
+    """Return a copy of base (BASELINE) with a change that vpnc accepts, and it."""
+
+    def build(change: tuple[str, Any]) -> tuple[dict[str, Any], Change]:  # noqa: PLR0911
         what, value = change
         data = copy.deepcopy(base)
         connections = data["network_instances"]["00"]["connections"]
-        # As configured (0), or as the API returns it ("0").
-        connection = connections[0] if 0 in connections else connections["0"]
+        key = 0 if 0 in connections else "0"
+        connection = connections[key]
+        at = ("network_instances", "00", "connections", key)
         if what == "name":
             data["name"] = f"Changed {value}"
-        elif what == "metadata":
+            return data, Change(("name",), data["name"])
+        if what == "metadata":
             data["metadata"] = {"fuzz": value}
-        elif what == "disable":
+            return data, Change(("metadata",), data["metadata"])
+        if what == "disable":
             connection["enabled"] = False
-        elif what == "mtu":
+            return data, Change((*at, "enabled"), value=False)
+        if what == "mtu":
             connection["mtu"] = 1280 + value % 221
-        elif what == "route":
-            connection["routes"]["ipv4"].append(
-                {"to": f"10.231.{1 + value % 200}.0/24"}
-            )
-        elif what == "probes":
+            return data, Change((*at, "mtu"), connection["mtu"])
+        if what == "route":
+            route = {"to": f"10.231.{1 + value % 200}.0/24"}
+            connection["routes"]["ipv4"].append(route)
+            return data, Change((*at, "routes", "ipv4"), route, contains=True)
+        if what == "probes":
             del connection["probes"]
-        else:
-            del data["network_instances"]["01"]
-        return data
+            return data, Change((*at, "probes"), GONE)
+        del data["network_instances"]["01"]
+        return data, Change(("network_instances", "01"), GONE)
 
     return st.tuples(
         st.sampled_from(
@@ -339,15 +389,25 @@ file_texts = st.one_of(
         lambda text: (text, None),
     ),
     base.flatmap(changed).map(yaml.safe_dump).map(lambda text: (text, None)),
-    base.flatmap(valid).flatmap(written).map(lambda text: (text, "applied")),
+    base.flatmap(valid)
+    .flatmap(lambda change: written(change[0]))
+    .map(lambda text: (text, "applied")),
     base.flatmap(written).map(lambda text: (text, "same")),
     base.flatmap(mistyped).map(yaml.safe_dump).map(lambda text: (text, "refused")),
 )
 
-# A request, and "refused" if vpnc must refuse it.
+# A request, what vpnc must do with it, and what a valid one changes.
 requests = st.one_of(
-    st.tuples(st.just("PUT"), base.flatmap(changed), st.none()),
-    st.tuples(st.just("PUT"), base.flatmap(valid), st.none()),
-    st.tuples(st.just("PATCH"), base.flatmap(patches), st.none()),
-    st.tuples(st.just("PUT"), base.flatmap(mistyped), st.just("refused")),
+    st.tuples(
+        st.just("PUT"), base.flatmap(changed), st.just(Expected.EITHER), st.none()
+    ),
+    base.flatmap(valid).map(
+        lambda change: ("PUT", change[0], Expected.ACCEPT, change[1])
+    ),
+    st.tuples(
+        st.just("PATCH"), base.flatmap(patches), st.just(Expected.EITHER), st.none()
+    ),
+    st.tuples(
+        st.just("PUT"), base.flatmap(mistyped), st.just(Expected.REJECT), st.none()
+    ),
 )
