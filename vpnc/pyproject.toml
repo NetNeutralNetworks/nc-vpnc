@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 64.0.0", "setuptools-scm>=8.0"]
+requires = ["setuptools >= 64.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,6 @@ name = "vpnc"
 description = "Manages vpnc configuration"
 readme = "README.md"
 authors = [{ name="Tony Fortes Ramos", email="tony.fortesramos@ncubed.nl" }]
-# watchdog 7 needs 3.11.
 requires-python = ">=3.11"
 keywords = ["ncubed", "vpnc", "vpn"]
 classifiers = [
@@ -27,13 +26,13 @@ classifiers = [
 ]
 dependencies = [
     "fastapi~=0.162.2",
-    "Jinja2~=3.1.6",
-    "pydantic~=2.14.3",
+    "Jinja2~=3.1",
+    "pydantic~=2.12",
     "pyroute2~=0.9.7",
-    "PyYAML~=6.0.3",
+    "PyYAML~=6.0",
     "uvicorn~=0.54.0",
     "vici~=6.0.3",
-    "watchdog~=7.1.0",
+    "watchdog~=6.0",
     "packaging",
 ]
 dynamic = ["version"]
@@ -43,7 +42,6 @@ dev = [
     "pytest",
     "ruff",
     "types-PyYAML",
-    "types-tabulate",
 ]
 
 [project.scripts]

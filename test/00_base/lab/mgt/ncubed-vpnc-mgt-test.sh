@@ -2,13 +2,7 @@
 PACKAGES="bind9-dnsutils iproute2 iputils-ping strongswan strongswan-swanctl frr frr-pythontools frr-snmp"
 # Packages are in the lab image; only install when missing.
 if ! dpkg -s $PACKAGES > /dev/null 2>&1; then
-    # add FRR GPG key
     apt update
-    apt install -y curl lsb-release
-    curl -s https://deb.frrouting.org/frr/keys.asc | apt-key add -
-
-    # Add FRR and other required services to the installation
-    echo deb https://deb.frrouting.org/frr $(lsb_release -s -c) $FRRVER | tee /etc/apt/sources.list.d/frr.list
     DEBIAN_FRONTEND=noninteractive apt install -y $PACKAGES
 fi
 # If systemd is the init system

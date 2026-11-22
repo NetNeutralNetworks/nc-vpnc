@@ -1,7 +1,6 @@
 #! /bin/bash
 SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 
-export FRRVER="frr-stable"
 export EXTERNAL_IF="eth1"
 export EXTERNAL_IF_IP4="192.0.2.4/24"
 export EXTERNAL_GW_IP4="192.0.2.1"
