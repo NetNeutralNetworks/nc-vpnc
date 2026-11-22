@@ -81,8 +81,30 @@ def vpnctl(host: str, args: str) -> Any:  # noqa: ANN401
     return json.loads(conftest.run_cmd(host, f"{VPNCTL} -o json {args}"))
 
 
+# vpnctl generate's output per secret and format.
+GENERATED = {
+    ("psk", "text"): r"[A-Za-z0-9]{64}",
+    ("psk", "hex"): r"[0-9a-f]{64}",
+    ("psk", "base64"): r"[A-Za-z0-9+/]{43}=",
+    ("ppk", "text"): r"[A-Za-z0-9]{64}",
+    ("ppk", "hex"): r"0x[0-9a-f]{64}",
+    ("ppk", "base64"): r"[A-Za-z0-9+/]{43}=",
+}
+
+
 class TestVpnctl:
     """vpnctl shows the state of the lab."""
+
+    @pytest.mark.parametrize(("secret", "fmt"), list(GENERATED))
+    def test_generate(self, secret: str, fmt: str) -> None:
+        """Generated secrets have their format, and differ each time."""
+        first, second = (
+            conftest.run_cmd("hub00", f"{VPNCTL} generate {secret} {fmt}").strip()
+            for _ in range(2)
+        )
+
+        assert re.fullmatch(GENERATED[secret, fmt], first)
+        assert first != second
 
     @pytest.mark.parametrize("host", list(CONNECTIONS))
     def test_status(self, host: str) -> None:

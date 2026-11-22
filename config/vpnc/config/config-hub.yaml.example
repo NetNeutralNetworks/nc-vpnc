@@ -83,7 +83,7 @@ network_instances:
           ipsec_lifetime: 90
           # Optional, defaults to START: initiate and respond. NONE: respond only.
           # initiation: START
-          # At least 32 characters, or it needs --allow-weak: vpnctl generate psk
+          # At least 32 characters, or it needs --allow-weak: vpnctl generate psk text
           psk: secretpasswordcore
           # Optional
           # traffic_selectors:
@@ -113,7 +113,7 @@ network_instances:
           remote_addrs: [2001:db8::4]
           ike_lifetime: 300
           ipsec_lifetime: 90
-          # At least 32 characters, or it needs --allow-weak: vpnctl generate psk
+          # At least 32 characters, or it needs --allow-weak: vpnctl generate psk text
           psk: secretpasswordcore
 
 

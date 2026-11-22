@@ -866,7 +866,7 @@ class TestReconfiguration:
     def test_generated_psk_is_committed(self) -> None:
         """A generated PSK is committed as it is."""
         path = f"network_instances.{NI_KEY}.connections.0.config.psk"
-        psk = vpnctl("generate psk").strip()
+        psk = vpnctl("generate psk text").strip()
 
         vpnctl(f"config set C0002 {path} {psk}")
         assert vpnctl("config commit C0002") == "Committed.\n"

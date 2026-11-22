@@ -126,7 +126,7 @@ class ConnectionConfigIPsec(BaseModel):
             found["SHORT_PSK"] = (
                 (
                     f"the PSK has fewer than {PSK_MIN_LENGTH} characters"
-                    " (vpnctl generate psk makes one)"
+                    " (vpnctl generate psk text makes one)"
                 ),
                 psk,
             )

@@ -31,7 +31,7 @@ A hub's BGP neighbors can have a `password` (TCP MD5), set on the neighbor too: 
 
 Weak cryptography of an IPsec connection is only committed with `--allow-weak`:
 
-* a `psk` of fewer than 32 characters: whoever answers the connection as its peer can try PSKs offline. `vpnctl generate psk` makes a random one.
+* a `psk` of fewer than 32 characters: whoever answers the connection as its peer can try PSKs offline. `vpnctl generate psk text` makes a random one.
 * `ike_version` 1;
 * proposals with DES, 3DES, no encryption, MD5, or a Diffie-Hellman group under 2048 bits.
 
