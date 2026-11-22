@@ -44,6 +44,8 @@ class Restarts(ConfigStates):
 
     # After a restart BGP may take this long.
     apply_timeout = conftest.BGP_TIMEOUT
+    # Crashes stop the sniffer and injectors.
+    watching = False
 
     def __init__(self) -> None:
         """Start without crashes."""
