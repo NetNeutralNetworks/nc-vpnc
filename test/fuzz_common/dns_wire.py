@@ -1,4 +1,4 @@
-"""DNS readers of the tests' own, without dnspython or scapy: vpncmangle uses dnspython.
+"""DNS readers of the tests' own, without dnspython: vpncmangle uses it.
 
 records() is strict and reads a message as RFC 1035 has it; addresses() is
 lenient and reads what a client might take addresses from.
