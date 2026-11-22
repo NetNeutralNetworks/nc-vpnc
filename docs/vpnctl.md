@@ -71,13 +71,14 @@ Per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes are staged in
 ~$ sudo vpnctl config discard C0001|--all
 ~$ sudo vpnctl config history C0001 [REVISION]     # the last 5 replaced configurations
 ~$ sudo vpnctl config restore C0001 REVISION       # stages it; commit to apply
-~$ vpnctl generate psk                             # a random PSK (256 bits)
-~$ vpnctl generate ppk                             # a random PPK (256 bits, base64), e.g. for WireGuard
+~$ vpnctl generate psk text|hex|base64             # a random PSK, for IPsec
+~$ vpnctl generate ppk text|hex|base64             # a random PPK: text for IPsec, hex or base64 for IPsec and WireGuard
 ```
 
 * **Paths** are dotted, with list items by index; values are YAML.
 * **Tab** completes a path a level at a time (for `set`, also the next item to add), a value's choices and a proposal's next keyword (of the algorithms charon has). zsh also shows each key's value, type and default.
 * **Proposals** are checked as strongSwan does when they're staged.
+* **Secrets** from `generate`: `text` is 64 letters and digits (about 381 bits); `hex` (64 characters) and `base64` (44 characters) are 256 bits. A PSK is used as the text it is in every format. A hex PPK is written `0x...`, which IPsec and WireGuard decode to 32 bytes.
 
 ## Output fields
 

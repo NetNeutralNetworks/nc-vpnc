@@ -165,8 +165,10 @@ class TestPostQuantum:
 
     def test_wireguard_ppk_mismatch(self) -> None:
         """A WireGuard handshake only completes with the right PPK."""
-        other = base64.b64encode(bytes(range(32))).decode()
-        vpnctl(WG_END, f"config set DEFAULT {WG_PPK_PATH} {other}")
+        # In hex: WireGuard takes it too.
+        other = vpnctl(WG_END, "generate ppk hex").strip()
+        # Quoted: vpnctl reads values as YAML, which reads 0x... as a number.
+        vpnctl(WG_END, f'config set DEFAULT {WG_PPK_PATH} "{other}"')
         vpnctl(WG_END, "config commit DEFAULT")
         try:
             # A changed PPK drops the session.

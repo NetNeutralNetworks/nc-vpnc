@@ -1366,19 +1366,36 @@ def prompt(path: str) -> str:
     return value
 
 
-def cmd_generate_ppk(_: argparse.Namespace) -> None:
-    """Print a new random PPK: 256 bits in base64, as WireGuard reads it."""
+# How vpnctl generate writes 256 bits or more of randomness.
+SECRET_FORMATS = ("text", "hex", "base64")
+
+
+def random_secret(fmt: str, *, prefix: bool) -> str:
+    """Return a random secret: text is 64 letters and digits (about 381 bits).
+
+    hex and base64 are 256 bits; with prefix, hex is 0x... as strongSwan reads
+    a PPK.
+    """
     import base64  # noqa: PLC0415
     import secrets  # noqa: PLC0415
+    import string  # noqa: PLC0415
 
-    print(base64.b64encode(secrets.token_bytes(32)).decode())
+    if fmt == "text":
+        alphabet = string.ascii_letters + string.digits
+        return "".join(secrets.choice(alphabet) for _ in range(64))
+    if fmt == "hex":
+        return ("0x" if prefix else "") + secrets.token_hex(32)
+    return base64.b64encode(secrets.token_bytes(32)).decode()
 
 
-def cmd_generate_psk(_: argparse.Namespace) -> None:
-    """Print a new random PSK: 256 bits, as 43 characters."""
-    import secrets  # noqa: PLC0415
+def cmd_generate_psk(args: argparse.Namespace) -> None:
+    """Print a new random PSK, for IPsec."""
+    print(random_secret(args.format, prefix=False))
 
-    print(secrets.token_urlsafe(32))
+
+def cmd_generate_ppk(args: argparse.Namespace) -> None:
+    """Print a new random PPK: text or hex for IPsec, hex or base64 for both."""
+    print(random_secret(args.format, prefix=True))
 
 
 def cmd_config_add(args: argparse.Namespace) -> None:
@@ -1639,7 +1656,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "logs": {},
     "events": {},
     "version": {},
-    "generate": {"psk": None, "ppk": None},
+    "generate": {"psk": "secret_format", "ppk": "secret_format"},
     "service": {"restart": None, "stop": None},
     "config": {
         "list": None,
@@ -1759,6 +1776,8 @@ def candidates(words: list[str], current: str) -> list[str]:  # noqa: PLR0911
     if len(positional) == 1:
         return list(actions)
     kind = actions.get(positional[1])
+    if kind == "secret_format":
+        return list(SECRET_FORMATS) if len(positional) == 2 else []  # noqa: PLR2004
     if kind and (len(positional) == 2 or positional[1] in MULTIPLE):  # noqa: PLR2004
         return _ids(kind)
     if positional[0] == "config" and positional[1] in PATH_ACTIONS:
@@ -2243,8 +2262,12 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
 
     add(commands, "version", cmd_version)
     generate = group("generate", "make a secret")
-    add(generate, "psk", cmd_generate_psk)
-    add(generate, "ppk", cmd_generate_ppk)
+    for name, func in (("psk", cmd_generate_psk), ("ppk", cmd_generate_ppk)):
+        add(generate, name, func).add_argument(
+            "format",
+            choices=SECRET_FORMATS,
+            help="text: 64 letters and digits; hex or base64: 256 bits",
+        )
     p = add(commands, "service", cmd_service)
     p.add_argument("service_action", choices=["restart", "stop"])
 

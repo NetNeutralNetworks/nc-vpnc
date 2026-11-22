@@ -118,7 +118,8 @@ post_quantum:
     id: C0001-00-0-hub00    # sent to the peer: the same on both sides, unique per node;
                             # default: the connection's name and this node's hostname,
                             # written into the configuration on commit
-    key: "0x..."            # at least 32 bytes: text, 0x hex or 0s base64; quote it
+    key: "0x..."            # at least 32 bytes: text, 0x hex or 0s base64; quote it;
+                            # vpnctl generate ppk text|hex
 ```
 
 * **IPsec:** ML-KEM is added to `ike_proposal` and `ipsec_proposal` as an additional key exchange (RFC 9370, e.g. `ke1_mlkem768`), so they need a classical one (e.g. `ecp384`); ML-KEM in the proposals themselves is refused. The optional PPK (RFC 8784) is mixed into the keys and required by both sides.
@@ -129,10 +130,11 @@ WireGuard:
 ```yaml
 post_quantum:
   enabled: true             # default false
-  ppk: "..."                # 32 bytes in base64, the same on both sides: vpnctl generate ppk
+  ppk: "..."                # 32 bytes in base64 or 0x hex, the same on both sides:
+                            # vpnctl generate ppk base64|hex
 ```
 
-* The PPK is WireGuard's preshared key (`PresharedKey` on other implementations), so any WireGuard peer can use it. It's required when `enabled` is true.
+* The PPK is WireGuard's preshared key (`PresharedKey` on other implementations), so any WireGuard peer can use it: give other implementations the base64 form. It's required when `enabled` is true.
 * A changed PPK drops the session (`CONFIG_RESET`), so a wrong one shows right away: no handshake completes (`KEY_MISMATCH`).
 * It protects as long as the PPK stays secret: there's no post-quantum forward secrecy. Use a PPK per connection.
 * `vpnctl connections show` shows the key exchange as `CURVE_25519 + PPK`.

@@ -111,15 +111,22 @@ class PostQuantumSSH(BaseModel):
         return v
 
 
+def wireguard_ppk_bytes(value: str) -> bytes:
+    """Return a WireGuard PPK: base64 (also 0s...) or 0x hex."""
+    if value.startswith("0x"):
+        return bytes.fromhex(value[2:])
+    return base64.b64decode(value.removeprefix("0s"), validate=True)
+
+
 def _wireguard_ppk(value: SecretStr) -> SecretStr:
     try:
-        key = base64.b64decode(value.get_secret_value(), validate=True)
-    except binascii.Error:
+        key = wireguard_ppk_bytes(value.get_secret_value())
+    except (ValueError, binascii.Error):
         key = b""
     if len(key) != WIREGUARD_PPK_BYTES:
         msg = (
-            f"a WireGuard PPK is {WIREGUARD_PPK_BYTES} bytes in base64 "
-            "(vpnctl generate ppk, or wg genpsk)"
+            f"a WireGuard PPK is {WIREGUARD_PPK_BYTES} bytes in base64 or 0x hex "
+            "(vpnctl generate ppk base64)"
         )
         raise ValueError(msg)
     return value
@@ -134,6 +141,12 @@ class PostQuantumWireGuard(BaseModel):
     enabled: bool = False
     ppk: WireGuardPpk | None = None
 
+    @field_validator("ppk", mode="before")
+    @classmethod
+    def not_a_number(cls, v: object) -> object:
+        """YAML reads an unquoted 0x value as a number."""
+        return PostQuantumPresharedKey.not_a_number(v)
+
     @model_validator(mode="after")
     def ppk_when_enabled(self) -> PostQuantumWireGuard:
         """WireGuard's only post-quantum protection is the PPK."""
@@ -143,5 +156,8 @@ class PostQuantumWireGuard(BaseModel):
         return self
 
     def key(self) -> str | None:
-        """Return the PPK in use; None if disabled."""
-        return self.ppk.get_secret_value() if self.enabled and self.ppk else None
+        """Return the PPK in use, in base64 as WireGuard takes it; None if disabled."""
+        if not (self.enabled and self.ppk):
+            return None
+        key = wireguard_ppk_bytes(self.ppk.get_secret_value())
+        return base64.b64encode(key).decode()

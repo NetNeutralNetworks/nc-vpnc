@@ -100,7 +100,7 @@ network_instances:
         config:
           type: IPSEC
           remote_addrs: [192.0.2.7]
-          psk: "..."            # vpnctl generate psk
+          psk: "..."            # vpnctl generate psk text
 ```
 
 Commit it with a rollback timer, check that it works, then confirm:
