@@ -12,6 +12,7 @@ the same state.
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import ipaddress
 import os
 from typing import Any
@@ -315,15 +316,18 @@ class ConfigStates(RuleBasedStateMachine):
 
         expected: what one new event must name; none if empty.
         """
-        before = resets(ni, key)
+        # Events have whole seconds, so two in a second are alike: the new ones
+        # are those after the ones already there from this second on.
+        start = dt.datetime.now(dt.UTC).replace(microsecond=0)
+        before = len(resets(ni, key, start))
         self.commit(change)
         if not expected:
-            new = [e for e in resets(ni, key) if e not in before]
+            new = resets(ni, key, start)[before:]
             assert not new, f"{change}: reset {new}"
             return
         try:
             conftest.wait_until(
-                lambda: [e for e in resets(ni, key) if e not in before],
+                lambda: resets(ni, key, start)[before:],
                 timeout=10,
                 message=f"{change}: a CONFIG_RESET event",
             )
@@ -331,7 +335,7 @@ class ConfigStates(RuleBasedStateMachine):
             self.failed = True
             missing = f"{change}: no CONFIG_RESET event"
             raise AssertionError(missing) from None
-        new = [e for e in resets(ni, key) if e not in before]
+        new = resets(ni, key, start)[before:]
         assert len(new) == 1, f"{change}: {len(new)} resets: {new}"
         named = set(new[0]["details"].get("changed", []))
         assert named == expected, f"{change}: reset for {named}, not {expected}"
@@ -620,13 +624,13 @@ class ConfigStates(RuleBasedStateMachine):
             remove_tenant()
 
 
-def resets(ni: str, key: int) -> list[dict[str, Any]]:
-    """Return a connection's CONFIG_RESET events."""
+def resets(ni: str, key: int, since: dt.datetime) -> list[dict[str, Any]]:
+    """Return a connection's CONFIG_RESET events from since on, oldest first."""
     status, found = conftest.api(
         "GET", f"/v1/events?connection={TENANT}-{ni}-{key}&event=CONFIG_RESET"
     )
     assert status == 200, f"events: {status} {found}"  # noqa: PLR2004
-    return found
+    return [e for e in found if dt.datetime.fromisoformat(e["time"]) >= since]
 
 
 def kept(old: dict[str, Any], new: dict[str, Any]) -> set[str]:
