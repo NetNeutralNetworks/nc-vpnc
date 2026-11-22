@@ -12,16 +12,14 @@ import struct
 import subprocess
 import sys
 import textwrap
-import types
-from typing import NamedTuple
 
-import pytest
 from fuzz_common import dns_oracle, dns_wire
 from fuzz_common import dns_strategies as ds
 from hypothesis import event, given, note, settings
 from hypothesis import strategies as st
+from vpncmangle.dns_processing import ACCEPT, DROP, Result, process
 
-from vpncmangle import config, stats
+from vpncmangle import config
 
 PROPERTIES = settings(
     max_examples=int(os.environ.get("DNS_EXAMPLES", "1000")),
@@ -81,62 +79,9 @@ def wrap(message: bytes, source: str = SOURCES[0]) -> bytes:
     return struct.pack(">IHBB", 6 << 28, len(udp), 17, 64) + src + dst + udp
 
 
-ACCEPT, DROP = "accept", "drop"
-# Today's engine (scapy) raises on misfit records, writes a label as a pointer,
-# and keeps SVCB/HTTPS hints. A dnspython engine fixes these.
-KNOWN_DEFECT = pytest.mark.xfail(reason="scapy as parser", strict=True)
-# Decisions the dnspython engine brings: RRSIG, unknown sources, empty queries.
-DECIDED = pytest.mark.xfail(reason="not yet decided in vpncmangle", strict=True)
-# main imports the queue, which needs its C library.
-sys.modules.setdefault("netfilterqueue", types.ModuleType("netfilterqueue"))
-sys.modules["netfilterqueue"].NetfilterQueue = object  # type: ignore[attr-defined]
-sys.modules["netfilterqueue"].Packet = object  # type: ignore[attr-defined]
-from vpncmangle import main  # noqa: E402
-
-
-class Result(NamedTuple):
-    """vpncmangle's verdict. payload: the packet to send, None: as it came."""
-
-    action: str
-    payload: bytes | None = None
-    reason: str | None = None
-    ni: str | None = None
-
-
-class _Packet:
-    """A queued packet, as main uses it."""
-
-    def __init__(self, data: bytes) -> None:
-        self.data, self.payload, self.action = data, None, None
-
-    def get_payload(self) -> bytes:
-        return self.data
-
-    def set_payload(self, payload: bytes) -> None:
-        self.payload = payload
-
-    def accept(self) -> None:
-        self.action = ACCEPT
-
-    def drop(self) -> None:
-        self.action = DROP
-
-
 def run(packet: bytes) -> Result:
     """Return vpncmangle's verdict on a packet."""
-    config.ACL_MATCH, config.LIMITS = ACL_MATCH, LIMITS
-    reasons: list[tuple[str, str | None]] = []
-    dropped, translated = stats.dropped, stats.translated
-    stats.dropped = lambda reason, ni=None: reasons.append((reason, ni))
-    stats.translated = lambda ni: reasons.append(("", ni))
-    try:
-        queued = _Packet(packet)
-        main._mangle_dns(queued)  # noqa: SLF001 (exceptions reach the test)
-    finally:
-        stats.dropped, stats.translated = dropped, translated
-    reason, ni = reasons[0] if reasons else (None, None)
-    payload = queued.payload if queued.payload != packet else None
-    return Result(queued.action or DROP, payload, reason or None, ni)
+    return process(packet, ACL_MATCH, LIMITS)
 
 
 def sent(result: Result, packet: bytes) -> bytes:
@@ -241,7 +186,6 @@ def packets(draw: st.DrawFn) -> bytes:
     return bytes(packet)
 
 
-@pytest.mark.xfail(reason="scapy as parser", strict=False)
 @PROPERTIES
 @given(packet=packets())
 def test_any_packet(packet: bytes) -> None:
@@ -254,7 +198,6 @@ def test_any_packet(packet: bytes) -> None:
         check_sent(result, packet)
 
 
-@pytest.mark.xfail(reason="scapy as parser", strict=False)
 @PROPERTIES
 @given(data=answers())
 def test_answers(data: bytes) -> None:
@@ -370,21 +313,18 @@ def addresses(message: dns_wire.Message) -> list[str]:
     ]
 
 
-@KNOWN_DEFECT
 def test_rrsig_empty() -> None:
     """An RRSIG without data: dropped."""
     result, _ = translate(answer(a("10.0.0.1"), record(ds.RRSIG, b"")))
     assert (result.action, result.reason) == ("drop", "NOT_DNS")
 
 
-@KNOWN_DEFECT
 def test_a_empty() -> None:
     """An A record without data: dropped."""
     result, _ = translate(answer(record(ds.A, b"")))
     assert (result.action, result.reason) == ("drop", "NOT_DNS")
 
 
-@KNOWN_DEFECT
 def test_label_like_pointer() -> None:
     """A label of the byte c0: passed as a label (readable), or dropped."""
     result, read = translate(answer(record(ds.A, bytes(4), owner=b"\x01\xc0\x00")))
@@ -393,7 +333,6 @@ def test_label_like_pointer() -> None:
         assert read.records[0].name == (b"\xc0",)
 
 
-@KNOWN_DEFECT
 def test_https_hints() -> None:
     """An HTTPS record with both hints: passed without them, other parameters kept."""
     params = param(1, b"\x02h2") + param(3, b"\x01\xbb")
@@ -405,7 +344,6 @@ def test_https_hints() -> None:
     assert [r.rdata for r in read.records] == [(data + params,)]
 
 
-@KNOWN_DEFECT
 def test_https_mandatory_hint() -> None:
     """An HTTPS record whose mandatory names ipv4hint: gone."""
     params = param(0, b"\x00\x04") + param(4, bytes([10, 0, 0, 1]))
@@ -444,7 +382,6 @@ def test_aaaa_unrouted() -> None:
     assert not read.records
 
 
-@DECIDED
 def test_rrsig_over_a() -> None:
     """An A record and an RRSIG over it: the AAAA record, AD cleared."""
     rrsig = struct.pack(">H", ds.A) + bytes(16) + b"\x00" + b"signature"
@@ -468,14 +405,12 @@ def test_compressed_names() -> None:
     assert read.records[1:] == original.records[1:]
 
 
-@DECIDED
 def test_query_bytes_after_header() -> None:
     """A query with no question or records, and bytes after its header: dropped."""
     result, _ = translate(header(0x0100, qd=0) + b"\x00\x01\x00\x01\x00")
     assert result.action == "drop"
 
 
-@DECIDED
 def test_unknown_source() -> None:
     """A TXT-only answer from no network instance: dropped."""
     result, _ = translate(answer(record(ds.TXT, b"\x03abc")), source=UNKNOWN)

@@ -24,6 +24,8 @@ NO_TRANSLATIONS = "NO_TRANSLATIONS"
 UNKNOWN_SOURCE = "UNKNOWN_SOURCE"
 ERROR = "ERROR"
 QUERY_WITH_ADDRESSES = "QUERY_WITH_ADDRESSES"
+# A translated answer that dnspython couldn't write, or read back.
+REBUILD_INVALID = "REBUILD_INVALID"
 # Over the service's dns limits: max_size, max_records, and rate_limit (which
 # nftables counts, before the queue).
 OVERSIZED = "OVERSIZED"
