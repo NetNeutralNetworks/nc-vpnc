@@ -8,7 +8,6 @@
 !vpnc
 !vpncmangle
 !Makefile
-!requirements-build.txt
 
 **/build
 **/*.egg-info

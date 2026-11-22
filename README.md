@@ -67,13 +67,13 @@ vpnc runs on Ubuntu 26.04 with systemd. As root, in the repository root:
 ~$ make hub               # or: endpoint, addon
 ```
 
-This upgrades the system packages, installs vpnc in `/opt/ncubed/vpnc`, `vpnctl` on the PATH and an example service configuration, and (re)starts vpnc. Run it again to upgrade everything. To update only vpnc after a `git pull`, without apt:
+This upgrades the system packages, installs vpnc in `/opt/ncubed/vpnc`, `vpnctl` on the PATH and an example service configuration, and (re)starts vpnc. Run it again to upgrade everything. To update only vpnc after a `git pull` (apt only installs Ubuntu's Python packages vpnc uses, if missing):
 
 ```bash
 ~$ make update
 ```
 
-This reinstalls vpnc (and vpncmangle on a hub) and restarts vpnc only if something changed. Configuration files are only installed when missing, so local edits are kept. The systemd unit is replaced when it changes: put local changes in a drop-in (`systemctl edit ncubed-vpnc`). The Python dependencies are installed at the versions and hashes in the lock files (`requirements*.txt`). Then configure the service:
+This reinstalls vpnc (and vpncmangle on a hub) and restarts vpnc only if something changed. Configuration files are only installed when missing, so local edits are kept. The systemd unit is replaced when it changes: put local changes in a drop-in (`systemctl edit ncubed-vpnc`). vpnc uses Ubuntu's FRR, Jinja2, packaging, pydantic, PyYAML, watchdog and NetfilterQueue (system site packages); the other Python dependencies are installed at the versions and hashes in the lock files (`requirements.txt`). A full install removes FRR's own repository, which older installs added, and downgrades its FRR to Ubuntu's. Then configure the service:
 
 ```bash
 ~$ sudo vpnctl config edit service
@@ -377,4 +377,4 @@ vpnc, vpncmangle and charon log to the journal: `vpnctl logs`, or `journalctl -t
 
 The lab tests run in containerlab; see [test/README.md](test/README.md).
 
-`make lock` (not as root, with the Python version of the installs) locks the dependencies and build tools to their newest versions that match `pyproject.toml` and `requirements-build.in`.
+`make lock` (not as root, on Ubuntu 26.04 with the Python packages of `make hub` installed) locks the dependencies to their newest versions that match `pyproject.toml` and the versions of Ubuntu's packages, which it leaves out.
