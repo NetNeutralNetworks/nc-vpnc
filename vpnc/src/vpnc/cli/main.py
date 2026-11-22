@@ -1366,6 +1366,14 @@ def prompt(path: str) -> str:
     return value
 
 
+def cmd_generate_ppk(_: argparse.Namespace) -> None:
+    """Print a new random PPK: 256 bits in base64, as WireGuard reads it."""
+    import base64  # noqa: PLC0415
+    import secrets  # noqa: PLC0415
+
+    print(base64.b64encode(secrets.token_bytes(32)).decode())
+
+
 def cmd_generate_psk(_: argparse.Namespace) -> None:
     """Print a new random PSK: 256 bits, as 43 characters."""
     import secrets  # noqa: PLC0415
@@ -1631,7 +1639,7 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "logs": {},
     "events": {},
     "version": {},
-    "generate": {"psk": None},
+    "generate": {"psk": None, "ppk": None},
     "service": {"restart": None, "stop": None},
     "config": {
         "list": None,
@@ -2236,6 +2244,7 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
     add(commands, "version", cmd_version)
     generate = group("generate", "make a secret")
     add(generate, "psk", cmd_generate_psk)
+    add(generate, "ppk", cmd_generate_ppk)
     p = add(commands, "service", cmd_service)
     p.add_argument("service_action", choices=["restart", "stop"])
 

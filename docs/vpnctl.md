@@ -72,6 +72,7 @@ Per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes are staged in
 ~$ sudo vpnctl config history C0001 [REVISION]     # the last 5 replaced configurations
 ~$ sudo vpnctl config restore C0001 REVISION       # stages it; commit to apply
 ~$ vpnctl generate psk                             # a random PSK (256 bits)
+~$ vpnctl generate ppk                             # a random PPK (256 bits, base64), e.g. for WireGuard
 ```
 
 * **Paths** are dotted, with list items by index; values are YAML.

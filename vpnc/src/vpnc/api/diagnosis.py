@@ -133,8 +133,8 @@ HINTS = {
     "CHILD_REJECTED_BY_PEER": "see the peer's log for why",
     "KERNEL_FAILED": "see vpnctl logs --source charon; the kernel may lack an "
     "algorithm",
-    "KEY_MISMATCH": "compare public_key and the peer's private key, and this side's "
-    "public key with what the peer has",
+    "KEY_MISMATCH": "compare public_key and the peer's private key, this side's "
+    "public key with what the peer has, and post_quantum.ppk with the peer's",
     "PERMISSION_DENIED": "install this side's key on the server: vpnctl connections "
     "ssh-setup {name}",
     "HOST_KEY_MISMATCH": "if the server was replaced, delete host_key from the "

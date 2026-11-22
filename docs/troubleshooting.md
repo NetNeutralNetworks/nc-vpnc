@@ -41,7 +41,7 @@ Why a connection fails is noted as it happens, from charon's log and ssh's outpu
 |---|---|
 | IPsec | `NO_RESPONSE`, `NO_RESPONSE_AUTH` (IKE_SA_INIT is answered, IKE_AUTH isn't), `DPD_TIMEOUT`, `CLOSED_BY_PEER`, `AUTH_FAILED_REMOTE` (the peer rejected our PSK, PPK or id), `AUTH_FAILED_LOCAL` (the peer's PSK or PPK is wrong), `AUTH_METHOD_MISMATCH`, `ID_MISMATCH`, `PPK_MISMATCH` (a PPK on one side only, or another id), `IKE_VERSION_MISMATCH`, `IKE_CONFIG_MISMATCH`, `IKE_PROPOSAL_MISMATCH`, `CHILD_PROPOSAL_MISMATCH`, `TS_MISMATCH`, `REJECTED_BY_PEER`, `CHILD_REJECTED_BY_PEER`, `KERNEL_FAILED` |
 | SSH | `NO_RESPONSE`, `UNREACHABLE`, `REFUSED`, `PERMISSION_DENIED`, `HOST_KEY_MISMATCH`, `NEGOTIATION_FAILED`, `TUNNEL_REFUSED`, `CLOSED_BY_PEER`, `EXITED` |
-| From its state | `ADMIN_DOWN`, `NO_INTERFACE`, `NOT_LOADED`, `ML_KEM_UNSUPPORTED`, `NOT_IN_FIREWALL`, `NO_ROUTE`, `WAITING_FOR_PEER` (a responder the peer doesn't set up), `CONNECTING`, `KEY_MISMATCH` (WireGuard: the peer sends, but no handshake completes), `NO_CARRIER`, and while up: `PROBES_FAILING`, `ONE_WAY_TRAFFIC`, `FLAPPING` |
+| From its state | `ADMIN_DOWN`, `NO_INTERFACE`, `NOT_LOADED`, `ML_KEM_UNSUPPORTED`, `NOT_IN_FIREWALL`, `NO_ROUTE`, `WAITING_FOR_PEER` (a responder the peer doesn't set up), `CONNECTING`, `KEY_MISMATCH` (WireGuard: the peer sends, but no handshake completes: keys or PPK), `NO_CARRIER`, and while up: `PROBES_FAILING`, `ONE_WAY_TRAFFIC`, `FLAPPING` |
 
 EXTERNAL's firewall counts the packets of each IPsec and WireGuard peer, so a silent peer is told apart from one whose packets are refused. WireGuard itself never says why a handshake fails.
 
@@ -60,7 +60,7 @@ Events are what happened to a connection, network instance, tenant or the servic
 | | `ADMIN_UP`, `ADMIN_DOWN` | Started or stopped |
 | | `RESET` | Reset by an administrator |
 | | `AUTO_RESET` | Reset by vpnc: down for too long, or no probe answered (see [automatic resets](connections.md#automatic-resets)) |
-| | `CONFIG_RESET` | Reset for a changed PSK, PPK or traffic selectors |
+| | `CONFIG_RESET` | Reset for a changed PSK, PPK or traffic selectors (IPsec), or PPK (WireGuard) |
 | | `PROBES_FAILING`, `PROBES_ANSWERED` | Its probes |
 | | a [failure reason](#failure-reasons) | Why it fails, when that changes |
 | | `HOST_KEY_ACCEPTED` | An SSH server's host key accepted |

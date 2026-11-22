@@ -7,13 +7,22 @@ import binascii
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, Field, SecretStr, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 from vpnc import helpers
 from vpnc.models.secret import Secret
 
 # RFC 8784: a PPK has at least 256 bits of entropy.
 PPK_MIN_BYTES = 32
+# WireGuard's preshared key: exactly 32 bytes, in base64.
+WIREGUARD_PPK_BYTES = 32
 
 
 class MlKem(StrEnum):
@@ -100,3 +109,39 @@ class PostQuantumSSH(BaseModel):
             msg = f"{v.value} isn't supported by OpenSSH"
             raise ValueError(msg)
         return v
+
+
+def _wireguard_ppk(value: SecretStr) -> SecretStr:
+    try:
+        key = base64.b64decode(value.get_secret_value(), validate=True)
+    except binascii.Error:
+        key = b""
+    if len(key) != WIREGUARD_PPK_BYTES:
+        msg = (
+            f"a WireGuard PPK is {WIREGUARD_PPK_BYTES} bytes in base64 "
+            "(vpnctl generate ppk, or wg genpsk)"
+        )
+        raise ValueError(msg)
+    return value
+
+
+WireGuardPpk = Annotated[Secret, AfterValidator(_wireguard_ppk)]
+
+
+class PostQuantumWireGuard(BaseModel):
+    """A PPK mixed into WireGuard's handshake (its preshared key)."""
+
+    enabled: bool = False
+    ppk: WireGuardPpk | None = None
+
+    @model_validator(mode="after")
+    def ppk_when_enabled(self) -> PostQuantumWireGuard:
+        """WireGuard's only post-quantum protection is the PPK."""
+        if self.enabled and self.ppk is None:
+            msg = "post_quantum needs a ppk for WireGuard"
+            raise ValueError(msg)
+        return self
+
+    def key(self) -> str | None:
+        """Return the PPK in use; None if disabled."""
+        return self.ppk.get_secret_value() if self.enabled and self.ppk else None

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from vpnc import config, helpers
 from vpnc.models import enums
+from vpnc.models.post_quantum import PostQuantumWireGuard
 from vpnc.models.scalars import Address, Int
 from vpnc.models.secret import Secret
 from vpnc.network import state
@@ -34,6 +35,9 @@ class ConnectionConfigWireGuard(BaseModel):
     remote_port: Int = Field(default=51820, ge=1, le=65535)
     private_key: Secret
     public_key: str
+    post_quantum: PostQuantumWireGuard = Field(default_factory=PostQuantumWireGuard)
+
+    _none_as_default = helpers.none_as_default("post_quantum")
 
     def add(
         self,
