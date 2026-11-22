@@ -6,7 +6,6 @@ import logging
 import re
 import socket
 from enum import Enum
-from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -14,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from vpnc import config, helpers
 from vpnc.models import enums
 from vpnc.models.post_quantum import PostQuantumIPsec
+from vpnc.models.scalars import Address, Int, Network, number
 from vpnc.models.secret import Secret
 from vpnc.network import state
 from vpnc.services import charon
@@ -56,8 +56,8 @@ class Initiation(Enum):
 class TrafficSelectors(BaseModel):
     """Define a traffic selector data structure."""
 
-    local: set[IPv4Network | IPv6Network] = Field(default_factory=set)
-    remote: set[IPv4Network | IPv6Network] = Field(default_factory=set)
+    local: set[Network] = Field(default_factory=set)
+    remote: set[Network] = Field(default_factory=set)
 
     _none_as_default = helpers.none_as_default("local", "remote")
 
@@ -68,13 +68,13 @@ class ConnectionConfigIPsec(BaseModel):
     type: Literal[enums.ConnectionType.IPSEC] = enums.ConnectionType.IPSEC
     # Set a local id for the connection specifically.
     local_id: str | None = None
-    remote_addrs: list[IPv4Address | IPv6Address] = Field(min_length=1)
+    remote_addrs: list[Address] = Field(min_length=1)
     remote_id: str | None = None
     ike_version: Literal[1, 2] = 2
     ike_proposal: str = "aes256gcm16-prfsha384-ecp384"
-    ike_lifetime: int = 86400
+    ike_lifetime: Int = 86400
     ipsec_proposal: str = "aes256gcm16-ecp384"
-    ipsec_lifetime: int = 3600
+    ipsec_lifetime: Int = 3600
     initiation: Initiation = Initiation.INITIATOR
     psk: Secret
     post_quantum: PostQuantumIPsec = Field(default_factory=PostQuantumIPsec)
@@ -82,11 +82,11 @@ class ConnectionConfigIPsec(BaseModel):
 
     @field_validator("ike_version", mode="before")
     @classmethod
-    def coerce_ike_version(cls, v: str | int) -> int | str:
+    def coerce_ike_version(cls, v: object) -> object:
         """Coerces strings to integers."""
         if isinstance(v, str) and v.isascii() and v.isdigit():
             return int(v)
-        return v
+        return number(v)
 
     @field_validator("ike_proposal", "ipsec_proposal")
     @classmethod

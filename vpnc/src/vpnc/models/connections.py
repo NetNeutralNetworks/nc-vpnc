@@ -7,10 +7,8 @@ import logging
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
-    IPv4Network,
     IPv6Address,
     IPv6Interface,
-    IPv6Network,
 )
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -27,6 +25,16 @@ from vpnc import helpers
 from vpnc.models import enums
 from vpnc.models.ipsec import ConnectionConfigIPsec
 from vpnc.models.physical import ConnectionConfigPhysical
+from vpnc.models.scalars import (
+    Address,
+    Address4,
+    Address6,
+    Interface4,
+    Interface6,
+    Network4,
+    Network6,
+    OptionalInt,
+)
 from vpnc.models.ssh import ConnectionConfigSSH
 from vpnc.models.wireguard import ConnectionConfigWireGuard
 from vpnc.network import state
@@ -40,8 +48,8 @@ logger = logging.getLogger("vpnc")
 class Interface(BaseModel):
     """Define interface configuration such as IP addresses."""
 
-    ipv6: list[IPv6Interface] = Field(default_factory=list)
-    ipv4: list[IPv4Interface] = Field(default_factory=list)
+    ipv6: list[Interface6] = Field(default_factory=list)
+    ipv4: list[Interface4] = Field(default_factory=list)
 
     _none_as_default = helpers.none_as_default("ipv6", "ipv4")
 
@@ -49,8 +57,8 @@ class Interface(BaseModel):
 class RouteIPv4(BaseModel):
     """Define IPv4 routes."""
 
-    to: IPv4Network
-    via: IPv4Address | None = None
+    to: Network4
+    via: Address4 | None = None
 
     @field_validator("to", mode="before")
     @classmethod
@@ -63,10 +71,10 @@ class RouteIPv4(BaseModel):
 class RouteIPv6(BaseModel):
     """Define IPv6 routes. Include the option to enable/disable NPTv6 for the route."""
 
-    to: IPv6Network
-    via: IPv6Address | None = None
+    to: Network6
+    via: Address6 | None = None
     nptv6: bool = True
-    nptv6_prefix: IPv6Network | None = None
+    nptv6_prefix: Network6 | None = None
 
     @field_validator("to", mode="before")
     @classmethod
@@ -103,10 +111,10 @@ class Probe(BaseModel):
 
     # What the probe is for.
     description: str | None = Field(default=None, max_length=255)
-    address: IPv4Address | IPv6Address
+    address: Address
     test_type: enums.TestType
     # TCP only.
-    port: int | None = Field(default=None, ge=1, le=65535)
+    port: OptionalInt = Field(default=None, ge=1, le=65535)
 
     _upper = helpers.upper("test_type")
 
@@ -132,7 +140,7 @@ class Connection(BaseModel):
     # False: admin down. The interface is down; a VPN isn't set up.
     enabled: bool = True
     # None: the interface's default. IPv6 needs 1280.
-    mtu: int | None = Field(default=None, ge=1280, le=65535)
+    mtu: OptionalInt = Field(default=None, ge=1280, le=65535)
     interface: Interface = Field(default_factory=Interface)
     routes: Routes = Field(default_factory=Routes)
     # Hosts probed through the connection (DOWNLINK only). It's reset when none

@@ -5,9 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from ipaddress import (
-    IPv4Address,
     IPv4Network,
-    IPv6Address,
     IPv6Network,
     NetmaskValueError,
 )
@@ -39,6 +37,7 @@ from vpnc.models.network_instance import (
     NetworkInstanceEndpoint,
     NetworkInstanceExternal,
 )
+from vpnc.models.scalars import Address, Address4, Int, Network4, Network6
 from vpnc.models.secret import Secret
 
 if TYPE_CHECKING:
@@ -111,19 +110,19 @@ def network_instance_key(key: Any) -> Any:  # noqa: ANN401
 class BGPGlobal(BaseModel):
     """Define BGP global data structure."""
 
-    asn: int = 4200000000
-    router_id: IPv4Address
+    asn: Int = 4200000000
+    router_id: Address4
     bfd: bool = False
 
 
 class BGPNeighbor(BaseModel):
     """Define a BGP neighbor data structure."""
 
-    neighbor_asn: int
-    neighbor_address: IPv4Address | IPv6Address
+    neighbor_asn: Int
+    neighbor_address: Address
     # Optional, lower is more preferred CORE uplink for receiving traffic,
     # defaults to 0, max is 9
-    priority: int = Field(0, ge=0, le=9)
+    priority: Int = Field(0, ge=0, le=9)
     # Optional: the session's TCP MD5 password, the same on the neighbor. Next to
     # the uplink's tunnel: its key alone then doesn't give a BGP session.
     password: Secret | None = None
@@ -205,11 +204,11 @@ class DNS(BaseModel):
     """
 
     # kbytes of responses per second; more are dropped.
-    rate_limit: int = Field(default=50, ge=1)
+    rate_limit: Int = Field(default=50, ge=1)
     # Bytes of a response (its IPv6 packet); a larger one is dropped.
-    max_size: int = Field(default=4096, ge=512, le=65535)
+    max_size: Int = Field(default=4096, ge=512, le=65535)
     # Records in a response; one with more is dropped.
-    max_records: int = Field(default=100, ge=1, le=65535)
+    max_records: Int = Field(default=100, ge=1, le=65535)
 
 
 class ServiceHub(ServiceTenant):
@@ -224,17 +223,17 @@ class ServiceHub(ServiceTenant):
     # OVERLAY CONFIG
     # IPv4 prefix for downlink interfaces. Must be a /16, will get subnetted into /24s
     # per downlink interface per tunnel.
-    prefix_downlink_interface_v4: IPv4Network = IPv4Network("100.64.0.0/10")
+    prefix_downlink_interface_v4: Network4 = IPv4Network("100.64.0.0/10")
     # IPv6 prefix for downlink interfaces. Must be a /48 or larger, will get subnetted
     # into /64s per downlink interface per tunnel.
-    prefix_downlink_interface_v6: IPv6Network = IPv6Network("fdcc:cbe::/32")
+    prefix_downlink_interface_v6: Network6 = IPv6Network("fdcc:cbe::/32")
     # The below are used on the provider side to uniquely adress tenant environments
     # IPv6 prefix for NAT64. Must be a /32 or larger. Will be subnetted into /96s per
     # downlink per tunnel.
-    prefix_downlink_nat64: IPv6Network = IPv6Network("64:ff9b::/32")
+    prefix_downlink_nat64: Network6 = IPv6Network("64:ff9b::/32")
     # IPv6 prefix for NPTv6. Must be a /12 or larger. Will be subnetted into /48s per
     # downlink per tunnel.
-    prefix_downlink_nptv6: IPv6Network = IPv6Network("660::/12")
+    prefix_downlink_nptv6: Network6 = IPv6Network("660::/12")
 
     ## BGP config
     bgp: BGP

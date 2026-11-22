@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
 from vpnc import config, helpers
 from vpnc.models import enums
+from vpnc.models.scalars import Address, Int
 from vpnc.models.secret import Secret
 from vpnc.network import state
 from vpnc.services import wireguard
@@ -29,9 +29,9 @@ class ConnectionConfigWireGuard(BaseModel):
     type: Literal[enums.ConnectionType.WIREGUARD] = enums.ConnectionType.WIREGUARD
     _upper = helpers.upper("type")
     # Set a local id for the connection specifically.
-    local_port: int = Field(default=51820, ge=1, le=65535)
-    remote_addrs: list[IPv4Address | IPv6Address] = Field(min_length=1)
-    remote_port: int = Field(default=51820, ge=1, le=65535)
+    local_port: Int = Field(default=51820, ge=1, le=65535)
+    remote_addrs: list[Address] = Field(min_length=1)
+    remote_port: Int = Field(default=51820, ge=1, le=65535)
     private_key: Secret
     public_key: str
 
