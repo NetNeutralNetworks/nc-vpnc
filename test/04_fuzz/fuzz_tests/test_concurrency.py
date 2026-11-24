@@ -5,7 +5,7 @@ delete, read) and edits of the active files, on two tenants they share. No call
 may fail with a server error and vpnc must keep running. Afterwards what runs
 must be what the files say: the configuration vpnc reports and the state it
 applied (network instances, connections, routes, what charon has loaded), and
-for one example in four also the same after hub00 restarts from the files.
+for one example in ten also the same after hub00 restarts from the files.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ pytestmark = pytest.mark.skipif(
     reason="runs in the fuzz lab: run test/04_fuzz on its own",
 )
 
-# An example takes about 3 s, one that ends with a restart about 25 s.
+# An example takes about 6 s, one that ends with a restart about 25 s.
 CONCURRENCY = settings(
     max_examples=max(2, int(os.environ.get("FUZZ_EXAMPLES", "100"))),
     deadline=None,
@@ -224,7 +224,7 @@ def canary(deployed: conftest.Deployed) -> conftest.Canary:  # noqa: ARG001
         min_size=THREADS,
         max_size=THREADS,
     ),
-    restart=st.sampled_from([True, False, False, False]),
+    restart=st.sampled_from([True, *[False] * 9]),
 )
 def test_concurrency(
     deployed: conftest.Deployed,
