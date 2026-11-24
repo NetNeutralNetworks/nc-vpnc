@@ -75,7 +75,7 @@ profile ncubed-vpnc /opt/ncubed/vpnc/bin/vpnc flags=(attach_disconnected.path=/d
   # What vpnc configures.
   /etc/swanctl/{,**} rw,
   /etc/wireguard/{,**} rw,
-  /etc/frr/{,**} rw,
+  /etc/frr/{,**} rwk,
   /etc/strongswan.conf r,
   /etc/strongswan.d/{,**} r,
   /etc/ipsec.conf r,
