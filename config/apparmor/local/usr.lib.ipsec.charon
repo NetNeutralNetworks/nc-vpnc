@@ -1,0 +1,3 @@
+# vpnc stops charon, which runs stacked with vpnc's profile.
+signal (receive) peer=ncubed-vpnc,
+signal (send, receive) peer={/usr/lib/ipsec/charon//&ncubed-vpnc,ncubed-vpnc//&/usr/lib/ipsec/charon},

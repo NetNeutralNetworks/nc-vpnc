@@ -49,7 +49,7 @@ Connections can be stopped and started: this sets `enabled` in their configurati
 ```bash
 ~$ sudo vpnctl connections stop|start C0001-00-0 [C0001-01 ...]      # network instance/tenant: its VPN connections
 ~$ sudo vpnctl connections reset|restart C0001-00-0 [C0001-01 ...]
-~$ sudo vpnctl service restart|stop                                  # vpnc itself (systemd); stops every tunnel
+~$ sudo systemctl restart|stop ncubed-vpnc                          # vpnc itself; stops every tunnel
 ```
 
 ## Configuration

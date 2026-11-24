@@ -29,7 +29,7 @@ Then configure the service (see [Configuration](configuration.md#service)):
 ```bash
 ~$ vpnctl config edit service
 ~$ vpnctl config commit service
-~$ vpnctl service restart
+~$ systemctl restart ncubed-vpnc
 ```
 
 For SNMP, create a user as the installation prints; see [SNMP](snmp.md).

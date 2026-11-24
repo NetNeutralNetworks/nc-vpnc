@@ -265,7 +265,7 @@ def cmd_status(args: argparse.Namespace) -> None:
                         "Restart needed",
                         (
                             f"{', '.join(data['restart_needed'])} changed "
-                            "(vpnctl service restart)"
+                            "(systemctl restart ncubed-vpnc)"
                         ),
                     ),
                 ]
@@ -1138,13 +1138,6 @@ def cmd_version(args: argparse.Namespace) -> None:
         )
 
 
-def cmd_service(args: argparse.Namespace) -> None:
-    """Restart or stop vpnc (systemd); start it with systemctl."""
-    request("POST", f"/v1/service/{args.service_action}")
-    done = "Restarting" if args.service_action == "restart" else "Stopping"
-    print(f"{done} vpnc.")
-
-
 def cmd_bgp_neighbors(args: argparse.Namespace) -> None:
     """List the BGP sessions, per address family."""
     data = request("GET", "/v1/bgp/neighbors")
@@ -1497,9 +1490,8 @@ def commit_notices(result: dict[str, Any]) -> None:
             f"Generated {secret}: show it with --reveal-secrets to give it to the peer"
         )
     if fields_ := result.get("restart_needed"):
-        print(
-            f"Restart vpnc to apply {', '.join(fields_)}: vpnctl service restart",
-        )
+        fields = ", ".join(fields_)
+        print(f"Restart vpnc to apply {fields}: systemctl restart ncubed-vpnc")
 
 
 def cmd_config_confirm(args: argparse.Namespace) -> None:
@@ -1645,7 +1637,6 @@ COMMANDS: dict[str, dict[str, str | None]] = {
     "events": {},
     "version": {},
     "generate": {"psk": "secret_format", "ppk": "secret_format"},
-    "service": {"restart": None, "stop": None},
     "config": {
         "list": None,
         "add": None,
@@ -2256,9 +2247,6 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
             choices=SECRET_FORMATS,
             help="text: 64 letters and digits; hex or base64: 256 bits",
         )
-    p = add(commands, "service", cmd_service)
-    p.add_argument("service_action", choices=["restart", "stop"])
-
     shell = group("completion", "shell completion")
     add(shell, "bash", cmd_completion).set_defaults(script="bash")
     add(shell, "zsh", cmd_completion).set_defaults(script="zsh")

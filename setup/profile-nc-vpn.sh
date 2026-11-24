@@ -74,9 +74,9 @@ $BOLD  vpnctl config diff C0001$DEFAULT                          the staged chan
 $BOLD  vpnctl config commit C0001|--all [--confirm 5m]$DEFAULT   rolled back unless confirmed
 $BOLD  vpnctl config confirm|discard C0001|--all$DEFAULT
 $BOLD  vpnctl config history C0001 [REVISION]$DEFAULT            restore with: config restore C0001 REVISION
-$BOLD  vpnctl service restart$DEFAULT                            vpnc itself, e.g. after changing the mode
 
 Underneath
+$BOLD  systemctl restart ncubed-vpnc$DEFAULT                     vpnc itself, e.g. after changing the mode
 $BOLD  journalctl -u ncubed-vpnc -f$DEFAULT                      the service's output
 $BOLD  ip -n C0001-00 -br addr$DEFAULT                           a network instance is a namespace
 $BOLD  ip netns exec C0001-00 wg show$DEFAULT                    WireGuard's own view

@@ -4,15 +4,12 @@ Errors are RFC 9457 problem details (application/problem+json).
 """
 
 import logging
-import pathlib
-import subprocess
 from collections.abc import AsyncIterator, Callable, Sequence
 from http import HTTPStatus
 from typing import Annotated, Any, Literal, NoReturn
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Body,
     Depends,
     FastAPI,
@@ -560,52 +557,6 @@ def get_logs(
     The level doesn't apply to charon's log, whose lines have a subsystem.
     """
     return _logs(logs.daemon_queries(source, level), lines, follow=follow)
-
-
-UNIT = "ncubed-vpnc.service"
-
-
-def _systemctl(action: str) -> None:
-    """Have systemd restart or stop vpnc.
-
-    systemctl is in vpnc's cgroup: stopping vpnc can kill it before it exits,
-    after the job was queued.
-    """
-    try:
-        result = subprocess.run(  # noqa: S603
-            ["/usr/bin/systemctl", "--no-block", action, UNIT],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=10,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        logger.exception("Running systemctl %s failed.", action)
-        return
-    if result.returncode > 0:
-        logger.error("systemctl %s failed: %s", action, result.stderr.strip())
-
-
-@app.post("/v1/service/{action}", status_code=202)
-def service_action(
-    action: Literal["restart", "stop"],
-    background: BackgroundTasks,
-) -> dict[str, str]:
-    """Restart or stop vpnc (systemd); it happens after the response."""
-    if not pathlib.Path("/run/systemd/system").is_dir():
-        raise ConfigError(409, "Conflict", "vpnc doesn't run under systemd here.")
-    loaded = subprocess.run(  # noqa: S603
-        ["/usr/bin/systemctl", "show", "--property=LoadState", "--value", UNIT],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=10,
-    ).stdout.strip()
-    if loaded != "loaded":
-        detail = f"{UNIT} isn't loaded ({loaded or 'unknown'})."
-        raise ConfigError(409, "Conflict", detail)
-    background.add_task(_systemctl, action)
-    return {"action": action}
 
 
 @app.get("/v1/version")

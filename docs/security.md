@@ -13,14 +13,17 @@ vpnc is not a firewall: put one in front of `CORE` for inspection and user-based
 
 | Daemon | Account | |
 |---|---|---|
-| charon | `vpnc-swan` | Can only configure the network. AppArmor profile in enforce mode. |
+| vpnc | root | AppArmor profile `ncubed-vpnc`. |
+| charon | `vpnc-swan` | Can only configure the network. Its own AppArmor profile too. |
 | ssh | `vpnc-ssh` | No privileges. |
-| vpncmangle | `vpnc-mangle` | Can only configure the network. |
-| FRR | `frr` | AppArmor profiles in enforce mode. |
+| vpncmangle | `vpnc-mangle` | Can only configure the network. Its own AppArmor profile too (`ncubed-vpncmangle`). |
+| FRR | `frr` | bgpd, bfdd and staticd: their own AppArmor profiles too. |
 
 charon only loads the plugins that connections with a PSK need (`/etc/strongswan.d/vpnc.conf`).
 
-vpnc's unit (`ncubed-vpnc.service`) confines vpnc and every daemon it starts: no privileges gained through setuid programs, a system call filter, only Unix, IP and netlink sockets, and a capability bounding set. It can't load kernel modules: hubs load Jool at boot (`/etc/modules-load.d/vpnc.conf`). There are no file system restrictions: vpnc runs as root, and the network namespaces it mounts must be seen outside it.
+vpnc's unit (`ncubed-vpnc.service`) confines vpnc and every daemon it starts: no privileges gained through setuid programs, a system call filter, only Unix, IP and netlink sockets, and a capability bounding set. It can't load kernel modules: hubs load Jool at boot (`/etc/modules-load.d/vpnc.conf`).
+
+Its AppArmor profile (`/etc/apparmor.d/ncubed-vpnc`) limits what vpnc and everything it starts may read, write and run, even as root: no mounts but its network namespaces, no systemd (which could start anything unconfined), and not its own code. vpnc doesn't start without it. A daemon with a profile of its own runs under both. charon's and FRR's profiles take vpnc's signals through their `local/` include (`/etc/apparmor.d/ncubed-vpnc.d/`).
 
 ## Secrets
 
@@ -44,4 +47,4 @@ For post-quantum key exchange, see [Connections](connections.md#post-quantum-cry
 
 ## Updates
 
-An update of strongSwan only replaces its files: the running charon is the old one until vpnc restarts, which stops every tunnel. Restart it (`vpnctl service restart`) in a maintenance window after a security update.
+An update of strongSwan only replaces its files: the running charon is the old one until vpnc restarts, which stops every tunnel. Restart it (`systemctl restart ncubed-vpnc`) in a maintenance window after a security update.

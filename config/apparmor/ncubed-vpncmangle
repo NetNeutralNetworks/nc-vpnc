@@ -1,0 +1,31 @@
+abi <abi/5.0>,
+
+include <tunables/global>
+
+# vpncmangle rewrites the tenants' DNS answers from a netfilter queue, as
+# vpnc-mangle with only CAP_NET_ADMIN. vpnc starts it stacked on its own profile.
+profile ncubed-vpncmangle {
+  include <abstractions/base>
+  include <abstractions/python>
+
+  capability net_admin,
+  network netlink raw,
+
+  # From vpnc, and between its own threads (stacked).
+  signal receive peer={ncubed-vpnc,ncubed-vpncmangle,ncubed-vpnc//&ncubed-vpncmangle},
+  signal send peer={ncubed-vpncmangle,ncubed-vpnc//&ncubed-vpncmangle},
+
+  /opt/ncubed/vpnc/bin/{vpncmangle,python3*} ix,
+  /usr/bin/python3* ix,
+  /usr/sbin/nft ix,
+
+  /opt/ncubed/vpnc/** mr,
+  audit deny /opt/ncubed/vpnc/** w,
+  /opt/ncubed/config/vpncmangle/*.json r,
+  /run/vpncmangle/{,**} rw,
+  @{PROC}/@{pid}/task/@{tid}/comm rw,
+  /etc/{nsswitch.conf,passwd,protocols} r,
+  # nft
+  /etc/iproute2/** r,
+  /usr/share/iproute2/** r,
+}
