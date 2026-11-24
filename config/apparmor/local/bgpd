@@ -1,0 +1,3 @@
+# vpnc stops FRR, whose daemons run stacked with vpnc's profile.
+signal (receive) peer=ncubed-vpnc,
+signal (send, receive) peer={bgpd//&ncubed-vpnc,ncubed-vpnc//&bgpd},

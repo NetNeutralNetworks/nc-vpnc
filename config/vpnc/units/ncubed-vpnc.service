@@ -23,6 +23,8 @@ RestrictRealtime=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native
 SystemCallFilter=@system-service @mount
+# Not started without its profile (/etc/apparmor.d/ncubed-vpnc).
+AppArmorProfile=ncubed-vpnc
 # The daemons keep NET_ADMIN, NET_RAW, NET_BIND_SERVICE and SYS_ADMIN; vpnc also
 # starts them as their users, writes their files and signals them.
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_ADMIN \

@@ -21,6 +21,8 @@ APT := DEBIAN_FRONTEND=noninteractive apt-get
 SYSTEMD   := $(wildcard /run/systemd/system)
 SYSTEMCTL := $(if $(SYSTEMD),/usr/bin/systemctl,: skip systemctl)
 UNITCTL   := /usr/bin/systemctl
+# Nor is AppArmor policy loaded there.
+AA_PARSER := $(if $(wildcard /sys/kernel/security/apparmor/profiles),/usr/sbin/apparmor_parser,: skip apparmor_parser)
 
 # Ubuntu's Python packages, which the venv uses (system site packages), and
 # their names on PyPI: the lock leaves those out.
@@ -39,6 +41,9 @@ VPNCMANGLE_SRC := $(shell find vpncmangle -type f ! -path '*/build/*' ! -path '*
 
 MISC_CONF := /etc/strongswan.d/vpnc.conf /etc/iproute2/rt_protos.d/vpnc.conf
 MODULES_CONF := /etc/modules-load.d/vpnc.conf
+# vpnc's AppArmor profile, and what the profiles of the daemons it starts need.
+APPARMOR := /etc/apparmor.d/ncubed-vpnc /etc/apparmor.d/ncubed-vpncmangle
+AA_LOCAL := usr.lib.ipsec.charon bgpd bfdd staticd
 SNMP_CONF := /etc/snmp/snmpd.conf.d/vpnc.conf
 FRR_SNMP_CONF := /etc/snmp/frr.conf
 # Installed by vpnc before it was renamed vpnc.conf; its TCP sockets override vpnc's.
@@ -48,7 +53,7 @@ VPNCTL    := /usr/local/bin/vpnctl /etc/bash_completion.d/vpnctl \
 
 .PHONY: help hub endpoint addon update root apt-update packages python-packages \
 	python-debs hub-packages frr snmpd old-snmp-config config misc-config venv \
-	pip-vpnc pip-vpncmangle lock vpnctl service start
+	pip-vpnc pip-vpncmangle lock vpnctl apparmor service start
 
 help:
 	@echo "As root: make hub | make endpoint | make addon | make update"
@@ -58,21 +63,21 @@ help:
 hub: MODE := hub
 hub: root packages python-packages frr hub-packages $(MODULES_CONF) snmpd \
 	account-vpnc-mangle account-vpnc-ssh config misc-config pip-vpnc pip-vpncmangle \
-	vpnctl service start
+	vpnctl apparmor service start
 
 endpoint: MODE := endpoint
 endpoint: root packages python-packages snmpd \
-	config misc-config pip-vpnc vpnctl service start
+	config misc-config pip-vpnc vpnctl apparmor service start
 
 addon: MODE := addon
 addon: root packages python-packages \
-	config misc-config pip-vpnc vpnctl service start
+	config misc-config pip-vpnc vpnctl apparmor service start
 
 # vpncmangle and the accounts only where it's installed (hub).
 update: root python-debs pip-vpnc $(if $(wildcard $(VENV)/bin/vpncmangle),\
 	account-vpnc-mangle account-vpnc-ssh pip-vpncmangle $(MODULES_CONF)) \
 	misc-config $(if $(wildcard /etc/snmp/snmpd.conf.d),$(SNMP_CONF) old-snmp-config) \
-	$(if $(wildcard /etc/frr),$(FRR_SNMP_CONF)) vpnctl \
+	$(if $(wildcard /etc/frr),$(FRR_SNMP_CONF)) vpnctl apparmor \
 	$(if $(SYSTEMD),$(CONFDIR)/units/$(UNIT) $(STAMP)/started)
 
 root:
@@ -85,12 +90,13 @@ apt-update:
 
 # strongswan-starter/-charon: vpnc uses "ipsec start"; from 26.04 the
 # strongswan metapackage installs charon-systemd instead.
-# kmod: vpnc runs modinfo and modprobe.
+# kmod: vpnc runs modinfo.
+# apparmor: vpnc's profile, and those of charon and FRR.
 # iputils-ping, traceroute, tcpdump: vpnctl ping, traceroute and capture.
 # curl: the API from the shell (README).
 packages: apt-update
 	$(if $(SYSTEMD),$(APT) upgrade -y)
-	$(APT) install -y nftables iproute2 kmod \
+	$(APT) install -y nftables iproute2 kmod apparmor \
 		strongswan strongswan-swanctl strongswan-starter strongswan-charon \
 		ssh wireguard iputils-ping traceroute tcpdump curl
 	$(UNITCTL) mask ipsec.service strongswan-starter.service strongswan.service
@@ -281,6 +287,20 @@ typer-cleanup:
 	done
 
 # Service.
+
+# AppArmor: vpnc's profile, which its unit needs. charon's and FRR's profiles
+# include local/<name>: that includes vpnc's additions, and keeps local changes.
+apparmor: $(APPARMOR) $(addprefix /etc/apparmor.d/ncubed-vpnc.d/,$(AA_LOCAL))
+
+/etc/apparmor.d/ncubed-%: config/apparmor/ncubed-%
+	install -D -m 644 $< $@
+	$(AA_PARSER) -r $@
+
+/etc/apparmor.d/ncubed-vpnc.d/%: config/apparmor/local/%
+	install -D -m 644 $< $@
+	grep -qsx 'include <ncubed-vpnc.d/$*>' /etc/apparmor.d/local/$* || \
+		echo 'include <ncubed-vpnc.d/$*>' >> /etc/apparmor.d/local/$*
+	[ ! -e /etc/apparmor.d/$* ] || $(AA_PARSER) -r /etc/apparmor.d/$*
 
 service: $(CONFDIR)/units/$(UNIT)
 	$(UNITCTL) link $(CONFDIR)/units/$(UNIT)

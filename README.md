@@ -30,7 +30,7 @@ On Ubuntu 26.04, as root, in the repository root:
 ~$ make hub                               # or: endpoint, addon
 ~$ vpnctl config edit service             # mode, uplinks, BGP
 ~$ vpnctl config commit service
-~$ vpnctl service restart
+~$ systemctl restart ncubed-vpnc
 ~$ vpnctl config add C0001 "Customer name"   # then add its network instances and connections
 ```
 

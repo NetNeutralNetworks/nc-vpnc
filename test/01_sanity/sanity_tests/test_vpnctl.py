@@ -478,12 +478,12 @@ class TestVpnctlTroubleshooting:
         assert (version["frr"] is not None) == host.startswith("hub")
 
     def test_service_restart(self) -> None:
-        """Systemd restarts vpnc, which brings its connections up again."""
+        """A restarted vpnc brings its connections up again."""
         host = "end01"
         main_pid = "systemctl show -P MainPID ncubed-vpnc.service"
         before = conftest.run_cmd(host, main_pid).strip()
 
-        conftest.run_cmd(host, f"{VPNCTL} service restart")
+        conftest.run_cmd(host, "systemctl restart ncubed-vpnc")
 
         conftest.wait_until(
             lambda: conftest.run_cmd(host, main_pid).strip() not in {before, "0"},

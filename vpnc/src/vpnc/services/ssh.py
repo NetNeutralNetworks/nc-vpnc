@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from vpnc import accounts, config, eventlog, files, helpers
 from vpnc.models import enums
 from vpnc.models.post_quantum import OPENSSH_KEX
+from vpnc.network import namespace
 from vpnc.services import failures
 
 if TYPE_CHECKING:
@@ -84,10 +85,11 @@ class SshTunnel(threading.Thread):
     closes the session).
     """
 
-    def __init__(self, name: str, command: list[str]) -> None:
+    def __init__(self, name: str, netns: str, command: list[str]) -> None:
         """Create the tunnel thread; call start() to run it."""
         super().__init__(name=f"ssh-{name}", daemon=True)
         self.connection_name = name
+        self.netns = netns
         self.command = command
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -120,13 +122,16 @@ class SshTunnel(threading.Thread):
             with self._lock:
                 if self._stop_event.is_set():
                     return
-                proc = self._proc = subprocess.Popen(  # noqa: S603
-                    self.command,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    errors="replace",
+                proc = self._proc = namespace.call(
+                    self.netns,
+                    lambda: subprocess.Popen(  # noqa: S603
+                        self.command,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        errors="replace",
+                    ),
                 )
             # Logged with the connection name, so it shows in its logs.
             last = ""
@@ -554,10 +559,6 @@ def _start(
     pinned = _pin_host_key(connection_name, connection.config)
 
     command = [
-        "/usr/sbin/ip",
-        "netns",
-        "exec",
-        network_instance.id,
         # It talks to the tenant's server: not as root, without capabilities.
         *accounts.command(accounts.SSH),
         "/usr/bin/ssh",
@@ -601,7 +602,7 @@ def _start(
         f"{connection.id}:{connection.config.remote_tunnel_id}",
         f"{connection.config.username}@{connection.config.remote_addrs[0]}",
     ]
-    tunnel = SshTunnel(connection_name, command)
+    tunnel = SshTunnel(connection_name, network_instance.id, command)
     tunnel.start()
     SSH_TUNNELS[connection_name] = tunnel
     # atexit runs the last registered first: ssh closes its session before charon

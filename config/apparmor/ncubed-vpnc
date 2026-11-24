@@ -1,0 +1,142 @@
+abi <abi/5.0>,
+
+include <tunables/global>
+
+# vpnc and what it starts. Its unit also sets it (AppArmorProfile=), so vpnc
+# doesn't start without it. The daemons with a profile of their own run under
+# both: under no_new_privs, a switch to another profile is refused, a stack
+# isn't. So this one also allows what they do.
+# Network namespace files (nsfs) have no path: they show as /disconnected/.
+profile ncubed-vpnc /opt/ncubed/vpnc/bin/vpnc flags=(attach_disconnected.path=/disconnected/) {
+  include <abstractions/base>
+  include <abstractions/nameservice-strict>
+  include <abstractions/openssl>
+  include <abstractions/python>
+
+  capability chown,
+  capability dac_override,
+  capability dac_read_search,
+  capability fowner,
+  capability kill,
+  capability net_admin,
+  capability net_bind_service,
+  capability net_raw,
+  capability setgid,
+  capability setpcap,
+  capability setuid,
+  capability sys_admin,
+  # Checked on each chmod of a file of another group (to keep a setgid bit vpnc
+  # never sets).
+  deny capability fsetid,
+
+  network inet dgram,
+  network inet6 dgram,
+  network inet stream,
+  network inet6 stream,
+  network inet raw,
+  network inet6 raw,
+  network netlink dgram,
+  network netlink raw,
+
+  # Network namespaces: the only mounts, only of namespace files. Any other
+  # source would get around the file rules.
+  /disconnected/ r,
+  mount options=(rw, rbind) /run/netns/ -> /run/netns/,
+  mount options=(rw, rshared) -> /run/netns/,
+  mount options=(rw, bind) /disconnected/ -> /run/netns/*,
+  umount /run/netns/*,
+
+  # Itself, and the daemons stacked on it: a stacked peer matches per profile.
+  signal (send, receive) peer={ncubed-vpnc,ncubed-vpncmangle,/usr/lib/ipsec/charon,bgpd,bfdd,staticd},
+  signal receive peer=unconfined,
+
+  # The daemons with a profile of their own.
+  /usr/lib/ipsec/charon cx -> &/usr/lib/ipsec/charon,
+  /usr/sbin/swanctl cx -> &/usr/sbin/swanctl,
+  /usr/lib/frr/bgpd cx -> &bgpd,
+  /usr/lib/frr/bfdd cx -> &bfdd,
+  /usr/lib/frr/staticd cx -> &staticd,
+  /opt/ncubed/vpnc/bin/vpncmangle cx -> &ncubed-vpncmangle,
+
+  # The rest runs under this profile.
+  /opt/ncubed/vpnc/bin/{vpnc,python3*} ix,
+  /usr/bin/python3* ix,
+  /usr/lib/ipsec/starter ix,
+  /usr/sbin/ipsec ix,
+  /usr/lib/frr/{frrinit.sh,frrcommon.sh,watchfrr.sh,frr-reload.py,watchfrr,zebra,mgmtd} ix,
+  /{,usr/}{bin,sbin}/{ip,nft,jool,wg,ping,traceroute,traceroute.db,vtysh,ssh,ssh-keygen,setpriv,journalctl,logger,modinfo,kmod,run-parts,ldconfig,ldconfig.real} ix,
+  /{,usr/}bin/{sh,dash,bash,cat,dirname,grep,readlink,rm,gnurm,sleep,touch,uname} ix,
+  /usr/lib/cargo/bin/coreutils/* ix,
+
+  # vpnc and vpncmangle.
+  /opt/ncubed/vpnc/** mr,
+  /opt/ncubed/config/{,**} rwk,
+
+  # What vpnc configures.
+  /etc/swanctl/{,**} rw,
+  /etc/wireguard/{,**} rw,
+  /etc/frr/{,**} rw,
+  /etc/strongswan.conf r,
+  /etc/strongswan.d/{,**} r,
+  /etc/ipsec.conf r,
+  /etc/iproute2/** r,
+  /usr/share/iproute2/** r,
+  /etc/snmp/** r,
+  # Not the host's keys.
+  /etc/ssh/ssh_config r,
+  /etc/ssh/ssh_config.d/{,*} r,
+  /etc/machine-id r,
+  /etc/login.defs r,
+  /etc/pam.d/* r,
+  /usr/lib/ipsec/** mr,
+  /usr/lib/frr/** mr,
+  /usr/lib/modules/** r,
+  /usr/lib/lsb/** r,
+  /usr/local/** r,
+  /usr/share/** r,
+  /usr/{bin,sbin}/* r,
+
+  # Never: vtysh's PAM password check and history, vpnc's own code, systemd
+  # (which could start anything, unconfined).
+  audit deny /etc/shadow r,
+  audit deny /root/** rw,
+  audit deny /opt/ncubed/vpnc/** w,
+  audit deny /run/systemd/private rw,
+  audit deny /run/dbus/system_bus_socket rw,
+  # FRR's init script asks systemctl for a unit frrinit.service; there's none.
+  deny /usr/bin/systemctl x,
+
+  @{PROC}/ r,
+  @{PROC}/cmdline r,
+  @{PROC}/filesystems r,
+  @{PROC}/[0-9]*/{cgroup,cmdline,maps,stat,status} r,
+  @{PROC}/[0-9]*/net/** r,
+  @{PROC}/[0-9]*/task/[0-9]*/net/** r,
+  @{PROC}/@{pid}/task/@{tid}/comm rw,
+  @{PROC}/sys/kernel/** r,
+  @{PROC}/sys/vm/** r,
+  @{PROC}/sys/net/** rw,
+  /sys/devices/system/** r,
+  /sys/module/** r,
+  /dev/net/tun rw,
+  /dev/tty rw,
+
+  /run/netns/ rw,
+  /run/netns/* rw,
+  /run/vpnc/{,**} rw,
+  /run/vpncmangle/{,**} rw,
+  /run/charon.* rw,
+  /run/starter.charon.pid rw,
+  /run/frr/{,**} rwk,
+  /run/lock/subsys/{,**} rw,
+  /var/lib/frr/{,**} rw,
+  /var/log/frr/{,**} rw,
+  /var/tmp/frr/{,**} rwk,
+  /var/agentx/master rw,
+  /var/lib/vpnc-ssh/{,**} rwk,
+
+  # vpnctl logs.
+  /run/log/journal/{,**} r,
+  /var/log/journal/{,**} r,
+  /run/systemd/userdb/** rw,
+}
