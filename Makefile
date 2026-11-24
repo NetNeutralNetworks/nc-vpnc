@@ -25,11 +25,13 @@ UNITCTL   := /usr/bin/systemctl
 AA_PARSER := $(if $(wildcard /sys/kernel/security/apparmor/profiles),/usr/sbin/apparmor_parser,: skip apparmor_parser)
 
 # Ubuntu's Python packages, which the venv uses (system site packages), and
-# their names on PyPI: the lock leaves those out.
+# their names on PyPI: the lock leaves those out. Not dnspython: vpncmangle needs
+# 2.9, which refuses compressed names where RFCs forbid them; the venv's copy is
+# in front of Ubuntu's 2.8 (a dependency of python3-email-validator).
 PYTHON_DEBS := python3-idna python3-jinja2 python3-packaging python3-pydantic \
 	python3-yaml python3-watchdog
-MANGLE_DEBS := python3-netfilterqueue python3-dnspython
-SYSTEM_PYPI := annotated-types dnspython idna jinja2 markupsafe netfilterqueue packaging \
+MANGLE_DEBS := python3-netfilterqueue
+SYSTEM_PYPI := annotated-types idna jinja2 markupsafe netfilterqueue packaging \
 	pydantic pydantic-core pyyaml typing-extensions typing-inspection watchdog
 
 # hub, endpoint or addon; set by the install targets.
