@@ -26,10 +26,11 @@ AA_PARSER := $(if $(wildcard /sys/kernel/security/apparmor/profiles),/usr/sbin/a
 
 # Ubuntu's Python packages, which the venv uses (system site packages), and
 # their names on PyPI: the lock leaves those out.
-PYTHON_DEBS := python3-jinja2 python3-packaging python3-pydantic python3-yaml python3-watchdog
-MANGLE_DEBS := python3-netfilterqueue
-SYSTEM_PYPI := annotated-types jinja2 markupsafe netfilterqueue packaging pydantic \
-	pydantic-core pyyaml typing-extensions typing-inspection watchdog
+PYTHON_DEBS := python3-idna python3-jinja2 python3-packaging python3-pydantic \
+	python3-yaml python3-watchdog
+MANGLE_DEBS := python3-netfilterqueue python3-dnspython
+SYSTEM_PYPI := annotated-types dnspython idna jinja2 markupsafe netfilterqueue packaging \
+	pydantic pydantic-core pyyaml typing-extensions typing-inspection watchdog
 
 # hub, endpoint or addon; set by the install targets.
 MODE ?= hub
@@ -217,12 +218,13 @@ $(FRR_SNMP_CONF): config/snmp/frr.conf
 # so a new venv reinstalls them.
 
 # Recreate a missing or broken venv (e.g. Python changed in a release upgrade),
-# or one without system site packages.
+# one without system site packages, or one with an older lock: pip doesn't remove
+# packages the lock dropped, which would stay in front of Ubuntu's.
 ifneq ($(shell $(VENV)/bin/python3 -c pass 2>/dev/null && \
 	grep -qx 'include-system-site-packages = true' $(VENV)/pyvenv.cfg && echo ok),ok)
 .PHONY: $(VENV)/pyvenv.cfg
 endif
-$(VENV)/pyvenv.cfg:
+$(VENV)/pyvenv.cfg: $(wildcard vpnc/requirements.txt vpncmangle/requirements.txt)
 	python3 -m venv --clear --system-site-packages $(VENV)
 
 venv: $(VENV)/pyvenv.cfg
