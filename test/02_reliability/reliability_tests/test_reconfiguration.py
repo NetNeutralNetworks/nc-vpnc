@@ -1471,7 +1471,7 @@ def dns_reply(reply: str) -> str:
     """Return what mgt00 gets (hex, or none) from a DNS server that replies so."""
     container = f"{conftest.CONTAINER_PREFIX}cli00"
     subprocess.run(  # noqa: S603
-        ["docker", "exec", "-d", container, "python3", "-c", RESPONDER,  # noqa: S607
+        ["podman", "exec", "-d", container, "python3", "-c", RESPONDER,  # noqa: S607
          RESPONDER_ADDRESS, reply.replace(" ", "")],
         check=True,
     )  # fmt: skip
@@ -1480,7 +1480,7 @@ def dns_reply(reply: str) -> str:
     conftest.run_cmd("cli00", f"ip address add {address}")
     try:
         return subprocess.run(  # noqa: S603
-            ["docker", "exec", f"{conftest.CONTAINER_PREFIX}mgt00", "python3", "-c",  # noqa: S607
+            ["podman", "exec", f"{conftest.CONTAINER_PREFIX}mgt00", "python3", "-c",  # noqa: S607
              CLIENT, f"fdcc:0:c:1::{RESPONDER_ADDRESS}", QUERY.replace(" ", "")],
             capture_output=True,
             text=True,

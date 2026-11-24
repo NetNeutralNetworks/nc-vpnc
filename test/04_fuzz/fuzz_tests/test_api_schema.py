@@ -32,8 +32,8 @@ pytestmark = pytest.mark.skipif(
     reason="runs in the fuzz lab: run test/04_fuzz on its own",
 )
 
-SCHEMATHESIS = "schemathesis/schemathesis:4.33.4"
-SOCAT = "alpine/socat:1.8.0.3"
+SCHEMATHESIS = "docker.io/schemathesis/schemathesis:4.33.4"
+SOCAT = "docker.io/alpine/socat:1.8.0.3"
 # hub00's /run/vpnc on the host (fuzz.clab.yaml).
 SOCKET_DIR = "/run/vpnc-fuzz-hub00"
 PROXY = "fuzz-api-socat"
@@ -83,7 +83,7 @@ def api_on_tcp() -> Iterator[None]:
     """Make hub00's API socket reachable on its 127.0.0.1:8080."""
     subprocess.run(  # noqa: S603
         [  # noqa: S607
-            "docker", "run", "-d", "--rm", "--name", PROXY,
+            "podman", "run", "-d", "--rm", "--name", PROXY,
             "--network", f"container:{CONTAINER}",
             "-v", f"{SOCKET_DIR}:/vpnc", SOCAT,
             "TCP-LISTEN:8080,bind=127.0.0.1,fork,reuseaddr",
@@ -93,14 +93,14 @@ def api_on_tcp() -> Iterator[None]:
         check=True,
     )  # fmt: skip
     yield
-    subprocess.run(["docker", "rm", "-f", PROXY], capture_output=True, check=False)  # noqa: S603, S607
+    subprocess.run(["podman", "rm", "-f", PROXY], capture_output=True, check=False)  # noqa: S603, S607
 
 
 def schemathesis(config: Path, *options: str) -> subprocess.CompletedProcess[str]:
     """Run Schemathesis against hub00's API."""
     return subprocess.run(  # noqa: S603
         [  # noqa: S607
-            "docker", "run", "--rm", "--network", f"container:{CONTAINER}",
+            "podman", "run", "--rm", "--network", f"container:{CONTAINER}",
             "-v", f"{config}:/schemathesis.toml:ro",
             SCHEMATHESIS, "--config-file", "/schemathesis.toml",
             "run", "http://127.0.0.1:8080/openapi.json",

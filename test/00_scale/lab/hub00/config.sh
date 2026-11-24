@@ -6,9 +6,4 @@ for i in candidate active; do
     cp -f "${BASE}/DEFAULT.yaml" "/opt/ncubed/config/vpnc/${i}/DEFAULT.yaml"
 done
 
-"${BASE}/../journald.sh"
-
-if [ "$(ps -p 1 -o comm=)" != "systemd" ]; then
-    # Replaces the shell: the init process (tini) signals vpnc itself.
-    exec /opt/ncubed/vpnc/bin/vpnc
-fi
+exec "${BASE}/../init.sh" eth1

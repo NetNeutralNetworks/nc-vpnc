@@ -6,7 +6,11 @@ SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 VERSION="${1:-26.04}"
 DOCKERFILE=${SCRIPTDIR}/../../docker/${VERSION}/Dockerfile
 
-docker build -f ${DOCKERFILE} ${SCRIPTDIR}/../../ --target vpnc \
-  -t nc-vpnc:${VERSION} -t nc-vpnc:latest
-docker build -f ${DOCKERFILE} ${SCRIPTDIR}/../../ --target lab \
-  -t nc-vpnc-lab:${VERSION} -t nc-vpnc-lab:latest
+# The docker format keeps SHELL. The host's network: Docker's firewall, where
+# installed, drops what podman's network forwards.
+build() {
+  podman build --format docker --network host -f ${DOCKERFILE} ${SCRIPTDIR}/../../ \
+    --target "$1" -t "$2:${VERSION}" -t "$2:latest"
+}
+build vpnc nc-vpnc
+build lab nc-vpnc-lab

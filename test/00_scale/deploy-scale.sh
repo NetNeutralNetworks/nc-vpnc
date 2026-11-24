@@ -9,4 +9,4 @@ if ! ip link show br-vpnc-scale &> /dev/null; then
     ip link add br-vpnc-scale type bridge
     ip link set br-vpnc-scale up
 fi
-containerlab deploy -t scale.clab.yaml --reconfigure
+containerlab deploy --runtime podman -t scale.clab.yaml --reconfigure

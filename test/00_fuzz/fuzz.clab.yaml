@@ -12,44 +12,48 @@ mgmt:
 topology:
   kinds:
     linux:
+      # Unconfined, as on the VMs: podman's "runc" AppArmor label can't
+      # signal FRR's daemons, which Ubuntu's profiles confine.
+      security-opts:
+        - apparmor=unconfined
       binds:
         - ../../:/nc-vpnc/
         - /lib/modules/:/lib/modules
   nodes:
     mgt00:
       kind: linux
-      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      image: localhost/nc-vpnc-lab:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_base/lab/mgt/mgt00.sh
     mgt01:
       kind: linux
-      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      image: localhost/nc-vpnc-lab:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_base/lab/mgt/mgt01.sh
     hub00:
       kind: linux
-      image: nc-vpnc:${VPNC_VERSION:=latest}
+      image: localhost/nc-vpnc:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_base/lab/hub00/config.sh
       # The API socket, for tools next to the lab (socat for Schemathesis).
       binds:
-        - /run/vpnc-fuzz-hub00:/run/vpnc
+        - /run/vpnc-fuzz-hub00:/lab/run/vpnc
     hub01:
       kind: linux
-      image: nc-vpnc:${VPNC_VERSION:=latest}
+      image: localhost/nc-vpnc:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_base/lab/hub01/config.sh
     end00:
       kind: linux
-      image: nc-vpnc:${VPNC_VERSION:=latest}
+      image: localhost/nc-vpnc:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_base/lab/end00/config.sh
     end01:
       kind: linux
-      image: nc-vpnc:${VPNC_VERSION:=latest}
+      image: localhost/nc-vpnc:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_base/lab/end01/config.sh
     cli00:
       kind: linux
-      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      image: localhost/nc-vpnc-lab:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_base/lab/cli/cli00.sh
     cli01:
       kind: linux
-      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      image: localhost/nc-vpnc-lab:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_base/lab/cli/cli01.sh
     br-vpnc-fuzz:
       kind: bridge

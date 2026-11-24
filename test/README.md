@@ -32,7 +32,7 @@ answer must hold after vpncmangle.
 
 ## Setup
 
-Once per host (Ubuntu 26.04), then log in again for the docker group:
+Once per host (Ubuntu 26.04):
 
 ```sh
 sudo test/00_setup/install.sh
@@ -63,9 +63,9 @@ the provider side (strongSwan, FRR); cli00/cli01 are customer networks behind
 end00/end01. The labels show what each tunnel uses. mgt00 sends its traffic
 through hub00 and mgt01 through hub01, so the tests' traffic crosses both hubs.
 
-The containers have tini as init (PID 1): `docker stop` stops vpnc as systemd
-would, and what daemons leave behind is reaped. A container stops when its vpnc
-exits.
+The labs run on podman. The vpnc nodes run systemd, as the VMs do: their script
+waits for the links and then starts it, and it starts vpnc with its unit
+(`make service`). The other nodes have tini as init.
 
 ## Scale lab
 
@@ -135,7 +135,7 @@ again: containerlab only adds links at deploy.
 The tests are made to run many examples per hour:
 
 - Commands and API calls go through a process that stays in each node
-  (`conftest.Agent`), several at a time, instead of a `docker exec` each.
+  (`conftest.Agent`), several at a time, instead of a `podman exec` each.
 - Nothing waits a fixed time for packets. After an example's packets a sentinel
   takes the same way (a DNS answer that vpncmangle translates, an IKE message
   that charon always answers, a ping of hub00): once it's there, so is what

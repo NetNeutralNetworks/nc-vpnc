@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import time
 from typing import TYPE_CHECKING
 
@@ -28,10 +27,9 @@ PEER_RETRY_TIMEOUT = 240
 # After a start BGP is up within this time after its tunnels.
 BGP_AFTER_TUNNELS = 10
 
-# Killed vpnc on this node; in the lab its container restarts, and its uplink is
-# linked to the bridge again.
+# Killed vpnc on this node; systemd starts it again.
 KILLED = "hub01"
-KILLED_UPLINK = ("eth1", "br-nc-vpnc:eth4")
+MAIN_PID = "systemctl show -P MainPID ncubed-vpnc.service"
 
 # "<name>: #<id>, <state>, " in swanctl --list-sas.
 SA_RE = re.compile(r"^(\S+): #\d+, (\w+), ")
@@ -198,48 +196,26 @@ class TestVpnRecovery:
         wait_for_healthy(HOST, connections, PEER_RETRY_TIMEOUT)
 
     def test_vpnc_killed(self) -> None:
-        """After vpnc is killed it starts again, with its daemons and all connections.
+        """Systemd starts a killed vpnc again, with its daemons and connections.
 
         The kill leaves the PID files of strongSwan and FRR. After a restart
-        another process may have their PIDs: here 1, which a container always has.
-        BGP's first connection attempts fail before the tunnels are up; it's up
-        within seconds after them.
+        another process may have their PIDs: here 1, systemd's. BGP's first
+        connection attempts fail before the tunnels are up; it's up within
+        seconds after them.
         """
         connections = get_connections(KILLED)
         assert connections, f"No connections loaded on {KILLED}"
-        container = f"{conftest.CONTAINER_PREFIX}{KILLED}"
-
-        def started() -> str:
-            return subprocess.run(  # noqa: S603
-                ["docker", "inspect", "-f", "{{.State.StartedAt}}", container],  # noqa: S607
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout.strip()
-
-        before = started()
+        before = conftest.run_cmd(KILLED, MAIN_PID).strip()
         for pid_file in ("starter.charon.pid", "charon.pid", "frr/bgpd.pid"):
             conftest.run_cmd_shell(KILLED, f"bash -c 'echo 1 > /var/run/{pid_file}'")
-        # The container exits with vpnc, so the command may fail.
-        subprocess.run(  # noqa: S603
-            ["docker", "exec", container, "pkill", "-KILL", "-x", "vpnc"],  # noqa: S607
-            capture_output=True,
-            check=False,
-        )
+
+        conftest.run_cmd(KILLED, "pkill -KILL -x vpnc")
+
         conftest.wait_until(
-            lambda: started() != before,
+            lambda: conftest.run_cmd(KILLED, MAIN_PID).strip() not in {before, "0"},
             timeout=60,
-            message=f"{KILLED} to restart",
+            message=f"vpnc on {KILLED} to restart",
         )
-        link, bridge = KILLED_UPLINK
-        subprocess.run(  # noqa: S603
-            [  # noqa: S607
-                "containerlab", "tools", "veth", "create",
-                "-a", f"{container}:{link}", "-b", f"bridge:{bridge}",
-            ],
-            capture_output=True,
-            check=True,
-        )  # fmt: skip
         conftest.wait_until(
             lambda: is_established(KILLED, UPLINK_UNREACHABLE, UPLINK_REACHABLE),
             timeout=PEER_RETRY_TIMEOUT,

@@ -25,9 +25,15 @@ SHELL ["/bin/bash", "-c"]
 RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
     --mount=type=bind,source=./config/,target=/tmp/repo/config/            \
     echo "Install APT packages"                                         && \
-    apt-get update && apt-get install -y make tini                      && \
-    make -C /tmp/repo MODE=hub packages python-packages account-vpnc-mangle account-vpnc-ssh hub-packages frr snmpd misc-config config && \
+    apt-get update && apt-get install -y make                           && \
+    make -C /tmp/repo MODE=hub packages python-packages account-vpnc-mangle account-vpnc-ssh hub-packages frr snmpd misc-config config service && \
     rm -rf /var/lib/apt/lists/*
+
+# systemd runs as on the VMs, without what a container has no use for.
+RUN systemctl mask getty@.service console-getty.service                    \
+    systemd-timesyncd.service systemd-resolved.service apt-daily.timer      \
+    apt-daily-upgrade.timer motd-news.timer e2scrub_all.timer fstrim.timer  \
+    dpkg-db-backup.timer
 
 COPY --from=build /opt/ncubed/ /opt/ncubed/
 
@@ -38,9 +44,9 @@ RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
 # Configuration directory.
 VOLUME /opt/ncubed/config/vpnc
 
-# A minimal init as PID 1: passes signals on and reaps what daemons leave behind.
-ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["/opt/ncubed/vpnc/bin/vpnc"]
+# systemd as PID 1; the lab nodes' scripts exec it after their setup.
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
 
 
 # Lab test nodes (mgt, cli): vpnc image plus test tools, so nodes don't install
@@ -50,5 +56,11 @@ FROM vpnc AS lab
 RUN apt-get update                                                      && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y                      \
     bind9 bind9-dnsutils iproute2 iptables iputils-ping openssh-server     \
-    snmp                                                                && \
+    snmp tini                                                           && \
     rm -rf /var/lib/apt/lists/*
+
+# No systemd: a minimal init as PID 1 passes signals on and reaps what daemons
+# leave behind.
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["bash"]

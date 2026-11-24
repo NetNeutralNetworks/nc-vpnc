@@ -5,21 +5,25 @@ name: vpnc-scale
 topology:
   kinds:
     linux:
+      # Unconfined, as on the VMs: podman's "runc" AppArmor label can't
+      # signal FRR's daemons, which Ubuntu's profiles confine.
+      security-opts:
+        - apparmor=unconfined
       binds:
         - ../../:/nc-vpnc/
         - /lib/modules/:/lib/modules
   nodes:
     mgt00:
       kind: linux
-      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      image: localhost/nc-vpnc-lab:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_base/lab/mgt/mgt00.sh
     hub00:
       kind: linux
-      image: nc-vpnc:${VPNC_VERSION:=latest}
+      image: localhost/nc-vpnc:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_scale/lab/hub00/config.sh
     peer00:
       kind: linux
-      image: nc-vpnc-lab:${VPNC_VERSION:=latest}
+      image: localhost/nc-vpnc-lab:${VPNC_VERSION:=latest}
       cmd: /nc-vpnc/test/00_scale/lab/peer00/config.sh
     br-vpnc-scale:
       kind: bridge

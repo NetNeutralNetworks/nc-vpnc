@@ -7,7 +7,7 @@ LAB="${1:-vpnc}"
 
 section() { echo "::group::$*"; }
 endsection() { echo "::endgroup::"; }
-in_node() { docker exec "$1" bash -c "$2" 2>&1; }
+in_node() { podman exec "$1" bash -c "$2" 2>&1; }
 sas() { in_node "$1" 'swanctl --list-sas 2>/dev/null | grep -E "^[A-Za-z0-9-]+: #"'; }
 
 node_kind() {
@@ -87,15 +87,15 @@ other() {
 
 uname -a
 lsmod | grep -E '^(jool|xfrm|wireguard)' || true
-docker ps -a --filter "label=containerlab=${LAB}"
+podman ps -a --filter "label=containerlab=${LAB}"
 
-for c in $(docker ps -a --filter "label=containerlab=${LAB}" --format '{{.Names}}' | sort); do
+for c in $(podman ps -a --filter "label=containerlab=${LAB}" --format '{{.Names}}' | sort); do
   section "${c} logs"
-  docker inspect --format 'restarts={{.RestartCount}} state={{.State.Status}} exit={{.State.ExitCode}}' "${c}"
-  docker logs --tail 300 "${c}" 2>&1
-  docker exec "${c}" journalctl --no-pager -n 300 -t vpnc 2>/dev/null || true
+  podman inspect --format 'restarts={{.RestartCount}} state={{.State.Status}} exit={{.State.ExitCode}}' "${c}"
+  podman logs --tail 300 "${c}" 2>&1
+  podman exec "${c}" journalctl --no-pager -n 300 -t vpnc 2>/dev/null || true
   endsection
-  [[ "$(docker inspect --format '{{.State.Running}}' "${c}")" == true ]] || continue
+  [[ "$(podman inspect --format '{{.State.Running}}' "${c}")" == true ]] || continue
   kind="$(node_kind "${c}")"
   section "${c} state (${kind})"
   case "${kind}" in

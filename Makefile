@@ -16,9 +16,11 @@ STAMP   := $(VENV)/.installed
 UNIT    := ncubed-vpnc.service
 
 APT := DEBIAN_FRONTEND=noninteractive apt-get
-# No systemd in Docker builds: skip systemctl there.
+# No systemd running in image builds: units are set up (UNITCTL), but nothing
+# is started, stopped or reloaded there.
 SYSTEMD   := $(wildcard /run/systemd/system)
 SYSTEMCTL := $(if $(SYSTEMD),/usr/bin/systemctl,: skip systemctl)
+UNITCTL   := /usr/bin/systemctl
 
 # Ubuntu's Python packages, which the venv uses (system site packages), and
 # their names on PyPI: the lock leaves those out.
@@ -90,7 +92,7 @@ packages: apt-update
 	$(APT) install -y nftables iproute2 kmod \
 		strongswan strongswan-swanctl strongswan-starter strongswan-charon \
 		ssh wireguard iputils-ping traceroute tcpdump curl
-	$(SYSTEMCTL) mask ipsec.service strongswan-starter.service strongswan.service
+	$(UNITCTL) mask ipsec.service strongswan-starter.service strongswan.service
 	$(SYSTEMCTL) stop ipsec.service strongswan-starter.service strongswan.service || true
 
 # An account vpnc runs a program as, instead of as root.
@@ -133,7 +135,7 @@ frr: apt-update
 	sed -i 's/^bgpd=no$$/bgpd=yes/; s/^bfdd=no$$/bfdd=yes/' /etc/frr/daemons
 	sed -i 's/^zebra_options="  -A 127.0.0.1 -s 90000000.*"$$/zebra_options="  -A 127.0.0.1 -s 90000000 -n -M snmp"/' /etc/frr/daemons
 	sed -i 's/^bgpd_options="   -A 127.0.0.1.*"$$/bgpd_options="   -A 127.0.0.1 -M snmp"/' /etc/frr/daemons
-	$(SYSTEMCTL) mask frr.service
+	$(UNITCTL) mask frr.service
 	$(SYSTEMCTL) stop frr.service || true
 
 snmpd: apt-update
@@ -142,7 +144,7 @@ snmpd: apt-update
 	sed -i 's/^rouser authPrivUser authpriv -V systemonly$$/#&/' /etc/snmp/snmpd.conf
 	install -D -m 644 config/snmp/vpnc.conf $(SNMP_CONF)
 	rm -f $(OLD_SNMP_CONF)
-	$(SYSTEMCTL) enable snmpd.service
+	$(UNITCTL) enable snmpd.service
 	$(SYSTEMCTL) restart snmpd.service
 	@echo "Configure SNMP with the following command (if not already configured) after stopping the snmpd service."
 	@echo "The space in front of the command makes sure it isn't logged into the Bash history."
@@ -274,10 +276,10 @@ typer-cleanup:
 
 # Service.
 
-service: $(if $(SYSTEMD),$(CONFDIR)/units/$(UNIT))
-	$(SYSTEMCTL) link $(CONFDIR)/units/$(UNIT)
+service: $(CONFDIR)/units/$(UNIT)
+	$(UNITCTL) link $(CONFDIR)/units/$(UNIT)
 	$(SYSTEMCTL) daemon-reload
-	$(SYSTEMCTL) enable $(UNIT)
+	$(UNITCTL) enable $(UNIT)
 
 # vpnc's own unit: replaced when it changes. Local changes go in a drop-in.
 $(CONFDIR)/units/$(UNIT): config/vpnc/units/$(UNIT)
