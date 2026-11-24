@@ -5,7 +5,7 @@ observers.
 """
 
 import logging
-import subprocess
+import pathlib
 import sys
 import time
 
@@ -31,20 +31,9 @@ logger = logging.getLogger("vpnc")
 
 def prepare_namespaces() -> None:
     """Mount the DEFAULT namespace and create the CORE namespace."""
-    # Mount the DEFAULT network instance with it's alias. This makes for consistent
-    # operation between all network instances
+    # The system's namespace as DEFAULT, to use it as any other network instance.
     logger.info("Mounting default namespace as %s", config.DEFAULT_NI)
-    proc = subprocess.run(  # noqa: S602
-        f"""
-        mkdir -m=755 -p /var/run/netns/
-        touch /var/run/netns/{config.DEFAULT_NI}
-        mount --bind /proc/1/ns/net /var/run/netns/{config.DEFAULT_NI}
-        """,
-        stdout=subprocess.PIPE,
-        shell=True,
-        check=True,
-    )
-    logger.debug(proc.stdout)
+    namespace.add_own(config.DEFAULT_NI)
 
     # Create CORE up front: threads opening it concurrently would race to create it.
     namespace.add(name=config.CORE_NI)
@@ -52,17 +41,11 @@ def prepare_namespaces() -> None:
 
 def start_hub_services() -> None:
     """Start Jool, vpncmangle and FRR (hub mode)."""
-    # VPNC in hub mode performs NAT64 using Jool. The kernel module must be loaded
-    # before it can be used.
-    # Load the NAT64 kernel module (jool). This may cause the program to exit if
-    # it fails to start
-    logger.info("Loading kernel module Jool.")
-    proc = subprocess.run(
-        ["/usr/sbin/modprobe", "jool"],
-        stdout=subprocess.PIPE,
-        check=True,
-    )
-    logger.debug(proc.stdout)
+    # NAT64 with Jool, loaded at boot (/etc/modules-load.d/vpnc.conf): the unit
+    # can't load modules.
+    if not pathlib.Path("/sys/module/jool").is_dir():
+        logger.critical("The kernel module Jool isn't loaded.")
+        sys.exit(1)
 
     # VPNC in hub mode doctors DNS responses so requests are sent via the tunnel.
     # Start the VPNC mangle process in the CORE network instance.

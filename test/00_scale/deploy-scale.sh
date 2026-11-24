@@ -9,4 +9,5 @@ if ! ip link show br-vpnc-scale &> /dev/null; then
     ip link add br-vpnc-scale type bridge
     ip link set br-vpnc-scale up
 fi
+../00_setup/apparmor.sh "localhost/nc-vpnc:${VPNC_VERSION}"
 containerlab deploy --runtime podman -t scale.clab.yaml --reconfigure

@@ -58,6 +58,18 @@ def add(name: str, cleanup: bool = False) -> str:  # noqa: FBT001, FBT002
     return name
 
 
+def add_own(name: str) -> None:
+    """Add the calling thread's namespace under a name, unless it's mounted.
+
+    Not PID 1's: opening that needs CAP_SYS_PTRACE, which the unit doesn't give.
+    """
+    path = NETNS_DIR / name
+    if os.path.ismount(path):
+        return
+    path.unlink(missing_ok=True)
+    netns.attach(name, "thread-self")
+
+
 def delete(name: str) -> None:
     """Delete a namespace from the system, with its links."""
     if not exists(name):

@@ -38,6 +38,7 @@ VPNC_SRC       := $(shell find vpnc -type f ! -path '*/build/*' ! -path '*.egg-i
 VPNCMANGLE_SRC := $(shell find vpncmangle -type f ! -path '*/build/*' ! -path '*.egg-info/*' ! -name '*.pyc' 2>/dev/null)
 
 MISC_CONF := /etc/strongswan.d/vpnc.conf /etc/iproute2/rt_protos.d/vpnc.conf
+MODULES_CONF := /etc/modules-load.d/vpnc.conf
 SNMP_CONF := /etc/snmp/snmpd.conf.d/vpnc.conf
 FRR_SNMP_CONF := /etc/snmp/frr.conf
 # Installed by vpnc before it was renamed vpnc.conf; its TCP sockets override vpnc's.
@@ -55,7 +56,7 @@ help:
 # Full installs.
 
 hub: MODE := hub
-hub: root packages python-packages frr hub-packages snmpd \
+hub: root packages python-packages frr hub-packages $(MODULES_CONF) snmpd \
 	account-vpnc-mangle account-vpnc-ssh config misc-config pip-vpnc pip-vpncmangle \
 	vpnctl service start
 
@@ -69,7 +70,7 @@ addon: root packages python-packages \
 
 # vpncmangle and the accounts only where it's installed (hub).
 update: root python-debs pip-vpnc $(if $(wildcard $(VENV)/bin/vpncmangle),\
-	account-vpnc-mangle account-vpnc-ssh pip-vpncmangle) \
+	account-vpnc-mangle account-vpnc-ssh pip-vpncmangle $(MODULES_CONF)) \
 	misc-config $(if $(wildcard /etc/snmp/snmpd.conf.d),$(SNMP_CONF) old-snmp-config) \
 	$(if $(wildcard /etc/frr),$(FRR_SNMP_CONF)) vpnctl \
 	$(if $(SYSTEMD),$(CONFDIR)/units/$(UNIT) $(STAMP)/started)
@@ -121,6 +122,11 @@ python-debs:
 hub-packages: apt-update
 	$(APT) install -y jool-tools kmod $(MANGLE_DEBS)
 	mkdir -p $(BASEDIR)/config/vpncmangle
+
+# Jool, loaded at boot: vpnc's unit can't load modules.
+$(MODULES_CONF): config/modules-load/vpnc.conf
+	install -D -m 644 $< $@
+	$(SYSTEMCTL) restart systemd-modules-load.service
 
 # FRR runs under vpnc: the frr service is masked. Ubuntu's FRR: installs before
 # 2026-11 added FRR's own repository, whose newer FRR is downgraded. The

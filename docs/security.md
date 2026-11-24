@@ -16,8 +16,11 @@ vpnc is not a firewall: put one in front of `CORE` for inspection and user-based
 | charon | `vpnc-swan` | Can only configure the network. AppArmor profile in enforce mode. |
 | ssh | `vpnc-ssh` | No privileges. |
 | vpncmangle | `vpnc-mangle` | Can only configure the network. |
+| FRR | `frr` | AppArmor profiles in enforce mode. |
 
 charon only loads the plugins that connections with a PSK need (`/etc/strongswan.d/vpnc.conf`).
+
+vpnc's unit (`ncubed-vpnc.service`) confines vpnc and every daemon it starts: no privileges gained through setuid programs, a system call filter, only Unix, IP and netlink sockets, and a capability bounding set. It can't load kernel modules: hubs load Jool at boot (`/etc/modules-load.d/vpnc.conf`). There are no file system restrictions: vpnc runs as root, and the network namespaces it mounts must be seen outside it.
 
 ## Secrets
 
