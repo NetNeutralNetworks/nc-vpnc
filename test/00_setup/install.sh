@@ -37,8 +37,9 @@ else
     cp "${MODULES}"/jool*.ko* "${JOOL_MODULES}/"
   fi
 fi
-# Fail here instead of later in the lab when the module didn't build.
-if ! modprobe jool; then
+# Fail here instead of later in the lab when the module didn't build. Not
+# loaded: the lab's nodes load it at boot, as the VMs do.
+if ! modinfo jool > /dev/null; then
   echo "ERROR: could not load the Jool kernel module for kernel $(uname -r)." >&2
   dkms status >&2 || true
   exit 1

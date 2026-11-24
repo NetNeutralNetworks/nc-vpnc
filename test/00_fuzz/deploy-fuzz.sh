@@ -10,4 +10,5 @@ if ! ip link show br-vpnc-fuzz &> /dev/null; then
     ip link set br-vpnc-fuzz up
 fi
 mkdir -p /run/vpnc-fuzz-hub00
+../00_setup/apparmor.sh "localhost/nc-vpnc:${VPNC_VERSION}"
 containerlab deploy --runtime podman -t fuzz.clab.yaml --reconfigure
