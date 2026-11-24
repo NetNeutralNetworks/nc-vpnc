@@ -1,8 +1,8 @@
 """Restarts at bad moments, between and right after valid configuration changes.
 
 The configuration state machine (test_config_states.py), with crashes: a daemon
-killed (charon, vpncmangle, FRR's) or hanging for a while, vpnc killed (its
-container restarts it) or hanging, or hub00 restarted right after a commit.
+killed (charon, vpncmangle, FRR's) or hanging for a while, vpnc killed (systemd
+restarts it) or hanging, or hub00 restarted right after a commit.
 Afterwards everything must run again, BGP be up and the files' configuration be
 applied; at the end of a sequence the connections that were up must be up again.
 """
@@ -118,13 +118,12 @@ class Restarts(ConfigStates):
 
     @rule()
     def kill_vpnc(self) -> None:
-        """Kill vpnc: its container restarts, with a fresh start."""
+        """Kill vpnc: systemd stops its daemons and starts it again."""
         event("killed: vpnc")
-        started = conftest.started()
+        before = conftest.sh(conftest.HOST, conftest.MAIN_PID).strip()
         conftest.expect_restart()
-        # Not through the agent: it ends with the node.
-        conftest.docker_exec(conftest.HOST, "pkill -KILL -x vpnc")
-        conftest.restarted_node(before=started)
+        conftest.run_cmd(conftest.HOST, "pkill -KILL -x vpnc")
+        conftest.restarted_vpnc(before=before)
         self.frr_killed = False
         self.recovered("after killing vpnc")
 

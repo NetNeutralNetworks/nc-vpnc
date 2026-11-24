@@ -1,5 +1,5 @@
 #! /bin/bash
-# Install what the labs need on the host (as root): Docker, containerlab, the
+# Install what the labs need on the host (as root): podman, containerlab, the
 # Jool module, the bridge of the base lab and the test tools.
 SCRIPTDIR="$(dirname -- "$BASH_SOURCE")"
 
@@ -12,15 +12,11 @@ fi
 apt-get install -y bridge-utils python3-pytest python3-yaml python3-hypothesis
 # jool-tools
 
+# podman runs the labs; containerlab uses its API socket.
+apt-get install -y podman
+systemctl enable --now podman.socket
 if [[ -z "${GITHUB_ACTIONS}" ]]; then
-apt-get install -y docker-compose-v2 docker-buildx wireguard
-# GitHub runners ship Docker; a fresh VM doesn't.
-if ! command -v docker > /dev/null; then
-  apt-get install -y docker.io
-fi
-if [[ -n "${SUDO_USER}" ]]; then
-  usermod -aG docker "${SUDO_USER}"
-fi
+apt-get install -y wireguard
 fi
 
 # Install the Jool kernel module on the host so it's available in containers.

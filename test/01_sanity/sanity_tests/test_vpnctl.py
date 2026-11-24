@@ -69,7 +69,7 @@ def complete(line: str) -> list[str]:
     )
     container = f"{conftest.CONTAINER_PREFIX}hub00"
     return subprocess.run(  # noqa: S603
-        ["docker", "exec", container, "bash", "-c", script, "bash", line],  # noqa: S607
+        ["podman", "exec", container, "bash", "-c", script, "bash", line],  # noqa: S607
         capture_output=True,
         text=True,
         check=True,
@@ -477,12 +477,26 @@ class TestVpnctlTroubleshooting:
         assert version["strongswan"]
         assert (version["frr"] is not None) == host.startswith("hub")
 
-    def test_service_without_systemd(self) -> None:
-        """The lab doesn't run systemd, so vpnc can't be restarted through it."""
-        with pytest.raises(subprocess.CalledProcessError) as err:
-            conftest.run_cmd("hub00", f"{VPNCTL} service restart")
+    def test_service_restart(self) -> None:
+        """Systemd restarts vpnc, which brings its connections up again."""
+        host = "end01"
+        main_pid = "systemctl show -P MainPID ncubed-vpnc.service"
+        before = conftest.run_cmd(host, main_pid).strip()
 
-        assert "doesn't run under systemd" in err.value.stderr
+        conftest.run_cmd(host, f"{VPNCTL} service restart")
+
+        conftest.wait_until(
+            lambda: conftest.run_cmd(host, main_pid).strip() not in {before, "0"},
+            timeout=30,
+            message="vpnc to restart",
+        )
+        conftest.wait_until(
+            lambda: all(
+                c["oper_status"] == "UP" for c in vpnctl(host, "connections list")
+            ),
+            timeout=120,
+            message=f"the connections of {host} to be up",
+        )
 
 
 class TestVpnctlLogsAndCounters:
@@ -504,7 +518,7 @@ class TestVpnctlLogsAndCounters:
         """A followed log shows the last lines and stays open."""
         follower = subprocess.run(  # noqa: S603
             [  # noqa: S607
-                "docker",
+                "podman",
                 "exec",
                 f"{conftest.CONTAINER_PREFIX}hub00",
                 "timeout",

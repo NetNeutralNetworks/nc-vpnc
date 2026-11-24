@@ -159,7 +159,7 @@ class CommandError(RuntimeError):
 class Agent:
     """A process in a node that runs the tests' commands and API calls.
 
-    A docker exec costs about 35 ms; a request to the agent under one. With
+    A podman exec costs about 100 ms; a request to the agent under one. With
     setup (Python code) it keeps state between requests, e.g. open sockets.
     """
 
@@ -170,7 +170,7 @@ class Agent:
         self.host = host
         self.setup = setup
         self.command = [
-            "docker", "exec", "-i", f"{CONTAINER_PREFIX}{host}",
+            "podman", "exec", "-i", f"{CONTAINER_PREFIX}{host}",
             *(["ip", "netns", "exec", netns] if netns else []),
             "python3", "-u", "-c", AGENT,
         ]  # fmt: skip
@@ -289,15 +289,6 @@ def run_cmd_shell(host: str, command_: str) -> str:
     return sh(host, command_)
 
 
-def docker_exec(host: str, command_: str) -> None:
-    """Run a command in a node without its agent: one that ends the node."""
-    subprocess.run(  # noqa: S603
-        ["docker", "exec", f"{CONTAINER_PREFIX}{host}", *command_.split()],  # noqa: S607
-        capture_output=True,
-        check=True,
-    )
-
-
 def write_file(host: str, path: str, content: str, via: str | None = None) -> None:
     """Write a file in a node: in place, or (via) elsewhere and moved into place."""
     request = {"op": "write", "path": path, "content": content, "via": via}
@@ -394,52 +385,42 @@ def gets(paths: list[str], host: str = HOST) -> list[tuple[int, Any]]:
 BRIDGE = "br-vpnc-fuzz"
 
 
-def _inspect(host: str, field: str) -> str:
-    return subprocess.run(  # noqa: S603
-        [  # noqa: S607
-            "docker", "inspect", "--format", f"{{{{{field}}}}}",
-            f"{CONTAINER_PREFIX}{host}",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()  # fmt: skip
-
-
-def started(host: str = HOST) -> str:
-    """Return when a node's container started."""
-    return _inspect(host, ".State.StartedAt")
-
-
-def restarted_node(host: str = HOST, *, before: str | None = None) -> None:
-    """Restart a node (or, after before, wait until it restarted); link it again.
+def restarted_node(host: str = HOST) -> None:
+    """Restart a node and link it again.
 
     A container's links go with it: containerlab only adds them at a deploy.
-    The node's script waits for them before it starts vpnc.
+    The node's script waits for them before it starts systemd.
     """
     container = f"{CONTAINER_PREFIX}{host}"
-    if before is None:
-        subprocess.run(  # noqa: S603
-            ["docker", "restart", container],  # noqa: S607
-            capture_output=True,
-            check=True,
-        )
-        # It sets the restart count to 0; the invariants checked the count before.
-        EXPECTED_RESTARTS[host] = 0
-    else:
-        wait_until(
-            lambda: started(host) != before,
-            timeout=RESET_TIMEOUT,
-            message=f"{host} to restart",
-        )
+    subprocess.run(  # noqa: S603
+        ["podman", "restart", container],  # noqa: S607
+        capture_output=True,
+        check=True,
+    )
+    # A new systemd counts from 0.
+    EXPECTED_RESTARTS[host] = 0
     subprocess.run(  # noqa: S603
         [  # noqa: S607
-            "containerlab", "tools", "veth", "create",
+            "containerlab", "--runtime", "podman", "tools", "veth", "create",
             "-a", f"{container}:eth1", "-b", f"bridge:{BRIDGE}:fuzz-{host}",
         ],
         capture_output=True,
         check=True,
     )  # fmt: skip
+    _api_answers(host)
+
+
+def restarted_vpnc(host: str = HOST, *, before: str) -> None:
+    """Wait until systemd started vpnc again, after its main PID before."""
+    wait_until(
+        lambda: sh(host, MAIN_PID).strip() not in {before, "0"},
+        timeout=RESET_TIMEOUT,
+        message=f"vpnc on {host} to restart",
+    )
+    _api_answers(host)
+
+
+def _api_answers(host: str) -> None:
     wait_until(
         lambda: api("GET", "/v1/status", host=host)[0] == 200,  # noqa: PLR2004
         timeout=RESET_TIMEOUT,
@@ -449,25 +430,18 @@ def restarted_node(host: str = HOST, *, before: str | None = None) -> None:
 
 # Restarts the tests caused on purpose (killing vpnc), by node.
 EXPECTED_RESTARTS: dict[str, int] = {}
-# A node's restart count, and the start of its init process it was read at: the
-# count only changes with a new one.
-_RESTARTS: dict[str, tuple[str, int]] = {}
-BOOT = command("cut -d' ' -f22 /proc/1/stat")
+# How often systemd restarted vpnc since the node started.
+RESTARTS = command("systemctl show -P NRestarts ncubed-vpnc.service")
+MAIN_PID = "systemctl show -P MainPID ncubed-vpnc.service"
 
 
-def _restarts(host: str, boot: str) -> int:
-    if not boot or _RESTARTS.get(host, ("", 0))[0] != boot:
-        _RESTARTS[host] = (boot, int(_inspect(host, ".RestartCount")))
-    return _RESTARTS[host][1] - EXPECTED_RESTARTS.get(host, 0)
+def _restarts(host: str, count: str) -> int:
+    return int(count or 0) - EXPECTED_RESTARTS.get(host, 0)
 
 
 def restarts(host: str = HOST) -> int:
-    """Return how often a node restarted (vpnc exited), but on purpose."""
-    try:
-        boot = sh(host, BOOT["command"])
-    except (AgentError, CommandError):
-        boot = ""
-    return _restarts(host, boot)
+    """Return how often vpnc exited and systemd restarted it, but on purpose."""
+    return _restarts(host, sh(host, RESTARTS["command"]))
 
 
 def expect_restart(host: str = HOST) -> None:
@@ -957,9 +931,9 @@ class Vitals:
 def vitals(host: str = HOST) -> Vitals:
     """Return a node's daemons, connections that are up, BGP and restarts, at once."""
     try:
-        processes, bgp, connections, boot = batch(
+        processes, bgp, connections, restarts_ = batch(
             host,
-            [PGREP, BGP, _request("GET", CONNECTIONS, None), BOOT],
+            [PGREP, BGP, _request("GET", CONNECTIONS, None), RESTARTS],
         )
     except AgentError as err:
         msg = f"no answer from {host} ({err})"
@@ -972,7 +946,7 @@ def vitals(host: str = HOST) -> Vitals:
             if c["oper_status"] == "UP"
         ),
         tuple(_down(_sessions(bgp.get("out", "")))),
-        _restarts(host, boot.get("out", "")),
+        _restarts(host, restarts_.get("out", "")),
     )
 
 
@@ -1109,7 +1083,7 @@ class Deployed:
         self.up = up_connections(host)
         self.files = subprocess.run(  # noqa: S603
             [  # noqa: S607
-                "docker", "exec", f"{CONTAINER_PREFIX}{host}",
+                "podman", "exec", f"{CONTAINER_PREFIX}{host}",
                 "tar", "-C", "/", "-cpf", "-",
                 *(directory.lstrip("/") for directory in DEPLOYED_DIRS),
             ],
@@ -1151,7 +1125,7 @@ class Deployed:
         container = f"{CONTAINER_PREFIX}{self.host}"
         subprocess.run(  # noqa: S603
             [  # noqa: S607
-                "docker", "exec", "-i", container,
+                "podman", "exec", "-i", container,
                 "bash", "-c", RESET_SCRIPT, "reset", *DEPLOYED_DIRS,
             ],
             input=self.files,
@@ -1185,6 +1159,7 @@ __all__ = [
     "FUZZ_LAB",
     "HISTORY_DIR",
     "HOST",
+    "MAIN_PID",
     "RECOVER_TIMEOUT",
     "Agent",
     "AgentError",
@@ -1205,19 +1180,18 @@ __all__ = [
     "dns_ask",
     "dns_drain",
     "dns_observe",
-    "docker_exec",
     "expect_restart",
     "gets",
     "not_answering",
     "not_loaded",
     "restarted_node",
+    "restarted_vpnc",
     "restarts",
     "run_cmd",
     "run_cmd_shell",
     "sh",
     "snapshot",
     "stable",
-    "started",
     "unsound",
     "up_connections",
     "vitals",

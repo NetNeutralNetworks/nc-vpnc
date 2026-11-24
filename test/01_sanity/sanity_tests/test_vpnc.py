@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
-
 import pytest
 
 from . import conftest
@@ -13,23 +11,11 @@ VPNC_NODES = ["hub00", "hub01", "end00", "end01"]
 
 @pytest.mark.parametrize("host", VPNC_NODES)
 def test_vpnc_running_without_restarts(host: str) -> None:
-    """Vpnc is running and never crashed (a crash restarts the container)."""
-    restarts = subprocess.run(  # noqa: S603
-        [  # noqa: S607
-            "docker",
-            "inspect",
-            "--format",
-            "{{.RestartCount}}",
-            f"{conftest.CONTAINER_PREFIX}{host}",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    assert restarts == "0", f"{host} restarted {restarts} times"
-
-    processes = conftest.run_cmd_shell(host, "pgrep -fc /opt/ncubed/vpnc/bin/vpnc")
-    assert int(processes) >= 1
+    """Vpnc is running and systemd never had to restart it."""
+    show = "systemctl show ncubed-vpnc.service -P"
+    assert conftest.run_cmd(host, f"{show} ActiveState").strip() == "active"
+    restarts = conftest.run_cmd(host, f"{show} NRestarts").strip()
+    assert restarts == "0", f"vpnc on {host} restarted {restarts} times"
 
 
 @pytest.mark.parametrize("host", ["hub00", "hub01"])

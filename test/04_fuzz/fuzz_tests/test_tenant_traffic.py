@@ -1114,7 +1114,7 @@ class Lab:
             )
         self.sniffer = subprocess.Popen(  # noqa: S603
             [  # noqa: S607
-                "docker", "exec", "-i", f"{conftest.CONTAINER_PREFIX}{conftest.HOST}",
+                "podman", "exec", "-i", f"{conftest.CONTAINER_PREFIX}{conftest.HOST}",
                 "python3", "-u", "-c", SNIFFER, MAGIC.hex(), *instances,
             ],
             stdin=subprocess.PIPE,

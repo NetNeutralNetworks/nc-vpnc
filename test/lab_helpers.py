@@ -39,11 +39,11 @@ SNMP_ROUTE_TYPE = "1.3.6.1.2.1.10.166.11.1.4.1.1.8"
 
 
 def run_cmd(host: str, command: str) -> str:
-    """Run a command in the docker container and return its output.
+    """Run a command in the container and return its output.
 
     The command is split on whitespace; use run_cmd_shell for quoting, pipes, etc.
     """
-    cmd = ["docker", "exec", f"{CONTAINER_PREFIX}{host}"]
+    cmd = ["podman", "exec", f"{CONTAINER_PREFIX}{host}"]
     cmd.extend(command.split())
 
     return subprocess.run(  # noqa: S603
@@ -55,12 +55,12 @@ def run_cmd(host: str, command: str) -> str:
 
 
 def run_cmd_shell(host: str, command: str) -> str:
-    """Run a shell command line in the docker container and return its output.
+    """Run a shell command line in the container and return its output.
 
     The host shell interprets the command line, so pipes and redirects run on the
     host; wrap them in "bash -c '...'" to run them in the container.
     """
-    cmd = f"docker exec {CONTAINER_PREFIX}{host} {command}"
+    cmd = f"podman exec {CONTAINER_PREFIX}{host} {command}"
 
     return subprocess.run(  # noqa: S602
         cmd,
@@ -81,9 +81,9 @@ def capabilities(host: str, process: str) -> set[str]:
 
 
 def write_file(host: str, path: str, content: str) -> None:
-    """Write a file in the docker container."""
+    """Write a file in the container."""
     subprocess.run(  # noqa: S603
-        ["docker", "exec", "-i", f"{CONTAINER_PREFIX}{host}", "tee", path],  # noqa: S607
+        ["podman", "exec", "-i", f"{CONTAINER_PREFIX}{host}", "tee", path],  # noqa: S607
         input=content,
         capture_output=True,
         text=True,
@@ -92,8 +92,8 @@ def write_file(host: str, path: str, content: str) -> None:
 
 
 def run_cmd_vtysh(host: str, command: str) -> str:
-    """Run a vtysh command in the docker container and return its output."""
-    cmd = ["docker", "exec", f"{CONTAINER_PREFIX}{host}", "vtysh", "-c", command]
+    """Run a vtysh command in the container and return its output."""
+    cmd = ["podman", "exec", f"{CONTAINER_PREFIX}{host}", "vtysh", "-c", command]
 
     return subprocess.run(  # noqa: S603
         cmd,

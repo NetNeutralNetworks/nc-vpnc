@@ -54,7 +54,7 @@ REMOVE_TIMEOUT = 300
 CPU_SAMPLE = 90
 # After the tunnels came up, links go up and routes follow for a while.
 SETTLE = 60
-# What a vpnctl command may take, including docker exec.
+# What a vpnctl command may take, including podman exec.
 VPNCTL_TIMEOUT = 5
 # A connection briefly down (e.g. rekeying) comes back up within this.
 UP_TIMEOUT = 60
