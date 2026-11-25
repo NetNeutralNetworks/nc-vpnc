@@ -1139,8 +1139,13 @@ class TestOldConfiguration:
     """Configuration of the previous version is converted."""
 
     def test_old_file_is_converted(self) -> None:
-        """A 0.1.3 file is applied, converted in place and its original kept."""
+        """A 0.1.3 file is applied, converted in place and its original kept.
+
+        Backups of versions that aren't converted anymore are deleted.
+        """
         backup = "/opt/ncubed/config/vpnc/backup/0.1.3/active/C0002.yaml"
+        # Older than the versions converted.
+        old_backups = "/opt/ncubed/config/vpnc/backup/0.1.2"
         old = yaml.safe_dump(
             {
                 "version": "0.1.3",
@@ -1156,6 +1161,8 @@ class TestOldConfiguration:
             },
         )
         try:
+            conftest.run_cmd(HOST, f"mkdir -p {old_backups}/active")
+            conftest.write_file(HOST, f"{old_backups}/active/C0002.yaml", old)
             conftest.write_file(HOST, TENANT_FILE, old)
             conftest.wait_until(
                 lambda: connection_applied(BASE_CONNECTION),
@@ -1174,8 +1181,10 @@ class TestOldConfiguration:
             assert "id" not in connection
             assert connection["config"]["type"] == "IPSEC"
             assert conftest.run_cmd(HOST, f"cat {backup}") == old
+            backups = conftest.run_cmd(HOST, "ls /opt/ncubed/config/vpnc/backup")
+            assert backups.split() == ["0.1.3"]
         finally:
-            conftest.run_cmd(HOST, f"rm -f {TENANT_FILE} {backup}")
+            conftest.run_cmd(HOST, f"rm -rf {TENANT_FILE} {backup} {old_backups}")
             conftest.wait_until(
                 tenant_removed,
                 timeout=APPLY_TIMEOUT,

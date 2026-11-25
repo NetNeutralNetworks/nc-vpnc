@@ -56,7 +56,7 @@ vpnc uses Ubuntu's FRR, Jinja2, packaging, pydantic, PyYAML, watchdog and Netfil
 ## Upgrade notes
 
 * **FRR:** a full install removes FRR's own apt repository, which older installs added, and downgrades its FRR to Ubuntu's.
-* **Configuration version:** files have a `version`, currently 0.1.5. vpnc converts files of versions 0.1.3 and 0.1.4 at startup and when they are put in `active/`; the originals are kept in `/opt/ncubed/config/vpnc/backup/`. Other versions are refused.
+* **Configuration version:** files have a `version`, currently 0.1.5. vpnc converts files of versions 0.1.3 and 0.1.4 at startup and when they are put in `active/`; the originals are kept in `/opt/ncubed/config/vpnc/backup/<version>/`, and the folders of older versions are deleted. Other versions are refused.
 * **BGP `priority`:** replaced by `local_pref` and `as_path_prepend` (0.1.5). The conversion keeps what a priority did: `local_pref: 100 - 10 × priority` and `as_path_prepend: priority`.
 * **WireGuard:** interfaces are named `wg<n>` in their network instance, and their files in `/etc/wireguard/` after the connection (`C0001-01-0.conf`). vpnc empties `/etc/wireguard/` when it starts, so keep no other files there. The upgrade recreates every WireGuard interface: those tunnels go down briefly.
 * **SSH keys:** earlier versions of `make` copied root's keys to `/var/lib/vpnc-ssh/.ssh/id_*` and used them for every SSH connection. Now each connection has its own key: run the server setup script again on servers set up before that (see [Connections](connections.md#ssh)). Then the `id_*` files can be deleted.
