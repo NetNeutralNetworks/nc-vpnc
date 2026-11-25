@@ -81,7 +81,7 @@ FRR runs BGP in the `CORE` VRF, IPv6 unicast only, with the service's `bgp.neigh
 
 * **Advertised:** the NAT64 /96s, the NPTv6 prefixes (/48 or longer) and global unicast routes (2000::/3, /32 or longer) of the network instances. Nothing else is let out.
 * **Accepted:** only the prefixes in the IPv6 routes of the `CORE` connections (up to /64). These routes are copied into every downlink namespace, toward `CORE`.
-* **Down connections:** a connection's routes in its namespace become blackholes while it doesn't pass traffic. In `CORE`, a network instance's prefixes become blackholes unless all its connections pass traffic, and are then advertised with the AS path prepended 10 times, so the other hub wins.
+* **Down connections:** a connection's routes in its namespace become blackholes while it doesn't pass traffic. In `CORE`, a network instance's prefixes become blackholes unless all its connections pass traffic, and are then advertised with 10 more AS path prepends than the neighbor's `as_path_prepend` and the highest MED, so the other hub wins.
 * **Path selection,** per neighbor: `local_pref` (default 100) on the routes received, for traffic from vpnc. On the routes advertised, for traffic to vpnc: `as_path_prepend` (0-9) prepends the AS that many times, and `med` sets the MED (default 1024, the route's metric), which peers only compare between paths from the same AS.
 
 `vpnctl bgp neighbors` and `vpnctl bgp routes` show the state. For HA, run two hubs with the same tenants and let BGP choose.

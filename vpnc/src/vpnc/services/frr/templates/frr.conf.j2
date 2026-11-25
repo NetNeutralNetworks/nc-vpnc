@@ -62,7 +62,8 @@ exit
 route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-OUT permit 1
   match ipv6 address prefix-list UPLINK-PL-OUT
   match ipv6 next-hop type blackhole
-  set as-path prepend {{ (as ~ " ") * 10 }}
+  set as-path prepend {{ ((as ~ " ") * (neighbor.as_path_prepend + 10)).strip() }}
+  set metric 4294967295
 exit
 route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-OUT permit 2
   match ipv6 address prefix-list UPLINK-PL-OUT

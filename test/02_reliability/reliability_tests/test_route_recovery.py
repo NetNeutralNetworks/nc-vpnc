@@ -30,6 +30,10 @@ ROUTE_TIMEOUT = 30
 HEALTHY_TIMEOUT = 90
 # The strongSwan monitor resyncs XFRM interface states every 30 seconds.
 XFRM_RESYNC_TIMEOUT = 60
+# C0001-00's first NPTv6 prefix, and mgt00's path from each hub while it's
+# blackholed: AS path length (as_path_prepend + 10 + 1) and the max MED.
+ADVERTISED_PREFIX = "fd6c:1::/52"
+BLACKHOLE_PATH = {"hub00": (11, 4294967295), "hub01": (12, 4294967295)}
 
 Route = tuple[str, str, str | None, str | None]
 
@@ -158,6 +162,14 @@ class TestRouteRecovery:
                 blackholed,
                 timeout=ROUTE_TIMEOUT,
                 message=f"routes via {SSH_INTERFACE} on {host} to be blackholed",
+            )
+            conftest.wait_until(
+                lambda: (
+                    conftest.bgp_paths("mgt00", ADVERTISED_PREFIX).get(host)
+                    == BLACKHOLE_PATH[host]
+                ),
+                timeout=ROUTE_TIMEOUT,
+                message=f"mgt00 to get {host}'s blackholed prefix with the penalty",
             )
 
         wait_for_routes(host, expected)
