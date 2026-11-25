@@ -2,7 +2,8 @@
 
 A file of an earlier version is backed up and converted in place. Only the
 last SUPPORTED earlier versions are converted: a new version adds a step to
-STEPS, and the steps before those can be removed.
+STEPS, and the steps before those can be removed. Backups of older versions
+are deleted.
 """
 
 from __future__ import annotations
@@ -10,9 +11,11 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
+import shutil
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import yaml
+from packaging.version import InvalidVersion, Version
 
 from vpnc import config, files
 
@@ -270,6 +273,19 @@ def _backup_path(path: pathlib.Path, version: str, text: str) -> pathlib.Path:
     return backup
 
 
+def prune_backups() -> None:
+    """Delete the backups of versions older than those converted."""
+    oldest = Version(STEPS[0].version)
+    for path in config.VPNC_BACKUP_DIR.glob("*"):
+        try:
+            if path.is_symlink() or not path.is_dir() or Version(path.name) >= oldest:
+                continue
+        except InvalidVersion:
+            continue
+        shutil.rmtree(path)
+        logger.info("Deleted the backups of version %s.", path.name)
+
+
 def migrate_file(path: pathlib.Path) -> bool:
     """Back up and convert a file of an earlier version; return whether it was."""
     with files.CONFIG_LOCK:
@@ -291,6 +307,7 @@ def migrate_file(path: pathlib.Path) -> bool:
         files.ensure_file(backup, text, secret=True)
         files.secure_tree(config.VPNC_BACKUP_DIR)
         files.ensure_file(path, converted, secret=True)
+        prune_backups()
     logger.warning(
         "Converted %s from version %s to %s; the original is kept as %s.",
         path,
@@ -303,6 +320,8 @@ def migrate_file(path: pathlib.Path) -> bool:
 
 def migrate_all() -> None:
     """Convert the active, candidate and history files of earlier versions."""
+    with files.CONFIG_LOCK:
+        prune_backups()
     paths = [
         *config.VPNC_A_CONFIG_DIR.glob("*.yaml"),
         *config.VPNC_C_CONFIG_DIR.glob("*.yaml"),
