@@ -106,6 +106,9 @@ profile ncubed-vpnc /opt/ncubed/vpnc/bin/vpnc flags=(attach_disconnected.path=/d
   audit deny /run/dbus/system_bus_socket rw,
   # FRR's init script asks systemctl for a unit frrinit.service; there's none.
   deny /usr/bin/systemctl x,
+  # Its log messages, when vpnc runs in a terminal, ask tput for colours and
+  # plymouth whether a boot splash shows; plain text is fine.
+  deny /usr/bin/{tput,plymouth} x,
 
   @{PROC}/ r,
   @{PROC}/cmdline r,
