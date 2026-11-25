@@ -249,7 +249,11 @@ class Monitor(threading.Thread):
         for name in names:
             if result.reason is None:
                 failures.clear(name)
-            elif name in ipsec_connections():
+            elif name not in ipsec_connections():
+                continue
+            elif result.update:
+                failures.update(name, result.reason, result.lines, **result.details)
+            else:
                 failures.note(name, result.reason, result.lines, **result.details)
 
     def watch_duplicate_sas(self) -> None:

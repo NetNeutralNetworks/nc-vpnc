@@ -1,7 +1,8 @@
 """Tell why an IKE or child SA wasn't set up, from charon's log lines.
 
 Fed the lines of the IKE and CFG subsystems, per IKE SA. Lines before a
-failure give its details: the peer, the ids and what each side proposed.
+failure give its details: the peer, the ids and what each side proposed. vici
+can send charon's lines out of order, so details after a failure update it.
 """
 
 from __future__ import annotations
@@ -126,12 +127,26 @@ def _precise(reason: str, known: dict[str, str]) -> str | None:
     return reason
 
 
+def _details(reason: str, known: dict[str, str]) -> dict[str, str]:
+    """Return what's known of an IKE SA that says something about its failure."""
+    details = {k: known[k] for k in RELEVANT.get(reason, ()) if k in known}
+    kind = "ESP" if reason.startswith("CHILD") else "IKE"
+    if "PROPOSAL" in reason and not all(p.startswith(kind) for p in details.values()):
+        # Of another step, e.g. the IKE SA's while a child SA failed.
+        return {}
+    return details
+
+
 @dataclass
 class Context:
     """What's known of an IKE SA that's being set up."""
 
     details: dict[str, str] = field(default_factory=dict)
     lines: deque[str] = field(default_factory=lambda: deque(maxlen=LINES))
+    # The failure of its last failure line, and the details reported for it;
+    # None: not reported for a connection (no name or peer known yet).
+    failure: str | None = None
+    noted: dict[str, str] | None = None
 
 
 @dataclass
@@ -145,6 +160,8 @@ class Result:
     reason: str | None
     details: dict[str, str]
     lines: list[str]
+    # New details of the failure reported before.
+    update: bool = False
 
 
 class Classifier:
@@ -172,6 +189,7 @@ class Classifier:
         context.lines.append(line)
         if name and ESTABLISHED.search(line):
             context.lines.clear()
+            context.failure = context.noted = None
             return Result(name, None, None, {}, [])
         reason = None
         for pattern, failure in DETAILS:
@@ -182,13 +200,25 @@ class Classifier:
                 reason = failure
                 break
         known = context.details
-        if reason is None or (reason := _precise(reason, known)) is None:
+        late = reason is None
+        if late:
+            if context.failure is None:
+                return None
+            reason = context.failure
+        else:
+            context.failure = reason
+        if (reason := _precise(reason, known)) is None:
             return None
-        details = {k: known[k] for k in RELEVANT.get(reason, ()) if k in known}
-        kind = "ESP" if reason.startswith("CHILD") else "IKE"
-        if "PROPOSAL" in reason and not all(
-            p.startswith(kind) for p in details.values()
-        ):
-            # Of another step, e.g. the IKE SA's while a child SA failed.
-            details = {}
-        return Result(name, known.get("peer"), reason, details, list(context.lines))
+        details = _details(reason, known)
+        if late and details == context.noted:
+            return None
+        update = late and context.noted is not None
+        context.noted = details if name or "peer" in known else None
+        return Result(
+            name,
+            known.get("peer"),
+            reason,
+            details,
+            list(context.lines),
+            update=update,
+        )

@@ -136,6 +136,20 @@ def note(
         _record(name, failure)
 
 
+def update(
+    name: str,
+    reason: str,
+    evidence: list[str] | None = None,
+    **details: object,
+) -> None:
+    """Take a failure's details that came after it, without an event."""
+    with _LOCK:
+        for failed in (CURRENT, PENDING):
+            if (failure := failed.get(name)) and failure.reason == reason:
+                failure.details = details
+                failure.evidence = (evidence or [])[-EVIDENCE:]
+
+
 def clear(name: str) -> None:
     """Forget a connection's failures: it's set up, configured anew or removed."""
     with _LOCK:
