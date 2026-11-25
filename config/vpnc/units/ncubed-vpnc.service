@@ -7,6 +7,8 @@ StartLimitIntervalSec=0
 Type=simple
 WorkingDirectory=/opt/ncubed
 ExecStart=/opt/ncubed/vpnc/bin/vpnc
+# vtysh's history, not in /root (which the AppArmor profile denies).
+Environment=VTYSH_HISTFILE=/dev/null
 Restart=on-failure
 # 15, 21, 30, 42, then every 60 s.
 RestartSec=15

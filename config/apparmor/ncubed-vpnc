@@ -96,8 +96,9 @@ profile ncubed-vpnc /opt/ncubed/vpnc/bin/vpnc flags=(attach_disconnected.path=/d
   /usr/share/** r,
   /usr/{bin,sbin}/* r,
 
-  # Never: vtysh's PAM password check and history, vpnc's own code, systemd
-  # (which could start anything, unconfined).
+  # Never: vtysh's PAM account check (unix_chkpwd, every time: not logged),
+  # vpnc's own code, systemd (which could start anything, unconfined).
+  deny /usr/sbin/unix_chkpwd x,
   audit deny /etc/shadow r,
   audit deny /root/** rw,
   audit deny /opt/ncubed/vpnc/** w,
