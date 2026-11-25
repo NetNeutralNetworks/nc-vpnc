@@ -1,5 +1,5 @@
 # vpnc stops FRR, whose daemons run stacked with vpnc's profile.
 signal (receive) peer=ncubed-vpnc,
 signal (send, receive) peer={bgpd//&ncubed-vpnc,ncubed-vpnc//&bgpd},
-# bgpd names its threads; Ubuntu's profile lacks it.
-owner @{PROC}/@{pid}/task/@{tid}/comm rw,
+# bgpd names its threads (its /proc files stay root's); Ubuntu's profile lacks it.
+@{PROC}/@{pid}/task/@{tid}/comm rw,
