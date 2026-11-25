@@ -12,6 +12,7 @@ if TEST_DIR not in sys.path:
 from lab_helpers import (  # noqa: E402
     CONTAINER_PREFIX,
     SSH_SERVER,
+    bgp_paths,
     close_ssh_sessions,
     ike_answered,
     key_exchanges,
@@ -30,6 +31,7 @@ from lab_helpers import (  # noqa: E402
 __all__ = [
     "CONTAINER_PREFIX",
     "SSH_SERVER",
+    "bgp_paths",
     "close_ssh_sessions",
     "ike_answered",
     "key_exchanges",

@@ -129,7 +129,9 @@ class BGPNeighbor(BaseModel):
     neighbor_address: Address
     # Of the routes received: higher is preferred for traffic from vpnc.
     local_pref: Int = Field(100, ge=0, le=4294967295)
-    # Of the routes advertised: lower is preferred for traffic to vpnc.
+    # Of the routes advertised: lower is preferred for traffic to vpnc. A
+    # blackholed route gets 10 more prepends (max 9: worse than any other hub's
+    # path) and the max MED.
     as_path_prepend: Int = Field(0, ge=0, le=9)
     # None: the kernel route's metric, 1024.
     med: OptionalInt = Field(None, ge=0, le=4294967294)
