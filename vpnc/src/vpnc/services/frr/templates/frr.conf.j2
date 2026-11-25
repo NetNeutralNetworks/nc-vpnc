@@ -52,7 +52,7 @@ ipv6 prefix-list REDIS-PL-IN seq 30 permit {{ prefix_downlink_nptv6 }} ge 48
 {%- for neighbor in neighbors %}
 route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-IN permit 1
   match ipv6 address prefix-list UPLINK-PL-IN
-  set local-preference {{ 100 - (10 * neighbor.neighbor_priority) }}
+  set local-preference {{ neighbor.local_pref }}
 exit
 !
 route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-IN deny 2
@@ -66,8 +66,11 @@ route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-OUT permit 1
 exit
 route-map UPLINK-RM-{{ neighbor.neighbor_ip }}-OUT permit 2
   match ipv6 address prefix-list UPLINK-PL-OUT
-    {%- if neighbor.neighbor_priority %}
-  set as-path prepend {{ (as ~ " ") * neighbor.neighbor_priority }}
+    {%- if neighbor.as_path_prepend %}
+  set as-path prepend {{ ((as ~ " ") * neighbor.as_path_prepend).strip() }}
+    {%- endif %}
+    {%- if neighbor.med is not none %}
+  set metric {{ neighbor.med }}
     {%- endif %}
 exit
 !

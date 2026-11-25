@@ -53,7 +53,7 @@ VERSIONS = {4: 2, 6: 1}
 HUB = {4: "192.0.2.5", 6: "2001:db8::5"}
 APPLY_TIMEOUT = 120
 CONFIG = {
-    "version": "0.1.4",
+    "version": "0.1.5",
     "id": TENANT,
     "name": "Fuzz IKE",
     "network_instances": {

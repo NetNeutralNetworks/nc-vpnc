@@ -12,6 +12,7 @@ if TEST_DIR not in sys.path:
 from lab_helpers import (  # noqa: E402
     CONTAINER_PREFIX,
     advertise_router,
+    bgp_paths,
     capabilities,
     echo_sweep,
     ike_answered,
@@ -31,6 +32,7 @@ from lab_helpers import (  # noqa: E402
 __all__ = [
     "CONTAINER_PREFIX",
     "advertise_router",
+    "bgp_paths",
     "capabilities",
     "echo_sweep",
     "ike_answered",

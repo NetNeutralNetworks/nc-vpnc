@@ -16,7 +16,7 @@ TENANT = "C0003"
 
 # Downlinks to a peer that doesn't exist, so the tenant's state stays the same.
 BASELINE: dict[str, Any] = {
-    "version": "0.1.4",
+    "version": "0.1.5",
     "id": TENANT,
     "name": "Fuzz test",
     "network_instances": {
@@ -92,7 +92,7 @@ AWKWARD: list[Any] = [
     "100.99.0.0/16", "fdcc:cbe::/32", "fd60::/12",  # the service's prefixes
     "C0001", "C0003", "C0003-00", "DEFAULT", "CORE", "EXTERNAL", "DOWNLINK",
     "IPSEC", "WIREGUARD", "SSH", "PHYSICAL", "NONE", "START",
-    "eth0", "eth1", "lo", "0.1.4", "0.0.1", "99.0.0",
+    "eth0", "eth1", "lo", "0.1.5", "0.0.1", "99.0.0",
 ]  # fmt: skip
 
 # Random values of the kinds the settings take: any address or network, port,
@@ -397,8 +397,8 @@ RAW = [
     "!!python/object/apply:os.system ['true']\n",
     "a: &a [*a]\n",
     "id: C0003\nid: C0001\n",
-    "version: 0.1.4\nid: C0001\n",
-    "version: 0.1.4\nid: C0003\nnetwork_instances: &n {00: *n}\n",
+    "version: 0.1.5\nid: C0001\n",
+    "version: 0.1.5\nid: C0003\nnetwork_instances: &n {00: *n}\n",
 ]
 
 # The baseline as vpnc stores it, set by the test that applies it: with the

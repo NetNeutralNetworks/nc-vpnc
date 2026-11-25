@@ -37,7 +37,14 @@ from vpnc.models.network_instance import (
     NetworkInstanceEndpoint,
     NetworkInstanceExternal,
 )
-from vpnc.models.scalars import Address, Address4, Int, Network4, Network6
+from vpnc.models.scalars import (
+    Address,
+    Address4,
+    Int,
+    Network4,
+    Network6,
+    OptionalInt,
+)
 from vpnc.models.secret import Secret
 
 if TYPE_CHECKING:
@@ -120,9 +127,12 @@ class BGPNeighbor(BaseModel):
 
     neighbor_asn: Int
     neighbor_address: Address
-    # Optional, lower is more preferred CORE uplink for receiving traffic,
-    # defaults to 0, max is 9
-    priority: Int = Field(0, ge=0, le=9)
+    # Of the routes received: higher is preferred for traffic from vpnc.
+    local_pref: Int = Field(100, ge=0, le=4294967295)
+    # Of the routes advertised: lower is preferred for traffic to vpnc.
+    as_path_prepend: Int = Field(0, ge=0, le=9)
+    # None: the kernel route's metric, 1024.
+    med: OptionalInt = Field(None, ge=0, le=4294967294)
     # Optional: the session's TCP MD5 password, the same on the neighbor. Next to
     # the uplink's tunnel: its key alone then doesn't give a BGP session.
     password: Secret | None = None

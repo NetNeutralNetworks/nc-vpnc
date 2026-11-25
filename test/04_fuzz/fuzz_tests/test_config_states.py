@@ -251,7 +251,7 @@ class ConfigStates(RuleBasedStateMachine):
         """Start without the tenant."""
         super().__init__()
         self.config: dict[str, Any] = {
-            "version": "0.1.4",
+            "version": "0.1.5",
             "id": TENANT,
             "name": "Fuzz states",
             "network_instances": {},

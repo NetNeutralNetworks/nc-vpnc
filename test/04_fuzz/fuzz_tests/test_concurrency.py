@@ -44,7 +44,7 @@ def variant(tenant: str, number: int) -> dict[str, Any]:
     """Return one of a tenant's valid configurations."""
     t = TENANTS.index(tenant)
     return {
-        "version": "0.1.4",
+        "version": "0.1.5",
         "id": tenant,
         "name": f"Concurrency {number}",
         "network_instances": {

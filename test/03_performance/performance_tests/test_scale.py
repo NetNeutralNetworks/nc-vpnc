@@ -169,7 +169,7 @@ def scale_tenants() -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
                 "connections": connections,
             }
         tenants[tenant_id] = {
-            "version": "0.1.4",
+            "version": "0.1.5",
             "id": tenant_id,
             "name": "Scale test",
             "network_instances": tenant_nis,

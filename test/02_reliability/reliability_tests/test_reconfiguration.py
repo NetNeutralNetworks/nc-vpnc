@@ -106,7 +106,7 @@ def write_tenant(connections: list[dict[str, Any]]) -> None:
 def tenant_yaml(connections: list[dict[str, Any]]) -> str:
     """Return the test tenant's configuration."""
     tenant = {
-        "version": "0.1.4",
+        "version": "0.1.5",
         "id": "C0002",
         "name": "Reconfiguration test",
         "network_instances": {
@@ -1163,7 +1163,7 @@ class TestOldConfiguration:
                 message=f"the 0.1.3 tenant C0002 to be applied on {HOST}",
             )
             new = yaml.safe_load(conftest.run_cmd(HOST, f"cat {TENANT_FILE}"))
-            assert new["version"] == "0.1.4"
+            assert new["version"] == "0.1.5"
             assert [f"{key:02}" for key in new["network_instances"]] == [NI_KEY]
             network_instance = next(iter(new["network_instances"].values()))
             assert "id" not in network_instance
@@ -1562,7 +1562,7 @@ PORT_TENANTS = ("B0001", "C0003", "C0004")
 def wireguard_tenant(tenant_id: str, port: int, route: str = "10.210.0.0/24") -> str:
     """Return a tenant with one WireGuard connection to a peer that doesn't exist."""
     tenant = {
-        "version": "0.1.4",
+        "version": "0.1.5",
         "id": tenant_id,
         "name": "WireGuard port test",
         "network_instances": {

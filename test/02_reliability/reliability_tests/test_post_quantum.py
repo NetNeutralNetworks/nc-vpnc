@@ -107,7 +107,7 @@ class TestPostQuantum:
     def test_duplicate_ppk_id_refused(self) -> None:
         """A PPK id used by another tenant's connection isn't committed."""
         tenant = {
-            "version": "0.1.4",
+            "version": "0.1.5",
             "id": "C0004",
             "name": "Duplicate PPK id",
             "network_instances": {

@@ -1,5 +1,5 @@
 ---
-version: 0.1.4
+version: 0.1.5
 
 id: DEFAULT
 name: DEFAULT
@@ -148,10 +148,10 @@ bgp:
   neighbors:
   - neighbor_asn: 4233333333
     neighbor_address: fd00:1:2::3
-    # Optional, lower is more preferred uplink for receiving traffic, defaults to 0, max is 9
-    priority: 1
+    local_pref: 90
+    as_path_prepend: 1
+    med: 10
   - neighbor_asn: 4244444444
     neighbor_address: fd00:1:2::1:3
-    # Optional, lower is more preferred uplink for receiving traffic, defaults to 0, max is 9
-    priority: 0
+    # Defaults: local_pref 100, as_path_prepend 0, MED 1024 (the route's metric)
 ...
