@@ -126,7 +126,9 @@ def generate_config() -> None:
         neighbor_cfg: dict[str, Any] = {
             "neighbor_ip": neighbor.neighbor_address,
             "neighbor_asn": neighbor.neighbor_asn,
-            "neighbor_priority": neighbor.priority,
+            "local_pref": neighbor.local_pref,
+            "as_path_prepend": neighbor.as_path_prepend,
+            "med": neighbor.med,
             "password": neighbor.password and neighbor.password.get_secret_value(),
         }
         neighbors.append(neighbor_cfg)

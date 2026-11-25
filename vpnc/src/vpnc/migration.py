@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("vpnc")
 
 # The configuration version this vpnc reads and writes.
-CURRENT = "0.1.4"
+CURRENT = "0.1.5"
 # The number of earlier versions that are converted.
 SUPPORTED = 2
 
@@ -134,8 +134,65 @@ def _text_0_1_3(text: str, data: dict[str, Any]) -> str:
     return "".join(lines)
 
 
+def _priority(priority: Any) -> dict[str, Any]:  # noqa: ANN401
+    """Return a neighbor's priority as local_pref and as_path_prepend."""
+    if not isinstance(priority, int) or isinstance(priority, bool):
+        # Kept for the model to refuse.
+        return {"as_path_prepend": priority}
+    return {"local_pref": 100 - 10 * priority, "as_path_prepend": priority}
+
+
+def _data_0_1_4(data: dict[str, Any]) -> dict[str, Any]:
+    """Replace the BGP neighbors' priority by local_pref and as_path_prepend."""
+    bgp = data.get("bgp")
+    if not isinstance(bgp, dict) or not isinstance(bgp.get("neighbors"), list):
+        return data
+    neighbors = [
+        {
+            **{k: v for k, v in neighbor.items() if k != "priority"},
+            **_priority(neighbor["priority"]),
+        }
+        if isinstance(neighbor, dict) and "priority" in neighbor
+        else neighbor
+        for neighbor in bgp["neighbors"]
+    ]
+    return {**data, "bgp": {**bgp, "neighbors": neighbors}}
+
+
+ITEM_KEY_RE = re.compile(r"^( *- +)([^\s#:-][^:]*):")
+
+
+def _text_0_1_4(text: str, data: dict[str, Any]) -> str:  # noqa: ARG001
+    """Do the same line by line, following the keys by their indentation."""
+    lines = []
+    stack: list[tuple[int, str]] = []
+    for line in text.splitlines(keepends=True):
+        if not (match := KEY_RE.match(line) or ITEM_KEY_RE.match(line)):
+            lines.append(line)
+            continue
+        indent, key = len(match[1]), match[2].strip("\"' ")
+        # A list item ends the keys of the one before.
+        top = match[1].find("-") + 1 or indent
+        while stack and stack[-1][0] >= top:
+            stack.pop()
+        stack.append((indent, key))
+        if [k for _, k in stack] != ["bgp", "neighbors", "priority"]:
+            lines.append(line)
+            continue
+        # A "- " starts the first line only.
+        prefixes = [match[1], " " * indent]
+        for index, (k, v) in enumerate(
+            _priority(yaml.safe_load(line[match.end() :])).items()
+        ):
+            lines.append(f"{prefixes[min(index, 1)]}{k}: {v}\n")
+    return "".join(lines)
+
+
 # Oldest first; each converts to the version of the next.
-STEPS = (Step("0.1.3", "0.1.4", _data_0_1_3, _text_0_1_3),)[-SUPPORTED:]
+STEPS = (
+    Step("0.1.3", "0.1.4", _data_0_1_3, _text_0_1_3),
+    Step("0.1.4", "0.1.5", _data_0_1_4, _text_0_1_4),
+)[-SUPPORTED:]
 
 
 def unsupported(version: object) -> str:

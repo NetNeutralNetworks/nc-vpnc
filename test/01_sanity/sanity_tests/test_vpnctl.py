@@ -408,6 +408,35 @@ class TestVpnctlBgp:
         }
 
 
+# The lab's path attributes per hub and neighbor: local_pref, AS path length
+# (as_path_prepend + 1) and MED (without med: the kernel route's metric).
+BGP_ATTRIBUTES = {
+    ("hub00", "mgt00"): (100, 1, 1024),
+    ("hub00", "mgt01"): (90, 2, 10),
+    ("hub01", "mgt00"): (90, 2, 10),
+    ("hub01", "mgt01"): (100, 1, 1024),
+}
+# Advertised by both hubs: C0001-00's first NPTv6 prefix.
+ADVERTISED_PREFIX = "fd6c:1::/52"
+
+
+@pytest.mark.parametrize(("host", "router"), list(BGP_ATTRIBUTES))
+class TestBgpPathAttributes:
+    """A neighbor's local_pref, as_path_prepend and med are applied."""
+
+    def test_local_pref(self, host: str, router: str) -> None:
+        """Routes received from the neighbor get its local_pref."""
+        paths = [r for r in vpnctl(host, "bgp routes") if r["learned_from"] == router]
+
+        assert {r["local_pref"] for r in paths} == {BGP_ATTRIBUTES[host, router][0]}
+
+    def test_advertised(self, host: str, router: str) -> None:
+        """The neighbor gets the routes with the AS prepended and the MED."""
+        paths = conftest.bgp_paths(router, ADVERTISED_PREFIX)
+
+        assert paths[host] == BGP_ATTRIBUTES[host, router][1:]
+
+
 class TestVpnctlTroubleshooting:
     """vpnctl troubleshoots inside network instances."""
 

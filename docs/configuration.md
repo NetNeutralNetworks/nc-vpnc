@@ -20,12 +20,12 @@ What runs is in `/opt/ncubed/config/vpnc/active/`, loaded at startup:
 * **Secrets** that aren't set (a PSK, a WireGuard private key, a PPK) are generated on commit; see [Connections](connections.md#types).
 * **Weak cryptography** is refused unless committed with `--allow-weak`; see [Security](security.md#weak-cryptography).
 
-Values like `HUB` and `IPSEC` are upper case; lower case is still read. Files have a `version`, currently 0.1.4 (see [upgrade notes](installation.md#upgrade-notes)).
+Values like `HUB` and `IPSEC` are upper case; lower case is still read. Files have a `version`, currently 0.1.5 (see [upgrade notes](installation.md#upgrade-notes)).
 
 ## Service
 
 ```yaml
-version: 0.1.4
+version: 0.1.5
 id: DEFAULT
 name: DEFAULT
 mode: HUB                     # HUB | ENDPOINT; needs a restart
@@ -46,7 +46,9 @@ bgp:
   neighbors:
   - neighbor_address: fd00:1:2::1
     neighbor_asn: 4233333333
-    priority: 0               # 0-9, lower is preferred for traffic to vpnc
+    local_pref: 100           # received routes; higher is preferred for traffic from vpnc
+    as_path_prepend: 0        # 0-9, advertised routes; lower is preferred for traffic to vpnc
+    med: 10                   # optional (default 1024), advertised routes; lower is preferred
     password: "..."           # optional, TCP MD5
 dns:                          # optional; limits per network instance on DNS doctoring
   rate_limit: 50              # kbytes per second
@@ -59,7 +61,7 @@ The addressing prefixes are explained in [Architecture](architecture.md#addressi
 ## Tenants
 
 ```yaml
-version: 0.1.4
+version: 0.1.5
 id: C0001                     # A-F or 2-9, then 4 digits
 name: Healthcare inc.
 metadata: {}                  # free key-value pairs, also on network instances and connections
@@ -82,7 +84,7 @@ A tenant with one network instance and an IPsec connection to a site at 192.0.2.
 ```
 
 ```yaml
-version: 0.1.4
+version: 0.1.5
 id: C0002
 name: Customer name
 network_instances:

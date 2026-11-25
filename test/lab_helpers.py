@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import ipaddress
 import itertools
+import json
 import os
 import re
 import subprocess
@@ -101,6 +102,15 @@ def run_cmd_vtysh(host: str, command: str) -> str:
         text=True,
         check=True,
     ).stdout
+
+
+def bgp_paths(router: str, prefix: str) -> dict[str, tuple[int, int | None]]:
+    """Return a router's BGP paths to a prefix: per neighbor, AS path length and MED."""
+    output = json.loads(run_cmd_vtysh(router, f"show bgp ipv6 unicast {prefix} json"))
+    return {
+        path["peer"]["hostname"]: (path["aspath"]["length"], path.get("metric"))
+        for path in output.get("paths", [])
+    }
 
 
 def wait_until(
