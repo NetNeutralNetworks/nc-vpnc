@@ -70,7 +70,8 @@ profile ncubed-vpnc /opt/ncubed/vpnc/bin/vpnc flags=(attach_disconnected.path=/d
 
   # vpnc and vpncmangle.
   /opt/ncubed/vpnc/** mr,
-  /opt/ncubed/config/{,**} rwk,
+  /opt/ncubed/config/vpnc/{,**} rwk,
+  /opt/ncubed/config/vpncmangle/{,**} rw,
 
   # What vpnc configures.
   /etc/swanctl/{,**} rw,
@@ -102,6 +103,9 @@ profile ncubed-vpnc /opt/ncubed/vpnc/bin/vpnc flags=(attach_disconnected.path=/d
   audit deny /etc/shadow r,
   audit deny /root/** rw,
   audit deny /opt/ncubed/vpnc/** w,
+  # Run as root, unconfined: make reads make.conf, systemd vpnc's unit.
+  audit deny /opt/ncubed/config/make.conf w,
+  audit deny /opt/ncubed/config/vpnc/units/{,**} w,
   audit deny /run/systemd/private rw,
   audit deny /run/dbus/system_bus_socket rw,
   # FRR's init script asks systemctl for a unit frrinit.service; there's none.
