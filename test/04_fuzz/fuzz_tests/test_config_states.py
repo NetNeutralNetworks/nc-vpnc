@@ -534,7 +534,8 @@ class ConfigStates(RuleBasedStateMachine):
     def replace_connection(self, data: st.DataObject) -> None:
         """Replace a connection with another (type, routes, addresses, keys).
 
-        If it stays an enabled IPsec connection, a new id or selectors reset it.
+        If it stays an enabled IPsec connection, a new id, proposal or
+        selectors reset it.
         """
         ni, key = data.draw(st.sampled_from(self.connections()))
         old = self.nis[ni]["connections"][key]
@@ -636,8 +637,8 @@ def resets(ni: str, key: int, since: dt.datetime) -> list[dict[str, Any]]:
 def kept(old: dict[str, Any], new: dict[str, Any]) -> set[str]:
     """Return what a replaced connection's SAs keep the old of, if charon had it.
 
-    Its PSK, ids and traffic selectors; an id not set is its default (the
-    first remote address for the remote id).
+    Its PSK, ids, proposals and traffic selectors; an id not set is its
+    default (the first remote address for the remote id).
     """
     if not (old["enabled"] and new["enabled"]):
         return set()
@@ -653,8 +654,11 @@ def kept(old: dict[str, Any], new: dict[str, Any]) -> set[str]:
         now["remote_id"] or now["remote_addrs"][0]
     ):
         changed.add("remote_id")
-    if was["traffic_selectors"] != now["traffic_selectors"]:
-        changed.add("traffic_selectors")
+    changed |= {
+        field
+        for field in ("ike_proposal", "ipsec_proposal", "traffic_selectors")
+        if was[field] != now[field]
+    }
     return changed
 
 

@@ -16,6 +16,10 @@ VPNCTL = "/opt/ncubed/vpnc/bin/vpnctl"
 # end00's CORE-0 to hub00: ML-KEM-768 with a PPK; CORE-1 to hub01: classical.
 END = "end00"
 PPK_PATH = "network_instances.CORE.connections.0.config.post_quantum.ppk.key"
+ML_KEM_PATHS = {
+    END: ("DEFAULT", "network_instances.CORE.connections.0.config.post_quantum.ml_kem"),
+    "hub00": ("C0001", "network_instances.00.connections.0.config.post_quantum.ml_kem"),
+}
 # end01's CORE-0 to hub00: WireGuard with a PPK; CORE-1 to hub01: without.
 WG_END = "end01"
 WG_PPK_PATH = "network_instances.CORE.connections.0.config.post_quantum.ppk"
@@ -102,6 +106,29 @@ class TestPostQuantum:
             lambda: ike_key_exchanges(END, "CORE-0") == {"ECP_384/KE1_ML_KEM_768/PPK"},
             timeout=APPLY_TIMEOUT,
             message="CORE-0 to be up with the right PPK",
+        )
+
+    def test_ml_kem_change(self) -> None:
+        """Another ML-KEM is used right away, not after the SA is set up anew."""
+        for host, (tenant, path) in ML_KEM_PATHS.items():
+            vpnctl(host, f"config set {tenant} {path} ML_KEM_1024")
+            vpnctl(host, f"config commit {tenant}")
+        try:
+            conftest.wait_until(
+                lambda: (
+                    ike_key_exchanges(END, "CORE-0") == {"ECP_384/KE1_ML_KEM_1024/PPK"}
+                ),
+                timeout=APPLY_TIMEOUT,
+                message="CORE-0 to be up with ML-KEM-1024",
+            )
+        finally:
+            for host, (tenant, _) in ML_KEM_PATHS.items():
+                vpnctl(host, f"config restore {tenant} 1")
+                vpnctl(host, f"config commit {tenant}")
+        conftest.wait_until(
+            lambda: ike_key_exchanges(END, "CORE-0") == {"ECP_384/KE1_ML_KEM_768/PPK"},
+            timeout=APPLY_TIMEOUT,
+            message="CORE-0 to be up with ML-KEM-768 again",
         )
 
     def test_duplicate_ppk_id_refused(self) -> None:
