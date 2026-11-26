@@ -283,8 +283,8 @@ def _pending(
 def _kept(old: str | None, new: Connection) -> list[str]:
     """Return what changed that a connection's SAs keep the old of.
 
-    The key they were authenticated with, the ids and the traffic selectors:
-    charon only negotiates those anew as an initiator.
+    The keys, ids, IKE version, proposals (ML-KEM included) and traffic
+    selectors: rekeys keep what the SAs were set up with.
     """
     if old is None:
         return []
@@ -298,12 +298,30 @@ def _kept(old: str | None, new: Connection) -> list[str]:
         for field, kind in (("psk", "IKE"), ("ppk", "PPK"))
         if data(was_keys, kind) != data(keys, kind)
     ]
+    if was.get("ppk_id") != conn.get("ppk_id"):
+        changed.append("ppk_id")
     changed += [
         f"{side}_id"
         for side in ("local", "remote")
         if was[side]["id"] != conn[side]["id"]
     ]
+    if was["version"] != conn["version"]:
+        changed.append("ike_version")
     (was_child,), (child,) = was["children"].values(), conn["children"].values()
+    # The classical part, and ML-KEM (post_quantum) after "-ke1_".
+    was_ike, _, was_ke = was["proposals"][0].partition("-ke1_")
+    ike, _, ke = conn["proposals"][0].partition("-ke1_")
+    was_esp = was_child["esp_proposals"][0].partition("-ke1_")[0]
+    esp = child["esp_proposals"][0].partition("-ke1_")[0]
+    changed += [
+        field
+        for field, before, after in (
+            ("ike_proposal", was_ike, ike),
+            ("ipsec_proposal", was_esp, esp),
+            ("post_quantum", was_ke, ke),
+        )
+        if before != after
+    ]
     if any(was_child[ts] != child[ts] for ts in ("local_ts", "remote_ts")):
         changed.append("traffic_selectors")
     return changed
@@ -405,8 +423,9 @@ def apply(network_instance: NetworkInstance) -> None:
     """Make charon's connections of a network instance as configured.
 
     Only connections that changed are loaded; others, and their SAs, aren't
-    touched. A changed PSK, PPK, id or traffic selectors resets the connection:
-    its SAs would keep the old. Failures are retried by the full check (sync).
+    touched. A changed key, id, IKE version, proposal or traffic selectors
+    resets the connection: its SAs would keep the old. Failures are retried by
+    the full check (sync).
     """
     conns = connections(network_instance)
     _write(network_instance.id, conns)

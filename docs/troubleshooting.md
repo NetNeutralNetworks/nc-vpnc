@@ -60,7 +60,7 @@ Events are what happened to a connection, network instance, tenant or the servic
 | | `ADMIN_UP`, `ADMIN_DOWN` | Started or stopped |
 | | `RESET` | Reset by an administrator |
 | | `AUTO_RESET` | Reset by vpnc: down for too long, or no probe answered (see [automatic resets](connections.md#automatic-resets)) |
-| | `CONFIG_RESET` | Reset for a changed PSK, PPK or traffic selectors (IPsec), or PPK (WireGuard) |
+| | `CONFIG_RESET` | Reset for a changed PSK, PPK, id, IKE version, proposal, ML-KEM or traffic selectors (IPsec), or PPK (WireGuard) |
 | | `PROBES_FAILING`, `PROBES_ANSWERED` | Its probes |
 | | a [failure reason](#failure-reasons) | Why it fails, when that changes |
 | | `HOST_KEY_ACCEPTED` | An SSH server's host key accepted |

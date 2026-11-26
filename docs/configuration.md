@@ -16,7 +16,7 @@ What runs is in `/opt/ncubed/config/vpnc/active/`, loaded at startup:
 
 * **Restart needed:** service settings `mode` and `prefix_downlink_*`. Everything else applies on commit. `vpnctl status` says when a restart is needed.
 * **Hand edits:** an active file changed otherwise (e.g. by hand) runs if a commit would accept it. If it can't be loaded, or a commit would refuse it, the tenant keeps running what it ran; `vpnctl config list` and the event `CONFIG_NOT_LOADED` say why. A commit (also without changes) replaces such a file.
-* **IPsec resets:** an IPsec connection whose `psk`, PPK or `traffic_selectors` changed is reset (event `CONFIG_RESET`): its SAs would keep the old values, and a wrong value would only show at the next outage. Wider `traffic_selectors` of a responder apply once the initiator is reset too: until then it proposes the ones it had.
+* **IPsec resets:** an IPsec connection whose `psk`, PPK, ids, `ike_version`, proposals, ML-KEM or `traffic_selectors` changed is reset (event `CONFIG_RESET`): its SAs would keep the old values, also when rekeyed, and a wrong value would only show at the next outage. Wider `traffic_selectors` of a responder apply once the initiator is reset too: until then it proposes the ones it had.
 * **Secrets** that aren't set (a PSK, a WireGuard private key, a PPK) are generated on commit; see [Connections](connections.md#types).
 * **Weak cryptography** is refused unless committed with `--allow-weak`; see [Security](security.md#weak-cryptography).
 
