@@ -23,7 +23,7 @@ charon only loads the plugins that connections with a PSK need (`/etc/strongswan
 
 vpnc's unit (`ncubed-vpnc.service`) confines vpnc and every daemon it starts: no privileges gained through setuid programs, a system call filter, only Unix, IP and netlink sockets, and a capability bounding set. It can't load kernel modules: hubs load Jool at boot (`/etc/modules-load.d/vpnc.conf`).
 
-Its AppArmor profile (`/etc/apparmor.d/ncubed-vpnc`) limits what vpnc and everything it starts may read, write and run, even as root: no mounts but its network namespaces, no systemd (which could start anything unconfined), and not its own code. vpnc doesn't start without it. A daemon with a profile of its own runs under both. charon's and FRR's profiles take vpnc's signals through their `local/` include (`/etc/apparmor.d/ncubed-vpnc.d/`).
+Its AppArmor profile (`/etc/apparmor.d/ncubed-vpnc`) limits what vpnc and everything it starts may read, write and run, even as root: no mounts but its network namespaces, no systemd (which could start anything unconfined), and not its own code. Of `/opt/ncubed/config/` it may only write its own configuration and vpncmangle's, not its unit nor make's `make.conf`, which run as root. vpnc doesn't start without it. A daemon with a profile of its own runs under both. charon's and FRR's profiles take vpnc's signals through their `local/` include (`/etc/apparmor.d/ncubed-vpnc.d/`).
 
 ## Secrets
 
@@ -47,4 +47,6 @@ For post-quantum key exchange, see [Connections](connections.md#post-quantum-cry
 
 ## Updates
 
-An update of strongSwan only replaces its files: the running charon is the old one until vpnc restarts, which stops every tunnel. Restart it (`systemctl restart ncubed-vpnc`) in a maintenance window after a security update.
+vpnc starts charon, FRR, vpncmangle and ssh itself, so an update of one of them, or of a library they use (OpenSSL, Python), makes needrestart restart vpnc after apt or unattended-upgrades. That stops every tunnel until vpnc has started them again.
+
+unattended-upgrades runs daily at the install's `UPDATE_TIME`, and reboots right after an update that needs it (a new kernel); see [Installation](installation.md#updates-and-reboots). Give the hubs different times, so they're never down together.
