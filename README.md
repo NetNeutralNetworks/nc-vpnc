@@ -27,7 +27,7 @@ On Ubuntu 26.04, as root, in the repository root:
 
 ```bash
 ~$ apt-get install -y make
-~$ make hub                               # or: endpoint, addon
+~$ make hub                               # or: endpoint
 ~$ vpnctl config edit service             # mode, uplinks, BGP
 ~$ vpnctl config commit service
 ~$ systemctl restart ncubed-vpnc

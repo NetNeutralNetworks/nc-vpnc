@@ -1,7 +1,11 @@
 # Install vpnc on Ubuntu, as root, from the repository root:
-#   make hub | make endpoint | make addon   full install (apt upgrade included)
-#   make update                             vpnc and vpnctl only; restarts on change
+#   make hub | make endpoint   full install (apt upgrade included)
+#   make upgrade               the full install again, of the installed type
+#   make update                vpnc and vpnctl only; restarts on change
 # Config files are only installed when missing, so local edits are kept.
+# make.conf holds the install type and the time of the daily update, followed
+# by a reboot if it needs one: make asks for what's missing in it and not given
+# (make update UPDATE_TIME=02:00). make hub|endpoint refuse the other type.
 # The Dockerfiles use the step targets.
 
 SHELL := /bin/bash
@@ -34,10 +38,15 @@ MANGLE_DEBS := python3-netfilterqueue
 SYSTEM_PYPI := annotated-types idna jinja2 markupsafe netfilterqueue packaging \
 	pydantic pydantic-core pyyaml typing-extensions typing-inspection watchdog
 
-# hub, endpoint or addon; set by the install targets.
-MODE ?= hub
-# The example service configuration: endpoint, or hub (also for addon).
-CONFIG_MODE = $(if $(filter endpoint,$(MODE)),endpoint,hub)
+# Valid values from make.conf (vpnc can't write it): never code.
+MAKE_CONF := $(BASEDIR)/config/make.conf
+conf = $(lastword $(shell sed -nE 's/^$(1)=($(2))$$/\1/p' $(MAKE_CONF) 2> /dev/null))
+TIME := ([01][0-9]|2[0-3]):[0-5][0-9]
+
+# hub or endpoint, also the example service configuration: only from make.conf
+# (re-read when used), or set by the install targets.
+MODE ?= $(call conf,MODE,hub|endpoint)
+UPDATE_TIME ?= $(call conf,UPDATE_TIME,$(TIME))
 
 VPNC_SRC       := $(shell find vpnc -type f ! -path '*/build/*' ! -path '*.egg-info/*' ! -name '*.pyc' 2>/dev/null)
 VPNCMANGLE_SRC := $(shell find vpncmangle -type f ! -path '*/build/*' ! -path '*.egg-info/*' ! -name '*.pyc' 2>/dev/null)
@@ -54,33 +63,38 @@ OLD_SNMP_CONF := /etc/snmp/snmpd.conf.d/frr-snmp.conf
 VPNCTL    := /usr/local/bin/vpnctl /etc/bash_completion.d/vpnctl \
 	/usr/share/zsh/vendor-completions/_vpnctl /etc/profile.d/profile-nc-vpn.sh
 
-.PHONY: help hub endpoint addon update root apt-update packages python-packages \
+.PHONY: help hub endpoint upgrade update update-steps root apt-update packages python-packages \
 	python-debs hub-packages frr snmpd old-snmp-config config misc-config venv \
-	pip-vpnc pip-vpncmangle lock vpnctl apparmor service start
+	pip-vpnc pip-vpncmangle lock vpnctl apparmor service start maintenance \
+	maintenance-units
 
 help:
-	@echo "As root: make hub | make endpoint | make addon | make update"
+	@echo "As root: make hub | make endpoint | make upgrade | make update"
 
 # Full installs.
 
-hub: MODE := hub
-hub: root packages python-packages frr hub-packages $(MODULES_CONF) snmpd \
+hub: override MODE := hub
+hub: root maintenance packages python-packages frr hub-packages $(MODULES_CONF) snmpd \
 	account-vpnc-mangle account-vpnc-ssh config misc-config pip-vpnc pip-vpncmangle \
 	vpnctl apparmor service start
 
-endpoint: MODE := endpoint
-endpoint: root packages python-packages snmpd \
+endpoint: override MODE := endpoint
+endpoint: root maintenance packages python-packages snmpd \
 	config misc-config pip-vpnc vpnctl apparmor service start
 
-addon: MODE := addon
-addon: root packages python-packages \
-	config misc-config pip-vpnc vpnctl apparmor service start
+# upgrade and update run in a new make, which reads the type from make.conf.
 
-# vpncmangle and the accounts only where it's installed (hub).
-update: root python-debs pip-vpnc $(if $(wildcard $(VENV)/bin/vpncmangle),\
-	account-vpnc-mangle account-vpnc-ssh pip-vpncmangle $(MODULES_CONF)) \
-	misc-config $(if $(wildcard /etc/snmp/snmpd.conf.d),$(SNMP_CONF) old-snmp-config) \
-	$(if $(wildcard /etc/frr),$(FRR_SNMP_CONF)) vpnctl apparmor \
+# The full install again, of the type in make.conf.
+upgrade: root maintenance
+	$(MAKE) --no-print-directory $(MODE)
+
+update: root maintenance
+	$(MAKE) --no-print-directory update-steps
+
+# vpncmangle, its accounts, Jool and FRR's SNMP settings only on a hub.
+update-steps: python-debs pip-vpnc $(if $(filter hub,$(MODE)),\
+	account-vpnc-mangle account-vpnc-ssh pip-vpncmangle $(MODULES_CONF) $(FRR_SNMP_CONF)) \
+	misc-config $(SNMP_CONF) old-snmp-config vpnctl apparmor \
 	$(if $(SYSTEMD),$(CONFDIR)/units/$(UNIT) $(STAMP)/started)
 
 root:
@@ -97,11 +111,14 @@ apt-update:
 # apparmor: vpnc's profile, and those of charon and FRR.
 # iputils-ping, traceroute, tcpdump: vpnctl ping, traceroute and capture.
 # curl: the API from the shell (README).
+# unattended-upgrades, update-notifier-common: the daily update, and its
+# reboot when /run/reboot-required says one is needed.
 packages: apt-update
 	$(if $(SYSTEMD),$(APT) upgrade -y)
 	$(APT) install -y nftables iproute2 kmod apparmor \
 		strongswan strongswan-swanctl strongswan-starter strongswan-charon \
-		ssh wireguard iputils-ping traceroute tcpdump curl
+		ssh wireguard iputils-ping traceroute tcpdump curl \
+		unattended-upgrades update-notifier-common
 	$(UNITCTL) mask ipsec.service strongswan-starter.service strongswan.service
 	$(SYSTEMCTL) stop ipsec.service strongswan-starter.service strongswan.service || true
 
@@ -124,7 +141,7 @@ python-packages: apt-update
 	$(APT) install -y python3 python3-venv python3-setuptools $(PYTHON_DEBS)
 
 # make update: Ubuntu's Python packages, if missing (older installs lack them).
-UPDATE_DEBS := python3-venv python3-setuptools $(PYTHON_DEBS) $(if $(wildcard $(VENV)/bin/vpncmangle),$(MANGLE_DEBS))
+UPDATE_DEBS := python3-venv python3-setuptools $(PYTHON_DEBS) $(if $(filter hub,$(MODE)),$(MANGLE_DEBS))
 python-debs:
 	dpkg -s $(UPDATE_DEBS) > /dev/null 2>&1 || { apt-get update && $(APT) install -y $(UPDATE_DEBS); }
 
@@ -177,7 +194,7 @@ $(CONFDIR)/candidate $(CONFDIR)/active $(CONFDIR)/history:
 	install -d -m 700 $@
 
 $(CONFDIR)/candidate/DEFAULT.yaml $(CONFDIR)/active/DEFAULT.yaml: | $(CONFDIR)/candidate $(CONFDIR)/active $(CONFDIR)/history
-	install -m 600 config/vpnc/config/config-$(CONFIG_MODE).yaml.example $@
+	install -m 600 config/vpnc/config/config-$(MODE).yaml.example $@
 
 # vpnc, vpncmangle and charon log to the journal now; this rotated charon's
 # old log file.
@@ -311,6 +328,39 @@ service: $(CONFDIR)/units/$(UNIT)
 	$(SYSTEMCTL) daemon-reload
 	$(UNITCTL) enable $(UNIT)
 
+# make.conf, asking for what's missing in it and not given; written only when
+# it changed. Refuses another type than the one in it: a hub stays a hub. Then
+# unattended-upgrades' timer from it (a new make reads it).
+maintenance:
+	@mode='$(MODE)' saved='$(call conf,MODE,hub|endpoint)' update='$(UPDATE_TIME)'; \
+	if [ -n "$$saved" ] && [ "$$mode" != "$$saved" ]; then \
+		echo "This is an install of type $$saved (MODE in $(MAKE_CONF)): change it there to convert it." >&2; \
+		exit 1; \
+	fi; \
+	until [[ $$mode =~ ^(hub|endpoint)$$ ]]; do \
+		read -r -p "Install type (hub or endpoint): " mode || { echo "MODE=hub|endpoint is missing." >&2; exit 1; }; \
+	done; \
+	until [[ $$update =~ ^$(TIME)$$ ]]; do \
+		read -r -p "Time of the daily update (HH:MM): " update || { echo "UPDATE_TIME=HH:MM is missing." >&2; exit 1; }; \
+	done; \
+	install -d $(dir $(MAKE_CONF)); \
+	printf '%s\n' '# MODE: change it to convert the install. UPDATE_TIME: make update UPDATE_TIME=HH:MM.' \
+		"MODE=$$mode" "UPDATE_TIME=$$update" > $(MAKE_CONF).tmp; \
+	if cmp -s $(MAKE_CONF).tmp $(MAKE_CONF); then rm $(MAKE_CONF).tmp; else mv $(MAKE_CONF).tmp $(MAKE_CONF); fi
+	$(MAKE) --no-print-directory maintenance-units
+
+UPDATE_TIMER := /etc/systemd/system/apt-daily-upgrade.timer.d/ncubed-vpnc.conf
+
+maintenance-units: $(UPDATE_TIMER) /etc/apt/apt.conf.d/52ncubed-vpnc
+
+$(UPDATE_TIMER): config/systemd/apt-daily-upgrade.timer.d/ncubed-vpnc.conf $(MAKE_CONF)
+	install -d $(@D)
+	sed 's/@UPDATE_TIME@/$(UPDATE_TIME)/' $< > $@
+	$(SYSTEMCTL) daemon-reload
+
+/etc/apt/apt.conf.d/52ncubed-vpnc: config/apt/52ncubed-vpnc
+	install -m 644 $< $@
+
 # vpnc's own unit: replaced when it changes. Local changes go in a drop-in.
 $(CONFDIR)/units/$(UNIT): config/vpnc/units/$(UNIT)
 	install -D -m 644 $< $@
@@ -323,7 +373,7 @@ start:
 
 # make update restarts only when vpnc, vpncmangle, the unit or charon's settings
 # changed; vpnc starts charon, which reads its settings only then.
-$(STAMP)/started: $(STAMP)/vpnc $(wildcard $(STAMP)/vpncmangle) \
+$(STAMP)/started: $(STAMP)/vpnc $(if $(filter hub,$(MODE)),$(STAMP)/vpncmangle) \
 	/etc/strongswan.d/vpnc.conf $(CONFDIR)/units/$(UNIT)
 	$(SYSTEMCTL) restart $(UNIT)
 	touch $@

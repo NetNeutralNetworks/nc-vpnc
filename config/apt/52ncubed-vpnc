@@ -1,0 +1,6 @@
+// The daily update, at UPDATE_TIME in make.conf (apt-daily-upgrade.timer).
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+
+// Then the reboot it needs, right away.
+Unattended-Upgrade::Automatic-Reboot "true";
