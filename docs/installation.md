@@ -6,14 +6,13 @@ vpnc runs on Ubuntu 26.04 with systemd. Everything below runs as root, in the re
 
 ```bash
 ~$ apt-get install -y make
-~$ make hub               # or: endpoint, addon
+~$ make hub               # or: endpoint
 ```
 
 | Target | Installs |
 |---|---|
 | `hub` | vpnc, vpncmangle, FRR, snmpd, the `vpnc-mangle` and `vpnc-ssh` accounts, a hub service configuration |
 | `endpoint` | vpnc and snmpd, an endpoint service configuration |
-| `addon` | vpnc only (no FRR, vpncmangle or snmpd), a hub service configuration |
 
 A full install:
 
@@ -22,7 +21,9 @@ A full install:
 * installs an example service configuration;
 * (re)starts vpnc.
 
-Run it again to upgrade everything.
+make keeps the install type in `/opt/ncubed/config/make.conf`, and asks for it when it's missing there (older installs). `make hub` and `make endpoint` refuse the other type; to convert an install, change `MODE` in that file first.
+
+To upgrade everything, run the install again: `make upgrade` runs the one of the type in make.conf.
 
 Then configure the service (see [Configuration](configuration.md#service)):
 
@@ -48,6 +49,16 @@ To update only vpnc after a `git pull`:
 * The systemd unit is replaced when it changes: put local changes in a drop-in (`systemctl edit ncubed-vpnc`).
 
 A restart of vpnc stops every tunnel; plan it in a maintenance window.
+
+## Updates and reboots
+
+unattended-upgrades updates Ubuntu daily at `UPDATE_TIME`, in the VM's time zone, and reboots right after an update that needs it (a new kernel). An update can also restart vpnc (needrestart). make asks for the time when it's missing in `/opt/ncubed/config/make.conf`, and keeps it there. To change it:
+
+```bash
+~$ make update UPDATE_TIME=02:00
+```
+
+Give the hubs times far enough apart (an hour) that one is back before the other updates. A VM that was off at its time updates right after it starts.
 
 ## Dependencies
 
