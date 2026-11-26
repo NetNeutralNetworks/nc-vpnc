@@ -438,7 +438,9 @@ def cmd_connections_list(args: argparse.Namespace) -> None:
         for row in data:
             counters, rates = row.get("counters") or {}, row.get("rates") or {}
             row["age"] = age(row["last_change"])
-            row["probes_ok"] = probes_text(row.get("probes") or [])
+            row["probes_ok"] = probes_text(
+                row.get("probes") or [], up=row["oper_status"] == "UP"
+            )
             for direction in ("in", "out"):
                 row[direction] = size(counters.get(f"{direction}_octets"))
                 row[f"{direction}_rate"] = rate(rates.get(f"{direction}_bits_rate"))
@@ -460,8 +462,10 @@ def probe_text(probe: dict[str, Any]) -> str:
     return f"{probe_name(probe)}{description}: {PROBE_RESULTS[probe['failed']]}"
 
 
-def probes_text(probes: list[dict[str, Any]]) -> str | None:
-    """Return how many of the tested probes are answered, e.g. 1/2."""
+def probes_text(probes: list[dict[str, Any]], *, up: bool) -> str | None:
+    """Return how many of the tested probes are answered, e.g. 1/2; 0/2 while down."""
+    if not up:
+        return f"0/{len(probes)}" if probes else None
     tested = [probe for probe in probes if probe["failed"] is not None]
     if not tested:
         return None

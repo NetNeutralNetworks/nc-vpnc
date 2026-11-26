@@ -18,7 +18,7 @@ Read live:
 ~$ sudo vpnctl tenants list
 ~$ sudo vpnctl ni list [C0001]               # network instances
 ~$ sudo vpnctl ni show C0001-00              # with NAT64 and NPTv6 translations, sessions, firewall drops, DNS answers
-~$ sudo vpnctl connections list [C0001 | C0001-00] [--oper-status DOWN] [--admin-status DOWN] [--type IPSEC]   # -o wide: MTU, traffic and its rate, probes answered
+~$ sudo vpnctl connections list [C0001 | C0001-00] [--oper-status DOWN] [--admin-status DOWN] [--type IPSEC]   # -o wide: MTU, traffic and its rate, probes answered (0/n while down)
 ~$ sudo vpnctl connections show C0001-00-0   # last change, session, probes, traffic counters and rates
 ~$ sudo vpnctl connections probes C0001-00-0 # per probe its tests of the last 3 minutes
 ~$ sudo vpnctl bgp neighbors                 # hub mode; per address family

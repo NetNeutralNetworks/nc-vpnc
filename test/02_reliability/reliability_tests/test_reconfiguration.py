@@ -319,6 +319,33 @@ class TestReconfiguration:
         )
         assert f"{NI}-0" in conftest.snmp_interfaces(HOST)
 
+    def test_probes_of_down_connection(self) -> None:
+        """A down connection's probes show as none of them answered."""
+        probed = {
+            **BASE_CONNECTION,
+            "probes": [
+                {"address": "10.201.0.1", "test_type": "icmp"},
+                {"address": "fdcc:201::1", "test_type": "tcp", "port": 22},
+            ],
+        }
+        write_tenant([probed])
+
+        def probes_column() -> str | None:
+            """Return the PROBES cell of the connection, by its header's position."""
+            header, *rows = vpnctl(f"connections list {NI} -o wide").splitlines()
+            start = header.index("PROBES")
+            end = header.index("ADDRESSES")
+            for row in rows:
+                if row.startswith(f"{NI}-0 "):
+                    return row[start:end].strip()
+            return None
+
+        conftest.wait_until(
+            lambda: probes_column() == "0/2",
+            timeout=APPLY_TIMEOUT,
+            message="0/2 probes answered",
+        )
+
     def test_ssh_connection_gets_its_own_key(self) -> None:
         """An SSH connection gets a key of its own, and a new one when added again."""
         first = added_ssh_key()
