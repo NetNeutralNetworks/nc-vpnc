@@ -463,12 +463,14 @@ def probe_text(probe: dict[str, Any]) -> str:
 
 
 def probes_text(probes: list[dict[str, Any]], *, up: bool) -> str | None:
-    """Return how many of the tested probes are answered, e.g. 1/2; 0/2 while down."""
+    """Return how many probes are answered: 1/2; 0/2 while down, -/2 until tested."""
+    if not probes:
+        return None
     if not up:
-        return f"0/{len(probes)}" if probes else None
+        return f"0/{len(probes)}"
     tested = [probe for probe in probes if probe["failed"] is not None]
     if not tested:
-        return None
+        return f"-/{len(probes)}"
     return f"{sum(not probe['failed'] for probe in tested)}/{len(tested)}"
 
 
