@@ -286,10 +286,22 @@ class TestVpnctl:
         assert sorted(line.split()[0] for line in lines[1:]) == sorted(HUB_CONNECTIONS)
 
     def test_completion(self) -> None:
-        """Completion offers the connections, and the tenants with configuration."""
+        """Completion offers the connections, and the tenants with configuration.
+
+        With one tenant, config also offers its parts; add also the next ones.
+        """
         assert sorted(complete("vpnctl connections show ")) == sorted(HUB_CONNECTIONS)
         assert complete("vpnctl connections show C0001-01") == ["C0001-01-0"]
-        assert sorted(complete("vpnctl config show ")) == ["C0001", "service"]
+        parts = ["C0001-00", "C0001-00-0", "C0001-00-1", "C0001-01", "C0001-01-0"]
+        assert sorted(complete("vpnctl config show ")) == ["C0001", *parts, "service"]
+        assert complete("vpnctl config edit CORE-") == ["CORE-0", "CORE-1"]
+        added = complete("vpnctl config add C0001-")
+        assert {"C0001-00-2", "C0001-01-1", "C0001-02-0"} <= set(added)
+        assert complete("vpnctl config add C0001-02-0 W") == ["WIREGUARD"]
+        assert sorted(complete("vpnctl config add C0001-00-0 routes.")) == [
+            "routes.ipv4",
+            "routes.ipv6",
+        ]
 
     # Arabic-Indic and fullwidth digits.
     @pytest.mark.parametrize(

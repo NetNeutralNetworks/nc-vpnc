@@ -715,23 +715,31 @@ class TestReconfiguration:
             )
 
     def test_config_add_tenant(self) -> None:
-        """A tenant is added with a name; set needs a tenant that exists."""
+        """A tenant is added with its first connection, without a name.
+
+        set needs a tenant that exists.
+        """
         with pytest.raises(subprocess.CalledProcessError) as err:
             vpnctl("config set C0003 name Set")
         assert "add the tenant first" in err.value.stderr
         try:
-            vpnctl("config add C0003 Added")
+            # \x20 is a space.
+            vpnctl_editor(
+                "add C0003-00-0 IPSEC",
+                r"s|remote_addrs:.*|remote_addrs:\x20[192.0.2.97]|",
+                r"s|initiation:.*|initiation:\x20NONE|",
+            )
             with pytest.raises(subprocess.CalledProcessError) as err:
-                vpnctl("config add C0003 Again")
+                vpnctl("config add C0003")
             assert "has configuration already" in err.value.stderr
 
             vpnctl("config commit C0003")
             conftest.wait_until(
-                lambda: "C0003" in tenant_ids(),
+                lambda: "C0003" in tenant_ids() and "C0003-00-0" in connections(),
                 timeout=APPLY_TIMEOUT,
-                message="tenant C0003 to be created",
+                message="tenant C0003 and its connection to be created",
             )
-            assert vpnctl_json("tenants show C0003")["name"] == "Added"
+            assert vpnctl_json("tenants show C0003")["name"] == ""
         finally:
             conftest.run_cmd(
                 HOST,
@@ -744,6 +752,71 @@ class TestReconfiguration:
                 timeout=APPLY_TIMEOUT,
                 message="tenant C0003 to be removed",
             )
+
+    def test_config_add_connection(self) -> None:
+        """A connection added from a template brings its network instance.
+
+        Deleting the connection keeps the network instance; deleting that removes it.
+        """
+        ni = "C0002-01"
+        vpnctl_editor(
+            f"add {ni}-0 IPSEC",
+            r"s|remote_addrs:.*|remote_addrs:\x20[192.0.2.98]|",
+            r"s|initiation:.*|initiation:\x20NONE|",
+            r"/^routes:/,/^probes:/s|^\x20\x20ipv4:.*|\x20\x20ipv4:\x20[{to:\x2010.205.0.0/24}]|",
+        )
+        vpnctl("config commit C0002")
+        conftest.wait_until(
+            lambda: (
+                ni in netns_list()
+                and "xfrm0" in links(ni)
+                and "10.205.0.0/24" in route_destinations(ni)
+                and f"{ni}-0" in connections()
+            ),
+            timeout=APPLY_TIMEOUT,
+            message=f"{ni}-0 to be applied",
+        )
+
+        vpnctl(f"config delete {ni}-0")
+        vpnctl("config commit C0002")
+        conftest.wait_until(
+            lambda: "xfrm0" not in links(ni) and f"{ni}-0" not in connections(),
+            timeout=APPLY_TIMEOUT,
+            message=f"{ni}-0 to be removed",
+        )
+        assert ni in netns_list()
+
+        vpnctl(f"config delete {ni}")
+        vpnctl("config commit C0002")
+        conftest.wait_until(
+            lambda: ni not in netns_list(),
+            timeout=APPLY_TIMEOUT,
+            message=f"{ni} to be removed",
+        )
+        assert connection_applied(BASE_CONNECTION)
+
+    def test_config_add_route(self) -> None:
+        """A route added from a template is applied on commit."""
+        vpnctl_editor(f"add {NI}-0 routes.ipv4", r"s|^to:.*|to:\x2010.206.0.0/24|")
+        vpnctl("config commit C0002")
+        conftest.wait_until(
+            lambda: "10.206.0.0/24" in route_destinations(NI),
+            timeout=APPLY_TIMEOUT,
+            message="the added route to be applied",
+        )
+        assert "10.201.0.0/24" in route_destinations(NI)
+
+    def test_config_add_nothing(self) -> None:
+        """An unchanged template or a connection that's there adds nothing."""
+        output = conftest.run_cmd_shell(
+            HOST,
+            f"env EDITOR=true {VPNCTL} config add {NI} IPSEC",
+        )
+        assert output == "No changes: nothing was added.\n"
+        with pytest.raises(subprocess.CalledProcessError) as err:
+            vpnctl(f"config add {NI}-0 IPSEC")
+        assert "exists already" in err.value.stderr
+        assert vpnctl("config diff C0002") == "No changes.\n"
 
     def test_staged_changes_survive_nptv6_assignment(self) -> None:
         """Assigning NPTv6 prefixes doesn't overwrite staged changes.
@@ -1261,9 +1334,15 @@ def vpnctl_json(args: str) -> Any:  # noqa: ANN401
 
 def vpnctl_edit(sed_expression: str) -> str:
     """Edit C0002's candidate with sed as the editor (no spaces in the expression)."""
+    return vpnctl_editor("edit C0002", sed_expression)
+
+
+def vpnctl_editor(args: str, *sed_expressions: str) -> str:
+    """Run vpnctl config with sed as the editor (no spaces in the expressions)."""
+    expressions = " ".join(f"-e {expression}" for expression in sed_expressions)
     return conftest.run_cmd_shell(
         HOST,
-        f"env EDITOR='sed -i {sed_expression}' {VPNCTL} config edit C0002",
+        f"env EDITOR='sed -i {expressions}' {VPNCTL} config {args}",
     )
 
 

@@ -399,9 +399,9 @@ def _name_index(ni_id: str) -> Oid:
 
 
 def _description(tenant_id: str) -> str:
-    """Return the name of a network instance's tenant."""
+    """Return the name of a network instance's tenant, or its id."""
     tenant = config.VPNC_CONFIG_TENANT.get(tenant_id)
-    return tenant.name if tenant else tenant_id
+    return tenant.name if tenant and tenant.name else tenant_id
 
 
 def _route_index(ni_id: str, route: state.KernelRoute, policy: int) -> Oid:

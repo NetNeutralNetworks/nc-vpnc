@@ -31,7 +31,8 @@ On Ubuntu 26.04, as root, in the repository root:
 ~$ vpnctl config edit service             # mode, uplinks, BGP
 ~$ vpnctl config commit service
 ~$ systemctl restart ncubed-vpnc
-~$ vpnctl config add C0001 "Customer name"   # then add its network instances and connections
+~$ vpnctl config add C0001-00-0 IPSEC     # a connection, with its tenant and network instance
+~$ vpnctl config commit C0001
 ```
 
 ## Documentation

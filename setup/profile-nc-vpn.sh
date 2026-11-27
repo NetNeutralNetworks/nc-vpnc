@@ -64,12 +64,15 @@ $BOLD  vpnctl connections reset C0001-00-0$DEFAULT               new IKE SA, Wir
 $BOLD  vpnctl connections stop|start C0001-00-0$DEFAULT          sets enabled in the configuration
 $BOLD  vpnctl connections reset C0001$DEFAULT                    all VPN connections of a tenant
 
-Configuration: staged in the candidate, 'service' for DEFAULT.yaml
+Configuration: staged in the candidate; a tenant (C0001), network instance
+(C0001-00), connection (C0001-00-0), or 'service' for DEFAULT.yaml
 $BOLD  vpnctl config list$DEFAULT                                tenants and their staged changes
-$BOLD  vpnctl config show C0001 [PATH] [--candidate]$DEFAULT     also --reveal-secrets
-$BOLD  vpnctl config edit C0001 [PATH]$DEFAULT                   in \$EDITOR; a new id creates a tenant
-$BOLD  vpnctl config set C0001 PATH VALUE$DEFAULT                without VALUE: prompts (secrets)
-$BOLD  vpnctl config delete C0001 [PATH]$DEFAULT                 without PATH: the tenant
+$BOLD  vpnctl config add C0001[-00-0 TYPE]$DEFAULT               TYPE: IPSEC|WIREGUARD|SSH|PHYSICAL, in \$EDITOR
+$BOLD  vpnctl config add C0001-00-0 routes.ipv4$DEFAULT          a list item, e.g. a route or probe
+$BOLD  vpnctl config show C0001[-00-0] [PATH]$DEFAULT            also --candidate, --reveal-secrets
+$BOLD  vpnctl config edit C0001[-00-0] [PATH]$DEFAULT            in \$EDITOR, with what each key takes
+$BOLD  vpnctl config set C0001[-00-0] PATH VALUE$DEFAULT         without VALUE: prompts (secrets)
+$BOLD  vpnctl config delete C0001[-00-0] [PATH]$DEFAULT          without PATH: all of it
 $BOLD  vpnctl config diff C0001$DEFAULT                          the staged changes
 $BOLD  vpnctl config commit C0001|--all [--confirm 5m]$DEFAULT   rolled back unless confirmed
 $BOLD  vpnctl config confirm|discard C0001|--all$DEFAULT

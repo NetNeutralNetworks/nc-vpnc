@@ -90,7 +90,7 @@ class NewTenant(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(pattern=config.TENANT_ID_PATTERN)
-    name: str = Field(min_length=1)
+    name: str = ""
 
 
 class CommitResult(BaseModel):

@@ -4,6 +4,7 @@ Errors are RFC 9457 problem details (application/problem+json).
 """
 
 import logging
+import re
 from collections.abc import AsyncIterator, Callable, Sequence
 from http import HTTPStatus
 from typing import Annotated, Any, Literal, NoReturn
@@ -106,10 +107,34 @@ def problem(
 
 
 def _errors(err: ValidationError | RequestValidationError) -> list[dict[str, Any]]:
-    return [
-        {"loc": ".".join(str(p) for p in e["loc"]), "msg": e["msg"]}
-        for e in err.errors()
+    errors = list(err.errors())
+    # A union's members of another type (e.g. SSH for an IPsec connection) only
+    # add noise. If none is of the type given: one line with the types.
+    wrong = [
+        e for e in errors if e["type"] == "literal_error" and e["loc"][-1:] == ("type",)
     ]
+    other = {tuple(e["loc"][:-1]) for e in wrong}
+    kept = [e for e in errors if not any(e["loc"][: len(o)] == o for o in other)]
+    for union in {o[:-1] for o in other}:
+        if not any(e["loc"][: len(union)] == union for e in kept):
+            types = [
+                str(e["ctx"].get("expected", ""))
+                for e in wrong
+                if e["loc"][:-2] == union
+            ]
+            types = [re.sub(r".*'(.*)'>?$", r"\1", t) for t in types]
+            msg = f"Input should be {' | '.join(sorted(types))}"
+            kept.append({"loc": (*union, "type"), "msg": msg})
+    return [
+        {"loc": ".".join(str(p) for p in e["loc"] if not _member(p)), "msg": e["msg"]}
+        for e in kept
+    ]
+
+
+def _member(part: object) -> bool:
+    """Return whether a location part names a union member, e.g. ConnectionConfigSSH."""
+    text = str(part)
+    return "[" in text or (text[:1].isupper() and not text.isupper())
 
 
 @app.exception_handler(ConfigError)

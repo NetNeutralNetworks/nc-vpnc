@@ -69,7 +69,7 @@ class Tenant(BaseModel):
     version: Annotated[Version, WithJsonSchema({"type": "string"})]
 
     id: str = Field(pattern=config.TENANT_ID_PATTERN)
-    name: str
+    name: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
     # DOWNLINK only: another type would be set up as the service's, e.g. with
     # CORE's XFRM interface ids.

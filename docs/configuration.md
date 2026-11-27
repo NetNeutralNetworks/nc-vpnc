@@ -63,7 +63,7 @@ The addressing prefixes are explained in [Architecture](architecture.md#addressi
 ```yaml
 version: 0.1.5
 id: C0001                     # A-F or 2-9, then 4 digits
-name: Healthcare inc.
+name: Healthcare inc.         # optional
 metadata: {}                  # free key-value pairs, also on network instances and connections
 network_instances:
   00:                         # 00-99; the network instance is named C0001-00
@@ -76,42 +76,38 @@ Connections and their settings are in [Connections](connections.md).
 
 ## A first tenant
 
-A tenant with one network instance and an IPsec connection to a site at 192.0.2.7, behind which are 10.0.0.0/8 and a ULA /52:
+A tenant with one network instance and an IPsec connection to a site at 192.0.2.7, behind which are 10.0.0.0/8 and a ULA /52. `config add` opens a template in `$EDITOR`: the defaults, and per key in a comment what it takes (`config edit` has these comments too). Tenant C0002 and network instance 00 are added with the connection; the tenant's name is optional.
 
 ```bash
-~$ sudo vpnctl config add C0002 "Customer name"
-~$ sudo vpnctl config edit C0002
+~$ sudo vpnctl config add C0002-00-0 IPSEC
+~$ sudo vpnctl config set C0002 name "Customer name"   # optional
 ```
 
+Filled in, without the template's comments and defaults:
+
 ```yaml
-version: 0.1.5
-id: C0002
-name: Customer name
-network_instances:
-  00:
-    type: DOWNLINK
-    connections:
-      0:
-        routes:
-          ipv4:
-          - to: 10.0.0.0/8
-          ipv6:
-          - to: fdff:db8:c57::/52
-        probes:
-        - address: 10.0.0.10
-          test_type: ICMP
-        config:
-          type: IPSEC
-          remote_addrs: [192.0.2.7]
-          # psk: not set, so the commit generates one
+config:
+  type: IPSEC
+  remote_addrs: [192.0.2.7]
+  psk:                  # generated on commit if empty
+routes:
+  ipv4:
+  - to: 10.0.0.0/8
+  ipv6:
+  - to: fdff:db8:c57::/52
+probes:
+- address: 10.0.0.10
+  test_type: ICMP
 ```
+
+Another route later: `vpnctl config add C0002-00-0 routes.ipv4`. The connection as a whole: `vpnctl config edit C0002-00-0`.
 
 Commit it with a rollback timer, check that it works, then confirm:
 
 ```bash
 ~$ sudo vpnctl config diff C0002
 ~$ sudo vpnctl config commit C0002 --confirm 5m    # Generated C0002-00-0 psk
-~$ sudo vpnctl config show C0002 network_instances.00.connections.0.config.psk --reveal-secrets   # for the peer
+~$ sudo vpnctl config show C0002-00-0 config.psk --reveal-secrets   # for the peer
 ~$ sudo vpnctl connections show C0002-00-0       # oper_status UP?
 ~$ sudo vpnctl translate C0002-00 10.0.0.10      # the address admins use
 ~$ sudo vpnctl ping C0002-00 10.0.0.10

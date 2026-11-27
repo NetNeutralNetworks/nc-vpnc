@@ -77,9 +77,11 @@ class ConnectionConfigIPsec(BaseModel):
     ike_lifetime: Int = 86400
     ipsec_proposal: str = "aes256gcm16-ecp384"
     ipsec_lifetime: Int = 3600
-    initiation: Initiation = Initiation.INITIATOR
-    # Generated on commit when not set.
-    psk: Secret | None = None
+    initiation: Initiation = Field(
+        default=Initiation.INITIATOR,
+        description="START: set it up; NONE: wait for the peer",
+    )
+    psk: Secret | None = Field(default=None, description="generated on commit if empty")
     post_quantum: PostQuantumIPsec = Field(default_factory=PostQuantumIPsec)
     traffic_selectors: TrafficSelectors = Field(default_factory=TrafficSelectors)
 
