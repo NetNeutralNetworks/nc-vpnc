@@ -1110,7 +1110,10 @@ def cmd_capture(args: argparse.Namespace) -> None:
         namespace, interface = connection["network_instance"], connection["interface"]
         if interface is None:
             fail(f"{args.target} has no interface.")
-    command = ["ip", "netns", "exec", namespace, "tcpdump", "-l", "-n", "-i", interface]
+    # Only the network namespace: in ip netns exec's mount namespace AppArmor
+    # can't name tcpdump's terminal and sockets, and denies them.
+    netns = f"--net=/run/netns/{namespace}"
+    command = ["nsenter", netns, "tcpdump", "-l", "-n", "-i", interface]
     if args.count:
         command += ["-c", str(args.count)]
     if args.verbose:
