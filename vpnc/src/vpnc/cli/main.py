@@ -18,11 +18,11 @@ import socket
 import subprocess
 import sys
 import tempfile
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 from urllib.parse import quote, urlencode
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 SOCKET = os.environ.get("VPNCTL_SOCKET", "/run/vpnc/api.sock")
 
@@ -113,7 +113,7 @@ def stream(path: str, params: dict[str, Any]) -> Iterator[Any]:
                 yield json.loads(line)
 
 
-def fail(message: str, code: int = 1) -> None:
+def fail(message: str, code: int = 1) -> NoReturn:
     """Print an error and exit."""
     print(f"error: {message}", file=sys.stderr)
     sys.exit(code)
@@ -1196,6 +1196,24 @@ def number(key: str) -> bool:
     return key.isascii() and key.isdigit()
 
 
+# The service's network instances: their key is their type.
+SERVICE_NIS = ("CORE", "EXTERNAL", "ENDPOINT")
+
+
+def subject(target: str, path: str | None = None) -> tuple[str, list[str]]:
+    """Return the configuration and keys of e.g. C0001-00-0 (or CORE-0), plus a path."""
+    tenant, _, rest = target.partition("-")
+    parts = rest.split("-") if rest else []
+    if tenant in SERVICE_NIS:
+        tenant, parts = "service", [tenant, *parts]
+    if len(parts) > 2:  # noqa: PLR2004
+        fail(f"'{target}' isn't a tenant, network instance or connection.")
+    keys = ["network_instances", parts[0]] if parts else []
+    if len(parts) == 2:  # noqa: PLR2004
+        keys += ["connections", parts[1]]
+    return tenant, keys + split(path)
+
+
 def walk(data: Any, keys: list[str], target: str) -> Any:  # noqa: ANN401
     """Return the value at the keys; list items by index."""
     for i, key in enumerate(keys):
@@ -1295,15 +1313,16 @@ def cmd_config_list(args: argparse.Namespace) -> None:
 
 def cmd_config_show(args: argparse.Namespace) -> None:
     """Show a configuration, or part of it."""
+    target, keys = subject(args.target, args.path)
     data = request(
         "GET",
-        config_path(args.target),
+        config_path(target),
         params={
             "revision": "candidate" if args.candidate else "active",
             "reveal_secrets": "true" if args.reveal_secrets else None,
         },
     )
-    data = walk(data, split(args.path), args.target)
+    data = walk(data, keys, target)
     if structured(args.output):
         dump(data, args.output)
     elif isinstance(data, dict | list):
@@ -1315,42 +1334,56 @@ def cmd_config_show(args: argparse.Namespace) -> None:
 
 def cmd_config_edit(args: argparse.Namespace) -> None:
     """Edit a configuration, or part of it, in $EDITOR (a new tenant if needed)."""
+    target, keys = subject(args.target, args.path)
+    current = staged(target, reveal=True) or new_tenant(target)
+    part = walk(current, keys, target) if keys else current
+    schema = request("GET", f"{config_path(target)}/schema")
+    node = Node(schema, schema, current)
+    for key in keys:
+        node = node.child(key)
+
+    def stage(value: Any) -> None:  # noqa: ANN401
+        prune(schema, node.schema, value)
+        if keys:
+            assign(current, keys, value, target)
+            value = current
+        request("PUT", config_path(target), body=value)
+
+    text = render(annotated(schema, node.schema, part))
+    if not edit_until_staged(args.target, text, stage):
+        print("No changes.")
+        return
+    staged_message(target)
+
+
+def edit_until_staged(name: str, text: str, stage: Callable[[Any], None]) -> bool:
+    """Edit text in $EDITOR until stage takes it as YAML; False if it's unchanged."""
     import yaml  # noqa: PLC0415
 
-    keys = split(args.path)
-    current = staged(args.target, reveal=True) or new_tenant(args.target)
-    part = walk(current, keys, args.target) if keys else current
-    text = yaml.safe_dump(part, sort_keys=False)
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
     with tempfile.TemporaryDirectory() as directory:
         # Read back by path: editors may replace the file instead of writing it.
-        path = pathlib.Path(directory, f"{args.target}.yaml")
+        path = pathlib.Path(directory, f"{name}.yaml")
         path.write_text(text, encoding="utf-8")
         while True:
             subprocess.run([*editor.split(), str(path)], check=False)  # noqa: S603
             edited = path.read_text(encoding="utf-8")
             if edited == text:
-                print("No changes.")
-                return
+                return False
             try:
-                value = yaml.safe_load(edited)
-                if keys:
-                    assign(current, keys, value, args.target)
-                else:
-                    current = value
-                request("PUT", config_path(args.target), body=current)
-                break
+                stage(yaml.safe_load(edited))
             except yaml.YAMLError as err:
                 print(f"Invalid YAML: {err}", file=sys.stderr)
             except ApiError as err:
                 print(problem_text(err), file=sys.stderr)
+            else:
+                return True
             try:
                 again = input("Edit again? [Y/n] ").strip().lower() != "n"
             except EOFError:
                 again = False
             if not again:
                 fail("aborted; nothing was staged.")
-    staged_message(args.target)
 
 
 def prompt(path: str) -> str:
@@ -1383,9 +1416,319 @@ def cmd_generate_ppk(args: argparse.Namespace) -> None:
 
 
 def cmd_config_add(args: argparse.Namespace) -> None:
-    """Stage a new tenant with a name; set the rest, then commit."""
-    request("POST", "/v1/config/tenants", body={"id": args.tenant, "name": args.name})
-    staged_message(args.tenant)
+    """Add a tenant, connection or list item from a template in $EDITOR."""
+    words = list(args.words)
+    kind = words.pop().upper() if words and words[-1].upper() in TYPES else None
+    if len(words) > 1:
+        fail("Give one path (and a connection's type).")
+    target, keys = subject(args.target, words[0] if words else None)
+    if not keys:
+        request("POST", "/v1/config/tenants", body={"id": target})
+        staged_message(target)
+        print(f"Its connections: vpnctl config add {target}-00-0 TYPE")
+        return
+    # A tenant that isn't there is added with it.
+    current = staged(target, reveal=True) or new_tenant(target)
+    keys = added_keys(current, keys, target)
+    name = subject_name(target, keys)
+    schema = request("GET", f"{config_path(target)}/schema")
+    node = Node(schema, schema, current)
+    for key in keys:
+        node = node.child(key)
+    if not objects_of(schema, node.schema, kind):
+        fail(f"Set a value with: vpnctl config set {name} VALUE")
+    lines = mapping_lines(schema, node.schema, None, kind, 0)
+    header = f"# New {name}{f' ({kind})' if kind else ''}. Fill in what's required"
+    header += "; what's left empty gets its default.\n"
+    if any(text.lstrip().startswith("#") for text, _ in lines):
+        header += "# To add a list item (e.g. a route), uncomment an example.\n"
+
+    def stage(value: Any) -> None:  # noqa: ANN401
+        prune(schema, node.schema, value)
+        assign(current, keys, value, target)
+        request("PUT", config_path(target), body=current)
+
+    if not edit_until_staged(name.replace(" ", "_"), header + render(lines), stage):
+        print("No changes: nothing was added.")
+        return
+    staged_message(target)
+
+
+def lookup(data: Any, keys: list[str]) -> tuple[bool, Any]:  # noqa: ANN401
+    """Return whether there's a value at the keys, and the value."""
+    for key in keys:
+        if isinstance(data, list) and number(key) and int(key) < len(data):
+            data = data[int(key)]
+        elif isinstance(data, dict) and key in data:
+            data = data[key]
+        else:
+            return False, None
+    return True, data
+
+
+def added_keys(current: dict[str, Any], keys: list[str], target: str) -> list[str]:
+    """Return where to add: the next item of a list or of connections.
+
+    A network instance that isn't there is added: it's only its connections.
+    """
+    if keys[0] == "network_instances" and len(keys) > 1:
+        instances = current.setdefault("network_instances", {})
+        if keys[1] not in instances:
+            kind = keys[1] if target == "service" else "DOWNLINK"
+            instances[keys[1]] = {"type": kind, "connections": {}}
+        if len(keys) == 2:  # noqa: PLR2004
+            keys = [*keys, "connections"]
+    found, data = lookup(current, keys)
+    if not found:
+        return keys
+    if isinstance(data, list):
+        return [*keys, str(len(data))]
+    if keys[-1] == "connections" and isinstance(data, dict):
+        return [*keys, str(max(map(int, data), default=-1) + 1)]
+    name = subject_name(target, keys)
+    fail(f"{name} exists already: change it with vpnctl config edit {name}")
+
+
+def subject_name(target: str, keys: list[str]) -> str:
+    """Return how keys are given, e.g. C0001-00-0 routes.ipv4.1."""
+    name, rest = target, keys
+    if rest[:1] == ["network_instances"] and len(rest) > 1:
+        name = rest[1] if target == "service" else f"{target}-{rest[1]}"
+        rest = rest[2:]
+        if rest[:1] == ["connections"] and len(rest) > 1:
+            name, rest = f"{name}-{rest[1]}", rest[2:]
+    return f"{name} {'.'.join(rest)}" if rest else name
+
+
+def nullable(schema: dict[str, Any]) -> bool:
+    """Return whether a schema allows null."""
+    options = schema.get("anyOf") or schema.get("oneOf") or [schema]
+    return any(option.get("type") == "null" for option in options)
+
+
+def objects_of(
+    root: dict[str, Any],
+    schema: dict[str, Any],
+    kind: str | None,
+) -> list[dict[str, Any]]:
+    """Return the mappings with keys a schema allows; of several types: kind's."""
+    objects = [v for v in Node(root, schema, None).options if v.get("properties")]
+    if len(objects) < 2:  # noqa: PLR2004
+        return objects
+    types = [str(o["properties"].get("type", {}).get("const")) for o in objects]
+    chosen = [o for o, t in zip(objects, types, strict=True) if t == kind]
+    if not chosen:
+        fail(f"Give its type: {', '.join(sorted(types))}.")
+    return chosen
+
+
+Lines = list[tuple[str, str]]
+
+
+def annotated(root: dict[str, Any], schema: dict[str, Any], data: Any) -> Lines:  # noqa: ANN401
+    """Return a value's lines with hints: a mapping, a list or a single value."""
+    if isinstance(data, dict):
+        return mapping_lines(root, schema, data, None, 0)
+    if isinstance(data, list):
+        return item_lines(root, item_schema(root, schema), data, 0)
+    return [(inline(data), "")]
+
+
+def variant_of(
+    root: dict[str, Any],
+    schema: dict[str, Any],
+    data: Any,  # noqa: ANN401
+    kind: str | None,
+) -> dict[str, Any]:
+    """Return the mapping schema data follows: of several, data's or kind's."""
+    objects = [v for v in Node(root, schema, data).variants if v.get("properties")]
+    if data is None or not objects:
+        return next(iter(objects_of(root, schema, kind)), {})
+    fitting = [o for o in objects if set(data) <= set(o["properties"])]
+    return (fitting or objects)[0]
+
+
+def entry_schema(root: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the schema of a mapping's entries by key, e.g. connections."""
+    for variant in Node(root, schema, None).options:
+        if isinstance(entries := variant.get("additionalProperties"), dict):
+            return entries
+    return None
+
+
+def item_schema(root: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the schema of a list's items if they're mappings, e.g. routes."""
+    for variant in Node(root, schema, None).options:
+        items = variant.get("items") if variant.get("type") == "array" else None
+        options = Node(root, items, None).options if isinstance(items, dict) else []
+        if any(option.get("properties") for option in options):
+            return items
+    return None
+
+
+def mapping_lines(
+    root: dict[str, Any],
+    schema: dict[str, Any],
+    data: Any,  # noqa: ANN401
+    kind: str | None,
+    indent: int,
+) -> Lines:
+    """Return a mapping's lines: data's values, defaults for what it hasn't.
+
+    A connection's config comes first, metadata last.
+    """
+    pad = " " * indent
+    lines: Lines = []
+    variant = variant_of(root, schema, data, kind)
+    values = data if isinstance(data, dict) else {}
+    properties = variant.get("properties", {})
+    required = variant.get("required", [])
+    for key in sorted(properties, key=lambda k: (k != "config", k == "metadata")):
+        lines += field_lines(
+            root,
+            key,
+            properties[key],
+            (key in values, values.get(key)),
+            kind=kind,
+            indent=indent,
+            required=key in required,
+        )
+    entries = entry_schema(root, schema)
+    for key, value in values.items():
+        if key in properties:
+            continue
+        if entries and isinstance(value, dict):
+            lines.append((f"{pad}{inline(key)}:", ""))
+            lines += mapping_lines(root, entries, value, None, indent + 2)
+        else:
+            lines.append((f"{pad}{inline(key)}: {inline(value)}", ""))
+    return lines
+
+
+def field_lines(  # noqa: PLR0913
+    root: dict[str, Any],
+    key: str,
+    schema: dict[str, Any],
+    given: tuple[bool, Any],
+    *,
+    kind: str | None,
+    indent: int,
+    required: bool,
+) -> Lines:
+    """Return a key's lines: its value, or else its default (empty if none)."""
+    present, value = given
+    pad = " " * indent
+    label = f"{pad}{inline(key)}:"
+    node = Node(root, schema, value, required=required)
+    description = schema.get("description", "")
+    objects = [v for v in node.options if v.get("properties")]
+    if objects and (isinstance(value, dict) if present else not nullable(schema)):
+        lines = mapping_lines(
+            root, schema, value if present else None, kind, indent + 2
+        )
+        return [(label, description), *lines]
+    if value and entry_schema(root, schema) and isinstance(value, dict):
+        lines = mapping_lines(root, schema, value, kind, indent + 2)
+        return [(label, description), *lines]
+    items = item_schema(root, schema)
+    if value and items and isinstance(value, list):
+        return [(label, description), *item_lines(root, items, value, indent)]
+    if not present:
+        value = schema.get("default")
+    # Left empty, it gets its default; a required mapping or list stays.
+    text = "" if value in (None, [], {}) else inline(value)
+    if present and required and value in ([], {}):
+        text = inline(value)
+    lines = [(f"{label} {text}".rstrip(), hint(node, text))]
+    if items:
+        # An example item, commented out.
+        example = mapping_lines(root, items, None, kind, indent + 2)
+        lines += [
+            (f"{pad}# {'  ' if i else '- '}{line[indent + 2 :]}", note)
+            for i, (line, note) in enumerate(example)
+        ]
+    return lines
+
+
+def item_lines(
+    root: dict[str, Any],
+    schema: dict[str, Any] | None,
+    values: list[Any],
+    indent: int,
+) -> Lines:
+    """Return a list's items: mappings with hints, or values."""
+    pad = " " * indent
+    lines: Lines = []
+    for value in values:
+        if not (schema and isinstance(value, dict) and value):
+            lines.append((f"{pad}- {inline(value)}", ""))
+            continue
+        item = mapping_lines(root, schema, value, None, indent + 2)
+        first = next(i for i, (text, _) in enumerate(item) if text.strip()[:1] != "#")
+        text, note = item[first]
+        item[first] = (f"{pad}- {text[indent + 2 :]}", note)
+        lines += item
+    return lines
+
+
+def hint(node: Node, text: str) -> str:
+    """Return what a key takes, e.g. required, list of IPv4 address."""
+    kind = node.kind()
+    keys = [key for v in node.options for key in v.get("properties", {})]
+    if keys:
+        kind = f"mapping of {', '.join(keys)}"
+    elif any(v.get("type") == "object" for v in node.options):
+        kind = "mapping"
+    notes = [
+        "required" if node.required and not text else "",
+        node.schema.get("description", ""),
+        "" if kind in ("string", "integer", "true | false", text) else kind,
+    ]
+    return ", ".join(note for note in notes if note)
+
+
+def inline(value: Any) -> str:  # noqa: ANN401
+    """Return a value as YAML on one line, e.g. '%any' quoted."""
+    import yaml  # noqa: PLC0415
+
+    if isinstance(value, str) and "\n" in value:
+        return json.dumps(value)
+    return yaml.safe_dump([value], default_flow_style=True, width=2**31)[1:-2]
+
+
+def render(lines: list[tuple[str, str]]) -> str:
+    """Return template lines with their hints aligned as comments."""
+    width = min(max((len(text) for text, note in lines if note), default=0), 40)
+    return "".join(
+        f"{text.ljust(width)}  # {note}\n" if note else f"{text}\n"
+        for text, note in lines
+    )
+
+
+def prune(root: dict[str, Any], schema: dict[str, Any], data: Any) -> None:  # noqa: ANN401
+    """Drop keys left empty that can't be null, so they get their default."""
+    variants = Node(root, schema, data).variants
+    if not variants:
+        return
+    variant = variants[0]
+    if isinstance(data, list):
+        items = variant.get("items")
+        for item in data if isinstance(items, dict) else []:
+            prune(root, items, item)
+        return
+    if not isinstance(data, dict):
+        return
+    properties = variant.get("properties", {})
+    additional = variant.get("additionalProperties")
+    for key in list(data):
+        if key in properties:
+            prop = properties[key]
+            if data[key] is not None:
+                prune(root, prop, data[key])
+            elif key not in variant.get("required", []) and not nullable(prop):
+                del data[key]
+        elif isinstance(additional, dict):
+            prune(root, additional, data[key])
 
 
 def cmd_config_set(args: argparse.Namespace) -> None:
@@ -1400,29 +1743,29 @@ def cmd_config_set(args: argparse.Namespace) -> None:
             value = yaml.safe_load(args.value)
         except yaml.YAMLError as err:
             fail(f"Invalid YAML: {err}")
-    keys = split(args.path)
+    target, keys = subject(args.target, args.path)
     if not keys:
         fail("Give a path to set.")
-    current = staged(args.target, reveal=True)
-    patch = merge_patch(current, keys, value, args.target)
-    request("PATCH", config_path(args.target), body=patch)
-    staged_message(args.target)
+    current = staged(target, reveal=True)
+    patch = merge_patch(current, keys, value, target)
+    request("PATCH", config_path(target), body=patch)
+    staged_message(target)
 
 
 def cmd_config_delete(args: argparse.Namespace) -> None:
     """Delete part of a configuration, or (without a path) the tenant."""
-    keys = split(args.path)
+    target, keys = subject(args.target, args.path)
     if not keys:
-        result = request("DELETE", config_path(args.target))
+        result = request("DELETE", config_path(target))
         if not result["changed"]:
             print("No changes.")
             return
     else:
-        current = staged(args.target, reveal=True)
-        walk(current, keys, args.target)
-        patch = merge_patch(current, keys, DELETE, args.target)
-        request("PATCH", config_path(args.target), body=patch)
-    staged_message(args.target)
+        current = staged(target, reveal=True)
+        walk(current, keys, target)
+        patch = merge_patch(current, keys, DELETE, target)
+        request("PATCH", config_path(target), body=patch)
+    staged_message(target)
 
 
 def staged_message(target: str) -> None:
@@ -1763,17 +2106,17 @@ def candidates(words: list[str], current: str) -> list[str]:  # noqa: PLR0911
     actions = COMMANDS.get(positional[0], {})
     if len(positional) == 1:
         return list(actions)
+    if positional[0] == "config" and positional[1] in PATH_ACTIONS:
+        return config_candidates(positional[1], positional[2:], current)
     kind = actions.get(positional[1])
     if kind == "secret_format":
         return list(SECRET_FORMATS) if len(positional) == 2 else []  # noqa: PLR2004
     if kind and (len(positional) == 2 or positional[1] in MULTIPLE):  # noqa: PLR2004
         return _ids(kind)
-    if positional[0] == "config" and positional[1] in PATH_ACTIONS:
-        return config_candidates(positional[1], positional[2:], current)
     return []
 
 
-PATH_ACTIONS = ("show", "edit", "set", "delete")
+PATH_ACTIONS = ("show", "edit", "set", "delete", "add")
 
 # Completion of configuration paths and values, from the JSON Schema.
 
@@ -1919,6 +2262,20 @@ class Node:
             if new or self._set(key)[0]
         }
 
+    def child(self, key: str) -> Node:
+        """Return what's at a key or index, also if it isn't there yet."""
+        data = self._set(key)[1]
+        for variant in self.variants:
+            if key in variant.get("properties", {}):
+                required = key in variant.get("required", [])
+                schema = self._property(variant, key)
+                return Node(self.root, schema, data, required=required)
+            array = variant.get("type") == "array"
+            items = variant.get("items" if array else "additionalProperties")
+            if isinstance(items, dict):
+                return Node(self.root, items, data)
+        return Node(self.root, {}, data)
+
     def kind(self) -> str:
         """Return the values it takes, e.g. integer 1280-65535."""
         return " | ".join(dict.fromkeys(filter(None, map(self._kind, self.variants))))
@@ -1952,6 +2309,7 @@ class Node:
             self._needs(),
             "required" if self.required and self.data is None else "",
             f"default {default}" if default not in (None, value) else "",
+            self.schema.get("description", ""),
         ]
         details = ", ".join(note for note in notes if note)
         return " ".join(filter(None, [value, f"({details})" if details else ""]))
@@ -1996,10 +2354,95 @@ def described(items: list[tuple[str, str, str]]) -> list[str]:
     ]
 
 
+def subject_candidates(current: str, *, new: bool) -> list[str]:
+    """Return the tenants, and the parts of the one typed; new: also what's next."""
+    tenants = _ids("target")
+    head = current.partition("-")[0]
+    matches = [t for t in tenants if t.startswith(head) and t != "service"]
+    items = [(t, t, "") for t in tenants]
+    if (head in matches and "-" in current) or len(matches) == 1:
+        items += part_items(matches[0], staged(matches[0]) or {}, new=new)
+    if head and any(n.startswith(head) for n in SERVICE_NIS):
+        items += part_items("service", staged("service") or {}, new=False)
+    return described(items)
+
+
+def part_items(
+    target: str,
+    data: dict[str, Any],
+    *,
+    new: bool,
+) -> list[tuple[str, str, str]]:
+    """Return a configuration's network instances and connections, with types."""
+    items: list[tuple[str, str, str]] = []
+    instances = data.get("network_instances") or {}
+    for key, instance in instances.items():
+        name = key if target == "service" else f"{target}-{key}"
+        items.append((name, name, "network instance"))
+        found = instance.get("connections") or {}
+        for number_, connection in found.items():
+            kind = (connection.get("config") or {}).get("type", "")
+            items.append((f"{name}-{number_}", f"{name}-{number_}", kind))
+        if new:
+            next_ = f"{name}-{max(map(int, found), default=-1) + 1}"
+            items.append((next_, next_, "new connection"))
+    if new and target != "service":
+        key = f"{max(map(int, instances), default=-1) + 1:02d}"
+        items.append((f"{target}-{key}-0", f"{target}-{key}-0", "new network instance"))
+    return items
+
+
+def add_candidates(arguments: list[str], current: str) -> list[str]:
+    """Return a connection's types, or the lists to add an item to."""
+    words = arguments[1:]
+    if len(words) > 1 or (words and words[0].upper() in TYPES):
+        return []
+    target, keys = subject(arguments[0], words[0] if words else None)
+    found = lookup(staged(target) or {}, keys)[0]
+    # A network instance, its connections or a connection that isn't there.
+    connection = (
+        keys[:1] == ["network_instances"]
+        and keys[2:3] in ([], ["connections"])
+        and (len(keys) < 4 or (len(keys) == 4 and not found))  # noqa: PLR2004
+    )
+    items = [(t, t, "") for t in TYPES] if connection else []
+    if found and len(keys) == 4 and not words:  # noqa: PLR2004
+        prefix = current[: current.rfind(".") + 1]
+        node = config_node(target, keys + split(prefix), new=False)
+        for key, child in (node.children(new=False) if node else {}).items():
+            if object_list(child):
+                items.append((f"{prefix}{key}", key, child.text()))
+            elif addable(child):
+                items.append((f"{prefix}{key}.", key, ""))
+    return described(items)
+
+
+def object_list(node: Node) -> bool:
+    """Return whether it's a list of mappings, e.g. routes."""
+    return any(
+        v.get("type") == "array"
+        and isinstance(v.get("items"), dict)
+        and any(i.get("properties") for i in Node(node.root, v["items"], None).options)
+        for v in node.variants
+    )
+
+
+def addable(node: Node, depth: int = 3) -> bool:
+    """Return whether there's a list of mappings in it."""
+    if object_list(node):
+        return True
+    return (
+        depth > 0
+        and isinstance(node.data, dict)
+        and any(addable(c, depth - 1) for c in node.children(new=False).values())
+    )
+
+
 def path_candidates(target: str, current: str, *, new: bool) -> list[str]:
     """Return the paths one level below what's typed; new: also what can be set."""
     prefix = current[: current.rfind(".") + 1]
-    if (node := config_node(target, split(prefix), new=new)) is None:
+    target, keys = subject(target)
+    if (node := config_node(target, keys + split(prefix), new=new)) is None:
         return []
     return described(
         [
@@ -2011,13 +2454,18 @@ def path_candidates(target: str, current: str, *, new: bool) -> list[str]:
 
 def value_candidates(target: str, path: str) -> list[str]:
     """Return the values a path can be set to: choices, the current and default."""
-    if (node := config_node(target, split(path), new=True)) is None:
+    target, keys = subject(target, path)
+    if (node := config_node(target, keys, new=True)) is None:
         return []
     return described([(value, value, note) for value, note in node.values()])
 
 
 def config_candidates(action: str, arguments: list[str], current: str) -> list[str]:
-    """Return the paths after a target, or the values after a path to set."""
+    """Return the targets, paths after one, or the values after a path to set."""
+    if not arguments:
+        return subject_candidates(current, new=action == "add")
+    if action == "add":
+        return add_candidates(arguments, current)
     new = action == "set"
     if len(arguments) == 1:
         return path_candidates(arguments[0], current, new=new)
@@ -2263,20 +2711,34 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
     cfg = group("config", "configuration: stage changes, then commit them")
     add(cfg, "list", cmd_config_list)
     target = {"help": "a tenant (e.g. C0001) or 'service'"}
-    path = {"help": "dotted, e.g. network_instances.00.connections.0"}
+    part = {
+        "help": "a tenant (C0001), network instance (C0001-00), connection "
+        "(C0001-00-0) or 'service'",
+    }
+    path = {"help": "dotted, below it, e.g. routes.ipv4.0"}
     p = add(cfg, "show", cmd_config_show)
-    p.add_argument("target", **target)
+    p.add_argument("target", **part)
     p.add_argument("path", nargs="?", **path)
     p.add_argument("--candidate", action="store_true", help="with staged changes")
     p.add_argument("--reveal-secrets", action="store_true")
     p = add(cfg, "add", cmd_config_add)
-    p.add_argument("tenant", help="the new tenant's id, e.g. C0002")
-    p.add_argument("name")
+    p.add_argument(
+        "target",
+        help="a new tenant (C0002) or connection (C0002-00-0, with its tenant and "
+        "network instance if they're new; C0002-00: the next), or what a path is below",
+    )
+    p.add_argument(
+        "words",
+        nargs="*",
+        metavar="PATH|TYPE",
+        help="a list to add an item to, e.g. routes.ipv4; a connection's type: "
+        f"{', '.join(TYPES)}",
+    )
     p = add(cfg, "edit", cmd_config_edit)
-    p.add_argument("target", **target)
+    p.add_argument("target", **part)
     p.add_argument("path", nargs="?", **path)
     p = add(cfg, "set", cmd_config_set)
-    p.add_argument("target", **target)
+    p.add_argument("target", **part)
     p.add_argument("path", **path)
     p.add_argument(
         "value",
@@ -2285,7 +2747,7 @@ def parser() -> argparse.ArgumentParser:  # noqa: PLR0915 (one statement per opt
         "without it, prompted for as text (e.g. a secret)",
     )
     p = add(cfg, "delete", cmd_config_delete)
-    p.add_argument("target", **target)
+    p.add_argument("target", **part)
     p.add_argument("path", nargs="?", **path)
     add(cfg, "diff", cmd_config_diff).add_argument("target", **target)
     for name, func in (

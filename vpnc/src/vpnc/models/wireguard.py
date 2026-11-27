@@ -33,9 +33,11 @@ class ConnectionConfigWireGuard(BaseModel):
     local_port: Int = Field(default=51820, ge=1, le=65535)
     remote_addrs: list[Address] = Field(min_length=1)
     remote_port: Int = Field(default=51820, ge=1, le=65535)
-    # Generated on commit when not set.
-    private_key: Secret | None = None
-    public_key: str
+    private_key: Secret | None = Field(
+        default=None,
+        description="generated on commit if empty",
+    )
+    public_key: str = Field(description="the peer's")
     post_quantum: PostQuantumWireGuard = Field(default_factory=PostQuantumWireGuard)
 
     _none_as_default = helpers.none_as_default("post_quantum")

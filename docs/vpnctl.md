@@ -54,16 +54,19 @@ Connections can be stopped and started: this sets `enabled` in their configurati
 
 ## Configuration
 
-Per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes are staged in the candidate configuration; a commit makes them active, and vpnc applies them (see [Configuration](configuration.md#how-changes-are-applied)).
+Per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes are staged in the candidate configuration; a commit makes them active, and vpnc applies them (see [Configuration](configuration.md#how-changes-are-applied)). `show`, `edit`, `set`, `delete` and `add` also take a network instance (`C0001-00`, `CORE`) or connection (`C0001-00-0`, `CORE-0`), with a path below it.
 
 ```bash
 ~$ sudo vpnctl config list                   # tenants and their staged changes
-~$ sudo vpnctl config add C0002 "Customer name"   # a new tenant; set the rest, then commit
-~$ sudo vpnctl config show C0001 [PATH] [--candidate] [--reveal-secrets]
-~$ sudo vpnctl config edit C0001 [PATH]      # in $EDITOR, validated; a new id creates a tenant
-~$ sudo vpnctl config set C0001 network_instances.00.connections.0.routes.ipv4.0.to 10.0.0.0/24
-~$ sudo vpnctl config set C0001 network_instances.00.connections.0.config.psk   # prompts, e.g. for a secret
-~$ sudo vpnctl config delete C0001 [PATH]    # without a path: the tenant
+~$ sudo vpnctl config add C0002               # a new tenant; a name is optional: config set C0002 name "..."
+~$ sudo vpnctl config add C0002-00-0 IPSEC   # a connection from a template, with its tenant if it's new; also WIREGUARD, SSH, PHYSICAL
+~$ sudo vpnctl config add C0002-00 IPSEC     # the network instance's next connection
+~$ sudo vpnctl config add C0002-00-0 routes.ipv4   # an item of a list, e.g. a route or probe
+~$ sudo vpnctl config show C0001-00-0 [PATH] [--candidate] [--reveal-secrets]
+~$ sudo vpnctl config edit C0001-00-0 [PATH] # in $EDITOR with comments, validated; a new tenant id creates one
+~$ sudo vpnctl config set C0001-00-0 routes.ipv4.0.to 10.0.0.0/24
+~$ sudo vpnctl config set C0001-00-0 config.psk   # prompts, e.g. for a secret
+~$ sudo vpnctl config delete C0001-00-0 [PATH]    # without a path: the connection (network instance, tenant)
 ~$ sudo vpnctl config diff C0001
 ~$ sudo vpnctl config commit C0001|--all [--confirm 5m]   # rolled back unless confirmed in time
 ~$ sudo vpnctl config commit C0001 --allow-weak    # also a short PSK, IKEv1 or weak algorithms
@@ -76,7 +79,8 @@ Per tenant (e.g. `C0001`) or `service` (the DEFAULT file). Changes are staged in
 ```
 
 * **Paths** are dotted, with list items by index; values are YAML.
-* **Tab** completes a path a level at a time (for `set`, also the next item to add), a value's choices and a proposal's next keyword (of the algorithms charon has). zsh also shows each key's value, type and default.
+* **Comments** in what `add` and `edit` open say per key what it takes: required, values, choices; lists without items have an example to uncomment. They aren't kept. A key left empty gets its default; a tenant or network instance that isn't there yet is added with its connection.
+* **Tab** completes tenants, network instances and connections (for `add`, also the next ones and the types), a path a level at a time (for `set`, also the next item to add), a value's choices and a proposal's next keyword (of the algorithms charon has). zsh also shows each key's value, type and default.
 * **Proposals** are checked as strongSwan does when they're staged.
 * **Secrets** from `generate`: `text` is 64 letters and digits (about 381 bits); `hex` (64 characters) and `base64` (44 characters) are 256 bits. A PSK is used as the text it is in every format. A hex PPK is written `0x...`, which IPsec and WireGuard decode to 32 bytes.
 

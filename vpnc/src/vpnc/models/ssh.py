@@ -46,7 +46,11 @@ class ConnectionConfigSSH(BaseModel):
     # The server's public host key (a line of its /etc/ssh/ssh_host_*_key.pub),
     # the only one accepted. Not set, vpnc sets it to the key the server
     # presents when first connecting; delete it to accept a new one.
-    host_key: str | None = Field(default=None, pattern=HOST_KEY_PATTERN)
+    host_key: str | None = Field(
+        default=None,
+        pattern=HOST_KEY_PATTERN,
+        description="set from the server if empty",
+    )
     post_quantum: PostQuantumSSH = Field(default_factory=PostQuantumSSH)
 
     @field_validator("host_key", mode="before")
