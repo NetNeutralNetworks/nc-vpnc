@@ -171,7 +171,8 @@ class TestDiagnosis:
         # Both sides work again, and the history tells what happened.
         events = events_since(RESPONDER, start)
         assert events.index("OPER_DOWN") < events.index("ID_MISMATCH")
-        assert events[-1] == "OPER_UP"
+        # Up at the end; a probe round may still log answered probes after it.
+        assert [e for e in events if e.startswith("OPER_")][-1] == "OPER_UP"
         assert "AUTH_FAILED_REMOTE" in events_since(INITIATOR, start)
 
     def test_id_type(self) -> None:
@@ -278,7 +279,8 @@ class TestDiagnosis:
             diagnosed(side, *WORKS)
         events = events_since(INITIATOR, start)
         assert events[:3] == ["ADMIN_DOWN", "OPER_DOWN", "ADMIN_UP"]
-        assert events[-1] == "OPER_UP"
+        # Up at the end; a probe round may still log answered probes after it.
+        assert [e for e in events if e.startswith("OPER_")][-1] == "OPER_UP"
 
     def test_ssh_user(self) -> None:
         """An account the server doesn't let in."""
