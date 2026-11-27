@@ -38,8 +38,19 @@ NETNS_DIR = Path("/var/run/netns")
 _CLEANUP: set[str] = set()
 
 
+def _ensure_netns_dir() -> None:
+    """Make the namespaces' directory readable for all: FRR runs as frr.
+
+    Created by the first namespace, it would get the unit's umask (077).
+    """
+    NETNS_DIR.mkdir(exist_ok=True)
+    if NETNS_DIR.stat().st_mode & 0o777 != 0o755:  # noqa: PLR2004
+        NETNS_DIR.chmod(0o755)
+
+
 def add(name: str, cleanup: bool = False) -> str:  # noqa: FBT001, FBT002
     """Add a namespace to the system, replacing a stale (unmounted) netns file."""
+    _ensure_netns_dir()
     path = NETNS_DIR / name
     if path.exists() and not os.path.ismount(path):
         logger.warning(
@@ -63,6 +74,7 @@ def add_own(name: str) -> None:
 
     Not PID 1's: opening that needs CAP_SYS_PTRACE, which the unit doesn't give.
     """
+    _ensure_netns_dir()
     path = NETNS_DIR / name
     if os.path.ismount(path):
         return

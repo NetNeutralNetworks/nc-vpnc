@@ -22,7 +22,7 @@ vpnc is not a firewall: put one in front of `CORE` for inspection and user-based
 
 charon only loads the plugins that connections with a PSK need (`/etc/strongswan.d/vpnc.conf`).
 
-vpnc's unit (`ncubed-vpnc.service`) confines vpnc and every daemon it starts: no privileges gained through setuid programs, a system call filter, only Unix, IP and netlink sockets, and a capability bounding set. It can't load kernel modules: hubs load Jool at boot (`/etc/modules-load.d/vpnc.conf`).
+vpnc's unit (`ncubed-vpnc.service`) confines vpnc and every daemon it starts: no privileges gained through setuid programs, a system call filter, only Unix, IP and netlink sockets, a capability bounding set, no namespaces but network and mount ones, no memory that's both writable and executable, no changes to the hostname or clock, and files only for their owner (umask 077). It can't load kernel modules: hubs load Jool at boot (`/etc/modules-load.d/vpnc.conf`).
 
 Its AppArmor profile (`/etc/apparmor.d/ncubed-vpnc`) limits what vpnc and everything it starts may read, write and run, even as root: no mounts but its network namespaces, no systemd (which could start anything unconfined), and not its own code. Of `/opt/ncubed/config/` it may only write its own configuration and vpncmangle's, not its unit nor make's `make.conf`, which run as root. vpnc doesn't start without it. A daemon with a profile of its own runs under both. charon's and FRR's profiles take vpnc's signals through their `local/` include (`/etc/apparmor.d/ncubed-vpnc.d/`).
 
