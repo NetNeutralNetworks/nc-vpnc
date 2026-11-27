@@ -219,8 +219,12 @@ def popen(name: str, args: list[str]) -> subprocess.Popen[bytes]:
     )
 
 
-def _sysctl_path(key: str) -> Path:
-    return Path("/proc/sys", key.replace(".", "/"))
+def _sysctl_paths(key: str) -> list[Path]:
+    """Return the files of a sysctl; a * matches every one, e.g. every interface."""
+    pattern = key.replace(".", "/")
+    if "*" not in pattern:
+        return [Path("/proc/sys", pattern)]
+    return sorted(Path("/proc/sys").glob(pattern))
 
 
 def ensure_sysctls(name: str, sysctls: dict[str, str]) -> bool:
@@ -229,10 +233,15 @@ def ensure_sysctls(name: str, sysctls: dict[str, str]) -> bool:
     def apply() -> list[str]:
         changed = []
         for key, value in sysctls.items():
-            path = _sysctl_path(key)
-            if path.read_text().strip() != value:
-                path.write_text(value)
-                changed.append(f"{key}={value}")
+            for path in _sysctl_paths(key):
+                try:
+                    if path.read_text().strip() != value:
+                        path.write_text(value)
+                        changed.append(f"{'.'.join(path.parts[3:])}={value}")
+                except FileNotFoundError:
+                    # An interface deleted meanwhile.
+                    if "*" not in key:
+                        raise
         return changed
 
     try:
