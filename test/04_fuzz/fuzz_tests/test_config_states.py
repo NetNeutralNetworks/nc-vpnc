@@ -58,9 +58,9 @@ IKE_PROPOSALS = [
 ]
 ESP_PROPOSALS = [
     "aes256gcm16-ecp384",
-    "aes128gcm16",
-    "aes256-sha256",
-    "aes256gcm16-esn",
+    "aes128gcm16-x25519",
+    "aes256-sha256-modp3072",
+    "aes256gcm16-esn-ecp256",
 ]
 APPLY_TIMEOUT = 60
 # Back to the state from before the restart.

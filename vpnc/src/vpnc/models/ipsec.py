@@ -38,10 +38,12 @@ CLASSICAL_KE_RE = re.compile(
 # A PSK of fewer characters can be guessed: whoever answers a connection as its
 # peer gets what's needed to try PSKs offline.
 PSK_MIN_LENGTH = 32
-# Algorithms RFC 8221 and RFC 8247 say not to use: DES, 3DES, no encryption,
-# MD5, and Diffie-Hellman groups under 2048 bits.
+# Algorithms RFC 8221 and RFC 8247 say not to use (DES, 3DES, no encryption,
+# MD5), and what BSI TR-02102-3 and NIST SP 800-131A phase out: SHA-1, and key
+# exchanges under 128 bits of security (MODP under 3072 bits, ECP-192/224).
 WEAK_ALGORITHM_RE = re.compile(
-    r"(3?des|null|blowfish\d*|cast128|(prf)?md5(_128)?|modp(768|1024|1536)(s\d+)?)",
+    r"3?des|null|blowfish\d*|cast128|(prf)?md5(_128)?|(prf)?sha1?(_160)?"
+    r"|modp(768|1024|1536|2048)(s\d+)?|ecp(192|224)(bp)?",
     re.IGNORECASE,
 )
 
@@ -146,12 +148,19 @@ class ConnectionConfigIPsec(BaseModel):
             {
                 algorithm.lower()
                 for proposal in proposals
-                for algorithm in proposal.split("-")
+                for algorithm in re.split(r"[-,]", proposal)
                 if WEAK_ALGORITHM_RE.fullmatch(algorithm)
             },
         )
         if weak:
             found["WEAK_PROPOSAL"] = (f"weak algorithms: {', '.join(weak)}", proposals)
+        # A rekeyed child SA without a key exchange of its own: a stolen IKE SA key
+        # decrypts it too.
+        if not all(map(CLASSICAL_KE_RE.search, self.ipsec_proposal.split(","))):
+            found["NO_PFS"] = (
+                "no perfect forward secrecy (ipsec_proposal without a key exchange)",
+                self.ipsec_proposal,
+            )
         return found
 
     def add(

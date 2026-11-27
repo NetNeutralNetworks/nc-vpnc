@@ -42,7 +42,8 @@ Weak cryptography of an IPsec connection is only committed with `--allow-weak`:
 
 * a `psk` of fewer than 32 characters: whoever answers the connection as its peer can try PSKs offline. `vpnctl generate psk text` makes a random one.
 * `ike_version` 1;
-* proposals with DES, 3DES, no encryption, MD5, or a Diffie-Hellman group under 2048 bits.
+* proposals with DES, 3DES, no encryption, MD5 or SHA-1, or a key exchange under 128 bits of security: MODP under 3072 bits (`modp2048` included), `ecp192` or `ecp224` (BSI TR-02102-3, NIST SP 800-131A);
+* an `ipsec_proposal` without a key exchange: no perfect forward secrecy.
 
 What a connection has already stays as it is: vpnc logs it when it loads the configuration, and `vpnctl connections diagnose` shows it.
 
