@@ -30,6 +30,8 @@ Its AppArmor profile (`/etc/apparmor.d/ncubed-vpnc`) limits what vpnc and everyt
 
 `psk`, `private_key` and the PPKs are hidden in output unless asked for (`--reveal-secrets`); `vpnctl config set` without a value prompts for them. They're stored in the configuration files under `/opt/ncubed/config/vpnc/`.
 
+No process dumps core, so keys in memory don't end up on disk: vpnc's unit sets `LimitCORE=0`, `fs.suid_dumpable` is 0 (`/etc/sysctl.d/60-ncubed-vpnc.conf`) and apport is masked (its crash reports hold the core whatever the limit).
+
 Every SSH connection has its own key (`/var/lib/vpnc-ssh/.ssh/<connection>`), and only accepts the server host key in its `host_key`; see [SSH](connections.md#ssh).
 
 A hub's BGP neighbors can have a `password` (TCP MD5), set on the neighbor too: the uplink tunnel's key alone then doesn't give a BGP session.

@@ -53,6 +53,7 @@ VPNCMANGLE_SRC := $(shell find vpncmangle -type f ! -path '*/build/*' ! -path '*
 
 MISC_CONF := /etc/strongswan.d/vpnc.conf /etc/iproute2/rt_protos.d/vpnc.conf
 MODULES_CONF := /etc/modules-load.d/vpnc.conf
+SYSCTL_CONF := /etc/sysctl.d/60-ncubed-vpnc.conf
 # vpnc's AppArmor profile, and what the profiles of the daemons it starts need.
 APPARMOR := /etc/apparmor.d/ncubed-vpnc /etc/apparmor.d/ncubed-vpncmangle
 AA_LOCAL := usr.lib.ipsec.charon bgpd bfdd staticd
@@ -66,7 +67,7 @@ VPNCTL    := /usr/local/bin/vpnctl /etc/bash_completion.d/vpnctl \
 .PHONY: help hub endpoint upgrade update update-steps root apt-update packages python-packages \
 	python-debs hub-packages frr snmpd old-snmp-config config misc-config venv \
 	pip-vpnc pip-vpncmangle lock vpnctl apparmor service start maintenance \
-	maintenance-units
+	maintenance-units no-core-dumps
 
 help:
 	@echo "As root: make hub | make endpoint | make upgrade | make update"
@@ -75,11 +76,11 @@ help:
 
 hub: override MODE := hub
 hub: root maintenance packages python-packages frr hub-packages $(MODULES_CONF) snmpd \
-	account-vpnc-mangle account-vpnc-ssh config misc-config pip-vpnc pip-vpncmangle \
-	vpnctl apparmor service start
+	no-core-dumps account-vpnc-mangle account-vpnc-ssh config misc-config pip-vpnc \
+	pip-vpncmangle vpnctl apparmor service start
 
 endpoint: override MODE := endpoint
-endpoint: root maintenance packages python-packages snmpd \
+endpoint: root maintenance packages python-packages snmpd no-core-dumps \
 	config misc-config pip-vpnc vpnctl apparmor service start
 
 # upgrade and update run in a new make, which reads the type from make.conf.
@@ -94,7 +95,7 @@ update: root maintenance
 # vpncmangle, its accounts, Jool and FRR's SNMP settings only on a hub.
 update-steps: python-debs pip-vpnc $(if $(filter hub,$(MODE)),\
 	account-vpnc-mangle account-vpnc-ssh pip-vpncmangle $(MODULES_CONF) $(FRR_SNMP_CONF)) \
-	misc-config $(SNMP_CONF) old-snmp-config vpnctl apparmor \
+	misc-config $(SNMP_CONF) old-snmp-config no-core-dumps vpnctl apparmor \
 	$(if $(SYSTEMD),$(CONFDIR)/units/$(UNIT) $(STAMP)/started)
 
 root:
@@ -153,6 +154,16 @@ hub-packages: apt-update
 $(MODULES_CONF): config/modules-load/vpnc.conf
 	install -D -m 644 $< $@
 	$(SYSTEMCTL) restart systemd-modules-load.service
+
+# No core dumps: they'd hold keys. apport puts the core in its crash reports,
+# whatever the unit's LimitCORE, and makes processes that changed user dumpable.
+no-core-dumps: $(SYSCTL_CONF)
+	$(UNITCTL) mask apport.service
+	$(SYSTEMCTL) stop apport.service
+
+$(SYSCTL_CONF): config/sysctl/vpnc.conf
+	install -D -m 644 $< $@
+	$(SYSTEMCTL) restart systemd-sysctl.service
 
 # FRR runs under vpnc: the frr service is masked. Ubuntu's FRR: installs before
 # 2026-11 added FRR's own repository, whose newer FRR is downgraded. The
