@@ -5,6 +5,7 @@
 * **`EXTERNAL`** only accepts IKE and ESP from the `remote_addrs` of IPsec connections, and WireGuard from the `remote_addrs` of WireGuard connections, on their `local_port`. Peers of disabled connections aren't accepted, nor is a WireGuard peer that moves to another address.
 * **`CORE`** carries BGP and admin traffic toward the tenants. Connections are only opened from management to tenants, never the other way or between tenants. DNS over TCP to tenants is refused, so a tenant can't answer with addresses vpncmangle doesn't rewrite.
 * **Downlinks:** a network instance's firewall only lets out what its probes send.
+* **Every network instance** ignores ICMP redirects and router advertisements, and sends no redirects: routes are configured.
 * **The API** is a Unix socket, `/run/vpnc/api.sock`, for root only. There's no network API.
 
 vpnc is not a firewall: put one in front of `CORE` for inspection and user-based rules.

@@ -63,6 +63,17 @@ UNROUTED_NETWORK_INSTANCE_SYSCTLS = {
     "net.ipv4.conf.all.forwarding": "0",
 }
 
+# Every network instance: routes are configured, so no ICMP redirects, sent or
+# taken, and no router advertisements. * is all, default and every interface:
+# the host's settings don't reach a namespace (for IPv6 not even when it's made),
+# and IPv4 sends redirects when either "all" or the interface says so.
+NETWORK_INSTANCE_SYSCTLS = {
+    "net.ipv4.conf.*.accept_redirects": "0",
+    "net.ipv4.conf.*.send_redirects": "0",
+    "net.ipv6.conf.*.accept_redirects": "0",
+    "net.ipv6.conf.*.accept_ra": "0",
+}
+
 
 # Per network instance the NAT64 scope vpnc configured in Jool.
 NAT64_APPLIED: dict[str, IPv6Network] = {}
@@ -449,9 +460,10 @@ class NetworkInstance(BaseModel):
         # IPv6 and IPv4 routing is enabled on the network instance only for CORE,
         # DOWNLINK and ENDPOINT.
         if self.linked_to_core or self.type == enums.NetworkInstanceType.CORE:
-            namespace.ensure_sysctls(self.id, ROUTED_NETWORK_INSTANCE_SYSCTLS)
+            sysctls = ROUTED_NETWORK_INSTANCE_SYSCTLS
         else:
-            namespace.ensure_sysctls(self.id, UNROUTED_NETWORK_INSTANCE_SYSCTLS)
+            sysctls = UNROUTED_NETWORK_INSTANCE_SYSCTLS
+        namespace.ensure_sysctls(self.id, sysctls | NETWORK_INSTANCE_SYSCTLS)
 
         if self.linked_to_core:
             self._set_core_link()
