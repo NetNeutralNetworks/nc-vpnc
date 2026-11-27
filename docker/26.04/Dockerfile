@@ -26,7 +26,7 @@ RUN --mount=type=bind,source=Makefile,target=/tmp/repo/Makefile            \
     --mount=type=bind,source=./config/,target=/tmp/repo/config/            \
     echo "Install APT packages"                                         && \
     apt-get update && apt-get install -y make                           && \
-    make -C /tmp/repo MODE=hub packages python-packages account-vpnc-mangle account-vpnc-ssh hub-packages /etc/modules-load.d/vpnc.conf frr snmpd misc-config config apparmor service && \
+    make -C /tmp/repo MODE=hub packages python-packages account-vpnc-mangle account-vpnc-ssh hub-packages /etc/modules-load.d/vpnc.conf no-core-dumps frr snmpd misc-config config apparmor service && \
     rm -rf /var/lib/apt/lists/*
 
 # systemd runs as on the VMs, without what a container has no use for.
