@@ -859,10 +859,12 @@ class TestReconfiguration:
             ("psk", "tooshort"),
             ("ike_version", "1"),
             ("ipsec_proposal", "aes256-sha256-modp1024"),
+            ("ike_proposal", "aes256-sha1-modp2048"),
+            ("ipsec_proposal", "aes256gcm16"),
         ],
     )
     def test_weak_cryptography_needs_allow_weak(self, key: str, value: str) -> None:
-        """A short PSK, IKEv1 or a weak algorithm is only committed when allowed."""
+        """A short PSK, IKEv1, weak algorithms or no PFS: committed only if allowed."""
         path = f"network_instances.{NI_KEY}.connections.0.config.{key}"
         vpnctl(f"config set C0002 {path} {value}")
 
