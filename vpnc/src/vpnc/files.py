@@ -22,6 +22,9 @@ CONFIG_LOCK = threading.RLock()
 # Files with secrets (pre-shared and private keys) and their directories.
 SECRET_FILE_MODE = 0o600
 SECRET_DIR_MODE = 0o700
+# Other files, also for daemons with their own user (vpncmangle): not the
+# unit's umask (077).
+FILE_MODE = 0o644
 
 
 def templates(module_file: str) -> Environment:
@@ -42,29 +45,31 @@ def ensure_file(path: Path, content: str, *, secret: bool = False) -> bool:
     """Write a file only if its content differs; return whether it was written.
 
     Unchanged files aren't rewritten, so file watchers don't reload them; a
-    written file shows up as moved. A secret file is only readable by its owner.
+    written file shows up as moved. A secret file is only readable by its owner,
+    others by everyone.
     """
     try:
         changed = path.read_text(encoding="utf-8") != content
     except FileNotFoundError:
         changed = True
+    mode = SECRET_FILE_MODE if secret else FILE_MODE
     if changed:
         # Replaced in one step, so readers never see a partly written file. The
         # name isn't matched by the file watchers, and is new: an existing file
         # or symbolic link isn't written to.
         temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
-        mode = SECRET_FILE_MODE if secret else 0o666
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-        fd = os.open(temporary, flags, mode)
+        fd = os.open(temporary, flags, SECRET_FILE_MODE)
         try:
+            os.fchmod(fd, mode)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(content)
             temporary.replace(path)
         except BaseException:
             temporary.unlink(missing_ok=True)
             raise
-    elif secret and stat.S_IMODE(path.stat().st_mode) != SECRET_FILE_MODE:
-        path.chmod(SECRET_FILE_MODE)
+    elif stat.S_IMODE(path.stat().st_mode) != mode:
+        path.chmod(mode)
     return changed
 
 

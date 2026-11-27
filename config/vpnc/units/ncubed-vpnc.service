@@ -27,6 +27,16 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service @mount
 # No core dumps: they'd hold keys.
 LimitCORE=0
+# Network and mount namespaces only (ip netns): no user namespaces, a common way
+# into kernel bugs.
+RestrictNamespaces=net mnt
+MemoryDenyWriteExecute=yes
+UMask=0077
+# Its own UTS namespace and no clock changes: neither needs a mount namespace.
+ProtectHostname=yes
+ProtectClock=yes
+# Out of memory, other processes go first.
+OOMScoreAdjust=-500
 # Not started without its profile (/etc/apparmor.d/ncubed-vpnc).
 AppArmorProfile=ncubed-vpnc
 # The daemons keep NET_ADMIN, NET_RAW, NET_BIND_SERVICE and SYS_ADMIN; vpnc also
